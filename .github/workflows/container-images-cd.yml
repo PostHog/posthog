@@ -35,10 +35,9 @@ jobs:
     posthog_build:
         name: Build and push PostHog
         outputs:
-            ordered-release-tag-generation-enabled: ${{ env.ORDERED_RELEASE_TAG_GENERATION_ENABLED }}
-            ordered-release-tag: ${{ steps.docker-meta.outputs.ordered-release-tag }}
             image-digest: ${{ steps.image.outputs.digest }}
             ecr-registry: ${{ steps.docker-meta.outputs.ecr-registry }}
+            ecr-repository: ${{ env.ECR_REPOSITORY }}
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-24.04
@@ -49,7 +48,7 @@ jobs:
             contents: read # allow at least reading the repo contents, add other permissions if necessary
             packages: write # allow push to ghcr.io
         env:
-            ORDERED_RELEASE_TAG_GENERATION_ENABLED: 'true'
+            ECR_REPOSITORY: posthog-cloud
 
         steps:
             - name: Check out
@@ -68,13 +67,12 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: posthog
-                  ecr-image-name: posthog-cloud
+                  ecr-image-name: ${{ env.ECR_REPOSITORY }}
                   # Public registries (DockerHub + ghcr) hold the OSS image; prod deploys
                   # from the private ECR `posthog-cloud`. Pause the public push when
                   # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
                   push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
-                  generate-ordered-release-tag: ${{ env.ORDERED_RELEASE_TAG_GENERATION_ENABLED }}
                   aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
@@ -92,7 +90,7 @@ jobs:
             - name: Check for existing image in ECR
               id: preflight
               env:
-                  ECR_REPO: posthog-cloud
+                  ECR_REPO: ${{ env.ECR_REPOSITORY }}
                   SHA: ${{ github.sha }}
               run: |
                   set -euo pipefail
@@ -164,7 +162,7 @@ jobs:
               id: preflight_retry
               if: steps.build.outcome == 'failure'
               env:
-                  ECR_REPO: posthog-cloud
+                  ECR_REPO: ${{ env.ECR_REPOSITORY }}
                   SHA: ${{ github.sha }}
               run: |
                   set -euo pipefail
@@ -208,7 +206,7 @@ jobs:
               id: reconcile
               if: steps.preflight.outputs.digest != '' || steps.preflight_retry.outputs.digest != ''
               env:
-                  SRC: ${{ steps.docker-meta.outputs.ecr-registry }}/posthog-cloud@${{ steps.preflight.outputs.digest || steps.preflight_retry.outputs.digest }}
+                  SRC: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.preflight.outputs.digest || steps.preflight_retry.outputs.digest }}
                   TAGS: ${{ steps.docker-meta.outputs.tags }}
               run: |
                   set -euo pipefail
@@ -1163,59 +1161,111 @@ jobs:
     ordered_image_alias:
         name: Publish ordered image alias
         needs: posthog_build
-        if: ${{ !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.posthog_build.outputs.ordered-release-tag-generation-enabled == 'true' }}
+        if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        continue-on-error: true
         permissions:
             id-token: write
             contents: read
 
         steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Compute ordered release tag
+              id: ordered-release
+              timeout-minutes: 2
+              shell: bash
+              env:
+                  ORDERED_RELEASE_TAG_REGEX: ^r[0-9]{12}-[0-9a-f]{6}$
+              run: |
+                  set -uo pipefail
+
+                  if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+                      fetch_status=0
+                      timeout --kill-after=10s 90s git fetch \
+                          --no-tags \
+                          --prune \
+                          --no-recurse-submodules \
+                          --unshallow \
+                          --filter=tree:0 \
+                          origin \
+                          "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
+                      if [ "$fetch_status" -ne 0 ]; then
+                          echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
+                          exit 0
+                      fi
+                  fi
+
+                  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
+                      echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
+                      exit 0
+                  fi
+
+                  if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then
+                      echo "::warning title=Ordered release tag skipped::The checked-out revision does not match GITHUB_SHA."
+                      exit 0
+                  fi
+
+                  if ! position="$(git rev-list --first-parent --count "$GITHUB_SHA")"; then
+                      echo "::warning title=Ordered release tag skipped::The source position could not be computed."
+                      exit 0
+                  fi
+
+                  if ! [[ "$position" =~ ^[1-9][0-9]{0,11}$ ]]; then
+                      echo "::warning title=Ordered release tag skipped::The source position is out of range."
+                      exit 0
+                  fi
+
+                  if ! printf -v tag 'r%012d-%.6s' "$position" "$GITHUB_SHA"; then
+                      echo "::warning title=Ordered release tag skipped::The source position could not be formatted."
+                      exit 0
+                  fi
+
+                  if ! [[ "$tag" =~ $ORDERED_RELEASE_TAG_REGEX ]]; then
+                      echo "::warning title=Ordered release tag skipped::${tag} does not match the required format."
+                      exit 0
+                  fi
+
+                  echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
             - name: Warn when ordered image alias tag is unavailable
-              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag == '' }}
-              continue-on-error: true
+              if: ${{ steps.ordered-release.outputs.tag == '' }}
               shell: bash
               run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
 
-            - name: Warn when ordered image digest is unavailable
-              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest == '' }}
-              continue-on-error: true
-              shell: bash
-              run: echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
-
             - name: Set up Docker Buildx for ordered image alias
-              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest != '' }}
-              continue-on-error: true
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
             - name: Configure AWS credentials for ordered image alias
-              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest != '' }}
-              continue-on-error: true
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Log in to Amazon ECR for ordered image alias
-              id: ordered-alias-ecr
-              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest != '' }}
-              continue-on-error: true
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and read back ordered image alias
-              id: ordered-alias
-              if: ${{ !cancelled() && needs.posthog_build.outputs.ordered-release-tag != '' && needs.posthog_build.outputs.image-digest != '' }}
-              continue-on-error: true
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 2
               shell: bash
               env:
                   ECR_REGISTRY: ${{ needs.posthog_build.outputs.ecr-registry }}
-                  ECR_REPO: posthog-cloud
+                  ECR_REPO: ${{ needs.posthog_build.outputs.ecr-repository }}
                   EXPECTED_DIGEST: ${{ needs.posthog_build.outputs.image-digest }}
-                  ORDERED_ALIAS: ${{ needs.posthog_build.outputs.ordered-release-tag }}
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
               run: |
                   set -uo pipefail
-                  # The runner supplies -e; expected failures are captured explicitly.
+
+                  if [ -z "$EXPECTED_DIGEST" ]; then
+                      echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
+                      exit 0
+                  fi
 
                   SOURCE_IMAGE="${ECR_REGISTRY}/${ECR_REPO}@${EXPECTED_DIGEST}"
                   TARGET_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
@@ -1267,5 +1317,3 @@ jobs:
                           echo "::error title=Ordered image alias read-back unavailable::The ordered image alias could not be read back from ECR."
                           ;;
                   esac
-
-                  echo "result=$result" >> "$GITHUB_OUTPUT"
