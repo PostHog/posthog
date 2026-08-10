@@ -149,6 +149,8 @@ const meta: Meta = {
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/spike_events': [200, { results: [] }],
+                // Empty keeps this story's snapshot unchanged; the populated section has its own story.
+                '/api/projects/:team_id/signals/reports/': [200, { next: null, results: [] }],
                 '/api/environments/:team_id/session_recordings/:id/capture_diagnostics/': [
                     200,
                     { properties: { $has_recording: true, $recording_status: 'active' } },
@@ -243,4 +245,46 @@ export const ListPageWithIngestionWarning: Story = {
 export const GroupPage: Story = {
     name: 'Issue scene',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+}
+
+// Self-driving investigated this issue, so its section renders in the right pane above the exception
+// card. This is the only coverage of the placement: the section's own story fabricates a pane around
+// it, so it cannot show that the two header strips line up, that the section paints the background the
+// pane leaves unpainted, or that a single border separates the two.
+export const GroupPageWithSelfDriving: Story = {
+    name: 'Issue scene with self-driving',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': () => [
+                    200,
+                    {
+                        next: null,
+                        results: [
+                            {
+                                id: '019f9582-93e7-77c1-8912-4f541d70cb13',
+                                status: 'ready',
+                                title: 'fix(replay): guard against a missing snapshot index',
+                                summary:
+                                    'The player throws when a recording ends on a snapshot the index never received.',
+                                implementation_pr_url: 'https://github.com/PostHog/posthog/pull/64772',
+                                implementation_pr_merged: false,
+                                updated_at: '2024-07-08T21:00:00Z',
+                            },
+                            {
+                                id: '019f954a-8ed0-7a18-a198-3ffed1a2def0',
+                                status: 'resolved',
+                                title: 'fix(replay): stop dropping events after a tab regains focus',
+                                summary: 'Events queued while the tab was hidden are discarded when it regains focus.',
+                                implementation_pr_url: 'https://github.com/PostHog/posthog/pull/64773',
+                                implementation_pr_merged: true,
+                                updated_at: '2024-07-08T15:00:00Z',
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
 }

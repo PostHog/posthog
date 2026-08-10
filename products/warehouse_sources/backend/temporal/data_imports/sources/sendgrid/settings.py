@@ -7,7 +7,13 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # - "offset":   `limit`/`offset` query params over a bare JSON array (suppression endpoints).
 # - "metadata": follow the absolute `_metadata.next` URL the API returns (marketing endpoints).
 # - "single":   one request returns the whole list, no pagination params.
-PaginationMode = Literal["offset", "metadata", "single"]
+# - "activity": no cursor at all — the Email Activity `query` time window is narrowed newest to
+#               oldest until a short page (message_activity).
+PaginationMode = Literal["offset", "metadata", "single", "activity"]
+
+# The Email Activity add-on stores 30 days of history, so a message_activity sync with no
+# incremental cursor yet starts its query window this far back.
+MESSAGE_ACTIVITY_BACKFILL_DAYS = 30
 
 # How the incremental cursor is serialized into the `incremental_param` query value:
 # - "epoch": Unix epoch seconds (suppression `start_time`).
@@ -49,6 +55,13 @@ class SendGridEndpointConfig:
     default_backfill_days: Optional[int] = None
     # How the response body is shaped, so the transport can flatten nested stats responses.
     response_shape: ResponseShape = "array"
+    # Order rows arrive in across the whole sync. The Email Activity walk pages newest to oldest,
+    # so it declares "desc" and the pipeline defers the incremental watermark to the end of a
+    # successful run instead of checkpointing it per batch.
+    sort_mode: Literal["asc", "desc"] = "asc"
+    # False for tables whose sync needs grants beyond what source creation validated: the schema
+    # picker and one-shot source creation leave them unselected until the user opts in.
+    should_sync_default: bool = True
     # Static query params always sent (e.g. templates' `generations`).
     extra_params: dict[str, str] = field(default_factory=dict)
     # SendGrid scope this endpoint reads, spelled as `/scopes` reports it. Surfaced per table in the
@@ -74,6 +87,15 @@ def _date_field(name: str) -> IncrementalField:
         "type": IncrementalFieldType.Date,
         "field": name,
         "field_type": IncrementalFieldType.Date,
+    }
+
+
+def _datetime_field(name: str) -> IncrementalField:
+    return {
+        "label": name,
+        "type": IncrementalFieldType.DateTime,
+        "field": name,
+        "field_type": IncrementalFieldType.DateTime,
     }
 
 
@@ -179,6 +201,25 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         extra_params={"generations": "legacy,dynamic"},
         required_scope="templates.read",
     ),
+    "message_activity": SendGridEndpointConfig(
+        name="message_activity",
+        path="/messages",
+        primary_keys=["msg_id"],
+        pagination="activity",
+        data_key="messages",
+        # /messages caps `limit` at 1000. No partition key: a message's only timestamp,
+        # last_event_time, advances whenever a new event lands, so partitions would rewrite.
+        page_size=1000,
+        incremental_fields=[_datetime_field("last_event_time")],
+        sort_mode="desc",
+        # Gated behind a paid add-on most accounts don't have, so it must be an explicit opt-in.
+        should_sync_default=False,
+        required_scope="email_activity.read",
+        permission_note=(
+            "Accounts without SendGrid's paid additional email activity history add-on cannot sync "
+            "this table, even with the Email Activity scope granted."
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(SENDGRID_ENDPOINTS.keys())
@@ -186,3 +227,5 @@ ENDPOINTS = tuple(SENDGRID_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in SENDGRID_ENDPOINTS.items() if config.incremental_fields
 }
+
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: config.should_sync_default for name, config in SENDGRID_ENDPOINTS.items()}
