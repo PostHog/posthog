@@ -620,58 +620,32 @@ export class PostgresPersonRepository
                 lastSeenAt.toISO(),
             ]
 
-            // Finding a tombstone for this (team_id, uuid) makes the create a revival:
-            // continue the version counter above the death version so the reborn key
-            // outranks its own ClickHouse tombstone from its first write. There is no
-            // unique index on (team_id, uuid) to upsert against, so the locked lookup
-            // below is the arbiter instead: a live row blocks the create (rows come
-            // back empty -> CreationConflict), a tombstone gets revived, nothing means
-            // a fresh insert. The lookup is race-safe for real traffic because person
-            // uuids derive from distinct ids (uuidFromDistinctId), so concurrent
-            // creates of the same uuid carry the same distinct id and serialize on the
-            // (team_id, distinct_id) unique constraint in the mapping insert below.
-            // FOR UPDATE locks the row against a concurrent revival; the loser
-            // re-reads it live, fails the is_deleted qual, and lands in
-            // CreationConflict.
+            // A conflict with a tombstoned row is a revival: continue the version
+            // counter above the death version so the reborn key outranks its own
+            // ClickHouse tombstone from its first write. Conflicts with live rows
+            // fail the WHERE qual and surface as CreationConflict below. The
+            // arbiter requires the unique (team_id, uuid) index, which is why this
+            // query only runs for allowlisted teams: enabling a team is gated on
+            // that index existing in the environment.
             const query = `
-                WITH existing_person AS (
-                    SELECT id AS existing_id
-                    FROM posthog_person
-                    WHERE team_id = $5 AND uuid = $8
-                    ORDER BY is_deleted ASC, version DESC NULLS LAST
-                    LIMIT 1
-                    FOR UPDATE
-                ),
-                revived_person AS (
-                    UPDATE posthog_person SET
-                        is_deleted = false,
-                        version = COALESCE(posthog_person.version, 0) + 1,
-                        properties = $2,
-                        properties_last_updated_at = $3,
-                        properties_last_operation = $4,
-                        created_at = $1,
-                        is_user_id = $6,
-                        is_identified = $7,
-                        last_seen_at = $10
-                    FROM existing_person
-                    WHERE posthog_person.team_id = $5
-                        AND posthog_person.id = existing_person.existing_id
-                        AND posthog_person.is_deleted = true
-                    RETURNING ${PERSON_COLUMNS}
-                ),
-                new_person AS (
+                WITH inserted_person AS (
                     INSERT INTO posthog_person (
                         created_at, properties, properties_last_updated_at, properties_last_operation,
                         team_id, is_user_id, is_identified, uuid, version, last_seen_at
                     )
-                    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-                    WHERE NOT EXISTS (SELECT 1 FROM existing_person)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ON CONFLICT (team_id, uuid) DO UPDATE SET
+                        is_deleted = false,
+                        version = COALESCE(posthog_person.version, 0) + 1,
+                        properties = EXCLUDED.properties,
+                        properties_last_updated_at = EXCLUDED.properties_last_updated_at,
+                        properties_last_operation = EXCLUDED.properties_last_operation,
+                        created_at = EXCLUDED.created_at,
+                        is_user_id = EXCLUDED.is_user_id,
+                        is_identified = EXCLUDED.is_identified,
+                        last_seen_at = EXCLUDED.last_seen_at
+                    WHERE posthog_person.is_deleted = true
                     RETURNING ${PERSON_COLUMNS}
-                ),
-                inserted_person AS (
-                    SELECT * FROM revived_person
-                    UNION ALL
-                    SELECT * FROM new_person
                 ),
                 inserted_distinct_ids AS (
                     -- NOTE: Keep this in sync with the posthog_persondistinctid INSERT in addDistinctId
