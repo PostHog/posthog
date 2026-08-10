@@ -920,6 +920,28 @@ jobs:
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
                   fi
 
+            - name: Migrate test_posthog from scratch
+              # Master's full-chain migration replay, moved out of the pytest process.
+              # Django's migration executor peaks gigabytes of ProjectState over the
+              # ~2k-migration chain, and pytest keeps that high-water resident for the
+              # whole job — the difference between master jobs OOMing 8 GB runners and
+              # PR jobs (schema-cache primed) never doing so. The replay itself is
+              # unchanged: full chain, from scratch, on every master job; this process
+              # exits before tests and pytest --reuse-db adopts the DB exactly as the
+              # PR prime path above does. Failure falls through to the in-pytest
+              # migrate, same as a cache miss.
+              if: ${{ github.event_name != 'pull_request' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres \
+                    -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed — pytest --reuse-db will run the full migrate itself"
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres \
+                        -c "DROP DATABASE IF EXISTS test_posthog;"
+                  fi
+
             - name: Register Temporal search attributes
               # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
               # via sync_connect() in their tests, so keep a readiness gate before tests run.
@@ -2803,6 +2825,28 @@ jobs:
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   if ! ./bin/hogli db:restore-test-db; then
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  fi
+
+            - name: Migrate test_posthog from scratch
+              # Master's full-chain migration replay, moved out of the pytest process.
+              # Django's migration executor peaks gigabytes of ProjectState over the
+              # ~2k-migration chain, and pytest keeps that high-water resident for the
+              # whole job — the difference between master jobs OOMing 8 GB runners and
+              # PR jobs (schema-cache primed) never doing so. The replay itself is
+              # unchanged: full chain, from scratch, on every master job; this process
+              # exits before tests and pytest --reuse-db adopts the DB exactly as the
+              # PR prime path above does. Failure falls through to the in-pytest
+              # migrate, same as a cache miss.
+              if: ${{ github.event_name != 'pull_request' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres \
+                    -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed — pytest --reuse-db will run the full migrate itself"
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres \
+                        -c "DROP DATABASE IF EXISTS test_posthog;"
                   fi
 
             - name: Restore test durations from cache
