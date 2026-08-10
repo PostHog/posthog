@@ -36,6 +36,16 @@ LEASE_TABLE = "sourcegrouplease"
 # sweep fire together.
 LEASE_TTL_SECONDS = 300
 
+# Sentinel lease row that single-flights the reconcile sweep across the fleet.
+# Real groups have team_id >= 1 and UUID schema ids, so this key can never
+# collide with (or be claimed/unlocked as) an actual group. The slot TTL sits
+# just under the engine's 300s reconcile interval so single-flighting never
+# makes reconcile latency worse than the old every-pod cadence: the first pod
+# whose timer fires after expiry wins the next sweep.
+RECONCILE_SWEEP_LEASE_TEAM_ID = 0
+RECONCILE_SWEEP_LEASE_SCHEMA_ID = "__reconcile-sweep__"
+RECONCILE_SWEEP_SLOT_TTL_SECONDS = 240
+
 # Partition pruning hint: only scan partitions within this window.
 # Set to 2x the retention period so the planner can skip dropped
 # partitions. Not a correctness filter -- older partitions are already
@@ -794,6 +804,46 @@ class BatchQueue:
         return bool(row and row[0])
 
     @staticmethod
+    async def try_acquire_reconcile_sweep_slot(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+        ttl_seconds: int = RECONCILE_SWEEP_SLOT_TTL_SECONDS,
+    ) -> bool:
+        """Claim the fleet-wide reconcile-sweep slot; True means this pod runs the sweep.
+
+        A sentinel row in the group-lease table, CAS-acquired only when expired.
+        There is deliberately no release and no same-owner re-entrancy clause:
+        the TTL *is* the fleet-wide sweep cadence, so at most one sweep starts
+        per TTL no matter how many pods (or how many startup sweeps after a
+        restart wave) race for it. A lease row rather than a session advisory
+        lock for the same reason as group claiming: a lingering pgbouncer
+        session must not be able to hold the slot forever — a crashed winner's
+        slot frees itself at expiry.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
+                VALUES (%(team_id)s, %(schema_id)s, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now())
+                ON CONFLICT (team_id, schema_id) DO UPDATE
+                    SET owner_token = excluded.owner_token,
+                        expires_at = excluded.expires_at,
+                        acquired_at = now(),
+                        updated_at = now()
+                    WHERE {LEASE_TABLE}.expires_at <= now()
+                RETURNING id
+                """,
+                {
+                    "team_id": RECONCILE_SWEEP_LEASE_TEAM_ID,
+                    "schema_id": RECONCILE_SWEEP_LEASE_SCHEMA_ID,
+                    "owner": owner_token,
+                    "ttl": ttl_seconds,
+                },
+            )
+            return await cur.fetchone() is not None
+
+    @staticmethod
     async def renew_lease(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -1039,6 +1089,20 @@ class BatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND b.latest_state = 'failed'
+                        -- Implied by the s.created_at lower bound (the denormalizing
+                        -- status CTEs set state_changed_at to exactly the terminal
+                        -- status row's created_at), so it changes no semantics: it
+                        -- exists purely to prune the outer scan BEFORE the DISTINCT ON
+                        -- sort and the per-row lateral probes. Without it the sort
+                        -- input is every failed batch in the pruning window — 1.36M
+                        -- rows during the 2026-08 failure storm, a minutes-long disk
+                        -- spill at work_mem=4MB that, run by every pod concurrently,
+                        -- starved the claim path (the 2026-08-09 loader stall).
+                        -- state_changed_at is nullable; NULL rows must stay visible or a
+                        -- failed run could strand until the retention prune (the stranded
+                        -- sweep skips runs that have a failed batch).
+                        AND (b.state_changed_at IS NULL
+                             OR b.state_changed_at >= now() - make_interval(secs => %(lookback)s))
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
