@@ -2,10 +2,12 @@
 
 Bulk payment objects come from ``POST /payments/search`` (the one server-side
 listing surface; ``GET /payments`` only looks up by reference). The search
-request supports ``query``, ``from``/``to`` and ``limit`` (max 1000) but no
-documented page cursor, so listing walks the time range and recursively splits
-any window that fills a whole page; a window returning fewer than ``limit``
-rows is provably complete.
+request requires a non-empty ``query`` and supports ``from``/``to`` and
+``limit`` (max 1000) but no documented page cursor, so listing walks the time
+range and recursively splits any window that fills a whole page; a window
+returning fewer than ``limit`` rows is provably complete. Documented search
+coverage is roughly the previous 90 days, so range starts are clamped to that
+horizon; older history is only available via the report tables.
 
 ``payment_actions``, ``customers`` and ``instruments`` have no listing
 endpoints at all, so their syncs walk the same payment windows and fan out to
@@ -23,6 +25,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
+    _error_details,
     _format_timestamp,
     _hosts,
     _make_auth,
@@ -39,12 +42,26 @@ PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "customers", "instruments")
 
 # The search endpoint caps `limit` at 1000.
 SEARCH_PAGE_LIMIT = 1000
+# The search endpoint rejects a request without a non-empty `query` as unprocessable
+# (422), and Checkout.com documents no match-all expression, so the widest valid
+# filter is a predicate every payment satisfies. Comparisons use the colon-prefixed
+# form (`field:>=value`) to match the documented `field:value` grammar; a bare
+# `amount>=0` appears in no official example.
+SEARCH_MATCH_ALL_QUERY = "amount:>=0"
+# Checkout.com documents payments search as covering roughly the previous 90 days, so
+# this is both the default backfill reach and the clamp for configured start dates and
+# stale watermarks; anything older can't come back from search.
+SEARCH_HORIZON = timedelta(days=90)
 REQUEST_TIMEOUT_SECONDS = 120
-# How far back the first (non-incremental) sync reaches when no start date is configured.
-DEFAULT_BACKFILL_DAYS = 365
 # A window that still fills a whole page at this span can't be split further; anything
 # past it is yielded with an error log rather than silently truncated.
 MIN_WINDOW = timedelta(seconds=1)
+# The search endpoint's documented behaviour is a 90-day default lookback when no range
+# is given, with no documented support for much larger custom ranges; a full backfill
+# window (up to `DEFAULT_BACKFILL_DAYS`) sent as one request 422s in practice. Chunking
+# the overall sync range to this span keeps every request within the documented norm;
+# each chunk is still split further on page-fullness as before.
+MAX_SEARCH_WINDOW = timedelta(days=90)
 # Bound one sync's API usage: searches are one call per ~1000 payments, fan-out lookups
 # are one call per payment/customer/instrument. A capped run stops after the last fully
 # processed window, so the next run continues from its watermark.
@@ -101,7 +118,7 @@ def _resolve_start(
     configured = _to_datetime(start_date) if start_date else None
     if configured is not None:
         return configured
-    return now - timedelta(days=DEFAULT_BACKFILL_DAYS)
+    return now - SEARCH_HORIZON
 
 
 def _search_payments(
@@ -112,13 +129,17 @@ def _search_payments(
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
     body = {
+        "query": SEARCH_MATCH_ALL_QUERY,
         "from": _format_timestamp(window.start),
         "to": _format_timestamp(window.end),
         "limit": SEARCH_PAGE_LIMIT,
     }
     response = session.post(f"{api_base}/payments/search", json=body, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS)
     if not response.ok:
-        logger.error(f"Checkout.com API error: status={response.status_code}, url={api_base}/payments/search")
+        logger.error(
+            f"Checkout.com API error: status={response.status_code}, "
+            f"url={api_base}/payments/search, body={_error_details(response)}"
+        )
         response.raise_for_status()
     payload = response.json()
     data = payload.get("data") if isinstance(payload, dict) else None
@@ -165,6 +186,26 @@ def _iter_payment_windows(
     yield from _iter_payment_windows(session, auth, api_base, _Window(start=middle, end=window.end), logger, budget)
 
 
+def _iter_bounded_payment_windows(
+    session: requests.Session,
+    auth: OAuth2Auth,
+    api_base: str,
+    start: datetime,
+    end: datetime,
+    logger: FilteringBoundLogger,
+    budget: _SyncBudget,
+) -> Iterator[tuple[_Window, list[dict[str, Any]]]]:
+    """Walk the full sync range in `MAX_SEARCH_WINDOW`-sized chunks, each further split
+    by `_iter_payment_windows` on page-fullness."""
+    cursor = start
+    while cursor < end:
+        chunk_end = min(cursor + MAX_SEARCH_WINDOW, end)
+        yield from _iter_payment_windows(session, auth, api_base, _Window(start=cursor, end=chunk_end), logger, budget)
+        if budget.exhausted:
+            return
+        cursor = chunk_end
+
+
 def _fanout_get(
     session: requests.Session,
     auth: OAuth2Auth,
@@ -176,7 +217,9 @@ def _fanout_get(
     if response.status_code == 404:
         return None
     if not response.ok:
-        logger.error(f"Checkout.com API error: status={response.status_code}, url={url}")
+        logger.error(
+            f"Checkout.com API error: status={response.status_code}, url={url}, body={_error_details(response)}"
+        )
         response.raise_for_status()
     payload = response.json()
     return payload if isinstance(payload, dict | list) else None
@@ -273,12 +316,18 @@ def _get_rows(
         resume.search_window_to if resume is not None else None,
         now,
     )
+    horizon_start = now - SEARCH_HORIZON
+    if start < horizon_start:
+        logger.warning(
+            "Checkout.com payments search covers roughly the previous 90 days; clamping the range start",
+            requested_start=_format_timestamp(start),
+            clamped_start=_format_timestamp(horizon_start),
+        )
+        start = horizon_start
 
     seen_ids: set[str] = set()
     chunk: list[dict[str, Any]] = []
-    for window, payments in _iter_payment_windows(
-        session, auth, hosts["api"], _Window(start=start, end=now), logger, budget
-    ):
+    for window, payments in _iter_bounded_payment_windows(session, auth, hosts["api"], start, now, logger, budget):
         for payment in payments:
             if schema_name == "payments":
                 chunk.append(_strip_links(payment))

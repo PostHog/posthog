@@ -397,6 +397,7 @@ _RESEARCH_PREAMBLE = """You are a research agent investigating a signal report f
 Your findings will be passed downstream to a coding agent that will act on this report — thorough, evidence-based research here directly improves the quality of the coding agent's work.
 
 <writing_guide>
+Write everything you produce in Simplified Technical English, following the `writing-simplified-technical-english` skill: one meaning per word, active voice, simple tenses, one idea per sentence.
 We use American English.
 We use the Oxford comma.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
