@@ -61,6 +61,7 @@ export interface AlertDefinitionSectionProps {
     funnel: FunnelDefinitionProps
     hogql: HogQLDefinitionProps
     supportsAnomalyDetection: boolean
+    showAnomalyGuidance?: boolean
     twoColumnLayout?: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
@@ -85,6 +86,7 @@ export function AlertDefinitionSection({
     funnel,
     hogql,
     supportsAnomalyDetection,
+    showAnomalyGuidance = false,
     twoColumnLayout = false,
     investigationAgentEnabled,
     simulationResult,
@@ -176,8 +178,9 @@ export function AlertDefinitionSection({
                                 {
                                     value: 'detector',
                                     label: 'Anomaly detection',
-                                    description:
-                                        'Automatically flag unusual changes using statistical models. No fixed value needed.',
+                                    description: showAnomalyGuidance
+                                        ? 'Use when you do not know a useful threshold and want to detect unexpected changes in a metric with an established pattern.'
+                                        : 'Automatically flag unusual changes using statistical models. No fixed value needed.',
                                     'data-attr': 'alertForm-mode-detector',
                                 },
                             ]}
