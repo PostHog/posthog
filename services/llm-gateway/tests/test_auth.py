@@ -165,14 +165,16 @@ class TestAuthService:
         [
             pytest.param([789], [], id="team_scope"),
             pytest.param([], ["org-2"], id="organization_scope"),
+            pytest.param([], [], id="unrestricted_empty_scope"),
+            pytest.param(None, None, id="unrestricted_null_scope"),
         ],
     )
     async def test_oauth_project_scope_overrides_current_team_when_authorized(
         self,
         auth_service: AuthService,
         mock_pool: MagicMock,
-        scoped_teams: list[int],
-        scoped_organizations: list[str],
+        scoped_teams: list[int] | None,
+        scoped_organizations: list[str] | None,
     ) -> None:
         request = MagicMock(spec=Request)
         request.headers = {
@@ -235,13 +237,20 @@ class TestAuthService:
             await auth_service.authenticate_request(request, mock_pool)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "project_id",
+        [
+            pytest.param("not-a-project", id="not_an_integer"),
+            pytest.param("2147483648", id="above_postgres_integer_range"),
+        ],
+    )
     async def test_oauth_project_scope_rejects_malformed_project_id(
-        self, auth_service: AuthService, mock_pool: MagicMock
+        self, auth_service: AuthService, mock_pool: MagicMock, project_id: str
     ) -> None:
         request = MagicMock(spec=Request)
         request.headers = {
             "authorization": "Bearer pha_valid_token",
-            "x-posthog-project-id": "not-a-project",
+            "x-posthog-project-id": project_id,
         }
         conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(

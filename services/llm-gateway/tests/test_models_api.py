@@ -1,8 +1,9 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import ModelRegistryService
 
@@ -278,6 +279,25 @@ class TestFreeTierModelListing:
         models = response.json()["data"]
         assert "claude-opus-4-5" in {m["id"] for m in models}
         assert all(m["allowed"] for m in models)
+
+    @pytest.mark.parametrize(
+        "error,expected_status",
+        [
+            pytest.param(InvalidProjectScopeError(), 400, id="invalid_project"),
+            pytest.param(UnauthorizedProjectScopeError(), 403, id="unauthorized_project"),
+        ],
+    )
+    def test_project_scope_errors_are_returned(self, app, error: Exception, expected_status: int):
+        auth_service = MagicMock()
+        auth_service.authenticate_request = AsyncMock(side_effect=error)
+
+        with patch("llm_gateway.api.models.get_auth_service", return_value=auth_service), TestClient(app) as client:
+            response = client.get(
+                "/posthog_code/v1/models",
+                headers={"Authorization": "Bearer pha_scoped_models", "X-PostHog-Project-Id": "123"},
+            )
+
+        assert response.status_code == expected_status
 
     def test_unbilled_org_gets_full_list_with_premium_models_marked(self, app, mock_db_pool):
         from unittest.mock import AsyncMock

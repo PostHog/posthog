@@ -13,6 +13,7 @@ from llm_gateway.metrics.prometheus import AUTH_CACHE_HITS, AUTH_CACHE_MISSES, A
 
 BEARER_PATTERN = re.compile(r"^Bearer\s+(\S+)$", re.IGNORECASE)
 PROJECT_SCOPE_HEADER = "x-posthog-project-id"
+MAX_PROJECT_ID = 2_147_483_647
 
 
 class InvalidProjectScopeError(Exception):
@@ -105,7 +106,7 @@ class AuthService:
             project_id = int(raw_project_id)
         except ValueError as exc:
             raise InvalidProjectScopeError from exc
-        if project_id <= 0:
+        if project_id <= 0 or project_id > MAX_PROJECT_ID:
             raise InvalidProjectScopeError
 
         async with acquire_connection(pool) as conn:
@@ -125,7 +126,11 @@ class AuthService:
 
         scoped_teams = user.scoped_teams or []
         scoped_organizations = user.scoped_organizations or []
-        if project_id not in scoped_teams and str(project["organization_id"]) not in scoped_organizations:
+        if (
+            (scoped_teams or scoped_organizations)
+            and project_id not in scoped_teams
+            and str(project["organization_id"]) not in scoped_organizations
+        ):
             raise UnauthorizedProjectScopeError
 
         return replace(user, team_id=project_id)

@@ -1,10 +1,10 @@
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
-from llm_gateway.auth.service import get_auth_service
+from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError, get_auth_service
 from llm_gateway.config import get_settings
 from llm_gateway.products.config import (
     FREE_TIER_RESTRICTION_REASON,
@@ -96,6 +96,10 @@ async def _caller_confirmed_free_tier(request: Request) -> bool:
             return True
         quota_status = await resolve_quota_status(request, user.team_id, CreditBucket.POSTHOG_CODE_CREDITS.value)
         return not quota_status.code_usage_billing_active
+    except InvalidProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid project scope") from exc
+    except UnauthorizedProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied") from exc
     except Exception:
         logger.warning("models_free_tier_resolution_failed", exc_info=True)
         return False
