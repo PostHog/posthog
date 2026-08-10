@@ -3,55 +3,51 @@ import { useState } from 'react'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
+import { dateMapping } from 'lib/utils/dateFilters'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    HogQLMathType,
+    IntervalType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 const DEFAULT_DATE_FROM = '-7d'
 
-// Only the top slice is charted: a project with hundreds of flags would otherwise render a
-// breakdown legend nobody can read, and the long tail is what the Overview tab is for.
+// A project with hundreds of flags would otherwise render a breakdown legend nobody can read.
 const BREAKDOWN_LIMIT = 10
 
-/**
- * One `/flags` request can serve many flags, so counting `$feature_flag_called` rows would report
- * evaluations rather than requests. `uniq($feature_flag_request_id)` collapses each request to one
- * per flag per day.
- *
- * A request shared across flags is counted once for every flag it returned, so the series do not
- * sum to the project's request total. Locally evaluated reads issue no request and carry no request
- * id, so `notEmpty` drops them without needing a `locally_evaluated` predicate.
- */
-const FLAG_REQUESTS_BY_FLAG_QUERY = `
-WITH top_flags AS (
-    SELECT properties.$feature_flag AS flag
-    FROM events
-    WHERE event = '$feature_flag_called'
-      AND {filters}
-      AND notEmpty(toString(properties.$feature_flag_request_id))
-    GROUP BY flag
-    ORDER BY uniq(properties.$feature_flag_request_id) DESC
-    LIMIT ${BREAKDOWN_LIMIT}
-)
-SELECT
-    toStartOfDay(timestamp) AS period,
-    properties.$feature_flag AS flag,
-    uniq(properties.$feature_flag_request_id) AS flags_requests
-FROM events
-WHERE event = '$feature_flag_called'
-  AND {filters}
-  AND notEmpty(toString(properties.$feature_flag_request_id))
-  AND properties.$feature_flag IN (SELECT flag FROM top_flags)
-GROUP BY period, flag
-ORDER BY period, flags_requests DESC
-`
+// Locally evaluated reads never call /flags, so they carry no request id. Excluding them keeps the
+// request counts honest.
+const HAS_REQUEST_ID: AnyPropertyFilter[] = [
+    {
+        key: '$feature_flag_request_id',
+        type: PropertyFilterType.Event,
+        operator: PropertyOperator.IsSet,
+        value: 'is_set',
+    },
+]
+
+// One /flags request can serve many flags, so counting events would report evaluations rather than
+// requests. Counting distinct request ids reports requests.
+const REQUESTS_PER_FLAG = 'uniq(properties.$feature_flag_request_id)'
+
+// Each preset carries the granularity it reads best at, so a short range doesn't collapse to a
+// single daily point. Rolling ranges ("Last 3 weeks") match no preset and fall back to days.
+function intervalForRange(dateFrom: string | null): IntervalType {
+    return dateMapping.find((option) => option.values[0] === dateFrom)?.defaultInterval ?? 'day'
+}
 
 export function FeatureFlagsUsageTab(): JSX.Element {
     const [dateFrom, setDateFrom] = useState<string | null>(DEFAULT_DATE_FROM)
     const [dateTo, setDateTo] = useState<string | null>(null)
 
-    const requestsChartKey = `feature-flags-usage-requests-by-flag-${dateFrom ?? 'all'}-${dateTo ?? 'now'}`
+    const interval = intervalForRange(dateFrom)
 
     return (
         <div className="deprecated-space-y-4">
@@ -94,7 +90,7 @@ export function FeatureFlagsUsageTab(): JSX.Element {
                                 breakdown_limit: BREAKDOWN_LIMIT,
                             },
                             dateRange: { date_from: dateFrom, date_to: dateTo },
-                            interval: 'day',
+                            interval,
                             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                         },
                     }}
@@ -110,31 +106,29 @@ export function FeatureFlagsUsageTab(): JSX.Element {
                     {BREAKDOWN_LIMIT} flags shown.{' '}
                     <Link to="https://posthog.com/docs/feature-flags/local-evaluation">Local evaluation docs</Link>
                 </p>
-                {/*
-                 * Two things make the date filter reach this chart. `readOnly` keeps the node in props
-                 * rather than `Query`'s local state, so the normalized copy `dataVisualizationLogic`
-                 * writes back through `setQuery` can't overwrite the incoming `filters.dateRange`; it
-                 * also matches the intent, since this chart is fixed rather than an editable SQL insight.
-                 * The date-derived React key then remounts on a range change, which both forces a refetch
-                 * and is what lets `uniqueKey` change at all, as `DataVisualization` freezes it in state.
-                 */}
                 <Query
-                    key={requestsChartKey}
-                    readOnly
-                    uniqueKey={requestsChartKey}
                     query={{
-                        kind: NodeKind.DataVisualizationNode,
+                        kind: NodeKind.InsightVizNode,
                         source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: FLAG_REQUESTS_BY_FLAG_QUERY,
-                            filters: { dateRange: { date_from: dateFrom, date_to: dateTo } },
-                        },
-                        display: ChartDisplayType.ActionsLineGraph,
-                        chartSettings: {
-                            xAxis: { column: 'period' },
-                            yAxis: [{ column: 'flags_requests' }],
-                            seriesBreakdownColumn: 'flag',
-                            showLegend: true,
+                            kind: NodeKind.TrendsQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    event: '$feature_flag_called',
+                                    name: '$feature_flag_called',
+                                    math: HogQLMathType.HogQL,
+                                    math_hogql: REQUESTS_PER_FLAG,
+                                    properties: HAS_REQUEST_ID,
+                                },
+                            ],
+                            breakdownFilter: {
+                                breakdown: '$feature_flag',
+                                breakdown_type: 'event',
+                                breakdown_limit: BREAKDOWN_LIMIT,
+                            },
+                            dateRange: { date_from: dateFrom, date_to: dateTo },
+                            interval,
+                            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                         },
                     }}
                 />
