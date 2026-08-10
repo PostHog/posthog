@@ -16,7 +16,7 @@ description: >
 
 Use this skill for customer-facing "what am I using and why?" Billing usage workflows.
 The question may come from the Billing usage dashboard, a usage alert email, an AI
-side-panel prompt, or a user who noticed high usage, spend, a spike, or a drop.
+chat prompt, or a user who noticed high usage, spend, a spike, or a drop.
 
 The core rule:
 

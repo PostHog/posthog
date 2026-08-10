@@ -22,4 +22,4 @@ When validating an alert day, compare it to prior days in the same day class:
 
 This avoids treating normal weekday/weekend traffic shape as a root cause. Keep the
 answer grounded in what the Billing usage tools return, and call it a reconstruction
-when you do not have the exact alert row or detector metadata.
+when you do not have the exact alert row.
