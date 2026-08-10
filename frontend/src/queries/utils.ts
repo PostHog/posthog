@@ -6,6 +6,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     AccountsQuery,
+    AccountsTableQuery,
     ActionsNode,
     ActorsQuery,
     AnyDataWarehouseNode,
@@ -1032,6 +1033,10 @@ export function isGroupsQuery(node?: Record<string, any> | null): node is Groups
 
 export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
     return node?.kind === NodeKind.AccountsQuery
+}
+
+export function isAccountsTableQuery(node?: Record<string, any> | null): node is AccountsTableQuery {
+    return node?.kind === NodeKind.AccountsTableQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
