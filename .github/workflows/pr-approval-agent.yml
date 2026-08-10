@@ -13,18 +13,25 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+    # One job, one full-history checkout. On synchronize the `Decide delta` step
+    # classifies the new commits since the last bot approval and gates the LLM
+    # review exactly as the old standalone decide-delta job did — but it reuses
+    # this job's checkout instead of paying for a second identical one back to
+    # back (that duplicate was the majority of every real run's wall-clock).
+    # The `dismiss` job stays split out because it must still run when this job
+    # is skipped (label removed out-of-band on a push); it keys off this job's
+    # outputs and result.
     review:
         # Write access is required to apply the stamphog label, so no
         # additional author_association check is needed. Bot-authored PRs are
         # hard-excluded regardless of who applies the label — see the
         # bot-author-skip job, which strips the label and explains why.
-        # Triggers: explicit `stamphog` label, ready_for_review with the
-        # label already present, or `synchronize` where decide-delta
-        # asked for re-review (or itself failed — fail closed for safety).
-        needs: [decide-delta, dismiss]
+        # Triggers: explicit `stamphog` label, or ready_for_review / synchronize
+        # with the label already present. On synchronize the `Decide delta` step
+        # decides whether the delta actually warrants re-review.
         # !cancelled() rather than always() so a push that supersedes this run stops the
         # LLM review instead of posting a stamphog approval for a commit that is no longer
-        # HEAD. The explicit decide-delta checks below keep the fail-closed re-review paths.
+        # HEAD.
         if: >-
             !cancelled()
             && !github.event.pull_request.draft
@@ -33,9 +40,10 @@ jobs:
             && github.event.pull_request.user.login != 'posthog-bot'
             && (
               github.event.label.name == 'stamphog'
-              || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
-              || needs.decide-delta.outputs.run_review == 'true'
-              || needs.decide-delta.result == 'failure'
+              || (
+                (github.event.action == 'ready_for_review' || github.event.action == 'synchronize')
+                && contains(github.event.pull_request.labels.*.name, 'stamphog')
+              )
             )
         runs-on: ubuntu-latest
         # Budget for the in-flight-bot-review wait (5 min of sleeps plus the
@@ -43,6 +51,9 @@ jobs:
         # see BOT_REVIEW_WAIT_BUDGET_SECONDS in review_pr.py. The cap costs
         # nothing unless a run hangs; runners bill actual minutes.
         timeout-minutes: 20
+        outputs:
+            dismiss_approval: ${{ steps.decide.outputs.dismiss_approval }}
+            reason: ${{ steps.decide.outputs.reason }}
 
         steps:
             - name: Get app token
@@ -54,6 +65,11 @@ jobs:
 
             # Always run the approval script from master — hardcoded so a PR
             # targeting a non-master branch can't supply a tampered script.
+            # Full history (fetch-depth: 0) is required: familiarity.py runs
+            # git blame back to each line's origin and an 18-month git log, and
+            # the delta check walks first-parent history to the last bot
+            # approval and tests merge ancestry against master — a shallow clone
+            # would corrupt both.
             - name: Checkout master (blobless, full history)
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -71,7 +87,68 @@ jobs:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: false
 
+            # Defense-in-depth: master ruleset has dismiss_stale_reviews_on_push=false
+            # and require_last_push_approval=false, so a stale bot approval could
+            # otherwise inherit malicious commits. On a push this step classifies
+            # the new commits since the last bot approval. Trivial deltas
+            # (test/docs/lockfile/generated paths and clean merges from the base
+            # branch) retain the prior approval and skip the LLM re-review — a
+            # comment on the PR records the reason. The stamphog label stays
+            # sticky across pushes; the review's non-APPROVED label-strip is the
+            # auto-loop's escape hatch. Anything ambiguous fails closed to
+            # dismiss + re-review. Skipped on label / ready_for_review, where
+            # there is no delta to classify and the review always runs.
+            - name: Decide delta
+              id: decide
+              if: github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -uo pipefail
+                  # dismiss_check.py catches its own errors and prints a
+                  # dismiss+review decision, so it only fails on uv/infra
+                  # trouble. Any non-zero exit or malformed output falls through
+                  # to the same fail-closed decision below.
+                  if decision=$(uv run tools/pr-approval-agent/dismiss_check.py); then
+                    echo "decision: $decision"
+                  else
+                    decision=""
+                  fi
+                  if ! echo "$decision" | jq -e 'has("dismiss_approval") and has("run_review") and has("reason")' >/dev/null 2>&1; then
+                    echo "[decide] no usable decision from dismiss_check.py — failing closed to dismiss + review" >&2
+                    decision='{"dismiss_approval":true,"run_review":true,"reason":"decide_step_failed"}'
+                  fi
+                  {
+                    echo "dismiss_approval=$(echo "$decision" | jq -r .dismiss_approval)"
+                    echo "run_review=$(echo "$decision" | jq -r .run_review)"
+                    echo "reason=$(echo "$decision" | jq -r .reason)"
+                  } >> "$GITHUB_OUTPUT"
+
+            # Only post the comment on actual retention reasons — not on
+            # no_prior_approval (nothing to retain) or empty_delta (HEAD
+            # didn't move, comment would be noise).
+            - name: Note retained approval
+              if: contains(fromJSON('["trivial_paths", "merge_only", "mixed_trivial"]'), steps.decide.outputs.reason)
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+                  REASON: ${{ steps.decide.outputs.reason }}
+              run: |
+                  gh pr comment "$PR" --repo "$REPO" \
+                    --body "Retaining stamphog approval — delta since last review classified as \`$REASON\`."
+
             - name: Run review
+              # Always on label / ready_for_review. On synchronize only when the
+              # delta warranted re-review (the decide step sets run_review=true,
+              # including its fail-closed path).
+              if: >-
+                  github.event.action != 'synchronize'
+                  || steps.decide.outputs.run_review == 'true'
               env:
                   # Dedicated key so a rotation of the shared ANTHROPIC_API_KEY
                   # doesn't break stamphog (and vice versa). The env var name
@@ -91,7 +168,11 @@ jobs:
                     --output-json /tmp/review.json
 
             - name: Post review
-              if: always()
+              # Post whenever the review was attempted, even if it crashed — but
+              # never on a synchronize the decide step chose to retain.
+              if: >-
+                  always()
+                  && (github.event.action != 'synchronize' || steps.decide.outputs.run_review == 'true')
               env:
                   # Everything stamphog does — the approval, the sticky comment,
                   # the label strip — posts as the Stamphog app (GH_TOKEN) so it
@@ -233,112 +314,35 @@ jobs:
                   fi
 
             - name: Upload evidence
-              if: always()
+              if: >-
+                  always()
+                  && (github.event.action != 'synchronize' || steps.decide.outputs.run_review == 'true')
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: review-${{ github.event.pull_request.number }}
                   path: /tmp/review.json
                   retention-days: 30
 
-    # Defense-in-depth: master ruleset has dismiss_stale_reviews_on_push=false
-    # and require_last_push_approval=false, so a stale bot approval could
-    # otherwise inherit malicious commits. Two-step gate: decide-delta
-    # classifies the new commits since the last bot approval, dismiss only
-    # runs when the delta is non-trivial. Trivial deltas (test/docs/lockfile
-    # /generated paths and clean merges from the base branch) retain the
-    # prior approval — a comment on the PR records the reason. The stamphog
-    # label stays sticky across pushes; the review job's existing
-    # non-APPROVED label-strip is the auto-loop's escape hatch.
-    decide-delta:
-        if: >-
-            github.event.action == 'synchronize'
-            && !github.event.pull_request.draft
-            && github.event.pull_request.user.type != 'Bot'
-            && !contains(github.event.pull_request.user.login, '[bot]')
-            && github.event.pull_request.user.login != 'posthog-bot'
-            && contains(github.event.pull_request.labels.*.name, 'stamphog')
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        outputs:
-            dismiss_approval: ${{ steps.decide.outputs.dismiss_approval }}
-            run_review: ${{ steps.decide.outputs.run_review }}
-            reason: ${{ steps.decide.outputs.reason }}
-            last_approved_sha: ${{ steps.decide.outputs.last_approved_sha }}
-
-        steps:
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
-
-            - name: Checkout master (full history)
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  token: ${{ steps.app-token.outputs.token }}
-                  ref: master
-                  filter: blob:none
-                  fetch-depth: 0
-
-            - name: Fetch PR head
-              run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: false
-
-            - name: Decide retain vs dismiss
-              id: decide
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  BASE_REF: origin/${{ github.event.pull_request.base.ref }}
-              run: |
-                  set -euo pipefail
-                  decision=$(uv run tools/pr-approval-agent/dismiss_check.py)
-                  echo "$decision"
-                  echo "dismiss_approval=$(echo "$decision" | jq -r .dismiss_approval)" >> "$GITHUB_OUTPUT"
-                  echo "run_review=$(echo "$decision" | jq -r .run_review)" >> "$GITHUB_OUTPUT"
-                  echo "reason=$(echo "$decision" | jq -r .reason)" >> "$GITHUB_OUTPUT"
-                  echo "last_approved_sha=$(echo "$decision" | jq -r '.last_approved_sha // ""')" >> "$GITHUB_OUTPUT"
-
-            # Only post the comment on actual retention reasons — not on
-            # no_prior_approval (nothing to retain) or empty_delta (HEAD
-            # didn't move, comment would be noise).
-            - name: Note retained approval
-              if: contains(fromJSON('["trivial_paths", "merge_only", "mixed_trivial"]'), steps.decide.outputs.reason)
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  PR: ${{ github.event.pull_request.number }}
-                  REPO: ${{ github.repository }}
-                  REASON: ${{ steps.decide.outputs.reason }}
-              run: |
-                  gh pr comment "$PR" --repo "$REPO" \
-                    --body "Retaining stamphog approval — delta since last review classified as \`$REASON\`."
-
-    # hogli-lint: not-a-required-gate — branches on decide-delta's result to decide
-    # whether to dismiss a stale approval; it emits no required status check.
+    # hogli-lint: not-a-required-gate — branches on the review job's delta
+    # classification to decide whether to dismiss a stale approval; it emits no
+    # required status check.
     dismiss:
-        needs: decide-delta
+        needs: review
         # Fail closed on three cases:
-        #   - decide-delta said dismiss (smart path)
-        #   - decide-delta failed (uv install / checkout / fetch timeout)
-        #   - decide-delta was skipped (label removed out-of-band) — mirrors
-        #     the pre-PR unconditional dismiss-on-push behavior so a stale
-        #     bot approval can't outlive the label under master ruleset's
+        #   - the review job's Decide-delta step said dismiss (smart path)
+        #   - review failed (uv install / checkout / fetch timeout) — a stale
+        #     approval must not survive an aborted run
+        #   - review was skipped (label removed out-of-band) — mirrors the
+        #     pre-split unconditional dismiss-on-push behavior so a stale bot
+        #     approval can't outlive the label under master ruleset's
         #     dismiss_stale_reviews_on_push=false / require_last_push_approval=false
         # Explicit synchronize + draft gates stop spurious dismissal on
-        # labeled / ready_for_review events where decide-delta's result is
-        # also 'skipped'.
+        # labeled / ready_for_review events where review's result is also
+        # 'skipped'.
         # Bot authors are deliberately NOT excluded here: a bot-authored PR may
         # still carry a stale github-actions[bot] approval from before the
-        # bot-author gate landed, and it must get dismissed on push. decide-delta
-        # is skipped for bots, which routes here via the 'skipped' fail-closed
+        # bot-author gate landed, and it must get dismissed on push. review is
+        # skipped for bots, which routes here via the 'skipped' fail-closed
         # path. This only ever touches github-actions[bot] approvals, so it's a
         # no-op when there's nothing to dismiss.
         # Same-repo only: forked / Dependabot PRs don't receive the app secrets,
@@ -352,9 +356,9 @@ jobs:
             && !github.event.pull_request.draft
             && github.event.pull_request.head.repo.full_name == github.repository
             && (
-              needs.decide-delta.outputs.dismiss_approval == 'true'
-              || needs.decide-delta.result == 'failure'
-              || needs.decide-delta.result == 'skipped'
+              needs.review.outputs.dismiss_approval == 'true'
+              || needs.review.result == 'failure'
+              || needs.review.result == 'skipped'
             )
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -376,17 +380,21 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
-                  REASON: ${{ needs.decide-delta.outputs.reason || (needs.decide-delta.result == 'skipped' && 'label_absent') || 'decide_delta_failed' }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REASON: ${{ needs.review.outputs.reason || (needs.review.result == 'skipped' && 'label_absent') || 'review_job_failed' }}
               run: |
                   set -euo pipefail
 
                   # Dismiss APPROVED reviews from either Stamphog identity —
-                  # github-actions[bot] (bodyless approval) and stamphog[bot]
-                  # (the app approval carrying the review body). Human reviews
-                  # and non-approval reviews are untouched.
+                  # github-actions[bot] (legacy bodyless approval) and
+                  # stamphog[bot] (the app approval carrying the review body) —
+                  # EXCEPT one on the current head. This job now runs after the
+                  # review job, so a fresh approval this same push just posted on
+                  # HEAD_SHA must survive while stale approvals on older commits
+                  # are cleared. Human and non-approval reviews are untouched.
                   mapfile -t REVIEW_IDS < <(
                       gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
-                        --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "stamphog[bot]") and .state == "APPROVED") | .id'
+                        --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "stamphog[bot]") and .state == "APPROVED" and .commit_id != env.HEAD_SHA) | .id'
                   )
 
                   for id in "${REVIEW_IDS[@]}"; do
@@ -398,10 +406,10 @@ jobs:
 
     # stamphog never reviews bot-authored PRs (dependabot, mendral, other
     # agents). A human applying the label can't override this — bot output
-    # isn't a trusted basis for an auto-approval. review / decide-delta are
-    # gated to skip bot authors; this job runs instead to strip the label so
-    # it never lingers. Same bot definition as those job gates, and as the
-    # review script's defense-in-depth REFUSE.
+    # isn't a trusted basis for an auto-approval. review is gated to skip bot
+    # authors; this job runs instead to strip the label so it never lingers.
+    # Same bot definition as the review job's gate, and as the review script's
+    # defense-in-depth REFUSE.
     # Fires on labeled / ready_for_review (the apply paths — comment + strip)
     # and on synchronize when the label is still present (a leftover from before
     # this gate landed, or a failed earlier strip — clean it up, no comment).
