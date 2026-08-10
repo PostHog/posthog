@@ -11,7 +11,7 @@ import {
 import type { AccountApi, AccountChannelSummaryApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { periodLabel } from './AccountSummariesExpansion'
-import { accountSummariesLogic, FIRST_SUMMARY_QUIET_POLLS } from './accountSummariesLogic'
+import { accountSummariesLogic, FIRST_SUMMARY_POLL_TIMEOUT_MS, FIRST_SUMMARY_QUIET_MS } from './accountSummariesLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     // Keep the real module for everything else — connected logics call other generated
@@ -148,12 +148,15 @@ describe('accountSummariesLogic', () => {
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockPatch.mockResolvedValue(daily)
         await mount('acc-daily')
+        const startedAt = Date.now()
+        const nowSpy = jest.spyOn(Date, 'now')
 
         logic.actions.setCadence('daily')
         await expectLogic(logic).toFinishAllListeners()
 
         // count, not results length: a page holds 5 while a daily backfill writes up to 7.
         for (const count of [3, 6]) {
+            nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_QUIET_MS * 2)
             mockList.mockResolvedValue({ count, next: null, previous: null, results: [SUMMARY] })
             logic.actions.loadSummaries()
             await expectLogic(logic).toFinishAllListeners()
@@ -161,12 +164,33 @@ describe('accountSummariesLogic', () => {
         }
 
         // A backfilled day with no messages writes no summary, so 6 of 7 is where this one ends.
-        for (let poll = 0; poll < FIRST_SUMMARY_QUIET_POLLS; poll++) {
-            logic.actions.loadSummaries()
-            await expectLogic(logic).toFinishAllListeners()
-        }
+        nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_QUIET_MS * 3 + 1)
+        logic.actions.loadSummaries()
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.generatingFirstSummary).toBe(false)
+        nowSpy.mockRestore()
+    })
+
+    it('stops waiting at the deadline even when no summary ever lands', async () => {
+        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        mockPatch.mockResolvedValue(ACCOUNT)
+        await mount('acc-deadline')
+        const startedAt = Date.now()
+        const nowSpy = jest.spyOn(Date, 'now')
+
+        logic.actions.setCadence('daily')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.generatingFirstSummary).toBe(true)
+
+        // Hidden tabs suspend the poll, so the stop has to come from elapsed time, not poll count.
+        nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_POLL_TIMEOUT_MS + 1)
+        logic.actions.loadSummaries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.generatingFirstSummary).toBe(false)
+        nowSpy.mockRestore()
     })
 
     it.each([

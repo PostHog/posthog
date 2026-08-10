@@ -48,7 +48,7 @@ export const FIRST_SUMMARY_POLL_INTERVAL_MS = 15_000
 export const FIRST_SUMMARY_POLL_TIMEOUT_MS = 5 * 60_000
 // A backfilled period with no messages writes no summary, so there is no count to wait for.
 // Going quiet is the only reliable signal that the backfill is done.
-export const FIRST_SUMMARY_QUIET_POLLS = 6
+export const FIRST_SUMMARY_QUIET_MS = 90_000
 
 // Module state, not logic state: this tab unmounts whenever its account row collapses, and
 // the backfill it waits on keeps running server-side.
@@ -231,31 +231,38 @@ export const accountSummariesLogic = kea<accountSummariesLogicType>([
     }),
     listeners(({ actions, cache, props, values }) => ({
         startFirstSummaryPolling: () => {
-            const remainingMs = (backfillDeadlines.get(props.accountId) ?? 0) - Date.now()
-            if (remainingMs <= 0) {
+            if ((backfillDeadlines.get(props.accountId) ?? 0) <= Date.now()) {
                 actions.stopFirstSummaryPolling()
                 return
             }
+            cache.lastSeenCount = values.summariesResult.totalCount
+            cache.lastChangeAt = Date.now()
             cache.disposables.add(() => {
                 const intervalId = setInterval(() => actions.loadSummaries(), FIRST_SUMMARY_POLL_INTERVAL_MS)
                 return () => clearInterval(intervalId)
             }, 'firstSummaryPoll')
-            cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => actions.stopFirstSummaryPolling(), remainingMs)
-                return () => clearTimeout(timeoutId)
-            }, 'firstSummaryPollTimeout')
         },
         stopFirstSummaryPolling: () => {
             backfillDeadlines.delete(props.accountId)
             cache.disposables.dispose('firstSummaryPoll')
-            cache.disposables.dispose('firstSummaryPollTimeout')
         },
         loadSummariesSuccess: ({ summariesResult }) => {
+            if (!values.generatingFirstSummary) {
+                return
+            }
             // totalCount, not the page length: a daily backfill writes up to 7 summaries and a page holds 5.
             const landed = summariesResult.totalCount
-            cache.quietPolls = landed === cache.lastSeenCount ? (cache.quietPolls ?? 0) + 1 : 0
-            cache.lastSeenCount = landed
-            if (landed > 0 && cache.quietPolls >= FIRST_SUMMARY_QUIET_POLLS) {
+            if (landed !== cache.lastSeenCount) {
+                cache.lastSeenCount = landed
+                cache.lastChangeAt = Date.now()
+                return
+            }
+            // Both deadlines are wall-clock, because the disposables plugin suspends this
+            // interval while the tab is hidden. Counting polls would stretch a 90s wait
+            // across however long the user spends in another tab.
+            const quietFor = Date.now() - (cache.lastChangeAt ?? 0)
+            const expired = Date.now() >= (backfillDeadlines.get(props.accountId) ?? 0)
+            if (expired || (landed > 0 && quietFor >= FIRST_SUMMARY_QUIET_MS)) {
                 actions.stopFirstSummaryPolling()
             }
         },
