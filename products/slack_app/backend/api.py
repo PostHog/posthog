@@ -628,19 +628,22 @@ def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> s
     return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
 
 
-def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
+def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str], team_id: int | None = None) -> str:
     kinds_token = ",".join(sorted(kinds))
-    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
+    team_token = team_id if team_id is not None else "*"
+    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}:{team_token}"
 
 
-def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
+def does_other_region_claim_workspace(
+    *, slack_team_id: str, kinds: list[str], incoming_host: str, team_id: int | None = None
+) -> bool | None:
     """Ask the other region whether it claims the given workspace for any of the kinds.
 
     Returns True/False on a definitive answer, or None on transport failure or bad response.
     Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
     flake does not reroute the next event. None is never cached so the next event re-probes.
     """
-    cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
+    cache_key = _workspace_claims_cache_key(slack_team_id, kinds, team_id)
     cached = cache.get(cache_key)
     if isinstance(cached, bool):
         logger.info(
@@ -654,7 +657,7 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
-    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
+    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds, "team_id": team_id}).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
     signed = sign_slack_request(body, signing_secret)
 
@@ -706,8 +709,8 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
 
     Both Cloud regions provision the PostHog Desktop Slack signing secret, so a region can HMAC-sign
     a small JSON body and the receiver can verify it with the same routine that validates real
-    Slack webhooks. The signed body covers `slack_team_id` + `kinds`, so a captured signature
-    cannot be replayed against a different workspace.
+    Slack webhooks. The signed body covers every filter, so a captured signature cannot be replayed
+    against a different workspace or project.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -726,6 +729,7 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
 
     slack_team_id = data.get("slack_team_id")
     kinds = data.get("kinds")
+    team_id = data.get("team_id")
     if not isinstance(slack_team_id, str) or not slack_team_id:
         return HttpResponse("Missing slack_team_id", status=400)
     if not isinstance(kinds, list) or not kinds:
@@ -733,11 +737,16 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     filtered = [k for k in kinds if isinstance(k, str) and k in _VALID_WORKSPACE_CLAIM_KINDS]
     if not filtered:
         return HttpResponse("No valid kinds", status=400)
+    if team_id is not None and (not isinstance(team_id, int) or isinstance(team_id, bool)):
+        return HttpResponse("Invalid team_id", status=400)
 
-    claimed = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+    integrations = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
         kind__in=filtered,
         integration_id=slack_team_id,
-    ).exists()
+    )
+    if team_id is not None:
+        integrations = integrations.filter(team_id=team_id)
+    claimed = integrations.exists()
     return JsonResponse({"claimed": claimed})
 
 
@@ -2211,10 +2220,14 @@ def route_posthog_code_event_to_relevant_region(
 
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
-    local_match = link_result.candidates[0] if link_result.candidates else None
+    local_match = _link_shared_integration(event, link_result.candidates)
     if local_match:
         if _us_should_handle_instead(
-            slack_team_id, list(SLACK_INTEGRATION_KINDS), can_defer_to_other_region, incoming_host
+            slack_team_id,
+            list(SLACK_INTEGRATION_KINDS),
+            can_defer_to_other_region,
+            incoming_host,
+            team_id=local_match.team_id,
         ):
             return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
@@ -2233,7 +2246,9 @@ def route_posthog_code_event_to_relevant_region(
     return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
 
-def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str) -> bool:
+def _us_should_handle_instead(
+    slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str, *, team_id: int | None = None
+) -> bool:
     """US-precedence guard. EU yields to US when both claim a workspace.
 
     Skipped when we're already US (we win) or when we were proxied to (the other region already
@@ -2245,7 +2260,9 @@ def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: b
     """
     if not can_defer:
         return False
-    claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    claimed = does_other_region_claim_workspace(
+        slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host, team_id=team_id
+    )
     decision = True if claimed is None else claimed
     logger.info(
         "slack_app_route_us_probe_result",
@@ -3048,6 +3065,31 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
             resource_type, resource_ref = parsed
             resources.append({"type": resource_type, "ref": str(resource_ref)})
     return resources
+
+
+def _link_shared_integration(event: dict[str, Any], candidates: list[Integration]) -> Integration | None:
+    team_ids: set[int] = set()
+    links = event.get("links")
+    if isinstance(links, list):
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            url = link.get("url")
+            if not isinstance(url, str):
+                continue
+            parts = [part for part in urlparse(url).path.split("/") if part]
+            if len(parts) >= 2 and parts[0] == "project":
+                try:
+                    team_ids.add(int(parts[1]))
+                except ValueError:
+                    continue
+
+    if len(team_ids) == 1:
+        team_id = next(iter(team_ids))
+        return next((candidate for candidate in candidates if candidate.team_id == team_id), None)
+    if team_ids:
+        return None
+    return candidates[0] if candidates else None
 
 
 def _extract_context_token(payload: dict) -> str:
