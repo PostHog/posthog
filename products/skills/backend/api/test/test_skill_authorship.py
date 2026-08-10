@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from posthog.test.base import BaseTest
 
 from django.contrib.sessions.backends.db import SessionStore
@@ -11,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models import User
+from posthog.models.oauth import OAuthAccessToken
 
 from ...api.skill_authorship import resolve_skill_authorship
 
@@ -29,9 +28,9 @@ class TestResolveSkillAuthorship(BaseTest):
             request.session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(session_operator.pk))
         if oauth_operator is not None:
             authenticator = OAuthAccessTokenAuthentication()
-            authenticator.access_token = SimpleNamespace(  # type: ignore[assignment]
-                impersonated_by_id=oauth_operator.pk, impersonated_by=oauth_operator
-            )
+            # Unsaved instance: only the impersonation FK is read, and assigning it sets
+            # `impersonated_by_id` too, which is what `is_impersonated` checks.
+            authenticator.access_token = OAuthAccessToken(impersonated_by=oauth_operator)
             request.successful_authenticator = authenticator  # type: ignore[attr-defined]
         return request
 
