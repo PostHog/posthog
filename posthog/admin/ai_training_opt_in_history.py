@@ -86,7 +86,7 @@ def _opt_in_change_in(entry: ActivityLog) -> Optional[dict]:
     for change in (entry.detail or {}).get("changes") or []:
         if isinstance(change, dict) and change.get("field") == AI_TRAINING_OPT_IN_FIELD:
             return change
-    # This early return is defensive, it's not reachable while the containment filter above only admits rows carrying this field
+    # This return is defensive. _opt_in_activity only admits rows that hold an opt-in change, so this line does not run.
     return None
 
 
