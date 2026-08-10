@@ -4,16 +4,11 @@ import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'
-import {
-    TileId,
-    WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    WEB_ANALYTICS_MODAL_MIN_ROW_LIMIT,
-    WebAnalyticsTile,
-} from './common'
+import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID, WebAnalyticsTile } from './common'
 import type { SectionTile } from './common'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { pageReportsLogic } from './pageReportsLogic'
-import { webAnalyticsLogic } from './webAnalyticsLogic'
+import { WEB_ANALYTICS_MODAL_MIN_ROW_LIMIT, webAnalyticsLogic } from './webAnalyticsLogic'
 
 export interface WebAnalyticsModalQuery {
     tileId: TileId

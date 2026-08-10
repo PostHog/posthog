@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconList } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WEB_ANALYTICS_TABLE_ROW_LIMIT_OPTIONS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { ProductTab, WEB_ANALYTICS_TABLE_ROW_LIMIT_OPTIONS } from './common'
+import { ProductTab } from './common'
 
 export const TableRowLimitSelector = (): JSX.Element | null => {
     const { tablesRowLimit, productTab } = useValues(webAnalyticsLogic)

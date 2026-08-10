@@ -495,13 +495,6 @@ export const INITIAL_DATE_FROM = '-7d' as string | null
 export const INITIAL_DATE_TO = null as string | null
 export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
-// Row count for every stats table tile. The default stays low so the dashboard's first paint
-// does not fetch more rows than needed across the many tile queries that run at once.
-export const WEB_ANALYTICS_DEFAULT_TABLE_ROW_LIMIT = 10
-export const WEB_ANALYTICS_TABLE_ROW_LIMIT_OPTIONS = [10, 25, 50, 100]
-// Floor for the "show more" modal so it never shows fewer rows than the tile behind it.
-export const WEB_ANALYTICS_MODAL_MIN_ROW_LIMIT = 50
-
 /** Events included in bot analytics queries — crawlers don't execute JS so $http_log captures most real bot traffic */
 export const BOT_ANALYTICS_EVENTS = ['$pageview', '$screen', '$http_log']
 
