@@ -55,12 +55,7 @@ const timeline: ThreadTimelineRow<TaskThreadMessage>[] = [
   event(
     "e1",
     "run_started",
-    {
-      run_id: "run-1",
-      environment: "cloud",
-      branch: "shy/activity-events",
-      run_number: 1,
-    },
+    { run_id: "run-1", environment: "cloud", branch: "shy/activity-events" },
     "2026-08-04T09:02:00Z",
   ),
   event("e2", "awaiting_input", { run_id: "run-1" }, "2026-08-04T09:40:00Z"),

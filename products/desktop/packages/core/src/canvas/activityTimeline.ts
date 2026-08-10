@@ -51,6 +51,9 @@ export type ActivityRow<
       ts: number;
       event: ActivityEvent;
       message: TMessage;
+      /** Which run of the task a `run_started` row is, counted over the feed. The backend
+       *  cannot number these without racing two concurrent creations onto one number. */
+      runOrdinal?: number;
     }
   | { kind: "human_message"; key: string; ts: number; message: TMessage }
   | { kind: "user_message"; key: string; ts: number; item: UserMessageLike }
@@ -113,6 +116,7 @@ export function buildActivityTimeline<
   // identity covers rows written before the key existed.
   const seenEvents = new Set<string>();
   let hasTerminalEvent = false;
+  let runStartedSeen = 0;
 
   for (const message of messages) {
     const event = parseActivityEvent(message);
@@ -131,12 +135,14 @@ export function buildActivityTimeline<
     if (seenEvents.has(identity)) continue;
     seenEvents.add(identity);
     if (event.kind === "run_failed") hasTerminalEvent = true;
+    if (event.kind === "run_started") runStartedSeen += 1;
     rows.push({
       kind: "event",
       key: `event-${message.id}`,
       ts: timestamp(message.created_at),
       event,
       message,
+      ...(event.kind === "run_started" ? { runOrdinal: runStartedSeen } : {}),
     });
   }
 

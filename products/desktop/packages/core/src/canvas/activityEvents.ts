@@ -27,7 +27,6 @@ export interface RunStartedPayload {
   runId: string;
   environment: string;
   branch: string;
-  runNumber: number;
 }
 
 export interface RunFailedPayload {
@@ -128,7 +127,6 @@ export function parseActivityEvent(message: {
           runId: str(payload.run_id),
           environment: str(payload.environment),
           branch: str(payload.branch),
-          runNumber: num(payload.run_number, 1),
         },
       };
     case "run_failed":

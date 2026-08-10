@@ -174,6 +174,31 @@ describe("activity timeline", () => {
     expect(rows.map((row) => row.kind)).toEqual(["task_created"]);
   });
 
+  it("numbers runs over the feed, since the backend cannot number them", () => {
+    // Counting runs server-side races two concurrent creations onto one number; the ordered
+    // feed can only be read one way.
+    const rows = build({
+      messages: [
+        eventMessage(
+          "m1",
+          "run_started",
+          { run_id: "run-1" },
+          "2026-08-01T10:30:00Z",
+        ),
+        eventMessage(
+          "m2",
+          "run_started",
+          { run_id: "run-2" },
+          "2026-08-01T11:30:00Z",
+        ),
+      ],
+    });
+
+    expect(
+      rows.flatMap((row) => (row.kind === "event" ? [row.runOrdinal] : [])),
+    ).toEqual([1, 2]);
+  });
+
   it("derives an ending for tasks with no failure event", () => {
     const rows = build({
       taskOverrides: { latestRunStatus: "completed", latestRunId: "run-1" },
@@ -209,21 +234,11 @@ describe("activity events", () => {
     expect(
       parseActivityEvent({
         event: "run_started",
-        payload: {
-          run_id: "run-1",
-          environment: "cloud",
-          branch: "casey/x",
-          run_number: 2,
-        },
+        payload: { run_id: "run-1", environment: "cloud", branch: "casey/x" },
       }),
     ).toEqual({
       kind: "run_started",
-      payload: {
-        runId: "run-1",
-        environment: "cloud",
-        branch: "casey/x",
-        runNumber: 2,
-      },
+      payload: { runId: "run-1", environment: "cloud", branch: "casey/x" },
     });
   });
 

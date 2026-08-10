@@ -2,6 +2,7 @@ import { FileTextIcon, PlusCircleIcon } from "@phosphor-icons/react";
 import {
   type ActivityRow,
   buildActivityTimeline,
+  type UserMessageLike,
 } from "@posthog/core/canvas/activityTimeline";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
@@ -135,11 +136,15 @@ function UserMessageRow({
   );
 }
 
+/** Stable identity: an inline `= []` default is a new array on every render, which would
+ *  rebuild the timeline on every render through the memo's dependency list. */
+const NO_COMMENT_THREADS: TaskCommentThreadSummary[] = [];
+
 export function ActivityTimeline({
   task,
   timeline,
   conversationItems,
-  commentThreads = [],
+  commentThreads = NO_COMMENT_THREADS,
   commentsEnabled = false,
   currentUserId,
   currentUserUuid,
@@ -216,13 +221,19 @@ export function ActivityTimeline({
               }
             : null,
         })),
-        userMessages: conversationItems
-          .filter((item) => item.type === "user_message")
-          .map((item) => ({
-            id: item.id,
-            content: item.content,
-            timestamp: item.timestamp,
-          })),
+        userMessages: conversationItems.reduce<UserMessageLike[]>(
+          (items, item) => {
+            if (item.type === "user_message") {
+              items.push({
+                id: item.id,
+                content: item.content,
+                timestamp: item.timestamp,
+              });
+            }
+            return items;
+          },
+          [],
+        ),
         commentsEnabled,
       }),
     [task, messages, commentThreads, conversationItems, commentsEnabled],
@@ -318,6 +329,7 @@ export function ActivityTimeline({
             event={row.event}
             timestamp={row.message.created_at}
             runCount={runCount}
+            runOrdinal={row.runOrdinal}
           />
         );
       }

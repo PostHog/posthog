@@ -103,7 +103,11 @@ const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
 
 /** The sentence an event reads as. Written so a person skimming the panel learns what
  *  happened without opening anything. */
-function eventLabel(event: ActivityEvent, runCount: number): ReactNode {
+function eventLabel(
+  event: ActivityEvent,
+  runCount: number,
+  runOrdinal: number,
+): ReactNode {
   switch (event.kind) {
     case "run_started": {
       const details = [
@@ -114,7 +118,7 @@ function eventLabel(event: ActivityEvent, runCount: number): ReactNode {
         <>
           {/* A run number only helps once a task has run more than once. */}
           {runCount > 1
-            ? `Agent started run ${event.payload.runNumber}`
+            ? `Agent started run ${runOrdinal}`
             : "Agent started work"}
           {details.length > 0 && (
             <span className="text-muted-foreground">
@@ -197,12 +201,15 @@ export function ActivityEventRow({
   event,
   timestamp,
   runCount,
+  runOrdinal = 1,
   onSelect,
 }: {
   event: ActivityEvent;
   timestamp: string;
   /** How many runs the task has, so a single-run task doesn't say "run 1". */
   runCount: number;
+  /** Which run this row starts, counted over the feed rather than stamped by the backend. */
+  runOrdinal?: number;
   onSelect?: () => void;
 }) {
   return (
@@ -211,7 +218,7 @@ export function ActivityEventRow({
       timestamp={timestamp}
       onSelect={onSelect}
     >
-      {eventLabel(event, runCount)}
+      {eventLabel(event, runCount, runOrdinal)}
     </TimelineRow>
   );
 }

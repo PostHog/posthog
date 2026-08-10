@@ -233,18 +233,18 @@ describe("ActivityTimeline events and comments", () => {
   });
 
   it("labels the run only once a task has run more than once", () => {
-    const message = threadMessage("m1", "run_started", {
+    const first = threadMessage("m1", "run_started", {
       run_id: "run-1",
       environment: "cloud",
       branch: "shy/activity",
-      run_number: 2,
     });
+    const second = threadMessage("m2", "run_started", { run_id: "run-2" });
 
-    const single = renderRows({ timeline: [message], runCount: 1 });
+    const single = renderRows({ timeline: [first], runCount: 1 });
     expect(screen.getByText(/Agent started work/)).toBeInTheDocument();
     single.unmount();
 
-    renderRows({ timeline: [message], runCount: 2 });
+    renderRows({ timeline: [first, second], runCount: 2 });
     expect(screen.getByText(/Agent started run 2/)).toBeInTheDocument();
   });
 
