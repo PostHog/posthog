@@ -5,6 +5,7 @@ import {
 } from "@phosphor-icons/react";
 import {
   type ChannelItemFilters,
+  type ChannelItemModel,
   type ChannelItemSort,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
@@ -13,6 +14,7 @@ import {
   hasActiveChannelItemFilters,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
+import { computeEffectiveBulkIds } from "@posthog/core/sidebar/selection";
 import {
   Button,
   Empty,
@@ -26,6 +28,7 @@ import {
   SkeletonText,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
@@ -37,15 +40,23 @@ import {
 } from "@posthog/ui/features/canvas/components/channelPages";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useChannelTasksRunState";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { BulkArchiveConfirmDialog } from "@posthog/ui/features/sidebar/components/BulkArchiveConfirmDialog";
+import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
+import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
+import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSelection";
+import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
@@ -252,6 +263,77 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // stays while the list is narrowed, so you can undo whatever emptied it.
   const showRecent = listState === "ready";
 
+  // Only sessions take part in a bulk selection: a canvas can't be archived,
+  // filed, or tiled the way a session can, so modifier-clicking one just opens it.
+  const selectableTaskIds = useMemo(
+    () => recentItems.filter((i) => i.kind === "task").map((i) => i.id),
+    [recentItems],
+  );
+  const selectedTaskIds = useTaskSelectionStore((s) => s.selectedTaskIds);
+  const toggleTaskSelection = useTaskSelectionStore(
+    (s) => s.toggleTaskSelection,
+  );
+  const selectRange = useTaskSelectionStore((s) => s.selectRange);
+  const clearSelection = useTaskSelectionStore((s) => s.clearSelection);
+  const pruneSelection = useTaskSelectionStore((s) => s.pruneSelection);
+  useClearSelectionOnEscape();
+  const listAnchorRef = useRef<HTMLDivElement | null>(null);
+  const marquee = useMarqueeSelection(listAnchorRef);
+
+  useEffect(() => {
+    pruneSelection(selectableTaskIds);
+  }, [selectableTaskIds, pruneSelection]);
+
+  // The open session counts as selected, the same way it does in the code
+  // sidebar — a bulk action is expected to include what you're looking at. Only
+  // a task-kind active row folds in; a canvas can't join a session selection.
+  const activeTaskId = activeKey?.startsWith("task:")
+    ? activeKey.slice("task:".length)
+    : null;
+  const effectiveBulkIds = useMemo(
+    () => computeEffectiveBulkIds(selectedTaskIds, activeTaskId),
+    [selectedTaskIds, activeTaskId],
+  );
+
+  const selectedTasks = useMemo(() => {
+    const selected = new Set(effectiveBulkIds);
+    return recentItems
+      .filter(
+        (i): i is ChannelItemModel & { task: Task } =>
+          i.kind === "task" && i.task !== null && selected.has(i.id),
+      )
+      .map((i) => i.task);
+  }, [recentItems, effectiveBulkIds]);
+  const selectedTasksRunState = useChannelTasksRunState(selectedTasks);
+  const bulkActions = useSidebarBulkActions(
+    effectiveBulkIds,
+    selectedTasksRunState,
+  );
+  const [bulkArchiveConfirm, setBulkArchiveConfirm] = useState<{
+    sessionCount: number;
+    runningCount: number;
+    stopsCloudSandbox: boolean;
+  } | null>(null);
+
+  const handleRowClick = (item: ChannelItemModel, e: React.MouseEvent) => {
+    if (item.kind !== "task") {
+      actions.open(item);
+      return;
+    }
+    if (e.shiftKey) {
+      e.preventDefault();
+      selectRange(item.id, selectableTaskIds, activeTaskId);
+      return;
+    }
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      toggleTaskSelection(item.id);
+      return;
+    }
+    clearSelection();
+    actions.open(item);
+  };
+
   const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
     placeTaskInCommandCenter(taskId, taskTitle);
 
@@ -261,7 +343,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       item={item}
       channelId={channelId}
       isActive={item.key === activeKey}
+      isSelected={item.kind === "task" && effectiveBulkIds.includes(item.id)}
       actions={actions}
+      onClick={(e) => handleRowClick(item, e)}
       isEditing={item.kind === "task" && editingTaskId === item.id}
       onRename={
         item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
@@ -365,8 +449,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         )}
       </div>
 
-      {/* Relative so the FAB can float over the list. */}
-      <div className="relative mt-2 min-h-0 flex-1">
+      {/* Relative so the FAB and the drag-selection band can float over the list. */}
+      <div ref={listAnchorRef} className="relative mt-2 min-h-0 flex-1">
         <div
           aria-busy={isLoading}
           className="scroll-mask-4 h-full overflow-y-auto px-2 pb-2"
@@ -440,7 +524,36 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           )}
         </div>
         <ChannelsFab channelId={channelId} />
+        <MarqueeOverlay rect={marquee} />
       </div>
+
+      {/* Below the list rather than floating over it: the bottom rows are where
+          a shift-click range usually ends, and the FAB already sits there. */}
+      <SidebarBulkActionBar
+        actions={bulkActions}
+        onClearSelection={clearSelection}
+        onArchive={() =>
+          setBulkArchiveConfirm({
+            sessionCount: bulkActions.selectedCount,
+            runningCount: bulkActions.runningCount,
+            stopsCloudSandbox: bulkActions.stopsCloudSandbox,
+          })
+        }
+      />
+
+      <BulkArchiveConfirmDialog
+        open={bulkArchiveConfirm !== null}
+        sessionCount={bulkArchiveConfirm?.sessionCount ?? 0}
+        runningCount={bulkArchiveConfirm?.runningCount ?? 0}
+        stopsCloudSandbox={Boolean(bulkArchiveConfirm?.stopsCloudSandbox)}
+        isArchiving={bulkActions.isArchiving}
+        onConfirm={() => {
+          void bulkActions.archiveSelected().then(() => {
+            setBulkArchiveConfirm(null);
+          });
+        }}
+        onCancel={() => setBulkArchiveConfirm(null)}
+      />
     </div>
   );
 }

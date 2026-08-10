@@ -234,7 +234,8 @@ describe("ContextMenuService.showBulkTaskContextMenu", () => {
     const menu = new FakeContextMenu();
     const result = makeService(menu).showBulkTaskContextMenu({
       taskCount: 2,
-      channels: [{ id: "c1", name: "#support" }],
+      // Stored bare, shown with the hash the menu adds.
+      channels: [{ id: "c1", name: "support" }],
     });
     await menu.shown;
     findSubmenuItem(menu.lastItems, "File to…", "#support").click();

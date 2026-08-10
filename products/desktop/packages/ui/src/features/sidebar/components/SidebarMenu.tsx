@@ -22,6 +22,8 @@ import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/Sto
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
+import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
@@ -41,18 +43,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArchiveRunningTaskDialog } from "./ArchiveRunningTaskDialog";
 import { BulkArchiveConfirmDialog } from "./BulkArchiveConfirmDialog";
+import { MarqueeOverlay } from "./MarqueeOverlay";
 import { SidebarBulkActionBar } from "./SidebarBulkActionBar";
 import { SidebarItem } from "./SidebarItem";
 import { TaskListView } from "./TaskListView";
 
 const log = logger.scope("sidebar-menu");
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tag = target.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-}
 
 function SidebarMenuComponent() {
   const hostClient = useHostTRPCClient();
@@ -122,20 +118,9 @@ function SidebarMenuComponent() {
     runId?: string;
   } | null>(null);
 
-  // Escape clears any bulk task selection (moved here from the retired
-  // MainSidebar so it survives with the task list in the unified sidebar).
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (isEditableTarget(e.target)) return;
-      const { selectedTaskIds, clearSelection } =
-        useTaskSelectionStore.getState();
-      if (selectedTaskIds.length === 0) return;
-      clearSelection();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  useClearSelectionOnEscape();
+  const listAnchorRef = useRef<HTMLDivElement | null>(null);
+  const marquee = useMarqueeSelection(listAnchorRef);
 
   const selectedTaskIds = useTaskSelectionStore((s) => s.selectedTaskIds);
   const toggleTaskSelection = useTaskSelectionStore(
@@ -501,7 +486,9 @@ function SidebarMenuComponent() {
       position="relative"
       id="side-bar-menu"
       className="flex min-h-0 flex-col"
+      ref={listAnchorRef}
     >
+      <MarqueeOverlay rect={marquee} />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         <Flex direction="column" className="gap-px px-2 pb-2">
           {sidebarData.isLoading ? (

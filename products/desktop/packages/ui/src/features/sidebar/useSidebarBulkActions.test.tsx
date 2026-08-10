@@ -242,12 +242,18 @@ describe("useSidebarBulkActions", () => {
     ]);
   });
 
-  it("disables File to when the bluebird flag is off", () => {
+  // `enabled: false` stops the fetch but still hands back whatever an ungated
+  // surface already put in the shared cache, so the flag has to gate the list.
+  it("offers no channels when the bluebird flag is off", () => {
     hoisted.useFeatureFlag.mockReturnValue(false);
-    hoisted.useChannels.mockReturnValue({ channels: [], isLoading: false });
+    hoisted.useChannels.mockReturnValue({
+      channels: [{ id: "c1", name: "support" }],
+      isLoading: false,
+    });
 
     const { result } = render();
 
+    expect(result.current.channels).toEqual([]);
     expect(result.current.fileDisabledReason).not.toBeNull();
     expect(hoisted.useChannels).toHaveBeenCalledWith({ enabled: false });
   });

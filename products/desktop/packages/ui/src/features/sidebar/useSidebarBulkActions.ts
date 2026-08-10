@@ -26,6 +26,9 @@ import { useCallback, useMemo, useState } from "react";
 
 const log = logger.scope("sidebar-bulk-actions");
 
+/** Stable empty list, so a gated-off channels array keeps a steady identity. */
+const EMPTY_CHANNELS: Channel[] = [];
+
 /** Clause after "Disabled because …" (see `@posthog/ui/primitives/Button`). */
 const NO_SELECTION = "you haven't selected any sessions";
 const NO_CHANNELS = "this project has no channels to file to";
@@ -52,13 +55,22 @@ export interface SidebarBulkActions {
 }
 
 /**
- * The four bulk actions the sidebar offers over a multi-session selection,
- * shared by the bulk action bar and the bulk right-click menu so the two can't
- * drift apart.
+ * What a bulk action needs to know about a session beyond its id: only enough
+ * to say whether archiving it would stop something. Narrower than `TaskData` so
+ * both session lists can feed this without one shape dictating the other.
+ */
+export type BulkSessionInfo = Pick<
+  TaskData,
+  "id" | "isGenerating" | "taskRunEnvironment" | "taskRunStatus"
+>;
+
+/**
+ * The four bulk actions offered over a multi-session selection, shared by the
+ * action bar and the bulk right-click menu so the two can't drift apart.
  */
 export function useSidebarBulkActions(
   taskIds: string[],
-  tasks: TaskData[],
+  tasks: BulkSessionInfo[],
 ): SidebarBulkActions {
   const queryClient = useQueryClient();
   const archiveCacheKeys = useArchiveCacheKeys();
@@ -67,13 +79,17 @@ export function useSidebarBulkActions(
   const { pinnedTaskIds, setPinnedMany, isSettingPinnedMany } =
     usePinnedTasks();
 
-  // "File to…" is a Project Bluebird feature. Gate the channel fetch behind the
-  // flag so neither the submenu nor its API request reaches ungated users.
+  // "File to…" is a Project Bluebird feature. `enabled` only stops the fetch, and
+  // an ungated surface elsewhere can still have filled the shared cache, so the
+  // flag has to gate the list itself rather than just the request.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const { channels } = useChannels({ enabled: bluebirdEnabled });
+  const { channels: fetchedChannels } = useChannels({
+    enabled: bluebirdEnabled,
+  });
+  const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
   const { fileTask } = useChannelTaskMutations();
 
   const [isArchiving, setIsArchiving] = useState(false);

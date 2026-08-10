@@ -134,7 +134,9 @@ export class ContextMenuService {
               type: "submenu",
               label: "File to…",
               items: channels.map((c) => ({
-                label: c.name,
+                // Channel names are stored bare; every surface that shows one
+                // adds the hash.
+                label: `#${c.name}`,
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,
@@ -225,7 +227,9 @@ export class ContextMenuService {
               type: "submenu" as const,
               label: "File to…",
               items: channels.map((c) => ({
-                label: c.name,
+                // Channel names are stored bare; every surface that shows one
+                // adds the hash.
+                label: `#${c.name}`,
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,
