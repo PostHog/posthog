@@ -689,9 +689,7 @@ async def maybe_autostart_implementation_task(
         )
         return
 
-    base_branch = None
-    if repository and team_config:
-        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+    base_branch = team_config.base_branch_for(repository) if team_config else None
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id
