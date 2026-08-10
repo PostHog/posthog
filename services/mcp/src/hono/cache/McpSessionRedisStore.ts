@@ -57,9 +57,10 @@ export class McpSessionRedisStore {
         try {
             const raw = await this.redis.get(this.compactKey)
             return raw === null ? null : (JSON.parse(raw) as SessionContext)
-        } catch {
+        } catch (err) {
             // Session context is enrichment, not authorization — a Valkey blip degrades
             // attribution to whatever this request carries rather than failing the call.
+            console.warn('[McpSessionRedisStore] compact read failed:', err)
             sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'read_error' })
             return null
         }
@@ -81,7 +82,10 @@ export class McpSessionRedisStore {
                 )
                 sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'write' })
             }
-        } catch {
+        } catch (err) {
+            // A lost merge means this session's context stops persisting for the rest of
+            // its life, so the request still succeeds while attribution silently decays.
+            console.warn('[McpSessionRedisStore] compact write failed:', err)
             sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'write_error' })
         }
     }

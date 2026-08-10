@@ -336,6 +336,7 @@ Concurrent requests merge their fields through a Lua compare-and-merge, so a fie
 
 Monitor `mcp_session_cache_operations_total` for `read_error` and `write_error`.
 Both are non-blocking: a failed read serves whatever context the current request carries, so attribution degrades rather than the call failing.
+Each also logs a warning prefixed `[McpSessionRedisStore]`, so a Redis failure on this path is greppable in logs and not only visible on the metrics counter.
 
 ### Edge-proxy worker (Cloudflare)
 
