@@ -124,6 +124,7 @@ export class TeamManager {
                 t.anonymize_ips,
                 t.api_token,
                 t.secret_api_token,
+                t.secret_api_token_backup,
                 t.session_recording_opt_in,
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
@@ -139,7 +140,7 @@ export class TeamManager {
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
-            WHERE t.id = ANY($1) OR t.api_token = ANY($2)
+            WHERE t.id = ANY($1) OR t.api_token = ANY($2) OR t.secret_api_token = ANY($2) OR t.secret_api_token_backup = ANY($2)
             `,
             [teamIds, tokens],
             'fetch-teams-with-features'
@@ -167,6 +168,12 @@ export class TeamManager {
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team
+            if (row.secret_api_token) {
+                resultRecord[row.secret_api_token] = team
+            }
+            if (row.secret_api_token_backup) {
+                resultRecord[row.secret_api_token_backup] = team
+            }
         })
 
         return resultRecord
