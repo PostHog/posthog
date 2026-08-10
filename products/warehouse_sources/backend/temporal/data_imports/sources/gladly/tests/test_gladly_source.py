@@ -6,7 +6,11 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gladly import GladlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import GladlyResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
+    ENDPOINTS,
+    REPORT_ENDPOINTS,
+    REPORT_INCREMENTAL_LOOKBACK_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source import GladlySource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -63,15 +67,27 @@ class TestGladlySource:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Every stream carries the injected job watermark, so all are incremental.
         assert all(schema.supports_incremental for schema in schemas)
-        assert all(schema.supports_append for schema in schemas)
+        # Report rows restate in place as conversations change, so appending
+        # would duplicate them — report streams are merge-only.
+        for schema in schemas:
+            assert schema.supports_append is (schema.name not in REPORT_ENDPOINTS)
 
-    def test_schemas_advertise_the_injected_job_cursor(self):
+    def test_schemas_advertise_the_expected_cursor(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         for schema in schemas:
-            assert [f["field"] for f in schema.incremental_fields] == ["_job_updated_at"]
+            # Job-export streams cursor on the injected job watermark; report
+            # streams cursor on the conversation's own creation timestamp.
+            expected = ["created_at"] if schema.name in REPORT_ENDPOINTS else ["_job_updated_at"]
+            assert [f["field"] for f in schema.incremental_fields] == expected
+
+    def test_report_schemas_default_to_a_restatement_lookback(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        lookbacks = {schema.name: schema.default_incremental_lookback_seconds for schema in schemas}
+        assert lookbacks["conversations"] == REPORT_INCREMENTAL_LOOKBACK_SECONDS
+        assert all(seconds is None for name, seconds in lookbacks.items() if name not in REPORT_ENDPOINTS)
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["customers"])
