@@ -145,7 +145,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "billing"
     scope_object_read_actions = ["list", "usage", "spend"]
     scope_object_write_actions: list[str] = []
-    # Surface in OpenAPI despite root-router registration. See preprocess_exclude_path_format.
+    # OpenAPI skips root-router viewsets that derive their team from the current user.
+    # Billing opts in so generated clients and MCP scaffolding include these read actions.
     force_include_in_api_docs = True
 
     def get_billing_manager(self) -> BillingManager:
