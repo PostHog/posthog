@@ -318,7 +318,7 @@ describe('KafkaConsumerV2', () => {
         // The task finished inside the drain budget, while the partition was still assigned, so
         // its offsets are stored (and committed on the unassign below) rather than discarded —
         // discarding them is what made the next owner replay completed work. A task that misses
-        // the budget is fenced instead: see the "Generation tag" test.
+        // the budget is fenced instead: see the "Partition fence" test.
         expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ offset: 2, partition: 0, topic: 'test-topic' }])
 
         // Snapshot offsetsStore + unassign call counts before the reassign so we can assert
@@ -338,13 +338,74 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore.mock.calls.length).toBe(offsetCallsBeforeReassign)
     })
 
+    it('empty polls behind a slow batch keep polling: they hold no backpressure slot and never strand a rebalance', async () => {
+        // Mirrors the CDP cyclotron worker: callEachBatchWhenEmpty on, a handful of background
+        // slots. An empty poll stores no offsets, so it must not queue behind the slow batch —
+        // enough of them doing that exhausts the budget and the loop stops polling, which strands
+        // every rebalance until the slow batch finishes.
+        ;(consumer as any).maxBackgroundTasks = 3
+        ;(consumer as any).config.callEachBatchWhenEmpty = true
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        const slow = triggerablePromise()
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], slow.promise)
+
+        for (let i = 0; i < 5; i++) {
+            releaseConsume()
+            await delay(2)
+        }
+
+        // Only the slow batch occupies a slot, and the loop armed another consume().
+        expect((consumer as any).inFlight.length).toBe(1)
+        expect(consumeCallback).toBeDefined()
+
+        // A revoke now reaches the loop, which drains and gives the partition up once the slow
+        // batch settles. Wedged, none of this would happen until the batch finished.
+        fireRevoke()
+        slow.resolve()
+        await delay(30)
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+    })
+
+    it('the fence is per partition: a laggard task still stores the partition it kept, never the one it lost', async () => {
+        ;(consumer as any).maxBackgroundTasks = 5
+        ;(consumer as any).drainTimeoutMs = 30 // the task settles after the drain gives up
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch, [
+            { topic: 'test-topic', partition: 0 },
+            { topic: 'test-topic', partition: 1 },
+        ])
+
+        const slow = triggerablePromise()
+        await dispatchBatch(
+            eachBatch,
+            [createMessage({ offset: 5, partition: 0 }), createMessage({ offset: 9, partition: 1 })],
+            slow.promise
+        )
+
+        // Only partition 0 is revoked; we keep partition 1.
+        fireRevoke([{ topic: 'test-topic', partition: 0 }])
+        await delay(60)
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+
+        slow.resolve()
+        await delay(20)
+
+        // Partition 1's progress is ours to commit — it never left. Partition 0's is not, because
+        // another member may own it now. A global fence would have dropped both, stalling
+        // partition 1's commit until some later revoke replayed everything since.
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledTimes(1)
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 1, offset: 10 }])
+    })
+
     it('H3 regression: out-of-order task completion — drain awaits ALL settled before unassign', async () => {
         // The v1 H3 race was: drain awaited t.promise (raw), so the late task's storeOffsets
         // could fire AFTER incrementalUnassign. v2 fixes this two ways:
         //   (a) drain awaits the post-storeOffsets `settled` chain, not the raw task; and
-        //   (b) the generation bump after the drain fences anything that settles later, so a task
+        //   (b) the epoch bump after the drain fences anything that settles later, so a task
         //       that missed the budget can't store against a partition we gave up (see the
-        //       "Generation tag" test).
+        //       "Partition fence" test).
         //
         // This test verifies (a) directly: with two tasks resolving out of order, drainAll awaits
         // both settled callbacks before incrementalUnassign fires. If drain awaited only `raw`,
@@ -644,9 +705,9 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 10 }])
     })
 
-    it('Generation tag: a settle that fires after a generation bump skips storeOffsets', async () => {
+    it('Partition fence: a settle that fires after the partition is given up skips storeOffsets', async () => {
         ;(consumer as any).maxBackgroundTasks = 5
-        ;(consumer as any).drainTimeoutMs = 30 // force drain timeout so generation bump precedes resolve
+        ;(consumer as any).drainTimeoutMs = 30 // force drain timeout so the epoch bump precedes resolve
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
 
@@ -654,11 +715,11 @@ describe('KafkaConsumerV2', () => {
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], slow.promise)
 
         fireRevoke()
-        // Drain times out → loop calls incrementalUnassign → state goes IDLE; generation bumped.
+        // Drain times out → loop calls incrementalUnassign → state goes IDLE; the epoch is bumped.
         await delay(60)
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalled()
 
-        // Resolve the slow task AFTER generation bump.
+        // Resolve the slow task AFTER the epoch bump.
         slow.resolve()
         await delay(20)
 
