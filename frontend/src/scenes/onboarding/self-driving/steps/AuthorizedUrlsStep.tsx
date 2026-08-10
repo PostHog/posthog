@@ -45,7 +45,7 @@ export function AuthorizedUrlsStep({
                     type="primary"
                     status="alt"
                     onClick={onContinue}
-                    disabledReason={authorizedUrls.length === 0 ? 'Add at least one URL' : undefined}
+                    disabledReason={authorizedUrls.length === 0 ? 'Add at least one URL' : null}
                 >
                     Continue
                 </LemonButton>

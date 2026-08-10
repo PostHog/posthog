@@ -88,10 +88,10 @@ describe('onboardingLogic', () => {
         expect(updates).toEqual(
             expect.arrayContaining([
                 {
-                    session_recording_opt_in: true,
                     autocapture_exceptions_opt_in: true,
                 },
                 {
+                    session_recording_opt_in: true,
                     session_recording_masking_config: { maskAllInputs: true },
                     capture_console_log_opt_in: true,
                     capture_performance_opt_in: true,

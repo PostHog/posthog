@@ -126,33 +126,51 @@ export const onboardingLogic = kea<onboardingLogicType>([
             const setup = resolveSetup(useCase)
             const products = productKeysForSetup(useCase)
             const options = optionsForSetup(setup)
+            const needsReplayAdminSetup =
+                options.includes('replay_masking_floor') && team?.session_recording_masking_config == null
             try {
                 if (!team) {
                     throw new Error('Current team is not loaded')
                 }
                 const {
+                    session_recording_opt_in,
                     session_recording_masking_config,
                     capture_console_log_opt_in,
                     capture_performance_opt_in,
                     heatmaps_opt_in,
                     capture_dead_clicks,
-                    ...memberOptions
+                    ...otherOptions
                 } = optionsPayload(team, options)
+                const memberOptions = needsReplayAdminSetup
+                    ? otherOptions
+                    : {
+                          ...otherOptions,
+                          ...(session_recording_opt_in ? { session_recording_opt_in } : {}),
+                      }
                 if (Object.keys(memberOptions).length > 0) {
                     await teamLogic.asyncActions.updateCurrentTeam(memberOptions)
                 }
-                const adminOptions = {
-                    session_recording_masking_config,
-                    capture_console_log_opt_in,
-                    capture_performance_opt_in,
-                    heatmaps_opt_in,
-                    capture_dead_clicks,
-                }
+                const adminOptions = needsReplayAdminSetup
+                    ? {
+                          ...(session_recording_opt_in ? { session_recording_opt_in } : {}),
+                          session_recording_masking_config,
+                          capture_console_log_opt_in,
+                          capture_performance_opt_in,
+                          heatmaps_opt_in,
+                          capture_dead_clicks,
+                      }
+                    : {
+                          session_recording_masking_config,
+                          capture_console_log_opt_in,
+                          capture_performance_opt_in,
+                          heatmaps_opt_in,
+                          capture_dead_clicks,
+                      }
                 if (Object.values(adminOptions).some(Boolean)) {
                     try {
                         await teamLogic.asyncActions.updateCurrentTeam(adminOptions)
                     } catch {
-                        // Admin-only options do not block onboarding completion.
+                        lemonToast.warning('Some settings could not be enabled. An admin can finish them later.')
                     }
                 }
                 await Promise.all(
