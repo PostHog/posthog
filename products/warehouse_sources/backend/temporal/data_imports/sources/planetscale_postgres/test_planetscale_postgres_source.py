@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_postgres.source import (
     PlanetScalePostgresSource,
+    _is_psbouncer_port,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -77,6 +78,16 @@ def test_fields_are_retargeted_at_planetscale(field_name, expected_placeholder):
     assert _field(field_name).placeholder == expected_placeholder
 
 
+def test_connection_string_placeholder_is_a_planetscale_url():
+    # The connection string is the other way in, so it has to carry the same host shape and the
+    # mandatory TLS mode; the inherited Postgres example points at neither.
+    placeholder = _field("connection_string").placeholder
+
+    assert placeholder is not None
+    assert _DIRECT_HOST in placeholder
+    assert "sslmode=verify-full" in placeholder
+
+
 def test_port_field_warns_that_psbouncer_cannot_do_cdc():
     caption = _field("port").caption
 
@@ -116,6 +127,14 @@ def test_cdc_on_the_psbouncer_port_fails_without_connecting(port):
     super_check.assert_not_called()
     assert len(errors) == 1
     assert "5432" in errors[0]
+
+
+@pytest.mark.parametrize("port", [None, "", "not-a-port"])
+def test_a_port_that_is_not_a_number_is_not_treated_as_psbouncer(port):
+    # The port reaches this check as whatever the stored job inputs hold, so it can be missing or
+    # unparseable. Guessing 6432 would block CDC on a source that never named that port; leave the
+    # Postgres prerequisites to report whatever is actually wrong with it.
+    assert _is_psbouncer_port(port) is False
 
 
 def test_cdc_on_the_direct_port_defers_to_postgres():
