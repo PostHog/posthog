@@ -6224,7 +6224,7 @@ def list_thread_messages(
     """A task's thread, ascending. ``None`` when the task isn't visible to the user."""
     if _visible_task(task_id, team_id, user_id) is None:
         return None
-    messages = (
+    messages = list(
         TaskThreadMessage.objects.filter(task_id=task_id, team_id=team_id)
         # The thread is human-to-human plus artifact announcements; rows written
         # back when the agent finished a turn (a since-removed behavior) stay out.
@@ -6232,7 +6232,6 @@ def list_thread_messages(
         .select_related("author", "forwarded_by")
         .order_by("created_at", "id")
     )
-    messages = list(messages)
     # One query for the whole thread's mentions rather than one per message: clients need
     # them to tell "mentioned you" rows from ordinary ones without re-parsing content.
     mentions_by_message: dict[UUID, list[int]] = {}
