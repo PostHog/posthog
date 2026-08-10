@@ -28,6 +28,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
 
 def _make_factory(team) -> MarketingSourceFactory:
@@ -482,22 +483,23 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
 
 
 class TestNativeCampaignTableResolution(BaseTest):
-    def _make_table(self, schema_name: str, prefix: str = "") -> DataWarehouseTable:
-        """Build a DataWarehouseTable mock named the way `build_table_name` names them:
-        `{user_prefix}{source_type}_{schema_name}`, lowercased.
-        """
-        table = Mock()
-        table.name = f"{prefix}googleads_{schema_name}"
-        return cast(DataWarehouseTable, table)
-
-    def _create_config(self, tables: list[DataWarehouseTable]) -> GoogleAdsConfig | None:
+    def _make_source(self, prefix: str = "") -> Mock:
         source = Mock()
         source.id = "googleads_source_id"
         source.source_type = "GoogleAds"
+        source.prefix = prefix
+        return source
+
+    def _make_table(self, schema_name: str, prefix: str = "") -> DataWarehouseTable:
+        table = Mock()
+        table.name = build_table_name(self._make_source(prefix), schema_name)
+        return cast(DataWarehouseTable, table)
+
+    def _create_config(self, tables: list[DataWarehouseTable]) -> GoogleAdsConfig | None:
         return cast(
             GoogleAdsConfig | None,
             _make_factory(self.team)._create_native_config(
-                source, tables, NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig
+                self._make_source(), tables, NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig
             ),
         )
 
