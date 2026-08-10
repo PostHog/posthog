@@ -237,6 +237,13 @@ export function ArtifactPreview({
         : { id: focusedThreadId, nonce: focus.nonce },
     );
   }, [focus, focusedThreadId, threads]);
+  const currentLocateRequest =
+    focus &&
+    !focus.scrollTo &&
+    focusedThreadId &&
+    locateRequest?.nonce === focus.nonce
+      ? locateRequest
+      : null;
 
   const activateThread = useCallback(
     (id: string) =>
@@ -345,7 +352,7 @@ export function ArtifactPreview({
       markdownContainerRef={markdownContainerRef}
       annotationComments={annotationComments}
       focusedThreadId={focusedThreadId}
-      locateRequest={locateRequest}
+      locateRequest={currentLocateRequest}
       members={members}
       activateThread={activateThread}
       createAnchoredComment={createAnchoredComment}

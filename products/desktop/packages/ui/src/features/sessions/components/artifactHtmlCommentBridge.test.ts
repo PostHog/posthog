@@ -1,6 +1,6 @@
 // @ts-expect-error jsdom ships no bundled types; only the test harness needs it
 import { JSDOM } from "jsdom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
 import { COMMENT_ACTION_BUTTON_THEMES } from "./selectionCommentAction";
 
@@ -237,6 +237,42 @@ describe("artifactHtmlCommentBridge", () => {
       type: "selection-position",
       rect: { top: 20, right: 110, bottom: 30 },
     });
+    dom.window.close();
+  });
+
+  it("locates each navigation request only once", () => {
+    const dom = loadBridgeDocument("<html><body><p>text</p></body></html>");
+    const scrollIntoView = vi.fn();
+    dom.window.Element.prototype.scrollIntoView = scrollIntoView;
+    const send = (data: Record<string, unknown>) =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          data: { marker: BRIDGE_MARKER, channel: CHANNEL, ...data },
+          source: dom.window,
+        }),
+      );
+
+    send({
+      type: "comments",
+      items: [
+        {
+          id: "comment-1",
+          anchor: {
+            kind: "text",
+            quote: "text",
+            prefix: "",
+            suffix: "",
+            start: 0,
+            end: 4,
+          },
+        },
+      ],
+    });
+    send({ type: "locate", id: "comment-1", nonce: 1 });
+    send({ type: "locate", id: "comment-1", nonce: 1 });
+    send({ type: "locate", id: "comment-1", nonce: 2 });
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
     dom.window.close();
   });
 

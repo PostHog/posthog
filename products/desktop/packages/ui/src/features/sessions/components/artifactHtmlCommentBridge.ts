@@ -75,6 +75,7 @@ function runArtifactHtmlCommentBridge({
     selectionTimer: 0,
     renderTimer: 0,
     positionFrame: 0,
+    locateNonce: null as number | null,
     entries: [] as Array<{ id: string; range: Range }>,
     items: [] as BridgeComment[],
     theme: initialTheme as string,
@@ -415,7 +416,13 @@ function runArtifactHtmlCommentBridge({
     const data = event.data as Record<string, unknown> | null;
     if (!data || data.marker !== marker || data.channel !== channel) return;
     if (data.type === "comments") renderComments(data.items);
-    else if (data.type === "locate" && typeof data.id === "string") {
+    else if (
+      data.type === "locate" &&
+      typeof data.id === "string" &&
+      typeof data.nonce === "number" &&
+      data.nonce !== state.locateNonce
+    ) {
+      state.locateNonce = data.nonce;
       locateComment(data.id);
     } else if (
       data.type === "theme" &&

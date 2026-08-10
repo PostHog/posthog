@@ -152,6 +152,7 @@ export function AnnotatedArtifactHtml({
         channel: channelRef.current,
         type: "locate",
         id: locateRequest.id,
+        nonce: locateRequest.nonce,
       });
     }
     return next;
