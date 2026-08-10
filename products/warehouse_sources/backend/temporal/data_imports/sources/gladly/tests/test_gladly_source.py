@@ -6,7 +6,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gladly import GladlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import GladlyResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import ENDPOINTS, REPORT_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source import GladlySource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -63,15 +63,28 @@ class TestGladlySource:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Every stream carries the injected job watermark, so all are incremental.
         assert all(schema.supports_incremental for schema in schemas)
-        assert all(schema.supports_append for schema in schemas)
+        # Report windows are re-read on resume and behind the watermark, so
+        # appending would duplicate rows — report streams are merge-only.
+        for schema in schemas:
+            assert schema.supports_append is (schema.name not in REPORT_ENDPOINTS)
 
-    def test_schemas_advertise_the_injected_job_cursor(self):
+    def test_schemas_advertise_the_expected_cursor(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         for schema in schemas:
-            assert [f["field"] for f in schema.incremental_fields] == ["_job_updated_at"]
+            # Job-export streams cursor on the injected job watermark; report
+            # streams cursor on the event's own recorded time.
+            expected = ["timestamp"] if schema.name in REPORT_ENDPOINTS else ["_job_updated_at"]
+            assert [f["field"] for f in schema.incremental_fields] == expected
+
+    def test_report_schemas_start_opt_in(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        # Event-grain report tables are high-volume, so enabling them must be
+        # an explicit choice; job-export streams keep syncing by default.
+        for schema in schemas:
+            assert schema.should_sync_default is (schema.name not in REPORT_ENDPOINTS)
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["customers"])
