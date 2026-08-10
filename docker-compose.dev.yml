@@ -238,6 +238,10 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
+            objectstorage:
+                # SeaweedFS creates the ai-blobs bucket asynchronously, and the AI blob store
+                # healthchecks the bucket at startup, so wait for the bootstrap sentinel.
+                condition: service_healthy
             personhog-router:
                 condition: service_started
         healthcheck:

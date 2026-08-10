@@ -575,6 +575,17 @@ services:
             COOKIELESS_REDIS_PORT: 6379
             CDP_REDIS_HOST: redis7
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+            # Combined mode runs the AI consumer on events_plugin_ingestion_ai, which is where
+            # capture diverts $ai_* events, so it needs the same blob offload config as the
+            # dedicated ingestion-ai service. Without a bucket, buildAiBlobStore returns null and
+            # multimodal payloads are stored inline instead of as phaiblob:// pointers.
+            AI_BLOB_S3_BUCKET: ai-blobs
+            AI_BLOB_S3_PREFIX: 'aio/'
+            AI_BLOB_S3_ENDPOINT: 'http://objectstorage:19000'
+            AI_BLOB_S3_REGION: us-east-1
+            AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
+            AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
+            AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion-ai:
         command: node nodejs/dist/index.js
