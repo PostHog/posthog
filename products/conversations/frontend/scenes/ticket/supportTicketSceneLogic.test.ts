@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -939,5 +940,85 @@ describe('supportTicketSceneLogic sidePanelContext', () => {
             access_control_resource: 'ticket',
             access_control_resource_id: 'ticket-1',
         })
+    })
+})
+
+describe('supportTicketSceneLogic discussion polling', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+    const discussionProps = { scope: ActivityScope.TICKET, item_id: 'ticket-1' }
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: true })
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    // refreshComments, not loadComments: loadComments scrolls the side panel to the newest comment on
+    // every success, so polling with it would move a reader off their place every 20 seconds.
+    it('refreshes the ticket-scoped discussion without moving the reader', async () => {
+        const discussion = commentsLogic(discussionProps)
+        discussion.mount()
+        const refreshComments = jest.spyOn(discussion.actions, 'refreshComments')
+        const loadComments = jest.spyOn(discussion.actions, 'loadComments')
+
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(refreshComments).toHaveBeenCalledTimes(1)
+        expect(loadComments).not.toHaveBeenCalled()
+
+        refreshComments.mockRestore()
+        loadComments.mockRestore()
+        discussion.unmount()
+    })
+
+    // An edit or a completed task leaves the comment count untouched, so a count-based gate would
+    // leave the card and the open panel showing text nobody has written for a while.
+    it('refreshes even when no comment was added or removed', async () => {
+        const discussion = commentsLogic(discussionProps)
+        discussion.mount()
+        const refreshComments = jest.spyOn(discussion.actions, 'refreshComments')
+
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(refreshComments).toHaveBeenCalledTimes(2)
+
+        refreshComments.mockRestore()
+        discussion.unmount()
+    })
+
+    it('does not refresh when the discussions flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]: false })
+        const discussion = commentsLogic(discussionProps)
+        discussion.mount()
+        const refreshComments = jest.spyOn(discussion.actions, 'refreshComments')
+
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(refreshComments).not.toHaveBeenCalled()
+
+        refreshComments.mockRestore()
+        discussion.unmount()
+    })
+
+    // findMounted is only a null guard. In the app the ticket page mounts this logic to render its
+    // cards, so the poll does reach it on every open ticket; this covers the torn-down case only.
+    it('does not throw when the discussion logic is not mounted', async () => {
+        expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+
+        logic.actions.pollDiscussionThread()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(commentsLogic.findMounted(discussionProps)).toBeNull()
     })
 })
