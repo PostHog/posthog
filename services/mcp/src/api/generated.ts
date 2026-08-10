@@ -16290,6 +16290,11 @@ export namespace Schemas {
     }
 
     /**
+     * Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.
+     */
+    export type ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3;
+
+    /**
      * * `EventsNode` - EventsNode
      * * `ActionsNode` - ActionsNode
      * * `DataWarehouseNode` - DataWarehouseNode
@@ -16302,6 +16307,108 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
       DataWarehouseNode: 'DataWarehouseNode',
     } as const;
+
+    export type PartialConversionGoalFilter1Response = { [key: string]: unknown } | null;
+
+    export type PartialConversionGoalFilter1SchemaMap = {[key: string]: string | unknown} | null;
+
+    /**
+     * ConversionGoalFilter1 with every field optional - the fields you send are merged into the stored goal.
+     */
+    export interface PartialConversionGoalFilter1 {
+      conversion_goal_id?: string | null;
+      conversion_goal_name?: string | null;
+      counts_as_customer?: boolean | null;
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      event?: string | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      kind?: 'EventsNode' | null;
+      limit?: number | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      orderBy?: string[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: PartialConversionGoalFilter1Response;
+      schema_map?: PartialConversionGoalFilter1SchemaMap;
+      version?: number | null;
+    }
+
+    export type PartialConversionGoalFilter2Response = { [key: string]: unknown } | null;
+
+    export type PartialConversionGoalFilter2SchemaMap = {[key: string]: string | unknown} | null;
+
+    /**
+     * ConversionGoalFilter2 with every field optional - the fields you send are merged into the stored goal.
+     */
+    export interface PartialConversionGoalFilter2 {
+      conversion_goal_id?: string | null;
+      conversion_goal_name?: string | null;
+      counts_as_customer?: boolean | null;
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      id?: number | null;
+      kind?: 'ActionsNode' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: PartialConversionGoalFilter2Response;
+      schema_map?: PartialConversionGoalFilter2SchemaMap;
+      version?: number | null;
+    }
+
+    export type PartialConversionGoalFilter3Response = { [key: string]: unknown } | null;
+
+    export type PartialConversionGoalFilter3SchemaMap = {[key: string]: string | unknown} | null;
+
+    /**
+     * ConversionGoalFilter3 with every field optional - the fields you send are merged into the stored goal.
+     */
+    export interface PartialConversionGoalFilter3 {
+      conversion_goal_id?: string | null;
+      conversion_goal_name?: string | null;
+      counts_as_customer?: boolean | null;
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      distinct_id_field?: string | null;
+      dw_source_type?: string | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      id?: string | null;
+      id_field?: string | null;
+      kind?: 'DataWarehouseNode' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: PartialConversionGoalFilter3Response;
+      schema_map?: PartialConversionGoalFilter3SchemaMap;
+      table_name?: string | null;
+      timestamp_field?: string | null;
+      version?: number | null;
+    }
+
+    export type ConversionGoalPatch = PartialConversionGoalFilter1 | PartialConversionGoalFilter2 | PartialConversionGoalFilter3;
 
     export interface ConversionGoalSummary {
       /** Unique id of the goal (event name, action id, or DW goal id) */
@@ -16357,6 +16464,23 @@ export namespace Schemas {
          * @nullable
          */
       approximation_reason: string | null;
+    }
+
+    export interface ConversionGoalWrite {
+      /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent is ignored. */
+      goal: ConversionGoal;
+    }
+
+    /**
+     * List wrapper for OpenAPI schema generation - the response carries every configured goal.
+     */
+    export type ConversionGoalWrittenList = (ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3)[];
+
+    export interface ConversionGoalWriteResponse {
+      /** The goal as stored after the write */
+      goal: ConversionGoal;
+      /** Every configured goal after the write, in display order */
+      conversion_goals: ConversionGoalWrittenList;
     }
 
     export interface ConversionGoalsListResponse {
@@ -52889,6 +53013,14 @@ export namespace Schemas {
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
       readonly task?: ConversationTask | null;
+    }
+
+    /**
+     * Separate from create: the body is a patch, so the documented partial has to type-check.
+     */
+    export interface PatchedConversionGoalUpdate {
+      /** The fields to change, merged into the stored goal — anything you leave out is kept, and the goal keeps its position in the list. schema_map is merged key by key. The merged result must still match one of the ConversionGoalFilter shapes. Send `kind` only to change the goal's shape, in which case the goal is replaced rather than merged and the whole new shape is required. conversion_goal_id comes from the URL and any value sent is ignored. */
+      goal?: ConversionGoalPatch;
     }
 
     export interface PatchedCoreEvent {
