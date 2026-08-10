@@ -504,6 +504,112 @@ class TestAgentAssistActions:
         assert response.sort_mode == "desc"
 
 
+class TestArticleTables:
+    def test_articles_walk_pages_to_the_total_and_dedupes_shifted_rows(self) -> None:
+        # The catalog can mutate between page fetches, so a row can shift pages mid-walk;
+        # full-refresh writes are appends, so the shifted copy must be skipped.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 3}),
+            _make_response({"articles": [{"id": 2}, {"id": 3}], "total": 3}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert sent_params == [
+            {"page": "1", "page_size": "100"},
+            {"page": "2", "page_size": "100"},
+        ]
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3]]
+
+    def test_shifted_duplicate_does_not_end_the_walk_before_the_total(self) -> None:
+        # The server's total counts unique articles. A row that shifted pages arrives
+        # twice but is kept once; counting raw items against the total would stop one
+        # page early and silently drop the final page's articles.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 4}),
+            _make_response({"articles": [{"id": 2}, {"id": 3}], "total": 4}),
+            _make_response({"articles": [{"id": 4}], "total": 4}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert len(sent_params) == 3
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3], [4]]
+
+    def test_page_contributing_nothing_new_ends_the_walk(self) -> None:
+        # A server that ignores the page param would otherwise repeat the same page
+        # forever without the kept-row count ever reaching the total.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 10}),
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 10}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert len(sent_params) == 2
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
+
+    def test_article_usage_is_a_single_request_pinned_to_utc(self) -> None:
+        # The timezone param changes how usage is bucketed; leaving it to the account
+        # default would let a dashboard setting silently shift the numbers.
+        manager = _fresh_manager()
+        responses = [_make_response({"usage": [{"article_id": 1, "count": 5}]})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="article_usage")
+
+        assert sent_params == [{"timezone": "UTC"}]
+        assert [len(b) for b in batches] == [1]
+        manager.save_state.assert_not_called()
+
+    def test_articles_response_caps_batcher_chunks_for_document_rows(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="articles",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created_at"]
+        assert response.chunk_size == 500
+        assert response.chunk_size_bytes == 50 * 1024 * 1024
+
+    def test_article_usage_response_is_keyless_and_unpartitioned(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="article_usage",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys is None
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+
+class TestTags:
+    def test_tags_is_a_single_request_with_counts(self) -> None:
+        # get_counts populates human_count/total_count; dropping the param silently
+        # empties both columns.
+        manager = _fresh_manager()
+        responses = [_make_response({"tags": [{"id": 1, "parent_id": None}, {"id": 2, "parent_id": 1}]})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="tags")
+
+        assert sent_params == [{"get_counts": "true"}]
+        assert [[t["id"] for t in b] for b in batches] == [[1, 2]]
+        manager.save_state.assert_not_called()
+
+    def test_tags_response_is_unpartitioned_with_id_key(self) -> None:
+        # Tags carry no timestamp; wiring the datetime partitioning every other stream
+        # uses would fail the sync on a missing column.
+        response = decagon_source(
+            api_key="key",
+            endpoint="tags",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+
 class TestToEpochSeconds:
     # The pipeline hands the DateTime watermark back as a datetime, a date, or an epoch
     # number depending on how it round-tripped through storage; the request boundary must
