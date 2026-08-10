@@ -20,9 +20,9 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 
 from products.error_tracking.backend.facade import (
     api as facade_api,
+    contracts,
     issues as issues_facade,
 )
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
     ErrorTrackingExternalReferenceSerializer,
@@ -38,7 +38,7 @@ WRITABLE_ISSUE_STATUSES = ["active", "resolved", "suppressed"]
 
 
 @extend_schema_field(
-    {"type": "string", "enum": [severity.value for severity in ErrorTrackingIssue.Severity]},
+    {"type": "string", "enum": list(contracts.ERROR_TRACKING_ISSUE_SEVERITIES)},
     component_name="ErrorTrackingIssueSeverity",
 )
 class ErrorTrackingIssueSeverityField(serializers.ChoiceField):
@@ -83,7 +83,7 @@ class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
         help_text="Issue status to set. Deprecated archived and pending_release values are rejected.",
     )
     severity = ErrorTrackingIssueSeverityField(
-        choices=ErrorTrackingIssue.Severity.choices,
+        choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,
         required=False,
         allow_null=True,
         help_text="Issue severity to set, or null to remove the assigned severity.",
