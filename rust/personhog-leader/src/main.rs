@@ -17,6 +17,7 @@ use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tokio::sync::Notify;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tonic::codec::CompressionEncoding;
@@ -322,7 +323,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.ingestion_warnings_topic.clone(),
     );
     let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
-    let mut fence_repair_nudge: Option<std::sync::Arc<tokio::sync::Notify>> = None;
+    let mut fence_repair_nudge: Option<Arc<Notify>> = None;
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
         // directly, so an operator debugging a fenced-write timeout has
@@ -340,8 +341,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // A condemned producer's repair otherwise waits for the next
         // reconcile tick; this nudge lets the condemnation itself
         // trigger the repair pass that heals it.
-        let repair_nudge = std::sync::Arc::new(tokio::sync::Notify::new());
-        fence_repair_nudge = Some(std::sync::Arc::clone(&repair_nudge));
+        let repair_nudge = Arc::new(Notify::new());
+        fence_repair_nudge = Some(Arc::clone(&repair_nudge));
         // The fenced producer runs on a tighter message timeout than the
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {

@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, Notify, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -4162,7 +4162,7 @@ async fn a_repair_nudge_converges_without_waiting_for_reconcile() {
         events: Arc::clone(&events),
         verified: Arc::clone(&verified),
     };
-    let nudge = Arc::new(tokio::sync::Notify::new());
+    let nudge = Arc::new(Notify::new());
     let pod = personhog_coordination::pod::PodHandle::new(
         Arc::clone(&store),
         personhog_coordination::pod::PodConfig {

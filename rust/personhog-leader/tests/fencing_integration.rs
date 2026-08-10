@@ -18,6 +18,7 @@ use personhog_leader::fencing::{
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_proto::personhog::types::v1::Person;
+use tokio::sync::Notify;
 use tokio::time::sleep;
 
 use common::{test_kafka_config, KAFKA_BOOTSTRAP};
@@ -382,7 +383,7 @@ async fn a_completed_warm_keeps_its_fence() {
 #[tokio::test]
 async fn a_condemnation_nudges_repair_once() {
     let topic = format!("fence_repair_{}", uuid::Uuid::new_v4().simple());
-    let nudge = Arc::new(tokio::sync::Notify::new());
+    let nudge = Arc::new(Notify::new());
     let producers = fenced_producers(&topic).with_repair_nudge(Arc::clone(&nudge));
     producers.acquire(3).await.expect("acquire the fence");
 
