@@ -460,6 +460,7 @@ A report you author renders in the inbox like any pipeline report: `title` is th
 
 - **Title:** one tight headline naming the issue and the entity it affects.
 - **Summary:** front-load the verdict and structure the body per *Writing the summary* below.
+- **Style:** write the title and summary in Simplified Technical English, following the `writing-simplified-technical-english` skill: one meaning per word, active voice, simple tenses, one idea per sentence.
 - **Evidence:** concrete observations (`description` + a stable `source_id`). These are the report's backbone and what the safety judge, and any later research, reasons over. At least one is required.
 - **Actionability:** set `actionability` honestly. `immediately_actionable` surfaces as READY, `requires_human_input` as PENDING_INPUT, `not_actionable` is suppressed. The safety judge can suppress regardless, so don't inflate it.
 - **Already addressed:** set `already_addressed` when the fix has landed *or* is already in flight: an open pull request, a recently active branch, or an assigned / in-progress issue or agent task covering the same problem. An immediately-actionable report can open a draft PR on its own, so leaving this `false` on work someone already has going produces a competing PR the team has to throw away. Say what you found in `actionability_explanation` and keep filing the report: a team wants to know the issue is real and being handled, it just must not be worked twice.
