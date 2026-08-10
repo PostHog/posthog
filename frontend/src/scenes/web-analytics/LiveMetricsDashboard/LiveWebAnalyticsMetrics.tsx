@@ -370,12 +370,27 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         label="Users online"
                         value={displayedLiveUserCount}
                         isLoading={hasActiveFilters ? isLoading : undefined}
+                        tooltip="People active on your site right now."
                     />
                 )
             case 'unique_visitors':
-                return <LiveStatCard label="Unique visitors" value={totalUniqueVisitors} isLoading={isLoading} />
+                return (
+                    <LiveStatCard
+                        label="Unique visitors"
+                        value={totalUniqueVisitors}
+                        isLoading={isLoading}
+                        tooltip="Distinct visitors in the last 30 minutes."
+                    />
+                )
             case 'pageviews':
-                return <LiveStatCard label="Pageviews" value={totalPageviews} isLoading={isLoading} />
+                return (
+                    <LiveStatCard
+                        label="Pageviews"
+                        value={totalPageviews}
+                        isLoading={isLoading}
+                        tooltip="Total pages viewed in the last 30 minutes."
+                    />
+                )
         }
     }
 
