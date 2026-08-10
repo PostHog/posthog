@@ -81,6 +81,18 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "star",
     ]
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        # Channel has a UUID primary key. A non-UUID pk reaches the facade and makes
+        # UUIDField.to_python raise a ValidationError that DRF turns into a 500, so
+        # reject it here as a clean 404 like the nested viewsets below.
+        pk = self.kwargs.get("pk")
+        if pk is not None:
+            try:
+                UUID(pk)
+            except (ValueError, TypeError):
+                raise NotFound("Channel not found")
+
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 

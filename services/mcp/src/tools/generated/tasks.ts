@@ -60,7 +60,9 @@ const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDT
 })
 
 const ChannelInstructionsRetrieveSchema = TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
-    id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe('ID of the channel whose instructions to read.'),
+    id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe(
+        'UUID of the channel whose instructions to read, as returned by channel-list.'
+    ),
 })
 
 const channelInstructionsRetrieve = (): ToolBase<
@@ -83,7 +85,7 @@ const ChannelInstructionsUpdateSchema = TaskChannelsInstructionsUpdateParams.omi
     .extend(TaskChannelsInstructionsUpdateBody.shape)
     .extend({
         id: TaskChannelsInstructionsUpdateParams.shape['id'].describe(
-            'ID of the channel whose instructions to update.'
+            'UUID of the channel whose instructions to update, as returned by channel-list.'
         ),
         base_version: ChannelInstructionsBaseVersionSchema,
     })
@@ -132,7 +134,7 @@ const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChan
 })
 
 const ChannelRetrieveSchema = TaskChannelsRetrieveParams.omit({ project_id: true }).extend({
-    id: TaskChannelsRetrieveParams.shape['id'].describe('ID of the channel to read.'),
+    id: TaskChannelsRetrieveParams.shape['id'].describe('UUID of the channel to read, as returned by channel-list.'),
 })
 
 const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.ChannelDTO> => ({

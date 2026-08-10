@@ -43,7 +43,7 @@ tools:
             channel with no instructions yet reads as a blank version 0.
         param_overrides:
             id:
-                description: ID of the channel whose instructions to read.
+                description: UUID of the channel whose instructions to read, as returned by channel-list.
     channel-instructions-update:
         operation: task_channels_instructions_update
         enabled: true
@@ -60,7 +60,7 @@ tools:
             another update changes the document.
         param_overrides:
             id:
-                description: ID of the channel whose instructions to update.
+                description: UUID of the channel whose instructions to update, as returned by channel-list.
             base_version:
                 input_schema: ChannelInstructionsBaseVersionSchema
     channel-list:
@@ -89,7 +89,7 @@ tools:
         description: One channel by id, including its name and type.
         param_overrides:
             id:
-                description: ID of the channel to read.
+                description: UUID of the channel to read, as returned by channel-list.
     code-invites-check-access-retrieve:
         operation: code_invites_check_access_retrieve
         enabled: false

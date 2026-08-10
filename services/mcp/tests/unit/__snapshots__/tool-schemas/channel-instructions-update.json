@@ -13,7 +13,7 @@
             "type": "string"
         },
         "id": {
-            "description": "ID of the channel whose instructions to update.",
+            "description": "UUID of the channel whose instructions to update, as returned by channel-list.",
             "type": "string"
         }
     },

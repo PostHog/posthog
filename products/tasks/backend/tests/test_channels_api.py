@@ -74,6 +74,17 @@ class ChannelsAPITestCase(TestCase):
         second = self.client.post(self._channels_url(), {"name": "growth ideas"})
         self.assertEqual(second.json()["id"], first.json()["id"])
 
+    @parameterized.expand(
+        [
+            ("retrieve", ""),
+            ("instructions", "instructions/"),
+            ("versions", "instructions/versions/"),
+        ]
+    )
+    def test_non_uuid_channel_id_is_404_not_500(self, _name, suffix):
+        response = self.client.get(f"{self._channels_url()}209862/{suffix}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_personal_channel_cannot_be_renamed_or_deleted(self):
         self.client.get(self._channels_url())
         # Direct ORM reads in tests bypass the DRF-set team context, so opt out
