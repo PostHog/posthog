@@ -54,10 +54,10 @@ an unproven SHA posts the reply without the commit link and never auto-resolves.
 against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or
 dependency manifests delivers a human-review warning instead of the link and never auto-resolves either.
 
-**TODO (BLOCKING — before any rollout beyond the dogfood team / public release) — the two remaining
-injection-surface hardening items from the July e2e GO conditions.** The path backstop above is built; these two
-are deliberately deferred (maintainer decision 2026-08-06, recorded in DECISIONS.md Stage 7) and MUST land before
-the resolution stage runs on PRs the team does not own:
+**TODO (BLOCKING — before any rollout beyond the dogfood team / public release) — the three remaining
+injection-surface hardening items from the July e2e GO conditions.** The path backstop above is built; these
+are deliberately deferred (maintainer decisions 2026-08-06 and 2026-08-10, recorded in DECISIONS.md Stage 7)
+and MUST land before the resolution stage runs on PRs the team does not own:
 
 1. **Structural comment rendering** — thread comments still render as flat text in the resolution prompt, so a
    commenter can forge an "OWNER" header or a fake "SAFE TO FIX" verdict inside their own comment
@@ -68,6 +68,13 @@ the resolution stage runs on PRs the team does not own:
    hard part (review bots and external contributors both carry `author_association: NONE`, so a naive filter
    drops exactly the bot threads the stage exists to resolve). Decide which associations may drive write turns
    and how trusted bots stay in scope.
+3. **Pre-push restricted-paths enforcement** — the path backstop is detection, not prevention: GitHub's
+   `createCommitOnBranch` makes commit and push one atomic act, so a fix commit touching `.github/`, CODEOWNERS,
+   or dependency manifests is already on the PR branch (and CI is already running it) before
+   `commit_restricted_paths` looks. The guard must move into the signed-commit tooling itself, before the
+   mutation fires — a cross-product change (desktop agent package `signed-git-tool` / `signed-commit.ts` plus
+   the Tasks facade threading the policy in, plus a sandbox image rebuild), which is why it is a gate rather
+   than a fix in this repo.
 
 **Reviewing includes resolving**: a published review chains into the stage when the acting user's
 `resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,
@@ -122,8 +129,9 @@ the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "�
 (`RUN_LOG.md`, `POTENTIAL_EXPERIMENTS.md`, `experiments/`).
 
 **Before real users:** settle the "ReviewHog Alpha" published-comment wording (see
-[Known issues](#known-issues--tech-debt)), and land the two BLOCKING resolution-stage hardening TODOs above
-(structural comment rendering + author-permission gate) — they gate any rollout beyond the dogfood team.
+[Known issues](#known-issues--tech-debt)), and land the three BLOCKING resolution-stage hardening TODOs above
+(structural comment rendering + author-permission gate + pre-push restricted-paths enforcement) — they gate any
+rollout beyond the dogfood team.
 
 ---
 
@@ -605,7 +613,9 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users
   see it.
 - **TODO (BLOCKING public release) — resolution-stage injection hardening, deferred by decision.** Structural
-  (JSON) comment rendering in the resolution prompt and the author-permission gate are NOT built; only the
-  prompt floors + the delivery path backstop stand between a hostile PR comment and a write turn. Do not widen
-  `REVIEWHOG_TEAM_IDS` or ship the resolution stage publicly before both land — see the BLOCKING TODO in
+  (JSON) comment rendering in the resolution prompt, the author-permission gate, and pre-push restricted-paths
+  enforcement in the signed-commit tooling are NOT built; only the prompt floors + the post-push delivery
+  backstop stand between a hostile PR comment and a write turn (and the backstop cannot un-push — the commit is
+  on the branch, and CI has seen it, before the check runs). Do not widen `REVIEWHOG_TEAM_IDS` or ship the
+  resolution stage publicly before all three land — see the BLOCKING TODO in
   [Status & next](#status--next) and DECISIONS.md Stage 7.

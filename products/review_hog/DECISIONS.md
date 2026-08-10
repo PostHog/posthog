@@ -2977,7 +2977,12 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    CODEOWNERS, or dependency manifests/lockfiles is never presented as settled: the reply carries a human-review
    warning instead of the commit link, `thread_verdict.commit_restricted` persists, and `should_resolve` refuses
    it (delivered verdict settles as SKIP, thread stays open). Security-sensitive _code_ stays prompt-judged —
-   it is not path-derivable. Deferred to pre-GA: structural (JSON) comment rendering in the resolution prompt
+   it is not path-derivable. Residual (accepted 2026-08-10, dogfood only): the backstop is post-push
+   containment, not prevention — `createCommitOnBranch` makes commit and push one atomic act, so a restricted
+   commit is already on the PR branch (and CI has already run against it) before the check fires; nothing
+   un-pushes it. Pre-push enforcement needs a guard inside the signed-commit tooling (desktop agent package +
+   Tasks facade + sandbox image — outside this product), recorded as BLOCKING pre-public-release gate 3 in
+   ARCHITECTURE.md the same date. Deferred to pre-GA: structural (JSON) comment rendering in the resolution prompt
    (e2e-gated — forged author headers / fake SAFE TO FIX), and the author-permission gate policy (which
    `author_association`s may drive a write turn; naive filters drop the bot threads the stage exists for).
    _Built 2026-08-10 (off the second review round on PR #72074):_ three verified findings fixed. **Watermark
