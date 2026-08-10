@@ -63,6 +63,13 @@ class TestGladlySource:
         error = "500 Server Error for url: https://myorg.gladly.com/api/v1/export/jobs"
         assert not any(key in error for key in non_retryable_errors)
 
+    def test_retryable_errors_match_read_timeout(self):
+        # response.raw streaming in _report_rows raises this bare urllib3 message when Gladly
+        # stalls generating a report, uncaught by generate_report's own retry decorator.
+        retryable_errors = self.source.get_retryable_errors()
+        error = "HTTPSConnectionPool(host='myorg.us-1.gladly.com', port=443): Read timed out."
+        assert any(key in error for key in retryable_errors)
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
