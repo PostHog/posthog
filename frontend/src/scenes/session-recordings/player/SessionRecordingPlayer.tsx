@@ -60,6 +60,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingData,
         autoPlay,
         withSidebar,
+        noMeta,
+        noDock,
         mode,
         playerRef,
         pinned,

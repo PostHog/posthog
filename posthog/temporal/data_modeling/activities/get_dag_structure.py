@@ -64,7 +64,11 @@ class DAG:
 def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     """Retrieve all nodes and edges for a DAG from the database."""
     nodes = Node.objects.filter(team_id=team_id, dag_id=dag_id)
-    executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW, NodeType.ENDPOINT])
+    # a node outlives the query it points at, because deleting one is best-effort while soft-deleting
+    # the query is not. running it can only fail, so it must not reach the materialization activity.
+    executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW, NodeType.ENDPOINT]).exclude(
+        saved_query__deleted=True
+    )
     ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
     edges = (
         Edge.objects.prefetch_related("source", "target")

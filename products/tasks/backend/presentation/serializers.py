@@ -30,6 +30,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelInstructionsDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
+    SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
     TaskAutomationDTO,
@@ -54,6 +55,7 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactAdapter,
     TaskArtifactStatus,
     TaskArtifactType,
+    get_model_access_error,
     get_reasoning_effort_error,
 )
 
@@ -84,6 +86,14 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
         for_control=True,
     )
     return task_runtime == tasks_facade.TaskRuntime.PI
+
+
+def request_distinct_id(context: dict[str, Any]) -> str | None:
+    """The acting user's distinct id, for flag evaluation. `None` when there isn't one."""
+    user = getattr(context.get("request"), "user", None)
+    if user is None or not user.is_authenticated or not user.distinct_id:
+        return None
+    return str(user.distinct_id)
 
 
 def _capture_rejected_reasoning_effort(
@@ -134,6 +144,11 @@ class TaskUserBasicInfoSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = TaskUserBasicInfo
+
+
+class SlackThreadReferenceSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SlackThreadReferenceDTO
 
 
 TASK_RUN_ARTIFACT_MAX_SIZE_BYTES = 30 * 1024 * 1024
@@ -280,6 +295,15 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    uploaded_by = serializers.ChoiceField(
+        choices=["agent", "user"],
+        required=False,
+        help_text="Whether the artifact version was uploaded by the task agent or an interactive user.",
+    )
+    uploaded_by_user_id = serializers.IntegerField(
+        required=False,
+        help_text="User id for an interactive user upload. Absent for agent uploads and legacy entries.",
+    )
     dismissed_at = serializers.CharField(
         required=False,
         help_text="Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
@@ -391,6 +415,7 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    slack_thread_references = SlackThreadReferenceSerializer(many=True, read_only=True)
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
         read_only=True,
@@ -423,6 +448,7 @@ class TaskSerializer(DataclassSerializer):
             "created_by",
             "ci_prompt",
             "channel",
+            "slack_thread_references",
         ]
 
 
@@ -717,6 +743,12 @@ class TaskWriteSerializer(serializers.Serializer):
                 )
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
+
+        # Write-only and never persisted, but it selects which warm Run gets activated, so a
+        # gated model here still runs one. Reject rather than silently cold-creating instead.
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
 
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
@@ -2397,6 +2429,10 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
                 error=reasoning_effort_error,
             )
 
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+
         if errors:
             raise serializers.ValidationError(errors)
 
@@ -2594,6 +2630,10 @@ class TaskRunBootstrapCreateRequestSerializer(
                 error=reasoning_effort_error,
             )
 
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+
         if errors:
             raise serializers.ValidationError(errors)
 
@@ -2616,6 +2656,16 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         max_length=255,
         help_text="Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
     )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=3,
+        help_text="GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.",
+    )
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        return TaskWriteSerializer().validate_repositories(value)
+
     github_integration = serializers.IntegerField(
         required=False,
         default=None,
@@ -2682,6 +2732,11 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Repository and GitHub integration must either both be provided or both be omitted."
             )
+
+        # Warming starts the agent on this model, so it bills like a run and gates like one.
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
         return attrs
 
 

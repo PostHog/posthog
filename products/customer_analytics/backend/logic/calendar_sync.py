@@ -23,6 +23,10 @@ EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 BACKFILL_DAYS = 365
 PAGE_SIZE = 250
 SYNC_TOKEN_CONFIG_KEY = "calendar_sync_token"
+SYNC_STARTED_AT_CONFIG_KEY = "calendar_sync_started_at"
+LAST_SYNCED_AT_CONFIG_KEY = "calendar_last_synced_at"
+# Matches the sync activity's start_to_close timeout: past this, an unfinished run is dead.
+SYNC_STALE_AFTER = timedelta(minutes=30)
 
 PERSON_EMAIL_LOOKUP_QUERY = """
 SELECT id, properties.email
@@ -34,7 +38,7 @@ ORDER BY is_identified DESC, created_at ASC, id ASC
 GROUP_KEY_BY_DISTINCT_ID_QUERY = """
 SELECT distinct_id, argMaxIf({group_col}, timestamp, {group_col} != '') AS group_key
 FROM events
-WHERE distinct_id IN {distinct_ids} AND timestamp > now() - INTERVAL 90 DAY
+WHERE distinct_id IN {{distinct_ids}} AND timestamp > now() - INTERVAL 90 DAY
 GROUP BY distinct_id
 """
 
@@ -70,6 +74,9 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     connected_email = (integration.config or {}).get("email", "")
     internal_domain = _domain_of(connected_email)
 
+    integration.config[SYNC_STARTED_AT_CONFIG_KEY] = timezone.now().isoformat()
+    integration.save(update_fields=["config"])
+
     counts = CalendarSyncCounts()
     sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
     try:
@@ -78,6 +85,7 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
         next_sync_token = _sync_events(team, access_token, None, internal_domain, counts)
 
     integration.config[SYNC_TOKEN_CONFIG_KEY] = next_sync_token
+    integration.config[LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
     integration.save(update_fields=["config"])
     return counts
 
@@ -137,6 +145,8 @@ def _process_events(team: Team, events: list[dict], internal_domain: str, counts
 
     external_emails = {p["email"] for parsed in to_upsert for p in parsed["participants"] if not p["is_internal"]}
     accounts_by_email = _match_accounts_for_emails(team, sorted(external_emails))
+    all_emails = {p["email"] for parsed in to_upsert for p in parsed["participants"]}
+    person_uuid_by_email = _person_uuids_by_email(team, sorted(all_emails))
 
     for parsed in to_upsert:
         account = next(
@@ -147,7 +157,7 @@ def _process_events(team: Team, events: list[dict], internal_domain: str, counts
             counts.matched += 1
         else:
             counts.unmatched_emails.update(p["email"] for p in parsed["participants"] if not p["is_internal"])
-        _upsert_meeting(team, parsed, account)
+        _upsert_meeting(team, parsed, account, person_uuid_by_email)
         counts.upserted += 1
 
 
@@ -197,7 +207,7 @@ def _parse_event(event: dict, internal_domain: str) -> dict | None:
     }
 
 
-def _upsert_meeting(team: Team, parsed: dict, account: Account | None) -> None:
+def _upsert_meeting(team: Team, parsed: dict, account: Account | None, person_uuid_by_email: dict[str, str]) -> None:
     defaults = {
         "title": parsed["title"],
         "description": parsed["description"],
@@ -225,8 +235,11 @@ def _upsert_meeting(team: Team, parsed: dict, account: Account | None) -> None:
                 "display_name": participant["display_name"],
                 "response_status": participant["response_status"],
                 "is_organizer": participant["is_organizer"],
+                "person_id": person_uuid_by_email.get(participant["email"]),
             },
         )
+    current_emails = [participant["email"] for participant in parsed["participants"]]
+    MeetingParticipant.objects.for_team(team.id).filter(meeting=meeting).exclude(email__in=current_emails).delete()
 
 
 def _delete_filtered_out(team: Team, event: dict) -> None:
@@ -295,7 +308,9 @@ def _match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Accou
     return matched
 
 
-def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int) -> dict[str, str]:
+def _person_uuids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
+    if not emails:
+        return {}
     # Deferred: hogql.query pulls the whole query-runner layer into module import.
     from posthog.hogql import ast  # noqa: PLC0415
     from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -312,6 +327,15 @@ def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int
         lower = (prop_email or "").lower()
         if lower and lower not in email_to_uuid:
             email_to_uuid[lower] = str(person_uuid)
+    return email_to_uuid
+
+
+def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int) -> dict[str, str]:
+    # Deferred: hogql.query pulls the whole query-runner layer into module import.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
+    email_to_uuid = _person_uuids_by_email(team, emails)
     if not email_to_uuid:
         return {}
 
