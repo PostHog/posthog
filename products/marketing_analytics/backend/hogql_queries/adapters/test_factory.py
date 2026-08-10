@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, NativeMarketingSource
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
@@ -30,15 +30,18 @@ from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
-def _make_factory(team) -> MarketingSourceFactory:
-    date_range = QueryDateRange(
-        date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-        team=team,
-        interval=None,
-        now=datetime.now(),
-    )
-    context = QueryContext(date_range=date_range, team=team, base_currency=DEFAULT_CURRENCY)
-    return MarketingSourceFactory(context=context)
+class FactoryTestMixin:
+    team: Team
+
+    def _make_factory(self) -> MarketingSourceFactory:
+        date_range = QueryDateRange(
+            date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
+        context = QueryContext(date_range=date_range, team=self.team, base_currency=DEFAULT_CURRENCY)
+        return MarketingSourceFactory(context=context)
 
 
 class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):
@@ -172,7 +175,7 @@ class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):
         assert "custom_source" not in str(mappings)
 
 
-class TestMetaAdsConfigDiscovery(BaseTest):
+class TestMetaAdsConfigDiscovery(FactoryTestMixin, BaseTest):
     """Test suite for native config discovery of optional ad-group / ad tables.
 
     The factory must correctly populate `adset_table` / `adset_stats_table` /
@@ -212,7 +215,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
     def test_meta_only_campaign_tables_yields_config_with_no_optional_tables(self):
         """Bare-minimum sync (campaigns + campaign_stats) → adapter loads but
         cannot serve AD_GROUP / AD."""
-        factory = _make_factory(self.team)
+        factory = self._make_factory()
         tables = [self._make_table("campaigns"), self._make_table("campaign_stats")]
 
         config = self._create_meta_config(factory, tables)
@@ -228,7 +231,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
     def test_meta_with_full_hierarchy_yields_all_six_tables(self):
         """All Meta resources synced → all six slots populated → adapter supports
         every drill-down level."""
-        factory = _make_factory(self.team)
+        factory = self._make_factory()
         tables = [
             self._make_table("campaigns"),
             self._make_table("campaign_stats"),
@@ -248,7 +251,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
 
     def test_meta_with_only_adset_tables_supports_ad_group_but_not_ad(self):
         """Partial hierarchy (adsets but no ads) → AD_GROUP works, AD doesn't."""
-        factory = _make_factory(self.team)
+        factory = self._make_factory()
         tables = [
             self._make_table("campaigns"),
             self._make_table("campaign_stats"),
@@ -266,7 +269,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
 
     def test_meta_without_required_campaign_tables_returns_none(self):
         """Missing campaigns or campaign_stats → adapter can't load at all."""
-        factory = _make_factory(self.team)
+        factory = self._make_factory()
         tables_no_stats = [self._make_table("campaigns")]
         assert self._create_meta_config(factory, tables_no_stats) is None
 
@@ -274,7 +277,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
         assert self._create_meta_config(factory, tables_no_campaign) is None
 
 
-class TestNativeHierarchicalConfigDiscovery(BaseTest):
+class TestNativeHierarchicalConfigDiscovery(FactoryTestMixin, BaseTest):
     """Verifies `_create_native_config` populates adset/ad slots for every native source
     that has a hierarchy entry. Without this, a working sync looks dead in the UI: the
     factory loads a campaign-only config and `supports_level(AD_GROUP/AD)` returns False.
@@ -430,7 +433,7 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         just non-None, so a regression that broke the `if adset_unified: ...` wiring
         would surface here.
         """
-        factory = _make_factory(self.team)
+        factory = self._make_factory()
         # Deduplicate by schema: in production each schema is one DataWarehouseTable,
         # and unified-mode sources reuse the same table for both entity and stats slots.
         unique_schemas = list(
@@ -464,7 +467,7 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         prefix: str,
         schemas: dict[str, str],
     ):
-        factory = _make_factory(self.team)
+        factory = self._make_factory()
         unique_schemas = list(dict.fromkeys(schemas[k] for k in ("campaign", "stats", "adset", "adset_stats")))
         tables = [self._make_table(prefix, schema) for schema in unique_schemas]
 
@@ -481,7 +484,7 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
             )
 
 
-class TestNativeCampaignTableResolution(BaseTest):
+class TestNativeCampaignTableResolution(FactoryTestMixin, BaseTest):
     def _make_source(self, prefix: str = "") -> Mock:
         source = Mock()
         source.id = "googleads_source_id"
@@ -499,7 +502,7 @@ class TestNativeCampaignTableResolution(BaseTest):
     def _create_config(self, tables: list[DataWarehouseTable]) -> GoogleAdsConfig | None:
         return cast(
             GoogleAdsConfig | None,
-            _make_factory(self.team)._create_native_config(
+            self._make_factory()._create_native_config(
                 self._make_source(), tables, NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig
             ),
         )
