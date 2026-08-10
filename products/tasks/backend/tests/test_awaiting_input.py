@@ -17,8 +17,9 @@ from products.tasks.backend.logic.services.awaiting_input import (
 from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import _broker_permission_request
 
+PERMISSION_REQUEST_ID = "perm-1"
 PERMISSION_REQUEST = {
-    "request_id": "perm-1",
+    "request_id": PERMISSION_REQUEST_ID,
     "tool_call": {"toolCallId": "tool-1"},
     "options": [{"optionId": "allow", "kind": "allow_once", "name": "Yes"}],
 }
@@ -114,10 +115,10 @@ class AwaitingInputTestCase(TestCase):
 
     def test_a_replayed_ask_does_not_revive_an_answered_request(self) -> None:
         run = self._run()
-        mark_task_run_awaiting_input(run, PERMISSION_REQUEST["request_id"])
-        clear_task_run_awaiting_input(run, PERMISSION_REQUEST["request_id"])
+        mark_task_run_awaiting_input(run, PERMISSION_REQUEST_ID)
+        clear_task_run_awaiting_input(run, PERMISSION_REQUEST_ID)
 
-        mark_task_run_awaiting_input(run, PERMISSION_REQUEST["request_id"])
+        mark_task_run_awaiting_input(run, PERMISSION_REQUEST_ID)
 
         run.refresh_from_db()
         self.assertIsNone(run.awaiting_input_at)
