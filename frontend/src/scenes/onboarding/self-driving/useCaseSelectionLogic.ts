@@ -16,7 +16,7 @@ export interface useCaseSelectionLogicActions {
     reportOnboardingUseCaseSelected: (
         useCase: string,
         recommendedProducts: readonly string[],
-        properties?: import('lib/utils/eventUsageLogic').OnboardingEventProperties
+        properties?: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
     ) => {
         properties: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
         recommendedProducts: readonly string[]

@@ -76,15 +76,6 @@ export interface onboardingEventUsageLogicActions {
     reportOnboardingGoalSelected: (goal: string) => {
         goal: string
     }
-    reportOnboardingUseCaseSelected: (
-        useCase: string,
-        recommendedProducts: readonly string[],
-        properties?: OnboardingEventProperties
-    ) => {
-        properties: OnboardingEventProperties | undefined
-        recommendedProducts: readonly string[]
-        useCase: string
-    }
     reportOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => {
         mode: 'cloud' | 'local'
     }
@@ -93,6 +84,15 @@ export interface onboardingEventUsageLogicActions {
     }
     reportOnboardingStepViewed: (stepId: SelfDrivingOnboardingStepId) => {
         stepId: SelfDrivingOnboardingStepId
+    }
+    reportOnboardingUseCaseSelected: (
+        useCase: string,
+        recommendedProducts: readonly string[],
+        properties?: OnboardingEventProperties
+    ) => {
+        properties: OnboardingEventProperties | undefined
+        recommendedProducts: readonly string[]
+        useCase: string
     }
     reportWizardSyncExpanded: (props: { mode: 'cloud' | 'local'; phase: string; runKey: string }) => {
         mode: 'cloud' | 'local'
