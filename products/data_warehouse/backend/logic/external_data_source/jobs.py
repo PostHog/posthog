@@ -157,12 +157,12 @@ def _sweep_v3_queue_batches_swallowing_errors(
     try:
         _sweep_v3_queue_batches(job_id=job_id, status=status, logger=logger)
     except Exception as e:
-        FINALIZE_QUEUE_SWEEP_ERRORS.inc()
         if _is_transient_queue_pool_timeout(e):
             # A pool-saturation blip, not a sweep bug — the stale-stranded reconcile sweep
             # already retries what this misses, so it isn't worth paging anyone over.
             logger.warning("dwh_finalize_queue_sweep_pool_timeout", job_id=job_id)
             return
+        FINALIZE_QUEUE_SWEEP_ERRORS.inc()
         logger.exception("dwh_finalize_queue_sweep_failed", job_id=job_id)
         capture_exception(e)
 
