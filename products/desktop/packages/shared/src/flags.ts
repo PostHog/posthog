@@ -1,4 +1,6 @@
 export const BILLING_FLAG = "posthog-code-billing";
+export const CLOUD_COMPUTE_BILLING_FLAG =
+  "posthog-desktop-cloud-compute-billing";
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
