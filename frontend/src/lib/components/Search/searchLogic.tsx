@@ -733,7 +733,7 @@ export const searchLogic = kea<searchLogicType>([
                 const allProducts = getTreeItemsProducts()
                 const productSearchKeywords: Record<string, string[]> = {
                     'Product analytics': ['insights'],
-                    'Support': ['tickets'],
+                    Support: ['tickets'],
                 }
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
