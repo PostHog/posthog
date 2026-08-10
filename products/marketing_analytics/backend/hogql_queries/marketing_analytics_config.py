@@ -106,6 +106,7 @@ class MarketingAnalyticsConfig:
 
     conversion_goal_precomputation_enabled: bool = False
     costs_precomputation_enabled: bool = False
+    reach_precomputation_enabled: bool = False
 
     @staticmethod
     def _precompute_flags(team: "Team") -> dict[str, bool]:
@@ -137,6 +138,16 @@ class MarketingAnalyticsConfig:
             ),
             "costs": feature_enabled_or_false(
                 "marketing-analytics-costs-precomputation",
+                str(team.uuid),
+                groups=groups,
+                group_properties=group_properties,
+            ),
+            # Separate flag from the two above: this one swaps the attribution table's *denominator*
+            # onto a web analytics pre-aggregated table. Different table, different failure mode (a
+            # silent divergence between the reach and credit sides rather than a slow query), and a
+            # different audience — only teams the web dimensional precompute job actually warms.
+            "reach": feature_enabled_or_false(
+                "marketing-analytics-reach-precomputation",
                 str(team.uuid),
                 groups=groups,
                 group_properties=group_properties,
@@ -177,6 +188,7 @@ class MarketingAnalyticsConfig:
         flags = cls._precompute_flags(team)
         config.conversion_goal_precomputation_enabled = flags["conversion"]
         config.costs_precomputation_enabled = flags["costs"]
+        config.reach_precomputation_enabled = flags["reach"]
 
         # Gate multi-touch attribution behind its flag; fall back to last-touch when disabled. Evaluated
         # only for multi-touch modes so single-touch never triggers the flag call.

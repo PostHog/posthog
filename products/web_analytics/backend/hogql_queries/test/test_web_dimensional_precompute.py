@@ -22,7 +22,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     BOUNCES_INSERT_TEMPLATE,
     DIMENSIONAL_TTL_SECONDS,
     STATS_INSERT_TEMPLATE,
-    _base_placeholders,
+    base_placeholders,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
@@ -221,7 +221,7 @@ class TestWebDimensionalPrecomputeTemplates(unittest.TestCase):
         # Mirror what ensure_precomputed supplies: caller placeholders plus the
         # framework-managed time window sentinels.
         return {
-            **_base_placeholders(),
+            **base_placeholders(),
             "time_window_min": ast.Constant(value="__MIN__"),
             "time_window_max": ast.Constant(value="__MAX__"),
         }

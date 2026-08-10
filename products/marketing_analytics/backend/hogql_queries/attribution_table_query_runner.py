@@ -35,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from .attribution_base import PERSON_ARRAYS_CTE, AttributionQueryRunnerBase
+from .attribution_reach_precompute import build_reach_from_precompute
 from .attribution_weights import (
     build_first_touch_weights,
     build_last_touch_weights,
@@ -102,7 +103,18 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
         Shares the touchpoint definition and the lookback-extended window with the credit side. Bounding
         visitors to the display window instead let a conversion be credited to a touch from before the
         range while its person was missing from the denominator, reporting rates above 100%.
+
+        Unlike the credit side this is not restricted to converters, so the live form below scans every
+        pageview in the window and joins each to `sessions` — the measured reason the whole query dies
+        on a high-volume team at a long span. Being a plain rollup, it can come from a pre-aggregated
+        table instead; see `attribution_reach_precompute`.
         """
+        if self.config.reach_precomputation_enabled:
+            with self.timings.measure("attribution_reach_precompute"):
+                precomputed = build_reach_from_precompute(self, date_range)
+            if precomputed is not None:
+                return precomputed
+
         breakdown = self._breakdown_expr()
         return ast.SelectQuery(
             select=[

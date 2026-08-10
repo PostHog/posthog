@@ -214,20 +214,23 @@ class AttributionQueryRunnerBase(MarketingAnalyticsBaseQueryRunner[ResponseType]
             source_mappings,
         )
 
-    def _normalized_campaign_expr(self, field: ast.Expr) -> ast.Expr:
+    def _normalized_campaign_expr(self, field: ast.Expr, source_field: ast.Expr | None = None) -> ast.Expr:
         """Collapse the team's dirty utm_campaign spellings onto the clean name they're mapped to.
 
         Without this a campaign whose UTMs vary lands as one row per spelling, and because the models
         credit each row independently, first touch can name one spelling while last touch names another
         — the comparison this table exists for then reads as a difference between campaigns that are
         the same campaign. Scoped by source, so the mapping is applied the way the Dashboard applies it.
+
+        `source_field` defaults to the session's entry source. Callers reading a table other than
+        `events` (the pre-aggregated reach path) pass their own, so the scoping stays equivalent.
         """
         from .utils import build_campaign_display_normalization_expr  # noqa: PLC0415 — avoids an import cycle
 
         raw_campaign = ast.Call(name="toString", args=[ast.Call(name="ifNull", args=[field, ast.Constant(value="")])])
         return build_campaign_display_normalization_expr(
             raw_campaign,
-            ast.Field(chain=["events", "session", "$entry_utm_source"]),
+            source_field if source_field is not None else ast.Field(chain=["events", "session", "$entry_utm_source"]),
             self.team.marketing_analytics_config,
         )
 

@@ -135,6 +135,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
 )
+from posthog.hogql.database.schema.web_bounces_dimensional_preaggregated import WebBouncesDimensionalPreaggregatedTable
 from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
 from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_frustration_preaggregated import WebStatsFrustrationPreaggregatedTable
@@ -435,6 +436,10 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "marketing_costs_preaggregated": TableNode(
                         name="marketing_costs_preaggregated",
                         table=MarketingCostsPreaggregatedTable(),
+                    ),
+                    "web_bounces_dimensional_preaggregated": TableNode(
+                        name="web_bounces_dimensional_preaggregated",
+                        table=WebBouncesDimensionalPreaggregatedTable(),
                     ),
                     "web_stats_paths_preaggregated": TableNode(
                         name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()

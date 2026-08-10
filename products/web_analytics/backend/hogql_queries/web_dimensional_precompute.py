@@ -295,7 +295,13 @@ def _mat_metadata_placeholders() -> dict[str, ast.Expr]:
     }
 
 
-def _base_placeholders() -> dict[str, ast.Expr]:
+def base_placeholders() -> dict[str, ast.Expr]:
+    """Placeholders every dimensional INSERT needs.
+
+    Public because marketing analytics' attribution reach path ensures the same bounces table and must
+    pass an identical insert query — the lazy-computation cache key is the query, so a different
+    placeholder set would compute a second, redundant copy of the same rows under its own job.
+    """
     return {
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
         **_mat_metadata_placeholders(),
@@ -314,7 +320,7 @@ def ensure_web_stats_dimensional_precomputed(
         time_range_end=time_range_end,
         ttl_seconds=DIMENSIONAL_TTL_SECONDS,
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
-        placeholders=_base_placeholders(),
+        placeholders=base_placeholders(),
         query_type="web_stats_dimensional_insert",
     )
 
@@ -331,6 +337,6 @@ def ensure_web_bounces_dimensional_precomputed(
         time_range_end=time_range_end,
         ttl_seconds=DIMENSIONAL_TTL_SECONDS,
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
-        placeholders=_base_placeholders(),
+        placeholders=base_placeholders(),
         query_type="web_bounces_dimensional_insert",
     )

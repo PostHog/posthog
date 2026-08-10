@@ -381,4 +381,45 @@ def wrap_with_lower(expr: ast.Expr) -> ast.Expr:
     )
 
 
+def create_preaggregated_channel_type_expr(timings=None) -> ast.Expr:
+    """Channel type computed from the columns every pre-aggregated web analytics table carries.
+
+    The v2 (`web_pre_aggregated_bounces`/`_stats`) and dimensional tables share this dimension set, so
+    one expression serves both. Callers must select it against a table exposing these column names.
+
+    Known gap: custom channel rules are not applied. Those can key on the full URL, which no
+    pre-aggregated table stores, so a team with custom rules gets the built-in classification here and
+    the custom one from `sessions.$channel_type` — the two will disagree. Callers that mix a
+    pre-aggregated channel with a live-session channel in one result must fall back to the live path
+    for such teams.
+    """
+    channel_type_exprs = ChannelTypeExprs(
+        campaign=wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_campaign"]))),
+        medium=wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_medium"]))),
+        source=wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_source"]))),
+        referring_domain=wrap_with_null_if_empty(ast.Field(chain=["referring_domain"])),
+        url=ast.Constant(value=None),  # URL not available in pre-aggregated tables
+        hostname=ast.Field(chain=["host"]),
+        pathname=ast.Field(chain=["entry_pathname"]),
+        has_gclid=ast.Field(chain=["has_gclid"]),
+        has_fbclid=ast.Field(chain=["has_fbclid"]),
+        # To keep this compatible with the non-pre-aggregated version, we need to return '1' when the
+        # boolean is true, null otherwise
+        gad_source=ast.Call(
+            name="if",
+            args=[
+                ast.Field(chain=["has_gad_source_paid_search"]),
+                ast.Constant(value="1"),
+                ast.Constant(value=None),
+            ],
+        ),
+    )
+
+    return create_channel_type_expr(
+        custom_rules=None,  # Custom rules not supported for pre-aggregated tables yet
+        source_exprs=channel_type_exprs,
+        timings=timings,
+    )
+
+
 DEFAULT_CHANNEL_TYPES = [entry.value for entry in DefaultChannelTypes]
