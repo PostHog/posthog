@@ -1186,7 +1186,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.api.billing.posthoganalytics.feature_enabled", return_value=True)
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_rejects_admin_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
         mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
 
@@ -1196,7 +1196,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
-    @patch("ee.api.billing.posthoganalytics.feature_enabled", return_value=True)
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_allows_owner_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -1208,7 +1208,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_called_once()
 
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
-    @patch("ee.api.billing.posthoganalytics.feature_enabled", return_value=True)
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_rejects_admin_limit_update(self, _mock_feature_enabled, mock_update_billing):
         response = self.client.patch(
             "/api/billing//",

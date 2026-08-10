@@ -20,6 +20,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -37,14 +38,10 @@ def _owner_only_billing_enabled(user: User, organization: Organization) -> bool:
         return False
 
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                OWNER_ONLY_BILLING_FLAG,
-                user.distinct_id,
-                groups=groups(organization=organization),
-                group_properties={"organization": {"id": str(organization.id)}},
-                send_feature_flag_events=False,
-            )
+        return posthog_feature_flag_enabled(
+            OWNER_ONLY_BILLING_FLAG,
+            str(user.distinct_id),
+            organization_id=organization.id,
         )
     except Exception as e:
         capture_exception(e, {"organization_id": organization.id, "flag": OWNER_ONLY_BILLING_FLAG})
