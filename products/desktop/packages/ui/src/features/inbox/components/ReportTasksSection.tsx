@@ -21,7 +21,7 @@ export function ReportTasksSection({ report }: ReportTasksSectionProps) {
   if (!reportTasks || reportTasks.length === 0) return null;
 
   return (
-    <RightColumnSection Icon={TerminalIcon} title="Runs">
+    <RightColumnSection Icon={TerminalIcon} title="Runs" collapsible>
       <Flex direction="column" gap="0.5">
         {reportTasks.map(({ task, purposeLabel }) => (
           <TaskRow
