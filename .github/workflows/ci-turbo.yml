@@ -69,5 +69,8 @@ jobs:
               run: |
                   bin/turbo build --affected --dry-run
               env:
-                  NODE_OPTIONS: --max-old-space-size=8192
+                  # Keep V8 well inside the 16 GB runner. An 8 GB ceiling let the heap reach
+                  # half the box before serious GC and starved the runner mid-job; the
+                  # --dry-run graph pass needs far less.
+                  NODE_OPTIONS: --max-old-space-size=4096
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
