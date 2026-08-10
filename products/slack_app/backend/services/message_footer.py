@@ -51,8 +51,14 @@ def app_home_url(integration: Integration) -> str | None:
     return f"https://slack.com/app_redirect?app={app_id}&team={integration.integration_id}&tab=home"
 
 
+def context_block(text: str) -> dict[str, Any]:
+    """A line of muted supporting text. Block Kit has no footer block; `context` is what
+    renders small and grey under the content it describes."""
+    return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
+
+
 def reply_footer_block(
-    provenance: RunProvenance | None = None,
+    provenance: RunProvenance,
     configure_url: str | None = None,
 ) -> dict[str, Any] | None:
     """The footer as a `context` block, or `None` when there is nothing to say.
@@ -61,7 +67,6 @@ def reply_footer_block(
     prose. A run with no links and no pinned model contributes no segments and gets no
     trailing line at all.
     """
-    provenance = provenance or RunProvenance()
     segments: list[str] = []
     if provenance.task_url:
         segments.append(f"<{provenance.task_url}|View on web>")
@@ -73,4 +78,4 @@ def reply_footer_block(
         segments.append(f"<{configure_url}|Configure>")
     if not segments:
         return None
-    return {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(segments)}]}
+    return context_block(" · ".join(segments))

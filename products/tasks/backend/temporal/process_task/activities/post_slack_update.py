@@ -133,12 +133,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.update_reaction("eyes")
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(
-                stage,
-                task_url,
-                model=provenance.model,
-                reasoning_effort=provenance.reasoning_effort,
-            )
+            handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 

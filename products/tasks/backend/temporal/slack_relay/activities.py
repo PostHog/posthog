@@ -417,7 +417,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         user_message_ts=input.user_message_ts,
         mentioning_slack_user_id=mapping.mentioning_slack_user_id,
     )
-    handler = SlackThreadHandler(context, run_provenance(task_run))
+    handler = SlackThreadHandler(context)
+    if handler.footer_enabled():
+        handler.provenance = run_provenance(task_run)
 
     # Mention resolution, most precise first: the echoed message's recorded
     # sender, then the live/mapping actors for pre-rollout runs.

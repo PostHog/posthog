@@ -1,5 +1,5 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import structlog
@@ -8,7 +8,13 @@ from slack_sdk import WebClient
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_message_footer_enabled
-from products.slack_app.backend.services.message_footer import RunProvenance, app_home_url, reply_footer_block
+from products.slack_app.backend.services.message_footer import (
+    RunProvenance,
+    app_home_url,
+    context_block,
+    reply_footer_block,
+)
+from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
 
 logger = structlog.get_logger(__name__)
@@ -29,6 +35,7 @@ DEFAULT_CANCELLED_RECOVERY_HINT = (
 
 _TASK_FIELD_LIMIT = 256
 _MARKDOWN_CHUNK_LIMIT = 12000
+_SECTION_TEXT_LIMIT = 3000
 
 
 def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[str]:
@@ -121,6 +128,7 @@ class SlackThreadHandler:
         self._integration: Integration | None = None
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
+        self._footer_flag: bool | None = None
 
     def _get_integration(self) -> Integration:
         if self._integration is None:
@@ -136,10 +144,13 @@ class SlackThreadHandler:
 
     def footer_enabled(self) -> bool:
         """Whether this workspace shows run provenance. Public so a caller can skip the
-        work of describing a run nobody will be shown."""
-        return is_slack_app_message_footer_enabled(self._get_integration())
+        work of describing a run nobody will be shown, and memoized because that caller
+        and the footer builder both ask."""
+        if self._footer_flag is None:
+            self._footer_flag = is_slack_app_message_footer_enabled(self._get_integration())
+        return bool(self._footer_flag)
 
-    def _footer_block(self) -> dict[str, Any] | None:
+    def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
         """This handler's footer, or `None` when the workspace isn't in the rollout.
 
         "Configure" points at the Home tab, so it only appears where that tab exists — a
@@ -156,7 +167,8 @@ class SlackThreadHandler:
         configure_url = app_home_url(integration)
         if configure_url and not is_slack_app_home_enabled(integration):
             configure_url = None
-        return reply_footer_block(self.provenance, configure_url)
+        provenance = self.provenance if include_task_url else replace(self.provenance, task_url=None)
+        return reply_footer_block(provenance, configure_url)
 
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
@@ -318,27 +330,21 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_app_status_stream_stop_failed", error=str(e))
 
-    def post_or_update_progress(
-        self,
-        stage: str,
-        task_url: str | None = None,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
-    ) -> None:
+    def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
         """Post a new progress message or update the existing one.
 
         The model rides along as a context line rather than its own message: which
         model is running is a property of the task, and the thread already has one
-        place that describes the task while it works.
+        place that describes the task while it works. Unlike the reply footer this
+        is not gated — a running task says what it is running on either way.
         """
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
 
-        model_line = reply_footer_block(RunProvenance(model=model, reasoning_effort=reasoning_effort))
-        if model_line:
-            blocks.append(model_line)
+        if self.provenance.model:
+            blocks.append(context_block(describe_run_model(self.provenance.model, self.provenance.reasoning_effort)))
 
         if task_url:
             blocks.append(
@@ -427,9 +433,6 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "actions", "elements": buttons},
         ]
-        footer = self._footer_block()
-        if footer:
-            blocks.append(footer)
 
         self._delete_progress_and_post(header, blocks)
 
@@ -441,17 +444,26 @@ class SlackThreadHandler:
         Passing it only adds blocks when there is actually a footer to show, so an
         ordinary message stays a plain-text post.
         """
-        footer = self._footer_block() if with_footer else None
+        # A section block caps at 3000 characters; over that, dropping the footer costs a
+        # line of provenance, while keeping it would cost the whole message.
+        footer = self._footer_block() if with_footer and len(text) <= _SECTION_TEXT_LIMIT else None
+        # No footer means no blocks at all, so an ordinary message stays the plain-text
+        # post it has always been. `expand` keeps the answer fully visible: a section
+        # collapses behind "Show more", which plain text never did.
+        blocks: list[dict[str, Any]] | None = (
+            [
+                {"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}},
+                footer,
+            ]
+            if footer
+            else None
+        )
         try:
             self._get_client().chat_postMessage(
                 channel=self.context.channel,
                 thread_ts=self.context.thread_ts,
                 text=text,
-                **(
-                    {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}, footer]}
-                    if footer
-                    else {}
-                ),
+                blocks=blocks,
             )
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
@@ -486,9 +498,6 @@ class SlackThreadHandler:
                     ],
                 }
             )
-        footer = self._footer_block()
-        if footer:
-            blocks.append(footer)
 
         self._delete_progress_and_post(header, blocks)
 
@@ -524,10 +533,6 @@ class SlackThreadHandler:
                 }
             )
 
-        footer = self._footer_block()
-        if footer:
-            blocks.append(footer)
-
         self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
 
     def post_cancelled(self, task_url: str | None, recovery_hint: str | None = DEFAULT_CANCELLED_RECOVERY_HINT) -> None:
@@ -556,9 +561,6 @@ class SlackThreadHandler:
                     ],
                 }
             )
-        footer = self._footer_block()
-        if footer:
-            blocks.append(footer)
 
         self._delete_progress_and_post(header, blocks)
 
@@ -567,7 +569,7 @@ class SlackThreadHandler:
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
-        self._delete_progress_and_post(text, blocks)
+        self._delete_progress_and_post(text, blocks, with_footer=False)
 
     def delete_progress(self) -> None:
         """Delete the progress message if it exists."""
@@ -579,8 +581,16 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_delete_progress_failed", error=str(e))
 
-    def _delete_progress_and_post(self, text: str, blocks: list[dict[str, Any]]) -> None:
-        """Delete progress message if exists and post final message."""
+    def _delete_progress_and_post(self, text: str, blocks: list[dict[str, Any]], with_footer: bool = True) -> None:
+        """Delete any progress message and post the final one in its place.
+
+        Terminal cards close with the provenance footer, minus the web link their own
+        button already carries.
+        """
+        if with_footer:
+            footer = self._footer_block(include_task_url=False)
+            if footer:
+                blocks = [*blocks, footer]
         try:
             self.delete_progress()
             self._get_client().chat_postMessage(

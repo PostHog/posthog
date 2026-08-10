@@ -44,13 +44,10 @@ class TestMessageFooter(SimpleTestCase):
 
         assert block == {"type": "context", "elements": [{"type": "mrkdwn", "text": expected}]}
 
-    @parameterized.expand([("no_arguments", None), ("empty_provenance", RunProvenance())])
-    def test_contributes_no_block_when_there_is_nothing_to_say(
-        self, _name: str, provenance: RunProvenance | None
-    ) -> None:
+    def test_contributes_no_block_when_there_is_nothing_to_say(self) -> None:
         # A context block with an empty `elements` list is rejected by Slack, which would
         # fail the whole message post rather than just dropping the footer.
-        assert reply_footer_block(provenance) is None
+        assert reply_footer_block(RunProvenance()) is None
 
     @parameterized.expand(
         [

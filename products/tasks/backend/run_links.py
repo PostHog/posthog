@@ -25,6 +25,8 @@ from products.tasks.backend.access import has_tasks_access
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.tasks.backend.models import TaskRun
+
 logger = get_logger(__name__)
 
 # The scheme a production desktop install registers. Dev builds register
@@ -33,14 +35,14 @@ logger = get_logger(__name__)
 DESKTOP_URL_SCHEME = "posthog-code"
 
 
-def run_provenance(task_run) -> RunProvenance:
+def run_provenance(task_run: TaskRun) -> RunProvenance:
     """Describe an already-loaded run for a footer. Pure apart from the access gate.
 
     Which model ran is not access-sensitive, so it survives the gate; only the links,
     which lead somewhere the reader may not be able to open, do not.
     """
     from products.tasks.backend.facade.run_config import (
-        parse_run_state,  # noqa: PLC0415 — keeps the tasks ORM off this import path
+        parse_run_state,  # noqa: PLC0415 — `facade.run_config` re-exports from a module that imports back here
     )
 
     state = parse_run_state(task_run.state)
@@ -63,7 +65,7 @@ def load_run_provenance(run_id: str | UUID | None) -> RunProvenance:
     Never raises: a footer is the last thing appended to an answer that is already
     written, so failing to describe the run must not cost the reader the answer.
     """
-    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — keeps the tasks ORM off this import path
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — deferred with `parse_run_state` above
 
     if not run_id:
         return RunProvenance()

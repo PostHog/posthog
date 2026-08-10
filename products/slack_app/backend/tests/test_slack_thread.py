@@ -404,7 +404,10 @@ class TestRelayedAnswerFooter(SimpleTestCase):
 
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["text"] == "the answer"
-        # Without a footer the message stays a plain-text post, with no blocks at all.
-        assert ("blocks" in kwargs) is expected
+        # Without a footer the message carries no blocks, staying the plain-text post it
+        # has always been.
+        assert bool(kwargs.get("blocks")) is expected
         if expected:
             assert kwargs["blocks"][-1]["type"] == "context"
+            # A section collapses behind "Show more" unless it is told to expand.
+            assert kwargs["blocks"][0]["expand"] is True
