@@ -1,0 +1,83 @@
+import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+
+import { buildExplanation, buildOptions, defaultCadenceWithin } from './SyncFrequencySelect'
+
+describe('SyncFrequencySelect', () => {
+    const blocker = (name: string): { id: string; name: string } => ({ id: `id-${name}`, name })
+
+    const bounds = (overrides: Partial<SyncFrequencyBoundsApi> = {}): SyncFrequencyBoundsApi =>
+        ({
+            frequency_mode: 'tiered',
+            options: [
+                { cadence: '15min', allowed: false, blocked_by: 'source', blocker: blocker('stripe_invoices') },
+                { cadence: '6hour', allowed: true, blocked_by: null, blocker: null },
+                { cadence: '24hour', allowed: false, blocked_by: 'consumer', blocker: blocker('daily_revenue') },
+            ],
+            floor: { label: '6 hours', blocker: blocker('stripe_invoices') },
+            ceiling: { label: '12 hours', blocker: blocker('daily_revenue') },
+            best_effort_sources: [],
+            ...overrides,
+        }) as SyncFrequencyBoundsApi
+
+    it('offers every cadence when the backend sends no bounds', () => {
+        const options = buildOptions(null)
+
+        expect(options).toHaveLength(8)
+        expect(options.every((option) => !option.disabledReason)).toBe(true)
+    })
+
+    it('disables a blocked cadence and names what blocks it', () => {
+        const options = buildOptions(bounds())
+
+        const bySource = options.find((option) => option.value === '15min')
+        const byConsumer = options.find((option) => option.value === '24hour')
+        expect(bySource?.disabledReason).toBe(
+            "stripe_invoices delivers every 6 hours, so this view can't be fresher than that."
+        )
+        expect(byConsumer?.disabledReason).toBe(
+            "daily_revenue needs data no older than 12 hours, so this view can't be slower than that."
+        )
+        expect(options.find((option) => option.value === '6hour')?.disabledReason).toBeUndefined()
+    })
+
+    it('explains the range only where a per-view cadence is writable', () => {
+        expect(buildExplanation(bounds())).toContain('Set this between 6 hours and 12 hours.')
+        expect(buildExplanation(bounds({ frequency_mode: 'dag_schedule' }))).toBeNull()
+        expect(buildExplanation(bounds({ floor: null, ceiling: null }))).toBeNull()
+    })
+
+    describe('defaultCadenceWithin', () => {
+        const withAllowed = (...allowed: string[]): SyncFrequencyBoundsApi =>
+            bounds({
+                options: ['15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'].map((cadence) => ({
+                    cadence,
+                    allowed: allowed.includes(cadence),
+                    blocked_by: null,
+                    blocker: null,
+                })),
+            } as Partial<SyncFrequencyBoundsApi>)
+
+        it('keeps the preferred cadence when the lineage allows it', () => {
+            expect(defaultCadenceWithin(withAllowed('6hour', '24hour'), '24hour')).toBe('24hour')
+        })
+
+        it('drops to the coarsest allowed cadence when a consumer rules the default out', () => {
+            // A sub-daily consumer is exactly the case that made Materialize a dead end.
+            expect(defaultCadenceWithin(withAllowed('15min', '30min', '1hour'), '24hour')).toBe('1hour')
+        })
+
+        it('goes finer only when nothing coarser than the default is allowed', () => {
+            expect(defaultCadenceWithin(withAllowed('7day', '30day'), '24hour')).toBe('30day')
+        })
+
+        it('leaves the preferred cadence alone when there are no bounds to honor', () => {
+            expect(defaultCadenceWithin(null, '24hour')).toBe('24hour')
+        })
+    })
+
+    it('warns that a source with no schedule makes the floor a guess', () => {
+        const explanation = buildExplanation(bounds({ best_effort_sources: [blocker('hubspot_contacts')] }))
+
+        expect(explanation).toContain('hubspot_contacts has no sync schedule')
+    })
+})

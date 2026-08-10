@@ -6,7 +6,6 @@ import { LemonBanner, LemonDialog, LemonTable, Link, Spinner } from '@posthog/le
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,12 +22,12 @@ import {
     DataModelingJob,
     DataModelingSyncInterval,
     LogEntryLevel,
-    OrNever,
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
+import { SyncFrequencySelect, SyncFrequencyValue, defaultCadenceWithin } from './SyncFrequencySelect'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
@@ -44,46 +43,6 @@ interface MaterializationStatusPanelProps {
      */
     kind?: 'view' | 'endpoint'
 }
-
-const RESYNC_FREQUENCY_OPTIONS = [
-    {
-        value: '15min' as DataModelingSyncInterval,
-        label: 'Resync every 15 mins',
-    },
-    {
-        value: '30min' as DataModelingSyncInterval,
-        label: 'Resync every 30 mins',
-    },
-    {
-        value: '1hour' as DataModelingSyncInterval,
-        label: 'Resync every 1 hour',
-    },
-    {
-        value: '6hour' as DataModelingSyncInterval,
-        label: 'Resync every 6 hours',
-    },
-    {
-        value: '12hour' as DataModelingSyncInterval,
-        label: 'Resync every 12 hours',
-    },
-    {
-        value: '24hour' as DataModelingSyncInterval,
-        label: 'Resync daily',
-    },
-    {
-        value: '7day' as DataModelingSyncInterval,
-        label: 'Resync weekly',
-    },
-    {
-        value: '30day' as DataModelingSyncInterval,
-        label: 'Resync monthly',
-    },
-]
-
-// `never` stops an existing schedule, so it only makes sense once a view is materialized. The
-// server refuses it as the cadence to start at, which is why the pre-materialization picker
-// offers RESYNC_FREQUENCY_OPTIONS on its own.
-const SYNC_FREQUENCY_OPTIONS = [{ value: 'never' as OrNever, label: 'No resync' }, ...RESYNC_FREQUENCY_OPTIONS]
 
 function getMaterializationStatusMessage(
     rowsMaterialized: number,
@@ -168,11 +127,6 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
-    // The two ways a cadence write gets rejected. Single-schedule v2 teams have the cadence on the
-    // DAG's one schedule, which the server tells us because the flag that distinguishes per-node
-    // schedules is evaluated server-side and never reaches the frontend. Managed viewsets reject
-    // every update regardless of team.
-    const canEditSyncFrequency = !savedQuery?.sync_frequency_managed_by_dag && !savedQuery?.managed_viewset_kind
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
@@ -188,6 +142,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
+    const startingFrequency = defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency)
 
     // Prefer the serving engine's entry when several engines are suspended.
     const suspension = savedQuery.suspended
@@ -269,23 +224,21 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                               ? 'Running...'
                                               : 'Sync now'}
                                     </LemonButton>
-                                    {kind !== 'endpoint' && canEditSyncFrequency && (
-                                        <LemonSelect
-                                            className="h-9"
-                                            disabledReason={sync || materializationAccessReason}
-                                            value={savedQuery.sync_frequency || 'never'}
-                                            onChange={(newValue) => {
-                                                if (newValue) {
-                                                    updateDataWarehouseSavedQuery({
-                                                        id: viewId,
-                                                        sync_frequency: newValue,
-                                                        types: [[]],
-                                                        lifecycle: 'update',
-                                                    })
-                                                }
-                                            }}
+                                    {kind !== 'endpoint' && (
+                                        <SyncFrequencySelect
+                                            bounds={savedQuery.sync_frequency_bounds}
+                                            disabledReason={sync || materializationAccessReason || undefined}
+                                            value={(savedQuery.sync_frequency as SyncFrequencyValue) || 'never'}
+                                            onChange={(newValue) =>
+                                                updateDataWarehouseSavedQuery({
+                                                    id: viewId,
+                                                    sync_frequency: newValue,
+                                                    types: [[]],
+                                                    lifecycle: 'update',
+                                                })
+                                            }
                                             loading={updatingDataWarehouseSavedQuery}
-                                            options={SYNC_FREQUENCY_OPTIONS}
+                                            includeNever
                                         />
                                     )}
                                     {kind !== 'endpoint' && (
@@ -333,21 +286,22 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                 <div className="flex gap-4">
                                     <LemonButton
                                         size="small"
-                                        onClick={() => materializeDataWarehouseSavedQuery(viewId, initialSyncFrequency)}
+                                        onClick={() => materializeDataWarehouseSavedQuery(viewId, startingFrequency)}
                                         type="primary"
                                         loading={updatingDataWarehouseSavedQuery}
                                         disabledReason={materializationAccessReason}
                                     >
                                         Materialize
                                     </LemonButton>
-                                    {kind !== 'endpoint' && canEditSyncFrequency && (
-                                        <LemonSelect
-                                            className="h-9"
+                                    {kind !== 'endpoint' && (
+                                        <SyncFrequencySelect
                                             data-attr="initial-sync-frequency"
-                                            disabledReason={materializationAccessReason}
-                                            value={initialSyncFrequency}
-                                            onChange={(newValue) => setInitialSyncFrequency(newValue)}
-                                            options={RESYNC_FREQUENCY_OPTIONS}
+                                            bounds={savedQuery.sync_frequency_bounds}
+                                            disabledReason={materializationAccessReason || undefined}
+                                            value={startingFrequency}
+                                            onChange={(newValue) =>
+                                                setInitialSyncFrequency(newValue as DataModelingSyncInterval)
+                                            }
                                         />
                                     )}
                                 </div>
