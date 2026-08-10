@@ -89,6 +89,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
+    const isPie = display === ChartDisplayType.ActionsPie
+    // Percent stacking normally replaces the raw values, taking the unit with it. A pie is the
+    // exception: it can show the value and the percentage side by side, so the unit still applies.
+    const percentReplacesValues = !!showPercentStackView && !(isPie && showValuesOnSeries)
     // When the chart draws its own positioned in-chart legend, show the position selector instead
     // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
     // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
@@ -147,8 +151,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if ((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions) {
             displayItems.push(DisplayOptions.Legend)
         }
-        if (display === ChartDisplayType.ActionsPie) {
-            displayItems.push(DisplayOptions.PieTotal)
+        if (isPie) {
+            displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal)
         }
         if (showAlertThresholdLinesConfig) {
             displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
@@ -198,7 +202,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    if (!showPercentStackView && isTrends && !isCalendarHeatmap) {
+    if (!percentReplacesValues && isTrends && !isCalendarHeatmap) {
         items.push({
             title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
             items: [DisplayOptions.Unit],
@@ -250,7 +254,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
-        (!showPercentStackView &&
+        (isPie && trendsFilter?.showLabelsOnSeries ? 1 : 0) +
+        (!percentReplacesValues &&
         isTrends &&
         trendsFilter?.aggregationAxisFormat &&
         trendsFilter.aggregationAxisFormat !== 'numeric'
