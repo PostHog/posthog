@@ -631,6 +631,13 @@ class UserSerializer(serializers.ModelSerializer):
                 for type_key, team_map in value.items():
                     realtime_merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
                 current_settings["realtime_notifications_disabled"] = realtime_merged
+            elif key == "materialized_view_sync_failed_frequency":
+                if value not in ("daily", "immediate"):
+                    raise serializers.ValidationError(
+                        f"materialized_view_sync_failed_frequency must be 'daily' or 'immediate', got {value}",
+                        code="invalid_input",
+                    )
+                current_settings[key] = value
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(

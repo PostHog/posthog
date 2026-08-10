@@ -897,7 +897,11 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         logger.warning("Team %d not found for matview failure digest", team_id)
         return
 
-    memberships_to_email = get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+    memberships_to_email = [
+        membership
+        for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+        if membership.user.notification_settings.get("materialized_view_sync_failed_frequency", "daily") != "immediate"
+    ]
     if not memberships_to_email:
         return
 
@@ -968,6 +972,60 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         team_id,
         len(views),
         paused_count,
+    )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_id: str) -> None:
+    """Email members who chose immediate materialization-failure emails over the daily digest.
+
+    Dispatched on the first failure of a streak only; the job-scoped campaign key
+    makes redelivery idempotent per recipient.
+    """
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning("Team %d not found for matview failure email", team_id)
+        return
+
+    saved_query = (
+        DataWarehouseSavedQuery.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).first()
+    )
+    if saved_query is None:
+        return
+
+    memberships_to_email = [
+        membership
+        for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+        if membership.user.notification_settings.get("materialized_view_sync_failed_frequency", "daily") == "immediate"
+    ]
+    if not memberships_to_email:
+        return
+
+    message = EmailMessage(
+        campaign_key=f"matview_failure_immediate_{saved_query_id}_{job_id}",
+        subject=f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}",
+        template_name="saved_query_materialization_failure",
+        template_context={
+            "team": team,
+            "saved_query_name": saved_query.name,
+            "saved_query_id": str(saved_query.id),
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+    logger.info(
+        "Sent immediate materialized view failure email for team %d, saved query %s",
+        team_id,
+        saved_query_id,
     )
 
 

@@ -48,6 +48,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
+from products.notifications.backend.facade.api import NotificationType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -161,6 +162,61 @@ class TestFailMaterializationActivity:
 
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+    @pytest.mark.parametrize(
+        "previous_status,expect_notification",
+        [
+            (None, True),
+            (DataModelingJob.Status.COMPLETED, True),
+            (DataModelingJob.Status.FAILED, False),
+        ],
+    )
+    async def test_notifies_only_on_first_failure_of_streak(
+        self, activity_environment, ateam, anode, asaved_query, adag, previous_status, expect_notification
+    ):
+        if previous_status is not None:
+            error = "boom" if previous_status == DataModelingJob.Status.FAILED else None
+            await _make_job(ateam, asaved_query, previous_status, error=error)
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="Some non-timeout error",
+        )
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.fail_materialization.create_notification"
+        ) as mock_create:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        if expect_notification:
+            mock_create.assert_called_once()
+            data = mock_create.call_args.args[0]
+            assert data.notification_type == NotificationType.MATERIALIZATION_FAILURE
+            assert data.target_id == str(ateam.pk)
+            assert data.resource_id == str(asaved_query.id)
+        else:
+            mock_create.assert_not_called()
+
+    async def test_does_not_notify_when_cancelled(self, activity_environment, ateam, anode, asaved_query, adag):
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="Workflow was cancelled",
+            cancelled=True,
+        )
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.fail_materialization.create_notification"
+        ) as mock_create:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        mock_create.assert_not_called()
 
     async def test_timeout_does_not_pause_schedule_with_fewer_than_5_previous_jobs(
         self, activity_environment, ateam, anode, asaved_query, adag

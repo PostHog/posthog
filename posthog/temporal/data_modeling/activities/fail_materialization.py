@@ -11,6 +11,7 @@ from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
+from posthog.tasks.email import send_matview_failure_immediate_email
 
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -20,6 +21,14 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 from products.data_warehouse.backend.facade.api import pause_saved_query_schedule
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+    has_been_dispatched,
+)
 
 from ..metrics import get_node_suspended_metric
 from .utils import (
@@ -148,6 +157,50 @@ def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: 
     job.save(update_fields=["error"])
 
 
+@database_sync_to_async_pool
+def _maybe_notify_materialization_failure(
+    job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int
+) -> bool:
+    """Notify on the first failure of a streak; repeats of an ongoing streak stay quiet."""
+    # An idempotent retry can land here with a job another path already completed or cancelled.
+    if job.status != DataModelingJobStatus.FAILED:
+        return False
+    previous_job = _get_previous_jobs(saved_query.id, job.id, 1).first()
+    if previous_job is not None and previous_job.status == DataModelingJobStatus.FAILED:
+        return False
+
+    # The email task dedupes per (recipient, job) via MessagingRecord, so an activity
+    # retry that already sent the in-app notification still can't double-send email.
+    send_matview_failure_immediate_email.delay(team_id, str(saved_query.id), str(job.id))
+
+    if has_been_dispatched(
+        notification_type=NotificationType.MATERIALIZATION_FAILURE,
+        target_type=TargetType.TEAM,
+        target_id=str(team_id),
+        resource_id=str(saved_query.id),
+        source_id=str(job.id),
+    ):
+        return False
+    create_notification(
+        NotificationData(
+            team_id=team_id,
+            notification_type=NotificationType.MATERIALIZATION_FAILURE,
+            priority=Priority.NORMAL,
+            title=f"{saved_query.name} failed to materialize"[:255],
+            body=strip_hostname_from_error(job.error or "The latest materialization run failed.")[:400],
+            target_type=TargetType.TEAM,
+            target_id=str(team_id),
+            # "warehouse_objects" (not "warehouse_view") is the AC resource — anything else
+            # silently skips the access-control filter in create_notification
+            resource_type="warehouse_objects",
+            resource_id=str(saved_query.id),
+            source_url=f"/project/{team_id}/sql?open_view={saved_query.id}",
+            source_id=str(job.id),
+        )
+    )
+    return True
+
+
 @activity.defn
 async def fail_materialization_activity(inputs: FailMaterializationInputs) -> None:
     """Mark materialization as failed and update node properties."""
@@ -203,6 +256,11 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
                 await logger.ainfo(
                     f"Suspended node {inputs.node_id} (clickhouse) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
                 )
+
+        if not inputs.cancelled:
+            notified = await _maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
+            if notified:
+                await logger.ainfo(f"Sent materialization failure notification for node {inputs.node_id}")
     except Exception as e:
         capture_exception(e)
         await logger.aexception(

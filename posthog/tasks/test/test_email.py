@@ -36,6 +36,7 @@ from posthog.tasks.email import (
     send_hog_functions_digest_email,
     send_invite,
     send_matview_failure_digest,
+    send_matview_failure_immediate_email,
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
@@ -2369,3 +2370,80 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         rendered_error = mocked_email_messages[0].properties["views"][0]["error"]
         assert rendered_error == expected_error
         assert len(rendered_error) <= 255
+
+    @parameterized.expand(
+        [
+            (
+                "immediate_user_gets_email",
+                {"materialized_view_sync_failed": True, "materialized_view_sync_failed_frequency": "immediate"},
+                True,
+            ),
+            (
+                "daily_user_does_not",
+                {"materialized_view_sync_failed": True, "materialized_view_sync_failed_frequency": "daily"},
+                False,
+            ),
+            ("unset_frequency_defaults_to_daily", {"materialized_view_sync_failed": True}, False),
+            (
+                "setting_off_wins_over_frequency",
+                {"materialized_view_sync_failed": False, "materialized_view_sync_failed_frequency": "immediate"},
+                False,
+            ),
+        ]
+    )
+    def test_send_matview_failure_immediate_email_respects_frequency_preference(
+        self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
+    ) -> None:
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = notification_settings
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(team=self.team, name="failing_view", query={"query": "SELECT 1"})
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error="Some error",
+            last_run_at=timezone.now(),
+        )
+
+        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+
+        if expect_email:
+            assert len(mocked_email_messages) == 1
+            assert mocked_email_messages[0].send.call_count == 1
+            assert "failing_view" in mocked_email_messages[0].html_body
+        else:
+            assert len(mocked_email_messages) == 0
+
+    def test_send_matview_failure_digest_skips_immediate_users(self, MockEmailMessage: MagicMock) -> None:
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {
+            "materialized_view_sync_failed": True,
+            "materialized_view_sync_failed_frequency": "immediate",
+        }
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="failing_view",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error="Some error",
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 0

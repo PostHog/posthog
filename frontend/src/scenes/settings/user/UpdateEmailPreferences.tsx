@@ -3,7 +3,16 @@ import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSwitch,
+    LemonTag,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -33,6 +42,7 @@ type BooleanNotificationSettings = Omit<
     | 'error_tracking_weekly_digest_project_enabled'
     | 'web_analytics_weekly_digest_project_enabled'
     | 'organization_member_join_email_disabled'
+    | 'materialized_view_sync_failed_frequency'
 >
 
 const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
@@ -509,13 +519,14 @@ export function UpdateEmailPreferences(): JSX.Element {
             </div>
         ),
         [NotificationBlock.MaterializedViewSync]: (
-            <div className="border rounded p-4">
+            <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="materialized_view_sync_failed"
                     label="Materialized view sync failures"
                     description="Get notified when a materialized view fails to sync"
                     dataAttr="materialized_view_sync_failed_enabled"
                 />
+                <MatviewFailureFrequencyPicker />
             </div>
         ),
     }
@@ -540,6 +551,52 @@ export function UpdateEmailPreferences(): JSX.Element {
                     {blocks[key]}
                 </div>
             ))}
+        </div>
+    )
+}
+
+const MatviewFailureFrequencyPicker = (): JSX.Element | null => {
+    const { user, userLoading } = useValues(userLogic)
+    const { updateUser } = useActions(userLogic)
+
+    if (!user?.notification_settings?.materialized_view_sync_failed) {
+        return null
+    }
+
+    const frequency = user.notification_settings.materialized_view_sync_failed_frequency ?? 'daily'
+
+    return (
+        <div className="space-y-2">
+            <LemonSegmentedButton
+                data-attr="materialized_view_sync_failed_frequency"
+                size="small"
+                value={frequency}
+                onChange={(newFrequency) =>
+                    updateUser({
+                        notification_settings: {
+                            ...user.notification_settings,
+                            materialized_view_sync_failed_frequency: newFrequency,
+                        },
+                    })
+                }
+                options={[
+                    {
+                        value: 'daily' as const,
+                        label: 'Daily digest',
+                        disabledReason: userLoading ? 'Saving…' : undefined,
+                    },
+                    {
+                        value: 'immediate' as const,
+                        label: 'Immediately',
+                        disabledReason: userLoading ? 'Saving…' : undefined,
+                    },
+                ]}
+            />
+            <span className="text-muted text-sm">
+                {frequency === 'immediate'
+                    ? 'You get an email when a view starts failing. Repeated failures of the same view are not re-sent.'
+                    : 'You get one email a day summarizing all failing views.'}
+            </span>
         </div>
     )
 }
