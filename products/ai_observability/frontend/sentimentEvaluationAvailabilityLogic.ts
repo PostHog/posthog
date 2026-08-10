@@ -1,7 +1,7 @@
 import { MakeLogicType, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { getCurrentTeamId } from '~/lib/utils/getAppContext'
+import { getCurrentTeamIdOrNone } from '~/lib/utils/getAppContext'
 
 import { evaluationsList } from './generated/api'
 import type { EvaluationApi } from './generated/api.schemas'
@@ -59,7 +59,14 @@ export const sentimentEvaluationAvailabilityLogic = kea<sentimentEvaluationAvail
             [] as EvaluationApi[],
             {
                 loadSentimentEvaluations: async () => {
-                    const teamId = String(getCurrentTeamId())
+                    // Bootstrap may not have resolved the project yet. Reading it as "none
+                    // available" hides the optional picker, where asking anyway would throw.
+                    const currentTeamId = getCurrentTeamIdOrNone()
+                    if (!currentTeamId) {
+                        return []
+                    }
+
+                    const teamId = String(currentTeamId)
                     const evaluations: EvaluationApi[] = []
 
                     // Page through so the picker lists every evaluation, not just the first page.
