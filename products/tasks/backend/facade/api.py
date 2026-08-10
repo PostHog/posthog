@@ -52,7 +52,6 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.feature_flags import get_model_access_error
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
@@ -130,7 +129,6 @@ __all__ = [
     "CODE_INVITE_REDEEMED",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
-    "ComputeBillingLimitError",
     "TaskOriginProduct",
     "TaskRuntime",
     "TaskRunEnvironment",
@@ -3391,6 +3389,9 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+    )
     from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
 
     if is_compute_quota_exhausted(run.task):
@@ -4519,6 +4520,9 @@ def create_task(
             should_set_client_provenance = warm_task.client_provenance is None and client_provenance is not None
             if should_set_client_provenance:
                 warm_task.client_provenance = client_provenance
+            from products.tasks.backend.exceptions import (
+                ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+            )
             from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
 
             if is_compute_quota_exhausted(warm_task):

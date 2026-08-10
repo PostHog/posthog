@@ -441,6 +441,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
     )
     def create(self, request, **kwargs):
+        from products.tasks.backend.exceptions import (
+            ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+        )
+
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")
@@ -451,7 +455,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 validated_data=dict(serializer.validated_data),
                 client_provenance=get_task_client_provenance(request),
             )
-        except tasks_facade.ComputeBillingLimitError:
+        except ComputeBillingLimitError:
             return compute_quota_limit_response()
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
@@ -1958,6 +1962,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["task:write"],
     )
     def command(self, request, pk=None, **kwargs):
+        from products.tasks.backend.exceptions import (
+            ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+        )
+
         task_id = self._ensure_task_accessible()
         method = request.validated_data["method"]
         task_runtime = tasks_facade.task_runtime(task_id, self.team_id, self._user_id(), for_control=True)
@@ -2014,7 +2022,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     message_id=str(request_id) if request_id is not None else None,
                     steer=command_params.get("steer", False),
                 )
-            except tasks_facade.ComputeBillingLimitError:
+            except ComputeBillingLimitError:
                 return compute_quota_limit_response()
             except Exception:
                 # A synchronous web request can't retry the way the Temporal
