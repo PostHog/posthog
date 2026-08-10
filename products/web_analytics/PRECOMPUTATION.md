@@ -277,9 +277,9 @@ Because the eager job and the lazy read path consult the same flag, the warming 
 
 This job is complementary to `cache_warming.py`, which replays whatever queries users actually ran in the last N days. The eager job covers the fixed UI matrix; the replay job covers the long tail of team-specific filter combinations.
 
-## Trend tiles and Active Hours (precompute-backed trends)
+## Trend tiles (precompute-backed trends)
 
-The dashboard's graph tiles run vanilla `TrendsQuery`, routed at dispatch to `WebTrendsQueryRunner` when the query carries `tags.productKey == "web_analytics"` AND the `web-analytics-trends-precompute` flag (locally evaluated, fails closed) is on for the team. The runner serves eligible single-series shapes — unique visitors, page views, sessions, avg session duration, bounce rate — from the same hourly `web_overview_preaggregated` buckets the overview tile keeps warm (the query is mapped to an inner `WebOverviewQuery`, so the precompute job hash is identical and buckets are shared), and falls back to the standard trends path for everything else. The Active Hours unique-visitors tab is served the same way by `WebCalendarHeatmapTrendsQueryRunner`.
+The dashboard's graph tiles run vanilla `TrendsQuery`, routed at dispatch to `WebTrendsQueryRunner` when the query carries `tags.productKey == "web_analytics"` AND the `web-analytics-trends-precompute` flag (locally evaluated, fails closed) is on for the team. The runner serves eligible single-series shapes — unique visitors, page views, sessions, avg session duration, bounce rate — from the same hourly `web_overview_preaggregated` buckets the overview tile keeps warm (the query is mapped to an inner `WebOverviewQuery`, so the precompute job hash is identical and buckets are shared), and falls back to the standard trends path for everything else.
 
 Rollout gates, in order:
 
@@ -303,6 +303,5 @@ Accepted semantic differences vs vanilla trends (the tiles align with the overvi
 - `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` — vitals lazy path
 - `posthog/clickhouse/preaggregation/web_vitals_paths_preaggregated_sql.py` — vitals schema
 - `products/web_analytics/backend/hogql_queries/web_trends.py` + `web_trends_lazy_precompute.py` — trend tiles lazy path
-- `products/web_analytics/backend/hogql_queries/web_calendar_heatmap.py` — Active Hours lazy path
 - `products/analytics_platform/backend/lazy_computation/` — framework + CONSISTENCY.md + README
 - `products/web_analytics/dags/eager_web_analytics_precompute.py` — hourly baseline pre-warmer
