@@ -55,8 +55,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
     const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
-    const { workflow, workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending, autoSaveEnabled } =
-        useValues(logic)
+    const {
+        workflow,
+        workflowLoading,
+        originalWorkflow,
+        lastSavedAt,
+        isAutoSavePending,
+        autoSaveEnabled,
+        hogFunctionTemplatesById,
+    } = useValues(logic)
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
     const isDraft = originalWorkflow?.status === 'draft'
@@ -66,10 +73,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     useAttachedLogic(logic, sceneLogic)
 
     // Debounced so per-keystroke edits don't re-serialize the whole graph into the agent context.
-    const debouncedWorkflow = useDebouncedValue(workflow, 500)
+    // The id is debounced with the workflow as one value so a navigation between workflows can never
+    // pair one workflow's ref with the other's editor state during the debounce window.
+    const debouncedAgentSource = useDebouncedValue(
+        useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
+        500
+    )
     const agentContextItems = useMemo(
-        () => buildWorkflowAgentContext(debouncedWorkflow, workflowSceneProps.id ?? 'new'),
-        [debouncedWorkflow, workflowSceneProps.id]
+        () =>
+            buildWorkflowAgentContext(debouncedAgentSource.workflow, debouncedAgentSource.id, hogFunctionTemplatesById),
+        [debouncedAgentSource, hogFunctionTemplatesById]
     )
     useSceneAgentPanel({
         sceneKey: 'workflow',
