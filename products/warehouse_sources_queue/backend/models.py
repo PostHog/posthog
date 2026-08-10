@@ -19,6 +19,11 @@ class SourceBatch(UUIDModel):
         SUCCEEDED = "succeeded", "succeeded"
         WAITING_RETRY = "waiting_retry", "waiting_retry"
         FAILED = "failed", "failed"
+        # Terminal like 'failed', but retired by a newer run of the same job rather
+        # than by an error. Distinct so the reconcile sweep never scans these rows
+        # (they dominated the 'failed' set in production), while the claim path's
+        # run gate still treats them as run-blocking.
+        SUPERSEDED = "superseded", "superseded"
 
     team_id = models.BigIntegerField()
     schema_id = models.CharField(max_length=200)
@@ -71,10 +76,14 @@ class SourceBatch(UUIDModel):
                 name="sb_claimable_idx",
                 condition=models.Q(latest_state__in=["pending", "waiting_retry"]),
             ),
+            # Successor of sb_run_gate_idx: same shape, predicate extended with
+            # 'superseded'. Renamed because a partial-index predicate can't be
+            # altered in place, and the replacement is built before the old one
+            # is dropped so the claim gates never lose index coverage.
             models.Index(
                 fields=["run_uuid", "latest_state", "batch_index"],
-                name="sb_run_gate_idx",
-                condition=models.Q(latest_state__in=["executing", "waiting_retry", "failed"]),
+                name="sb_run_gate2_idx",
+                condition=models.Q(latest_state__in=["executing", "waiting_retry", "failed", "superseded"]),
             ),
             models.Index(
                 fields=["team_id", "schema_id"],
@@ -91,6 +100,7 @@ class SourceBatchStatus(UUIDModel):
         SUCCEEDED = "succeeded", "succeeded"
         WAITING_RETRY = "waiting_retry", "waiting_retry"
         FAILED = "failed", "failed"
+        SUPERSEDED = "superseded", "superseded"
 
     # No DB-level FK constraint: sourcebatch is range-partitioned on
     # created_at, making its PK composite (id, created_at). A real FK

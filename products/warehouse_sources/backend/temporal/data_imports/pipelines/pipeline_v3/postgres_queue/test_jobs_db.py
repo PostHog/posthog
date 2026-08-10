@@ -88,9 +88,10 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         CREATE INDEX IF NOT EXISTS sb_claimable_idx ON {BATCH_TABLE} (team_id, created_at, batch_index)
             WHERE latest_state IN ('pending', 'waiting_retry')
     """)
+    conn.execute("DROP INDEX IF EXISTS sb_run_gate_idx")
     conn.execute(f"""
-        CREATE INDEX IF NOT EXISTS sb_run_gate_idx ON {BATCH_TABLE} (run_uuid, latest_state, batch_index)
-            WHERE latest_state IN ('executing', 'waiting_retry', 'failed')
+        CREATE INDEX IF NOT EXISTS sb_run_gate2_idx ON {BATCH_TABLE} (run_uuid, latest_state, batch_index)
+            WHERE latest_state IN ('executing', 'waiting_retry', 'failed', 'superseded')
     """)
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS sb_schema_busy_idx ON {BATCH_TABLE} (team_id, schema_id)
@@ -270,6 +271,21 @@ class TestBatchQueueGetUnprocessed:
         batches = await _claim(conn)
 
         assert len(batches) == 0
+
+    @pytest.mark.asyncio
+    async def test_skips_straggler_in_superseded_run(self, conn, sync_conn):
+        # Revival guard: a straggler the producer enqueues into a run after the
+        # supersede sweep retired it must stay unclaimable — claiming it would
+        # load the retired run's stale data over the replacement run's.
+        await _insert_batch(conn, batch_index=0, run_uuid="run-old", job_id="job-j")
+        await _insert_batch(conn, batch_index=0, run_uuid="run-new", job_id="job-j")
+        BatchQueue.supersede_other_runs(sync_conn, job_id="job-j", current_run_uuid="run-new")
+        await _insert_batch(conn, batch_index=1, run_uuid="run-old", job_id="job-j")
+
+        batches = await _claim(conn)
+
+        assert [b.run_uuid for b in batches] == ["run-new"]
+        await _release(conn, batches=batches)
 
     @pytest.mark.asyncio
     async def test_respects_limit(self, conn):
@@ -637,6 +653,7 @@ class TestOldestNonTerminalBatchAge:
             ("waiting_retry", True),
             ("succeeded", False),
             ("failed", False),
+            ("superseded", False),
         ],
     )
     @pytest.mark.asyncio
@@ -670,13 +687,15 @@ class TestOldestNonTerminalBatchAge:
             is not None
         )
 
+    @pytest.mark.parametrize("terminal_state", ["failed", "superseded"])
     @pytest.mark.asyncio
-    async def test_dead_run_remnants_do_not_count(self, conn, sync_conn):
-        # A batch enqueued into a run after fail_run swept it stays 'pending' but can
-        # never be claimed; counting it would hold the CDC backpressure guard down for
-        # the whole pruning window (a full extraction stop for the source).
-        failed = await _insert_batch(conn, run_uuid="dead-run", batch_index=0)
-        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+    async def test_dead_run_remnants_do_not_count(self, conn, sync_conn, terminal_state):
+        # A batch enqueued into a run after fail_run or the supersede sweep retired it
+        # stays 'pending' but can never be claimed; counting it would hold the CDC
+        # backpressure guard down for the whole pruning window (a full extraction
+        # stop for the source).
+        retired = await _insert_batch(conn, run_uuid="dead-run", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=retired, job_state=terminal_state, attempt=1)
         await _insert_batch(conn, run_uuid="dead-run", batch_index=1)
 
         assert (
@@ -891,13 +910,14 @@ class TestGetRunActivitySummary:
         assert summary.has_non_terminal is True
         assert summary.is_stale is False
 
+    @pytest.mark.parametrize("terminal_state", ["succeeded", "failed", "superseded"])
     @pytest.mark.asyncio
-    async def test_all_terminal_batches_report_no_non_terminal(self, conn, sync_conn):
+    async def test_all_terminal_batches_report_no_non_terminal(self, conn, sync_conn, terminal_state):
         # Every batch terminal but the job still RUNNING (final batch never
         # enqueued) is genuinely abandoned and must remain stealable.
         for i in range(2):
             bid = await _insert_batch(conn, batch_index=i, metadata={"workflow_run_id": self.WF_RUN_ID})
-            await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+            await BatchQueue.update_status(conn, batch_id=bid, job_state=terminal_state, attempt=1)
 
         summary = self._summary(sync_conn)
 
@@ -964,6 +984,34 @@ class TestGetRunActivitySummary:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestGetFailedRuns:
+    @pytest.mark.asyncio
+    async def test_only_genuinely_failed_runs_enter_the_scan(self, conn, sync_conn):
+        # Superseded batches are routine (every retried job produces them) and have no
+        # job left to reconcile; if they re-entered this scan they would dominate it —
+        # in production they were the bulk of the 'failed' set during a failure storm,
+        # spilling the sort to disk on every pod at once. Legacy rows written as
+        # 'failed' with the superseded flag must stay excluded too until they age out.
+        await _insert_batch(conn, run_uuid="run-f", job_id="job-f", schema_id="s-f")
+        await BatchQueue.fail_run(conn, run_uuid="run-f", team_id=1, schema_id="s-f", reason="boom")
+        await _insert_batch(conn, run_uuid="run-old", job_id="job-x", schema_id="s-x", batch_index=0)
+        await _insert_batch(conn, run_uuid="run-new", job_id="job-x", schema_id="s-x", batch_index=0)
+        BatchQueue.supersede_other_runs(sync_conn, job_id="job-x", current_run_uuid="run-new")
+        legacy = await _insert_batch(conn, run_uuid="run-legacy", job_id="job-l", schema_id="s-l")
+        await BatchQueue.update_status(
+            conn,
+            batch_id=legacy,
+            job_state="failed",
+            attempt=1,
+            error_response={"error": "superseded by newer attempt", "superseded": True},
+        )
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=3600, limit=10)
+
+        assert [(r.run_uuid, r.job_id, r.reason) for r in refs] == [("run-f", "job-f", "boom")]
+
+
+@pytest.mark.django_db(transaction=True)
 class TestGetStaleStrandedRuns:
     """The abandoned-run query: non-terminal batches, no live lease, no loader progress past the threshold."""
 
@@ -1012,11 +1060,14 @@ class TestGetStaleStrandedRuns:
 
         assert await self._run(conn) == []
 
+    @pytest.mark.parametrize("terminal_state", ["failed", "superseded"])
     @pytest.mark.asyncio
-    async def test_excludes_run_with_failed_batch(self, conn):
+    async def test_excludes_run_with_failed_or_superseded_batch(self, conn, terminal_state):
         # A failed batch is the failed-run reconcile's job; this sweep must not double-handle it.
-        failed = await self._stale_pending(conn, batch_index=0, run_uuid="had-failure")
-        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        # A superseded batch means the job now belongs to the replacement run — sweeping it
+        # would fail the very job that run is still working on.
+        retired = await self._stale_pending(conn, batch_index=0, run_uuid="had-failure")
+        await BatchQueue.update_status(conn, batch_id=retired, job_state=terminal_state, attempt=1)
         await self._stale_pending(conn, batch_index=1, run_uuid="had-failure")
 
         assert await self._run(conn) == []
@@ -1190,15 +1241,21 @@ class TestStateDualWrite:
         assert (await _batch_state(conn, done))[0] == "succeeded"
 
     @pytest.mark.asyncio
-    async def test_supersede_fails_columns_of_older_runs(self, conn, sync_conn):
+    async def test_supersede_marks_columns_and_status_log_superseded(self, conn, sync_conn):
         old = await _insert_batch(conn, run_uuid="run-old", job_id="job-dw")
         current = await _insert_batch(conn, run_uuid="run-new", job_id="job-dw")
 
         superseded = BatchQueue.supersede_other_runs(sync_conn, job_id="job-dw", current_run_uuid="run-new")
 
         assert superseded == 1
-        assert (await _batch_state(conn, old))[0] == "failed"
+        assert (await _batch_state(conn, old))[0] == "superseded"
         assert (await _batch_state(conn, current))[0] == "pending"
+        # The status log must agree: it is the source of truth the backfill
+        # command repairs the columns from, so a 'failed' log row would flip
+        # the column back into the reconcile sweep's scan.
+        cur = await conn.execute(f"SELECT job_state FROM {STATUS_TABLE} WHERE batch_id = %s", (old,))
+        row = await cur.fetchone()
+        assert row is not None and row[0] == "superseded"
 
     @pytest.mark.asyncio
     async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):
@@ -1238,6 +1295,25 @@ class TestUpdateStatusUnlessFailed:
         cur = await conn.execute(f"SELECT count(*) FROM {STATUS_TABLE} WHERE batch_id = %s", (bid,))
         row = await cur.fetchone()
         assert row is not None and row[0] == 1  # only fail_run's row; nothing appended over it
+
+    @pytest.mark.asyncio
+    async def test_refuses_lifecycle_writes_over_superseded(self, conn, sync_conn):
+        # A consumer that claimed a batch before the supersede sweep retired it
+        # must not be able to un-retire it with a later succeeded/executing row.
+        bid = await _insert_batch(conn, batch_index=0, run_uuid="run-old", job_id="job-g")
+        await _insert_batch(conn, batch_index=0, run_uuid="run-new", job_id="job-g")
+        BatchQueue.supersede_other_runs(sync_conn, job_id="job-g", current_run_uuid="run-new")
+
+        written = await BatchQueue.update_status_unless_failed(
+            conn,
+            batch_id=bid,
+            job_state="succeeded",
+            attempt=1,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+        )
+
+        assert written is False
+        assert (await _batch_state(conn, bid))[0] == "superseded"
 
     @pytest.mark.asyncio
     async def test_normal_lifecycle_writes_pass_and_dual_write(self, conn):

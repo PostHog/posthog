@@ -190,9 +190,10 @@ class DeltaBatchConsumerAdapter:
         batch_created_at: datetime | None = None,
         expected_state_changed_at: datetime | None | _Unset = _UNSET,
     ) -> None:
-        # 'failed' is absorbing: fail_run can retire a claimed batch mid-flight, and a
-        # newer write would supersede it — un-failing a cancelled run. Takeover-sentinel
-        # failures stay supersedable (see _is_job_dead's matching exemption).
+        # 'failed' and 'superseded' are absorbing: fail_run or the supersede sweep can
+        # retire a claimed batch mid-flight, and a newer write would supersede it —
+        # un-retiring a cancelled or replaced run. Takeover-sentinel failures stay
+        # supersedable (see _is_job_dead's matching exemption).
         # expected_state_changed_at additionally fences the recovery re-queue against a
         # live owner that completed the batch after the stale scan (see the sweep).
         inserted = await BatchQueue.update_status_unless_failed(

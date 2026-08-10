@@ -190,12 +190,12 @@ def build_status_dual_write_unless_failed_sql(
     *, with_batch_created_at: bool, with_expected_state_changed_at: bool = False
 ) -> str:
     """Guarded twin of :func:`build_status_dual_write_sql`: inserts nothing over a
-    terminal 'failed', so a consumer's newer executing/succeeded rows can't
-    un-retire a batch fail_run already failed. A 'failed' carrying
-    ``%(supersedable_failed_error)s`` (the lock-takeover sentinel) stays writable —
-    takeover deliberately lets an in-flight batch finish. Returns the INSERT count
-    (0 = refused); the column UPDATE is a designed no-op for heartbeat re-inserts,
-    so its rowcount can't be the signal.
+    terminal 'failed' or 'superseded', so a consumer's newer executing/succeeded
+    rows can't un-retire a batch fail_run or supersede_other_runs already retired.
+    A 'failed' carrying ``%(supersedable_failed_error)s`` (the lock-takeover
+    sentinel) stays writable — takeover deliberately lets an in-flight batch
+    finish. Returns the INSERT count (0 = refused); the column UPDATE is a
+    designed no-op for heartbeat re-inserts, so its rowcount can't be the signal.
 
     ``with_expected_state_changed_at`` arms a compare-and-swap on the caller's
     observed ``state_changed_at`` — the recovery sweep's fence against a live owner
@@ -222,7 +222,7 @@ def build_status_dual_write_unless_failed_sql(
             WHERE b.id = %(batch_id)s
               AND {created_at_predicate}
               AND (
-                  b.latest_state IS DISTINCT FROM 'failed'
+                  b.latest_state NOT IN ('failed', 'superseded')
                   OR s.error_response->>'error' = %(supersedable_failed_error)s
               ){cas_predicate}
             FOR UPDATE OF b
@@ -248,13 +248,17 @@ def build_status_dual_write_unless_failed_sql(
     """
 
 
-def _bulk_fail_dual_write_sql(where_sql: str) -> str:
-    """Bulk 'failed' status inserts plus the denormalized-state UPDATE, one statement.
+def _bulk_fail_dual_write_sql(where_sql: str, *, terminal_state: str = "failed") -> str:
+    """Bulk terminal-status inserts plus the denormalized-state UPDATE, one statement.
 
-    ``targets`` carries ``(id, created_at)`` so the UPDATE join prunes partitions
-    exactly; rowcount reports updated batches (== inserted statuses, minus any a
-    concurrent newer write already superseded via the monotonic guard).
+    ``terminal_state`` is 'failed' or 'superseded': both retire the run for the
+    claim path, but only 'failed' feeds the reconcile sweep. ``targets`` carries
+    ``(id, created_at)`` so the UPDATE join prunes partitions exactly; rowcount
+    reports updated batches (== inserted statuses, minus any a concurrent newer
+    write already superseded via the monotonic guard).
     """
+    if terminal_state not in ("failed", "superseded"):
+        raise ValueError(f"unsupported terminal state: {terminal_state!r}")
     return f"""
         WITH targets AS (
             SELECT b.id, b.created_at
@@ -267,12 +271,12 @@ def _bulk_fail_dual_write_sql(where_sql: str) -> str:
         ),
         ins AS (
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            SELECT t.id, 'failed', 0, now(), %(error_response)s, now()
+            SELECT t.id, '{terminal_state}', 0, now(), %(error_response)s, now()
             FROM targets t
             RETURNING batch_id, created_at
         )
         UPDATE {BATCH_TABLE} b
-        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at
+        SET latest_state = '{terminal_state}', latest_attempt = 0, state_changed_at = ins.created_at
         FROM ins
         JOIN targets t ON t.id = ins.batch_id
         WHERE b.id = t.id
@@ -297,7 +301,7 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     """Claimable-batch candidates read from the denormalized state columns.
 
     The claimable scan and every NOT EXISTS gate are answered by the partial
-    indexes (sb_claimable_idx, sb_run_gate_idx, sb_schema_busy_idx), so the
+    indexes (sb_claimable_idx, sb_run_gate2_idx, sb_schema_busy_idx), so the
     work tracks the claimable set instead of everything retained. 'pending'
     means no status row yet; 'waiting' is deliberately not claimable.
 
@@ -350,12 +354,16 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
                         )
                     )
             )
+            -- Run-failed gate: 'superseded' must stay in this set. A superseded
+            -- run can still receive straggler inserts from its in-flight
+            -- producer; if superseded rows stopped matching here, those
+            -- stragglers would become claimable and revive the retired run.
             AND NOT EXISTS (
                 SELECT 1
                 FROM {BATCH_TABLE} b2
                 WHERE b2.run_uuid = b.run_uuid
                     AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND b2.latest_state = 'failed'
+                    AND b2.latest_state IN ('failed', 'superseded')
             )
             AND NOT EXISTS (
                 SELECT 1
@@ -1050,9 +1058,20 @@ class BatchQueue:
         job_id: str,
         current_run_uuid: str,
     ) -> int:
-        """Mark non-terminal batches from older runs of the same job as superseded."""
+        """Mark non-terminal batches from older runs of the same job as superseded.
+
+        'superseded' is its own terminal state, not a flavor of 'failed': it retires
+        the run for the claim path exactly like 'failed' does, but the reconcile
+        sweep never scans it, because superseded rows are routine (every retried job
+        produces them) and there is no ExternalDataJob left to fail. The redundant
+        ``superseded`` flag in ``error_response`` is kept so rows written by either
+        code version read the same during a rollout.
+        """
         cursor = conn.execute(
-            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s"),
+            _bulk_fail_dual_write_sql(
+                "b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s",
+                terminal_state="superseded",
+            ),
             {
                 "job_id": job_id,
                 "current_run_uuid": current_run_uuid,
@@ -1106,6 +1125,12 @@ class BatchQueue:
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                        -- Superseded batches carry latest_state='superseded' and so
+                        -- never enter this scan; they were the bulk of the 'failed'
+                        -- set when a failure storm made this sort spill to disk.
+                        -- This flag filter only covers rows written before the
+                        -- distinct state existed, until they age out of the
+                        -- pruning window.
                         AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
                     ORDER BY b.run_uuid, s.created_at DESC
                 ) failed_runs
@@ -1147,7 +1172,8 @@ class BatchQueue:
         deliberately do not reset the clock, mirroring ``get_run_activity_summary``, so a live producer
         streaming into a dead loader still reads as stale. A live group lease means a pod is actively
         working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those
-        are excluded. Runs with a ``failed`` batch are excluded — ``get_failed_runs`` owns those.
+        are excluded. Runs with a ``failed`` batch are excluded — ``get_failed_runs`` owns those. So are
+        runs with a ``superseded`` batch, whose job now belongs to the run that superseded them.
 
         Seeded from the cheap denormalized-state index (oldest-batch-first, so the bounded candidate
         window always holds the longest-stranded runs rather than an arbitrary set), then the full-run
@@ -1168,11 +1194,14 @@ class BatchQueue:
                           WHERE l.team_id = b.team_id AND l.schema_id = b.schema_id
                             AND l.expires_at > now()
                       )
+                      -- 'superseded' must keep excluding here: sweeping a superseded
+                      -- run would fail its ExternalDataJob, which is the same job its
+                      -- live replacement run is still working on.
                       AND NOT EXISTS (
                           SELECT 1 FROM {BATCH_TABLE} bf
                           WHERE bf.run_uuid = b.run_uuid
                             AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                            AND bf.latest_state = 'failed'
+                            AND bf.latest_state IN ('failed', 'superseded')
                       )
                     -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
                     -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
@@ -1250,13 +1279,13 @@ class BatchQueue:
 
         Non-terminal means unclaimed ('pending', 'waiting') or claimed but unfinished
         ('executing', 'waiting_retry'), read from the denormalized state columns.
-        Runs containing a 'failed' batch are excluded, mirroring the loader's claim
-        gate: their remaining batches can never be claimed (a batch enqueued into a
-        run after ``fail_run`` swept it stays 'pending' forever — seen in production),
-        so counting them would hold the backpressure guard down for the whole pruning
-        window. Sync because its caller is the CDC producer's backpressure guard,
-        which runs in synchronous activity code. Bounded to the pruning window —
-        older batches are gone anyway.
+        Runs containing a 'failed' or 'superseded' batch are excluded, mirroring the
+        loader's claim gate: their remaining batches can never be claimed (a batch
+        enqueued into a run after ``fail_run`` or the supersede sweep retired it
+        stays 'pending' forever — seen in production), so counting them would hold
+        the backpressure guard down for the whole pruning window. Sync because its
+        caller is the CDC producer's backpressure guard, which runs in synchronous
+        activity code. Bounded to the pruning window — older batches are gone anyway.
         """
         with conn.cursor() as cur:
             cur.execute(
@@ -1274,7 +1303,7 @@ class BatchQueue:
                           AND b_failed.team_id = b.team_id
                           AND b_failed.schema_id = b.schema_id
                           AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                          AND b_failed.latest_state = 'failed'
+                          AND b_failed.latest_state IN ('failed', 'superseded')
                   )
                 """,
                 {"team_id": team_id, "schema_ids": schema_ids},
@@ -1349,7 +1378,7 @@ class BatchQueue:
                     COUNT(*) AS batch_count,
                     COUNT(*) FILTER (
                         WHERE s.batch_id IS NULL
-                            OR s.job_state NOT IN ('succeeded', 'failed')
+                            OR s.job_state NOT IN ('succeeded', 'failed', 'superseded')
                     ) AS non_terminal_count,
                     MAX(s.created_at) AS last_status_write_at,
                     MIN(b.created_at) FILTER (WHERE s.batch_id IS NULL) AS oldest_unclaimed_at
