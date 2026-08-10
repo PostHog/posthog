@@ -81,6 +81,14 @@ _HOST_UNREACHABLE_ERROR = (
     "firewall allowlist, then try again."
 )
 
+# Wrong username or password reported by libpq's standard wording or the SCRAM exchange. The raw
+# driver string is prefixed with "connection to server at <host>, port <port> failed", so surface a
+# clean, host-free message on the non-retryable sync path instead of storing that raw prefix.
+_INVALID_CREDENTIALS_ERROR = (
+    "The database rejected the username or password. Check the user and password configured for "
+    "this source, then re-enable the sync."
+)
+
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
@@ -226,7 +234,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["postgresql", "sql"],
+            keywords=["postgresql", "sql", "rds", "aws rds", "amazon rds", "aurora"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             iconPath="/static/services/postgres.png",
             docsUrl="https://posthog.com/docs/cdp/sources/postgres",
@@ -337,7 +345,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '"postgres.<project-ref>"). Update the user for this source to the pooler username '
                 "shown in your Supabase dashboard, then re-enable the sync."
             ),
-            "error received from server in SCRAM exchange: Wrong password": None,
+            "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_ERROR,
             # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
             # SASL/SCRAM credential exchange with "FATAL: SASL authentication failed" instead of
             # PostgreSQL's "password authentication failed for user" — so none of the password keys
@@ -368,14 +376,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "could not translate host name": None,
             "timeout expired connection to server at": None,
-            "password authentication failed for user": None,
+            "password authentication failed for user": _INVALID_CREDENTIALS_ERROR,
             # Some providers (observed on a Neon-style pooler) report the same auth rejection without
             # libpq's "for user" wording, putting the role on its own line instead: "password
             # authentication failed\nuser \"<role>\"". The key above requires "for user" right after
             # "failed", so it doesn't substring-match this variant and Temporal keeps retrying a
             # credential mismatch only the customer can fix. Match the stable, wording-independent
             # fragment shared by both forms.
-            "password authentication failed": None,
+            "password authentication failed": _INVALID_CREDENTIALS_ERROR,
             # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
             # "password authentication failed for user" — it validates against Secrets Manager and
             # returns "The password that was provided for the role <role> is wrong." None of the
@@ -453,6 +461,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # retry budget re-running the same futile statement-timeout query before the workflow gives
             # up. Match the index-guidance fragment every postgres statement-timeout message shares.
             "has an appropriate index": None,
+            # Activity-layer twin for `_schema_discovery_timeout_error` (schema discovery's own
+            # statement-timeout classification, distinct from the incremental-field message above).
+            # Same reasoning: match the raw `str(e)` fragment so the activity-level check recognises
+            # it too, instead of burning the retry budget re-scanning the same oversized catalog.
+            "listing table columns while discovering the database schema": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
