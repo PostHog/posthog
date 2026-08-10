@@ -170,15 +170,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                 limit=100,
             )
 
-        assert sorted(
-            row.custom_properties[definition.id]
-            for row in page.rows
-            if row.custom_properties[definition.id] is not None
-        ) == [
-            0.0,
-            1.0,
-            2.0,
-        ]
+        assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
 
     def test_applies_stable_limit_and_offset_pagination(self) -> None:
         accounts = [create_account(team_id=self.team.id, name=name) for name in ["First", "Second", "Third"]]
