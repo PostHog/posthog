@@ -145,7 +145,7 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
 
 
 def _project_awaiting_input_activity(task_run: TaskRun) -> None:
-    """Surface the wait in the in-app Activity feed.
+    """Surface the wait in the in-app Activity feed and on the task's timeline.
 
     Runs ahead of, and independently of, the push guards above: the feed should update even
     for users without the mobile push flag, and it has no cooldown to observe. Best-effort
@@ -154,10 +154,12 @@ def _project_awaiting_input_activity(task_run: TaskRun) -> None:
     """
     try:
         from products.tasks.backend.facade.api import (  # noqa: PLC0415 - keeps the facade off the push import path
+            post_awaiting_input_event,
             project_awaiting_input_activity,
         )
 
         project_awaiting_input_activity(task_run)
+        post_awaiting_input_event(task_run)
     except Exception:
         logger.warning("push_dispatcher.activity_projection_failed", run_id=str(task_run.id), exc_info=True)
 

@@ -76,6 +76,7 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskActivityEvent,
+    TaskArtifact,
     TaskAutomation,
     TaskClientProvenance,
     TaskCommentActivity,
@@ -6707,6 +6708,7 @@ def forward_thread_message(
         message.forwarded_by_id = user_id
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
+    post_message_forwarded_event(message, run)
     return "ok", _thread_message_to_dto(message)
 
 
@@ -6931,3 +6933,188 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
         )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
+
+
+# One line of an agent- or infrastructure-authored error is all a timeline row shows: the
+# rest of a traceback belongs on the run, and later lines are where pasted credentials and
+# other noise tend to live.
+_EVENT_ERROR_SUMMARY_LIMIT = 200
+
+
+def _emittable_task(task_id: str | UUID, team_id: int, *, event: str) -> Task | None:
+    """The task an event is about, or ``None`` when it must not be announced.
+
+    Every lifecycle event shares the gate the PR and canvas announcements already use:
+    the task exists, has a creator to key the flag on, and that creator has the flag.
+    """
+    task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+    if task is None:
+        return None
+    if task.created_by is None or not _agent_thread_updates_enabled(task.created_by):
+        logger.info(
+            "task event skipped",
+            extra={
+                "task_id": str(task.id),
+                "event": event,
+                "reason": "no_creator" if task.created_by is None else "flag_off",
+            },
+        )
+        return None
+    return task
+
+
+def post_run_started_event(run: TaskRun, *, run_number: int) -> None:
+    """Record that a run began, so the timeline has a start for its later events.
+
+    Emitted at run creation rather than on the ``IN_PROGRESS`` transition: creation is the
+    one point every environment goes through, and it is the moment a person sees the task
+    pick up. Best-effort and never raises.
+    """
+    try:
+        task = _emittable_task(run.task_id, run.team_id, event=TaskActivityEvent.RUN_STARTED)
+        if task is None:
+            return
+        emit_task_event(
+            task,
+            event=TaskActivityEvent.RUN_STARTED,
+            content="Agent started work",
+            payload={
+                "run_id": str(run.id),
+                "environment": run.environment,
+                "branch": run.branch or "",
+                "run_number": run_number,
+            },
+            event_key=str(run.id),
+        )
+    except Exception:
+        logger.exception("Failed to post run-started event", extra={"task_id": str(run.task_id)})
+
+
+def post_run_failed_event(run: TaskRun, error: str | None) -> None:
+    """Record that a run failed, with the first line of why.
+
+    The timeline can already derive a terminal status from the task, but not the reason,
+    which is what sends people to the transcript. Best-effort and never raises.
+    """
+    try:
+        task = _emittable_task(run.task_id, run.team_id, event=TaskActivityEvent.RUN_FAILED)
+        if task is None:
+            return
+        summary = (error or "").strip().splitlines()[0][:_EVENT_ERROR_SUMMARY_LIMIT] if error else ""
+        emit_task_event(
+            task,
+            event=TaskActivityEvent.RUN_FAILED,
+            content=f"Run failed: {summary}" if summary else "Run failed",
+            payload={"run_id": str(run.id), "error_summary": summary},
+            event_key=str(run.id),
+        )
+    except Exception:
+        logger.exception("Failed to post run-failed event", extra={"task_id": str(run.task_id)})
+
+
+def post_awaiting_input_event(run: TaskRun) -> None:
+    """Record that a run is blocked on a human.
+
+    Called from the same choke point as the awaiting-input push and feed row, so every
+    path that decides a run is waiting also writes the timeline row. Keyed on the run so a
+    run that waits twice in a row doesn't stack duplicate rows within one wait.
+    Best-effort and never raises.
+    """
+    try:
+        task = _emittable_task(run.task_id, run.team_id, event=TaskActivityEvent.AWAITING_INPUT)
+        if task is None:
+            return
+        emit_task_event(
+            task,
+            event=TaskActivityEvent.AWAITING_INPUT,
+            content="Agent needs input",
+            payload={"run_id": str(run.id)},
+            event_key=str(run.id),
+        )
+    except Exception:
+        logger.exception("Failed to post awaiting-input event", extra={"task_id": str(run.task_id)})
+
+
+def post_artifact_event(artifact: TaskArtifact, *, revised: bool) -> None:
+    """Record that the agent wrote an artifact, or a new version of one.
+
+    Artifacts are what comments attach to, so a timeline that shows comments without the
+    thing being commented on reads backwards. Canvases announce themselves through
+    ``canvas_created`` instead, so they are skipped here rather than announced twice.
+    Best-effort and never raises.
+    """
+    try:
+        if artifact.artifact_type == TaskArtifact.ArtifactType.SLACK_CANVAS:
+            return
+        event = TaskActivityEvent.ARTIFACT_REVISED if revised else TaskActivityEvent.ARTIFACT_CREATED
+        task = _emittable_task(artifact.task_id, artifact.team_id, event=event)
+        if task is None:
+            return
+        version = int(artifact.current_version or 1)
+        emit_task_event(
+            task,
+            event=event,
+            content=f"{artifact.name} v{version}" if revised else artifact.name,
+            payload={
+                "artifact_id": str(artifact.id),
+                "name": artifact.name,
+                "artifact_type": artifact.artifact_type,
+                "version": version,
+            },
+            event_key=f"{artifact.id}:{version}",
+        )
+    except Exception:
+        logger.exception("Failed to post artifact event", extra={"artifact_id": str(artifact.id)})
+
+
+def post_pr_closed_event(run: TaskRun, pr_url: str, *, merged: bool, actor: str | None = None) -> None:
+    """Record a pull request being merged, or closed without merging.
+
+    For a code task this is the real ending, and it often lands after the task itself is
+    already complete. Closed-without-merge means the work was abandoned, which should
+    never be silent. Best-effort and never raises.
+    """
+    try:
+        if not _is_safe_pr_url(pr_url):
+            return
+        event = TaskActivityEvent.PR_MERGED if merged else TaskActivityEvent.PR_CLOSED
+        task = _emittable_task(run.task_id, run.team_id, event=event)
+        if task is None:
+            return
+        label = _pr_display_label(pr_url)
+        verb = "merged" if merged else "closed without merging"
+        emit_task_event(
+            task,
+            event=event,
+            content=f"[{label}]({pr_url}) was {verb}",
+            payload={"pr_url": pr_url, "actor": actor or "", **_pr_payload_identity(pr_url)},
+            event_key=pr_url,
+        )
+    except Exception:
+        logger.exception("Failed to post pr-closed event", extra={"task_id": str(run.task_id)})
+
+
+def post_message_forwarded_event(message: TaskThreadMessage, run: TaskRun) -> None:
+    """Record a thread message being sent to the agent.
+
+    A thread message is a side conversation until someone forwards it; the forward is
+    where a remark becomes an instruction, and usually the explanation for the agent
+    changing direction. Best-effort and never raises.
+    """
+    try:
+        task = _emittable_task(message.task_id, message.team_id, event=TaskActivityEvent.MESSAGE_FORWARDED)
+        if task is None:
+            return
+        emit_task_event(
+            task,
+            event=TaskActivityEvent.MESSAGE_FORWARDED,
+            content="Message sent to the agent",
+            payload={
+                "message_id": str(message.id),
+                "run_id": str(run.id),
+                "forwarded_by_user_id": message.forwarded_by_id,
+            },
+            event_key=str(message.id),
+        )
+    except Exception:
+        logger.exception("Failed to post message-forwarded event", extra={"message_id": str(message.id)})
