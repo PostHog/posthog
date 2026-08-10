@@ -20,8 +20,8 @@ URL has this shape:
 The usage dashboard identifiers are the frontend/API usage type values, not always the
 same short keys used by the detector internals.
 
-The AI side-panel prompt can be opened with a URL hash. The legacy internal route
-segment is still `max`, but do not call PostHog AI "Max" in user-facing answers:
+The AI side-panel prompt can be opened with a URL hash. The hash route still uses
+`max` for historical reasons, but do not call PostHog AI "Max" in user-facing answers:
 
 - `#panel=max:<prompt>` opens the side panel with the prompt prefilled.
 - `#panel=max:!<prompt>` opens the side panel and auto-runs the prompt.

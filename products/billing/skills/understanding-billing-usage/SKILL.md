@@ -113,6 +113,13 @@ If the user asks about dollars, call `posthog:billing-spend-retrieve` with the s
 range and breakdowns. Treat spend as an estimate/attribution layer over usage, not as a
 replacement for usage investigation.
 
+If spend spikes or drops while usage volume looks stable, check whether the date is near
+the start of a new billing period. Tiered pricing can make spend move differently from
+usage because tiers reset each period. The first tier is often free, and lower paid tiers
+are usually more expensive per unit. In this case, call `posthog:billing-list` and inspect
+the product/addon `tiers`, `free_allocation`, and display-unit fields before treating the
+movement as a real usage spike or drop.
+
 ### Step 3. Attribute the usage
 
 Use the `type` and `team` breakdowns to explain the visible usage:
