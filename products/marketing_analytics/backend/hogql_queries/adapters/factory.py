@@ -57,10 +57,14 @@ def _extract_schema_name(table_suffix: str, source_type: str) -> str:
     Table names follow the format: {user_prefix}{source_type}_{schema_name}
     Exclusions should only match against the schema part, not user prefixes.
     For example: 'analytics_pinterestads_campaigns' -> 'campaigns'
+
+    The user prefix is free text, so it can contain the marker itself
+    ('googleads_googleads_campaign'). Take the last occurrence: no schema name
+    contains the marker, so the last one is always the real boundary.
     """
     source_type_lower = source_type.lower()
     marker = f"{source_type_lower}_"
-    idx = table_suffix.find(marker)
+    idx = table_suffix.rfind(marker)
     if idx != -1:
         return table_suffix[idx + len(marker) :]
     return table_suffix
