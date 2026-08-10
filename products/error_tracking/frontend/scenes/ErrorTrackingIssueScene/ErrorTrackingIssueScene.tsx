@@ -57,6 +57,7 @@ import {
     errorTrackingIssueSceneLogic,
 } from './errorTrackingIssueSceneLogic'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { LinkedReportsIndicator } from './LinkedReportsIndicator'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
 
@@ -164,6 +165,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     actions={
                                         isMobile ? undefined : (
                                             <div className="flex items-center gap-1">
+                                                <LinkedReportsIndicator />
                                                 <StatusIndicator status={issue.status} withTooltip />
                                                 <IssueAssigneeSelect
                                                     assignee={issue.assignee}
@@ -202,6 +204,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 {isMobile && (
                                     <div className="flex items-center gap-1.5 px-2 py-1.5 border-b flex-wrap">
+                                        <LinkedReportsIndicator />
                                         <StatusIndicator status={issue.status} withTooltip />
                                         <IssueAssigneeSelect
                                             assignee={issue.assignee}
