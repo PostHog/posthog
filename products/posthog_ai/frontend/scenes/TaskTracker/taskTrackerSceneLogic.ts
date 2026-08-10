@@ -286,7 +286,7 @@ export interface taskTrackerSceneLogicActions {
 export interface taskTrackerSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        displayHeadline: (overrideHeadlines: any, headlineSeed: any) => string
+        displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number) => string
     }
 }
 
