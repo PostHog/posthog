@@ -48,6 +48,16 @@ describe('scoutTemplateDeepLink', () => {
         expect(decodeScoutCreateTemplate(encoded)).toEqual({ description: 'd' })
     })
 
+    it('passes a known source through for attribution', () => {
+        const encoded = encodeScoutCreateTemplate({ description: 'd', source: 'pocket_guide' })
+        expect(decodeScoutCreateTemplate(encoded)).toEqual({ description: 'd', source: 'pocket_guide' })
+    })
+
+    it('drops an unknown source', () => {
+        const encoded = encodeScoutCreateTemplate({ description: 'd', source: 'evil_site' })
+        expect(decodeScoutCreateTemplate(encoded)).toEqual({ description: 'd' })
+    })
+
     it.each([
         ['undefined', undefined],
         ['empty string', ''],

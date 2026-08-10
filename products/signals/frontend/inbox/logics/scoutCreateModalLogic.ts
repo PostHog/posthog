@@ -15,6 +15,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills/frontend/skillConstants'
 
+import { captureScoutCreatedFromTemplate } from '../inboxAnalytics'
 import {
     dailyCronToTime,
     DEFAULT_SCOUT_DAILY_TIME,
@@ -24,6 +25,7 @@ import {
     timeToDailyCron,
 } from '../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAG_LENGTH, MAX_SCOUT_TAGS, normalizeScoutTag } from '../utils/scoutTags'
+import type { ScoutTemplateSource } from '../utils/scoutTemplateDeepLink'
 
 type ScoutCreateConfigFormValues = Required<
     Pick<SignalScoutConfigOptionsApi, 'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule' | 'tags'>
@@ -37,6 +39,8 @@ export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'descrip
 
 export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'>> & {
     config?: Partial<ScoutCreateConfigFormValues>
+    /** Where a prefilled template came from. Analytics-only: stripped from the form, never persisted. */
+    source?: ScoutTemplateSource
 }
 
 export interface ScoutCreateModalLogicProps {
@@ -61,13 +65,14 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
 }
 
 export function getScoutCreateFormValues(initialValues?: ScoutCreateInitialValues): ScoutCreateFormValues {
+    const { source: _source, ...prefill } = initialValues ?? {}
     const config = {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES.config,
-        ...initialValues?.config,
+        ...prefill.config,
     }
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
-        ...initialValues,
+        ...prefill,
         config,
         dailyTime: dailyCronToTime(config.run_cron_schedule) ?? DEFAULT_SCOUT_DAILY_TIME,
     }
@@ -227,6 +232,15 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                         body: formValues.body.trim(),
                         config: formValues.config,
                     })
+
+                    // The conversion event for prefilled links: fires only once the scout exists.
+                    if (logicProps.initialValues?.source) {
+                        captureScoutCreatedFromTemplate({
+                            skillName: formValues.name.trim(),
+                            templateSource: logicProps.initialValues.source,
+                            alreadyExisted: !scout.created,
+                        })
+                    }
 
                     actions.resetScoutCreateForm()
                     lemonToast.success(

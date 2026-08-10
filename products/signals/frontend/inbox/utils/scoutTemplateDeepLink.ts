@@ -13,7 +13,13 @@ export interface ScoutTemplatePayload {
     name?: string
     description?: string
     body?: string
+    /** Where the link came from, for conversion analytics. Allowlisted on decode. */
+    source?: string
 }
+
+/** Link origins we attribute scout creations to. Anything else decodes as if absent. */
+const TEMPLATE_SOURCES = ['pocket_guide'] as const
+export type ScoutTemplateSource = (typeof TEMPLATE_SOURCES)[number]
 
 /** Whole-payload cap, before decoding. Far above any real template, far below abuse territory. */
 const MAX_ENCODED_LENGTH = 16384
@@ -44,7 +50,8 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
         return null
     }
 
-    const { name, description, body } = parsed as Record<string, unknown>
+    const { name, description, body, source } = parsed as Record<string, unknown>
+    const cleanSource = TEMPLATE_SOURCES.find((known) => known === source)
     const cleanDescription =
         typeof description === 'string' ? description.trim().slice(0, SKILL_DESCRIPTION_MAX_LENGTH) : ''
     const cleanBody = typeof body === 'string' ? body.trim().slice(0, MAX_BODY_LENGTH) : ''
@@ -67,5 +74,6 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
         ...(cleanName ? { name: cleanName } : {}),
         ...(cleanDescription ? { description: cleanDescription } : {}),
         ...(cleanBody ? { body: cleanBody } : {}),
+        ...(cleanSource ? { source: cleanSource } : {}),
     }
 }

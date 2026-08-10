@@ -34,6 +34,7 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    SCOUT_CREATED_FROM_TEMPLATE: 'Scout created from template',
     RUN_OPENED: 'Inbox run opened',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
@@ -577,6 +578,24 @@ export function captureInboxOnboardingDecided(params: {
     captureInboxEvent(INBOX_EVENTS.ONBOARDING_DECIDED, {
         mode: params.mode,
         suppression_reason: params.reason,
+    })
+}
+
+/**
+ * A scout was created from a prefilled `#createScout=` link — the conversion end of a
+ * posthog.com pocket-guide "Add this scout" click (`pocket_guide_interaction`, kind
+ * `add_scout_click`, in the website's project). Fires only once the create request succeeds;
+ * `already_existed` marks the idempotent case where the name was taken and settings were updated.
+ */
+export function captureScoutCreatedFromTemplate(params: {
+    skillName: string
+    templateSource: string
+    alreadyExisted: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_CREATED_FROM_TEMPLATE, {
+        skill_name: params.skillName,
+        template_source: params.templateSource,
+        already_existed: params.alreadyExisted,
     })
 }
 

@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 
@@ -207,6 +208,39 @@ describe('scoutCreateModalLogic', () => {
         expect(mockSignalsScoutCreate).not.toHaveBeenCalled()
         expect(onCreated).not.toHaveBeenCalled()
         expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('captures the template conversion on success, with source kept out of the form and the API call', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(jest.fn())
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+        logic = scoutCreateModalLogic({
+            logicKey: 'pocket-guide-scout',
+            initialValues: {
+                name: 'signals-scout-checkout-failures',
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+                source: 'pocket_guide',
+            },
+            onClose,
+            onCreated,
+        })
+        logic.mount()
+
+        expect(logic.values.scoutCreateForm).not.toHaveProperty('source')
+
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            expect.not.objectContaining({ source: expect.anything() })
+        )
+        expect(capture).toHaveBeenCalledWith('Scout created from template', {
+            inbox_client: 'cloud',
+            skill_name: 'signals-scout-checkout-failures',
+            template_source: 'pocket_guide',
+            already_existed: false,
+        })
+        capture.mockRestore()
     })
 
     it('keeps the form open and surfaces a conflicting scout name', async () => {
