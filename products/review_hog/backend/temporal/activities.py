@@ -463,13 +463,25 @@ def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None]:
     the blip); the genuinely-missing-integration case is already caught non-retryably up front by
     `validate_github_integration_activity`, so a real misconfig still fails fast there.
     """
+    github = _installation_for(team_id, repository)
+    return github.get_access_token(), github.github_installation_id
+
+
+def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
+    """The team's GitHub App installation that can access `repository` — a live API probe.
+
+    Callers that make many writes in one run should select once and re-mint tokens from the
+    returned integration row (`GitHubIntegration(Integration.objects.get(...)).get_access_token()`)
+    instead of re-probing per write: the probe answers *which* installation, not *may we write* —
+    GitHub enforces access server-side on every call anyway.
+    """
     github = GitHubIntegration.first_for_team_repository(team_id, repository)
     if github is None:
         raise ApplicationError(
             f"Could not resolve a GitHub App installation for team {team_id} that can access {repository} "
             "(no installation, or a transient GitHub API failure)."
         )
-    return github.get_access_token(), github.github_installation_id
+    return github
 
 
 @activity.defn

@@ -81,6 +81,14 @@ def _verdict(
     )
 
 
+def _mock_installation() -> Mock:
+    github = Mock()
+    github.get_access_token.return_value = "token"
+    github.github_installation_id = "inst-1"
+    github.integration.id = 42
+    return github
+
+
 class TestResolutionPersistenceAndDelivery(BaseTest):
     def _report(self) -> ReviewReport:
         # ReviewReport is fail-closed (TeamScopedRootMixin), so creation outside request context
@@ -143,9 +151,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
             patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
-            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
 
         assert reply.call_count == 1
         assert resolve.call_count == (1 if expect_resolve else 0)
@@ -163,11 +171,13 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
             patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
-            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
-            delivered = _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
+            delivered = _deliver_side_effects(
+                self._input(), str(report.id), verdict, branch="feature", integration_row_id=1
+            )
             # A redelivery of the already-verified verdict must not duplicate the commit artefact.
-            _deliver_side_effects(self._input(), str(report.id), delivered, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), delivered, branch="feature", integration_row_id=1)
         assert "https://github.com/posthog/posthog/commit/abc123" in reply.call_args_list[0].kwargs["body"]
         commits = ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit")
         assert commits.count() == 1
@@ -182,9 +192,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=False),
-            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
 
         body = reply.call_args.kwargs["body"]
         assert "Fix commit" not in body
@@ -206,7 +216,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             comments=[ThreadComment(id=1, author_login="greptile", author_is_bot=True, body="b")],
         )
         with (
-            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", "inst-1")),
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
         ):
@@ -275,9 +285,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True) as resolve,
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
             patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[".github/workflows/ci.yml"]),
-            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
 
         body = reply.call_args.kwargs["body"]
         assert "Fix commit:" not in body
@@ -309,9 +319,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.resolve_thread", side_effect=RuntimeError("token cannot resolve")),
             patch(f"{_RESOLUTION}.commit_on_branch", return_value=True),
             patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
-            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
+            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
         stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
         # The reply survived (posted once), the resolve stays due — exactly what the pre-filter redelivers.
         assert stored.reply_posted is True
@@ -339,7 +349,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
 
     def test_noop_run_writes_a_run_note_and_idles_the_report(self) -> None:
         with (
-            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", "inst-1")),
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[]),
         ):
@@ -382,7 +392,8 @@ class TestFailedRunActivity(NonAtomicBaseTest):
 
     def _base_patches(self, mock_activity: Mock, threads: list[ReviewThread]) -> list:
         return [
-            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", "inst-1")),
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
+            patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", "inst-1")),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
             patch(

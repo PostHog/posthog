@@ -27,6 +27,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
@@ -79,7 +80,7 @@ from products.review_hog.backend.temporal.activities import (
     GenerateSchemasInput,
     SyncReviewSkillsInput,
     ValidateIntegrationInput,
-    _installation_auth,
+    _installation_for,
     _login_to_user_id,
     _sandbox_workflow_id_prefix,
     generate_schemas_activity,
@@ -145,8 +146,9 @@ class ResolutionRunResult:
 class _PreparedRun:
     """In-process fetch/gate output — never crosses the Temporal boundary (threads can be big).
 
-    Deliberately carries no GitHub token: deliveries resolve their own fresh one, because a session
-    can outlive the ~1h installation-token TTL (see `_deliver_side_effects`).
+    Deliberately carries no GitHub token — a session can outlive the ~1h installation-token TTL —
+    only the pinned integration row id: each delivery mints its own fresh token from that row
+    (see `_deliver_side_effects`), without repeating the run-start installation-selection probe.
     """
 
     report_id: str
@@ -157,6 +159,7 @@ class _PreparedRun:
     overflow: int
     skill_name: str
     skill_version: int
+    integration_row_id: int
 
 
 def _fetch_pr_metadata(input: ResolveThreadsInput, token: str, installation_id: str | None) -> PRMetadata:
@@ -172,7 +175,10 @@ def _fetch_pr_metadata(input: ResolveThreadsInput, token: str, installation_id: 
 
 def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResult:
     """Fetch + gate + pre-filter; returns the prepared work-list, or the run result for a clean no-op."""
-    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
+    # The run's one installation-selection probe — it doubles as the access gate. Deliveries reuse
+    # the row and only re-mint tokens (_delivery_auth), never re-probe.
+    github = _installation_for(input.team_id, f"{input.owner}/{input.repo}")
+    token, installation_id = github.get_access_token(), github.github_installation_id
     pr_metadata = _fetch_pr_metadata(input, token, installation_id)
     if pr_metadata.is_fork:
         # Hard refuse, mirroring the review fetch — this stage WRITES to the head branch, and a fork
@@ -240,7 +246,19 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         overflow=overflow,
         skill_name=skill.skill_name,
         skill_version=skill.version,
+        integration_row_id=github.integration.id,
     )
+
+
+def _delivery_auth(integration_row_id: int) -> tuple[str, str | None]:
+    """A fresh token from the run-pinned installation, without re-running the selection probe.
+
+    The probe answers *which* installation, not *may we write* — GitHub enforces access on every
+    call — so a mid-run revocation surfaces as a 401/404 on the write itself, the same per-thread
+    undelivered accounting the probe failure used to produce.
+    """
+    github = GitHubIntegration(Integration.objects.get(id=integration_row_id))
+    return github.get_access_token(), github.github_installation_id
 
 
 def _deliver_side_effects(
@@ -249,12 +267,15 @@ def _deliver_side_effects(
     verdict: ThreadVerdictArtefact,
     *,
     branch: str,
+    integration_row_id: int,
 ) -> ThreadVerdictArtefact:
     """Perform the verdict's undelivered GitHub writes, persisting after each so a crash redoes only
     what's still missing.
 
-    The installation token is resolved fresh here, not carried from run start: a 20-thread session
-    can outlive the ~1h token TTL, and `_installation_auth` auto-refreshes an expired one.
+    The token is minted fresh here from the run-pinned installation, not carried from run start: a
+    20-thread session can outlive the ~1h token TTL, and `get_access_token` auto-refreshes an
+    expired one. Only the token is fresh — the installation selection stays pinned from
+    `_prepare_run`, so deliveries never repeat its live GitHub probe.
     A FIXED verdict's `commit_sha` is the model's echo, so it is verified server-side first
     (`commit_on_branch`, persisted as `commit_verified`): an unproven SHA delivers the reply with a
     visible could-not-confirm caveat instead of the commit link and never auto-resolves — the thread
@@ -270,7 +291,7 @@ def _deliver_side_effects(
     Resolving is etiquette-gated (`should_resolve`) and best-effort — a failed resolve is redelivered by
     the next run's pre-filter.
     """
-    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
+    token, installation_id = _delivery_auth(integration_row_id)
     updated = verdict
     if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha and updated.commit_verified is None:
         verified = commit_on_branch(
@@ -452,6 +473,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                         prepared.report_id,
                         verdict,
                         branch=prepared.pr_metadata.head_branch,
+                        integration_row_id=prepared.integration_row_id,
                     )
                     result.redelivered += 1
                 except Exception:
@@ -537,6 +559,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                         prepared.report_id,
                         verdict,
                         branch=prepared.pr_metadata.head_branch,
+                        integration_row_id=prepared.integration_row_id,
                     )
                 except Exception:
                     # The verdict row still says reply_posted=False, so the next run redelivers.

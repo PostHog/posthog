@@ -2941,9 +2941,15 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    verdict settles as SKIP, the thread stays open for a human). Full session-provenance — capturing the true SHA
    from the signed-commit tooling instead of the model's echo — remains the recorded follow-up (needs Tasks to
    surface it). _Same date (off the token-TTL escalation):_ deliveries resolve a **fresh** installation token per
-   thread (`_installation_auth` inside `_deliver_side_effects`, auto-refreshing) instead of carrying the run-start
+   thread inside `_deliver_side_effects` instead of carrying the run-start
    token — a 20-thread session can outlive the ~1h token TTL, which silently failed the tail's replies/resolves.
    Outright delivery failures are now counted (`ResolutionRunResult.undelivered`) and named in the run note.
+   _Refined 2026-08-10 (off the second review round):_ the per-delivery resolve was quietly re-running the
+   installation-**selection** probe too — a live `GET /repos/{owner}/{repo}` per thread, at CRITICAL priority,
+   answering a question settled at run start. Selection is now pinned once in `_prepare_run` (its probe stays as
+   the access gate; `_PreparedRun.integration_row_id` carries the row) and deliveries only mint fresh tokens from
+   that row (`_delivery_auth`). Fresh-token-per-delivery semantics unchanged; a mid-run revocation now surfaces
+   as a 401/404 on the write itself with the same per-thread undelivered accounting.
    _Same date (off the poison-thread escalation):_ a session-OPEN failure now raises only while **no turn has
    completed this run** — the outage signal stays loud — but once turns have landed it degrades to the same
    final-attempt per-thread skip as a turn failure, so one thread whose content reliably breaks its opening turn
