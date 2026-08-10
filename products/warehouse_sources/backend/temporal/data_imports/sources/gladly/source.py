@@ -69,6 +69,17 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_report_rows` reads the report CSV straight off `response.raw` (see gladly.py) rather
+        # than through `iter_content`, so a stall in Gladly's report generation past
+        # REQUEST_TIMEOUT_SECONDS raises the bare urllib3 read-timeout while streaming rows —
+        # after `generate_report`'s own retry-on-`requests.ReadTimeout` has already returned a
+        # response, so it isn't caught there either. Temporal's activity retry regenerates the
+        # report and re-streams it; the resumable window state means only the in-flight window is
+        # redone, deduped on merge, so this is self-recovering rather than a tracked-exception-worthy
+        # failure.
+        return {"Read timed out"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
