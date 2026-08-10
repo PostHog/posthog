@@ -52,6 +52,35 @@ describe('meta ads template', () => {
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
     })
+    it('omits value and contents for a Product Viewed without a quantity', async () => {
+        const response = await tester.invokeMapping(
+            'Product Viewed',
+            { accessToken: 'access-token', pixelId: 'pixel-id' },
+            createAdDestinationPayload({
+                event: {
+                    properties: {
+                        sku: '43431-18',
+                        name: 'Tactical black t-shirt',
+                        category: 'merch',
+                    },
+                    event: 'Product Viewed',
+                },
+            })
+        )
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{\"data\":[{\"event_name\":\"ViewContent\",\"event_id\":\"event-id\",\"event_time\":1735689600,\"action_source\":\"website\",\"user_data\":{\"em\":\"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3\",\"fn\":\"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6\",\"ln\":\"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566\"},\"custom_data\":{\"currency\":\"USD\",\"content_type\":\"product\",\"content_ids\":[\"43431-18\"],\"content_name\":\"Tactical black t-shirt\",\"content_category\":\"merch\"}}],\"access_token\":\"access-token\"}",
+              "headers": {
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "type": "fetch",
+              "url": "https://graph.facebook.com/v25.0/pixel-id/events",
+            }
+        `)
+    })
     it('builds a multi-product Purchase payload', async () => {
         const response = await tester.invokeMapping(
             'Order Completed',

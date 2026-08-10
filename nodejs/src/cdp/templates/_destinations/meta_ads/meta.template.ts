@@ -26,14 +26,15 @@ const build_inputs = (eventName: string, customData: Record<string, any>): HogFu
 }
 
 const currency = "{event.properties.currency ?? 'USD'}"
-const value = '{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}'
+const value =
+    "{empty(event.properties.value) and empty(event.properties.revenue) and empty(event.properties.price) ? '' : toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}"
 const singleContentIds =
     '{not empty(event.properties.sku) ? [event.properties.sku] : (not empty(event.properties.product_id) ? [event.properties.product_id] : [])}'
 const singleContents =
-    "{not empty(event.properties.sku) or not empty(event.properties.product_id) ? [{'id': event.properties.sku ?? event.properties.product_id, 'quantity': event.properties.quantity, 'item_price': event.properties.price}] : []}"
+    "{not empty(event.properties.quantity) and (not empty(event.properties.sku) or not empty(event.properties.product_id)) ? [{'id': event.properties.sku ?? event.properties.product_id, 'quantity': event.properties.quantity, 'item_price': event.properties.price}] : []}"
 const multiContentIds = '{arrayMap(x -> x.sku ?? x.product_id, event.properties.products ?? [])}'
 const multiContents =
-    "{arrayMap(x -> ({'id': x.sku ?? x.product_id, 'quantity': x.quantity, 'item_price': x.price}), event.properties.products ?? [])}"
+    "{arrayMap(x -> ({'id': x.sku ?? x.product_id, 'quantity': x.quantity, 'item_price': x.price}), arrayFilter(x -> (not empty(x.sku) or not empty(x.product_id)) and not empty(x.quantity), event.properties.products ?? []))}"
 const numItems = '{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}'
 
 export const template: HogFunctionTemplate = {
