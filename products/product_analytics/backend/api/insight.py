@@ -2010,10 +2010,9 @@ class InsightViewSet(
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        # An insight saved without a name shows a title the browser builds from its query
-        # (e.g. "cta_click count"), so the searched text and the on-screen text diverge. The
-        # query's event names live in the indexed `query_metadata` JSON, so match them too and
-        # a search for a word the user reads in the list finds the row.
+        # An insight saved without a name shows a title the browser builds from its query,
+        # so the searched text and the on-screen text diverge. The query's event names live
+        # in the indexed `query_metadata` JSON, so match them too and searches find those rows.
         queryset = queryset.annotate(_query_events=KeyTextTransform("events", "query_metadata"))
         normalized_search = normalize_search_term(search)
         extra_exact_q = Q(_query_events__icontains=normalized_search) if normalized_search else None
