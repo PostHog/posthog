@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeDockWindows, detectMissionControl } from "./heuristic";
+import { detectMissionControl, windowKey } from "./heuristic";
 import type { CgWindow } from "./window-list";
 
 const window = (partial: Partial<CgWindow>): CgWindow => ({
@@ -65,13 +65,23 @@ describe("detectMissionControl", () => {
   });
 });
 
-describe("describeDockWindows", () => {
-  it("keeps only Dock-owned windows, with the verdict for the sample", () => {
+describe("windowKey", () => {
+  it("ignores subpixel drift so a nudged window does not read as a new one", () => {
+    // The probe diffs samples by this key; without rounding, a window that
+    // shifts a fraction of a pixel between samples would be reported as having
+    // appeared, burying the one window that actually did.
     expect(
-      describeDockWindows([window({}), dockStrip, missionControlBacking]),
-    ).toEqual({
-      detected: true,
-      windows: [dockStrip, missionControlBacking],
-    });
+      windowKey(
+        window({ bounds: { x: 0.4, y: -1.2, width: 1440.1, height: 900.9 } }),
+      ),
+    ).toBe(
+      windowKey(window({ bounds: { x: 0, y: -1, width: 1440, height: 901 } })),
+    );
+  });
+
+  it("separates windows that differ by owner", () => {
+    expect(windowKey(dockStrip)).not.toBe(
+      windowKey({ ...dockStrip, ownerName: "Finder" }),
+    );
   });
 });

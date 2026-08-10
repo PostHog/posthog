@@ -11,6 +11,7 @@ import type { AgentService } from "@posthog/workspace-server/services/agent/agen
 import { AGENT_SERVICE } from "@posthog/workspace-server/services/agent/identifiers";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import type { MissionControlService } from "../../platform-adapters/electron-mission-control";
 import {
   DevActionsEvent,
   type DevActionsEvents,
@@ -45,10 +46,9 @@ import {
 } from "../../services/dev-network/schemas";
 import type { DevNetworkService } from "../../services/dev-network/service";
 import {
-  dockWindowDumpSchema,
+  missionControlProbeSchema,
   missionControlStateSchema,
 } from "../../services/mission-control/schemas";
-import type { MissionControlService } from "../../services/mission-control/service";
 import { middleware, publicProcedure, router } from "../trpc";
 
 const getFlagsService = () => container.get<DevFlagsService>(DEV_FLAGS_SERVICE);
@@ -183,9 +183,9 @@ export const devRouter = router({
     ),
 
   // Mission Control detection can't be driven from a test, and only exists on
-  // macOS, so these two are how the feature gets verified by hand: one pins the
-  // overlay on to review the visuals, the other dumps the Dock windows the
-  // detection heuristic reads.
+  // macOS, so these two are how the feature gets checked by hand: one pins the
+  // overlay on to review the visuals, the other records what the window list
+  // does while you open Mission Control.
   setForceMissionControlOverlay: devProcedure
     .input(z.object({ enabled: z.boolean() }))
     .output(missionControlStateSchema)
@@ -193,9 +193,12 @@ export const devRouter = router({
       getMissionControlService().setForced(input.enabled),
     ),
 
-  dumpDockWindows: devProcedure
-    .output(dockWindowDumpSchema)
-    .query(() => getMissionControlService().debugDump()),
+  probeMissionControl: devProcedure
+    .input(z.object({ durationMs: z.number().int().min(1000).max(30_000) }))
+    .output(missionControlProbeSchema)
+    .mutation(({ input }) =>
+      getMissionControlService().probe(input.durationMs),
+    ),
 
   onFlagsChanged: publicProcedure.subscription(async function* (opts) {
     const service = getFlagsService();

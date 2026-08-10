@@ -94,19 +94,15 @@ function bind() {
 }
 
 /**
- * Build a sampler over the live window list, or return null when that isn't
- * possible (wrong platform, missing koffi prebuild, dlopen blocked). A null
- * return is the caller's signal to disable the feature silently.
+ * Build a sampler over the live window list. Returns null off macOS, and throws
+ * when the binding cannot be set up — a missing koffi prebuild and a refused
+ * dlopen look identical from the outside, so the caller logs the reason rather
+ * than losing it.
  */
 export function createWindowListSampler(): WindowListSampler | null {
   if (process.platform !== "darwin") return null;
 
-  let cg: ReturnType<typeof bind>;
-  try {
-    cg = bind();
-  } catch {
-    return null;
-  }
+  const cg = bind();
 
   return {
     sample(): CgWindow[] {

@@ -1,4 +1,3 @@
-import type { DockWindowDump } from "./schemas";
 import type { CgWindow } from "./window-list";
 
 const DOCK = "Dock";
@@ -11,8 +10,8 @@ const DOCK = "Dock";
  *
  * The Dock owns plenty of other windows (the Dock itself, Exposé leftovers,
  * Notification Center), so the y origin is what separates them. It is
- * undocumented and has no compatibility guarantee: validate it against a real
- * macOS release with `dev.dumpDockWindows` before trusting a change here.
+ * undocumented and has no compatibility guarantee: check it against a real macOS
+ * release with `dev.probeMissionControl` before trusting a change here.
  */
 export function detectMissionControl(windows: CgWindow[]): boolean {
   return windows.some(
@@ -21,15 +20,18 @@ export function detectMissionControl(windows: CgWindow[]): boolean {
 }
 
 /**
- * Every Dock-owned window in a sample, for the dev-toolbar dump. Diffing a dump
- * taken with Mission Control open against one taken without is how the
- * predicate above gets confirmed or retuned.
+ * Identity for diffing one sample against another. CoreGraphics window numbers
+ * are not in our window type, so owner plus layer plus rounded bounds stands in —
+ * enough to tell a window that appeared from one that merely moved a subpixel.
  */
-export function describeDockWindows(
-  windows: CgWindow[],
-): Omit<DockWindowDump, "available"> {
-  return {
-    detected: detectMissionControl(windows),
-    windows: windows.filter((window) => window.ownerName === DOCK),
-  };
+export function windowKey(window: CgWindow): string {
+  const { x, y, width, height } = window.bounds;
+  return [
+    window.ownerName,
+    window.layer,
+    Math.round(x),
+    Math.round(y),
+    Math.round(width),
+    Math.round(height),
+  ].join("|");
 }

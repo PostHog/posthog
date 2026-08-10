@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MissionControlServiceEvent } from "./schemas";
-import type { CgWindow, WindowListSampler } from "./window-list";
+import { MissionControlServiceEvent } from "../services/mission-control/schemas";
+import type {
+  CgWindow,
+  WindowListSampler,
+} from "../services/mission-control/window-list";
 
-vi.mock("../../utils/logger", () => ({
+vi.mock("../utils/logger", () => ({
   logger: {
     scope: () => ({
       info: vi.fn(),
@@ -16,16 +19,22 @@ vi.mock("../../utils/logger", () => ({
 const sampler = vi.hoisted(() => ({
   create: vi.fn<() => WindowListSampler | null>(),
 }));
-vi.mock("./cg-window-list", () => ({
+vi.mock("../services/mission-control/cg-window-list", () => ({
   createWindowListSampler: sampler.create,
 }));
 
-import { MissionControlService } from "./service";
+import { MissionControlService } from "./electron-mission-control";
 
 const DOCK_AT_MINUS_ONE: CgWindow = {
   ownerName: "Dock",
   layer: 20,
   bounds: { x: 0, y: -1, width: 1440, height: 901 },
+};
+
+const DOCK_STRIP: CgWindow = {
+  ownerName: "Dock",
+  layer: 20,
+  bounds: { x: 0, y: 830, width: 1440, height: 70 },
 };
 
 /** A sampler whose next return value the test controls. */
@@ -139,6 +148,19 @@ describe("MissionControlService", () => {
     expect(service.getState().active).toBe(false);
   });
 
+  it("survives a window list that fails to bind", () => {
+    // arm() runs from a BrowserWindow event handler, so a throw here would take
+    // the main process down over an easter egg.
+    sampler.create.mockImplementation(() => {
+      throw new Error("dlopen refused");
+    });
+    const service = new MissionControlService();
+
+    expect(() => service.arm()).not.toThrow();
+    vi.advanceTimersByTime(5000);
+    expect(service.getState().active).toBe(false);
+  });
+
   it("forces the overlay on without any detection at all", () => {
     pretendPlatform("linux");
     const service = new MissionControlService();
@@ -162,5 +184,40 @@ describe("MissionControlService", () => {
     vi.advanceTimersByTime(1000);
 
     expect(service.getState().active).toBe(true);
+  });
+
+  it("reports the window that appeared mid-recording", async () => {
+    // The whole point of recording rather than sampling on demand: Mission
+    // Control is only ever open while the app is unclickable, so the window that
+    // identifies it can only be caught by a probe that is already running.
+    const { state, impl } = fakeSampler([DOCK_STRIP]);
+    sampler.create.mockReturnValue(impl);
+    const service = new MissionControlService();
+
+    const probe = service.probe(1000);
+    await vi.advanceTimersByTimeAsync(250);
+    state.windows = [DOCK_STRIP, DOCK_AT_MINUS_ONE];
+    await vi.advanceTimersByTimeAsync(250);
+    state.windows = [DOCK_AT_MINUS_ONE];
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(await probe).toMatchObject({
+      available: true,
+      detected: true,
+      appeared: [DOCK_AT_MINUS_ONE],
+      disappeared: [DOCK_STRIP],
+      baselineCount: 1,
+    });
+  });
+
+  it("reports unavailable rather than throwing when there is no window list", async () => {
+    pretendPlatform("linux");
+    const service = new MissionControlService();
+
+    await expect(service.probe(1000)).resolves.toMatchObject({
+      available: false,
+      detected: false,
+      appeared: [],
+    });
   });
 });

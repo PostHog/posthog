@@ -17,13 +17,13 @@ import { setupExternalLinkHandlers } from "./external-links";
 import { buildApplicationMenu } from "./menu";
 import { setupArtifactPreviewWebviews } from "./platform-adapters/electron-artifact-preview";
 import type { ElectronMainWindow } from "./platform-adapters/electron-main-window";
+import type { MissionControlService } from "./platform-adapters/electron-mission-control";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
 import { POSTHOG_SESSION_ID_ARG } from "./posthog-session-arg";
 import {
   encodeDevFlagsForArg,
   readDevFlagsSync,
 } from "./services/dev-flags/service";
-import type { MissionControlService } from "./services/mission-control/service";
 import { trpcRouter } from "./trpc/router";
 import { collectMemorySnapshot } from "./utils/crash-diagnostics";
 import { isDevBuild } from "./utils/env";

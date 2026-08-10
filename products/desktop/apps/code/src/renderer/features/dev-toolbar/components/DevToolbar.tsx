@@ -803,6 +803,9 @@ function formatRttCompact(ms: number): string {
 
 const SLOW_PRESETS_MS = [0, 250, 1000, 3000] as const;
 
+/** Long enough to open Mission Control, look at it, and come back. */
+const MISSION_CONTROL_PROBE_MS = 8000;
+
 function QuickActionsMenu() {
   const trpcReact = useTRPC();
   const { data: sim, refetch: refetchSim } = useQuery({
@@ -824,13 +827,23 @@ function QuickActionsMenu() {
     void trpcClient.dev.setForceMissionControlOverlay.mutate({ enabled: next });
   };
 
-  // Logged rather than rendered: this is raw undocumented window geometry read
-  // to confirm the detection heuristic still holds, and it wants copy-pasting
-  // into a test fixture, not a menu.
-  const dumpDockWindows = () => {
-    void trpcClient.dev.dumpDockWindows
-      .query()
-      .then((dump) => log.info("Dock windows", dump));
+  // Records the window list for a few seconds so you can open Mission Control
+  // during it — the app is unclickable while Mission Control is up, so a sample
+  // taken on click can only ever show the ordinary desktop. Logged rather than
+  // rendered: the result is raw window geometry for a test fixture, not a menu.
+  const [probing, setProbing] = useState(false);
+  const probeMissionControl = () => {
+    setProbing(true);
+    log.info(
+      `Recording the window list for ${MISSION_CONTROL_PROBE_MS}ms — open Mission Control now`,
+    );
+    void trpcClient.dev.probeMissionControl
+      .mutate({ durationMs: MISSION_CONTROL_PROBE_MS })
+      .then((probe) => log.info("Mission Control probe", probe))
+      .catch((error: unknown) =>
+        log.warn("Mission Control probe failed", error),
+      )
+      .finally(() => setProbing(false));
   };
 
   const setOffline = (next: boolean) =>
@@ -960,9 +973,14 @@ function QuickActionsMenu() {
             />
             {missionControlForced ? "Hide overlay" : "Force overlay on"}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={dumpDockWindows}>
-            <ScrollText size={12} className="mr-2 text-(--gray-9)" />
-            Log Dock windows
+          <DropdownMenuItem onClick={probeMissionControl} disabled={probing}>
+            <ScrollText
+              size={12}
+              className={`mr-2 ${probing ? "text-(--accent-11)" : "text-(--gray-9)"}`}
+            />
+            {probing
+              ? "Recording — open Mission Control"
+              : "Record the window list"}
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

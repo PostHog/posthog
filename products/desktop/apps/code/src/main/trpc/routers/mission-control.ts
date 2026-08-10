@@ -1,10 +1,10 @@
 import { container } from "../../di/container";
 import { MISSION_CONTROL_SERVICE } from "../../di/tokens";
+import type { MissionControlService } from "../../platform-adapters/electron-mission-control";
 import {
   MissionControlServiceEvent,
   missionControlStateSchema,
 } from "../../services/mission-control/schemas";
-import type { MissionControlService } from "../../services/mission-control/service";
 import { publicProcedure, router } from "../trpc";
 
 const getService = () =>
