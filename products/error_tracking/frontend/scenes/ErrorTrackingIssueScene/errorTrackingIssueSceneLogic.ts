@@ -26,7 +26,7 @@ import {
 } from 'lib/components/Errors/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { fetchLinkedReports } from 'lib/signals/linkedReports'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -42,6 +42,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
 
+import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalSourceProductApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -756,15 +757,24 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             {
                 // Error tracking tags its signals with the issue id as `source_id`, so this filter
                 // walks the link from the issue back to the reports its signals fed.
-                loadLinkedReports: async (): Promise<SignalReportApi[]> =>
-                    await fetchLinkedReports({
-                        sourceProduct: SignalSourceProductApi.ErrorTracking,
-                        sourceId: props.id,
-                        // The endpoint's default ordering leads with the viewer's own review queue,
-                        // which is an inbox concern rather than this panel's.
-                        ordering: '-updated_at',
-                        limit: LINKED_REPORTS_LIMIT,
-                    }),
+                loadLinkedReports: async (): Promise<SignalReportApi[]> => {
+                    try {
+                        const response = await signalsReportsList(getCurrentTeamId().toString(), {
+                            source_id: props.id,
+                            source_product: SignalSourceProductApi.ErrorTracking,
+                            // The endpoint's default ordering leads with the viewer's own review
+                            // queue, which is an inbox concern rather than this pane's.
+                            ordering: '-updated_at',
+                            limit: LINKED_REPORTS_LIMIT,
+                        })
+                        return response.results
+                    } catch (error) {
+                        // Supplementary context, so it degrades quietly: kea-loaders toasts a failed
+                        // `load*` action, and a signals outage must not do that on every issue page.
+                        console.error('Failed to load linked reports:', error)
+                        return []
+                    }
+                },
             },
         ],
         spikeEvents: [
