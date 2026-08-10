@@ -231,6 +231,9 @@ class TaskThreadMessageDTO:
     author: "TaskUserBasicInfo | None" = None
     forwarded_to_agent_at: datetime | None = None
     forwarded_by: "TaskUserBasicInfo | None" = None
+    # Indexed at write time, so a client renders "mentioned you" without parsing content —
+    # and both surfaces agree on who was mentioned.
+    mentioned_user_ids: list[int] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -324,6 +327,54 @@ class TaskCommentSummaryDTO:
 @dataclass(frozen=True)
 class TaskCommentPageDTO:
     comments: list[TaskCommentSummaryDTO]
+    next: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentStateEventDTO:
+    """The latest resolve or reopen on a thread. Its own row on the timeline: a boolean says
+    what a thread's state is, but only an event says who changed it and when."""
+
+    state: str
+    author: "TaskUserBasicInfo | None"
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class TaskCommentReplyPreviewDTO:
+    """The newest reply in a thread, for the collapsed row's second line."""
+
+    author: "TaskUserBasicInfo | None"
+    content: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class TaskCommentActivityDTO:
+    """One comment thread as the activity timeline renders it: the root, collapsed with its
+    replies rather than one row per reply."""
+
+    id: UUID
+    target: TaskCommentTargetDTO
+    content: str
+    content_truncated: bool
+    selected_text: str | None
+    author: "TaskUserBasicInfo | None"
+    created_at: datetime
+    # The thread's position on the timeline: a thread moves to its newest reply, so an
+    # exchange stays one row instead of scattering across the feed.
+    last_activity_at: datetime
+    reply_count: int
+    participants: list["TaskUserBasicInfo"]
+    mentioned_user_ids: list[int]
+    resolved: bool
+    state_event: TaskCommentStateEventDTO | None
+    latest_reply: TaskCommentReplyPreviewDTO | None
+
+
+@dataclass(frozen=True)
+class TaskCommentActivityPageDTO:
+    comments: list[TaskCommentActivityDTO]
     next: str | None
 
 

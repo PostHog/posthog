@@ -32,6 +32,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskActivityPageSerializer,
     TaskActivityQuerySerializer,
     TaskActivitySerializer,
+    TaskCommentActivityResponseSerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
     TaskThreadMessageSerializer,
@@ -514,6 +515,22 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if messages is None:
             raise NotFound("Task not found")
         return Response(TaskThreadMessageSerializer(messages, many=True).data)
+
+    @extend_schema(
+        responses={200: TaskCommentActivityResponseSerializer},
+        summary="List comment activity",
+        description=(
+            "Every comment thread on the task, collapsed one row per thread and ordered by newest "
+            "activity — what the activity timeline renders. One request for the whole task rather "
+            "than one per artifact."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="comment_activity")
+    def comment_activity(self, request, *args, **kwargs):
+        page = tasks_facade.list_task_comment_activity(self._task_id(), self.team_id, self._user_id())
+        if page is None:
+            raise NotFound("Task not found")
+        return Response(TaskCommentActivityResponseSerializer(page).data)
 
     @extend_schema(
         request=TaskThreadMessageWriteSerializer,
