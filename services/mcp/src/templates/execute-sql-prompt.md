@@ -126,12 +126,12 @@ Assistant: I'll search existing insights and dashboards via SQL.
 1. Discover columns: run the schema-discovery step from the workflow above to confirm which columns each table exposes before projecting or ordering by them. Column sets differ per system table — e.g. `system.insights` has `short_id` and `last_modified_at`, but `system.dashboards` has neither (its only timestamp is `created_at`). Without this step I'd be guessing.
 2. Search insights by name (using only confirmed columns): `execute-sql` with `SELECT id, name, short_id, description FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%') ORDER BY last_modified_at DESC LIMIT 20`.
 3. If results are sparse, broaden to dashboards (re-using the same schema lookup — `system.dashboards` has its own column set, e.g. no `short_id` and no `last_modified_at`): `execute-sql` with `SELECT id, name, description FROM system.dashboards WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%') ORDER BY created_at DESC LIMIT 20`.
-4. Validate promising insights with `insight-retrieve`.
+4. Validate promising insights with `insight-get`.
 5. Summarize with links.
 <reasoning>
 1. Schema discovery is mandatory step 1 of the discovery workflow above; `system.*` tables' column sets differ per entity (e.g. `system.dashboards` has no `last_modified_at` or `short_id` — ordering it by `last_modified_at` fails field resolution).
 2. SQL against `system.*` tables is the fastest way to discover existing entities — no `query-*` tool covers entity search.
 3. ILIKE with multiple terms catches naming variants ("Monthly Revenue", "MRR", "Payment Events").
-4. `insight-retrieve` confirms the insight's query configuration still matches intent.
+4. `insight-get` confirms the insight's query configuration still matches intent.
 </reasoning>
 </example>
