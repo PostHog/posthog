@@ -10,12 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
   Field,
-  FieldContent,
   FieldDescription,
   FieldError,
   FieldLabel,
   Input,
-  Switch,
   Text,
   Textarea,
 } from "@posthog/quill";
@@ -112,7 +110,6 @@ export function CreateChannelModal({
   const [repositoryIntegration, setRepositoryIntegration] = useState<
     number | null
   >(null);
-  const [star, setStar] = useState(true);
   // Create mode's step. Describe mode has no name step, so it starts past it.
   const [step, setStep] = useState<"name" | "describe" | "repositories">(
     "name",
@@ -130,7 +127,6 @@ export function CreateChannelModal({
       setDescription("");
       setRepositories([]);
       setRepositoryIntegration(null);
-      setStar(true);
       setStep("name");
     }
   }
@@ -162,7 +158,7 @@ export function CreateChannelModal({
   const submitCreate = async (linkSelectedRepositories: boolean) => {
     let contextId: string;
     try {
-      const channel = await createChannel(trimmedName, { star });
+      const channel = await createChannel(trimmedName);
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
         surface: "sidebar",
@@ -493,24 +489,6 @@ export function CreateChannelModal({
                       setRepositoryIntegration(nextIntegration);
                     }}
                   />
-                  {/* Last stop before both create buttons, so the toggle is in
-                      view when the space is actually made. */}
-                  <Field orientation="horizontal">
-                    <FieldContent>
-                      <FieldLabel htmlFor="context-star">
-                        Star new {spacesLayout ? "space" : "channel"}
-                      </FieldLabel>
-                      <FieldDescription>
-                        Shows it in your starred list.
-                      </FieldDescription>
-                    </FieldContent>
-                    <Switch
-                      id="context-star"
-                      checked={star}
-                      disabled={busy}
-                      onCheckedChange={setStar}
-                    />
-                  </Field>
                 </DialogBody>
 
                 <DialogFooter>
