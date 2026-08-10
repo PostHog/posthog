@@ -268,6 +268,17 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
     # (e.g. BadConfig) to surface.
     "could not get connection from the pool - allserversdown",
+    # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
+    # ever begins and libpq has no server-reported error text to attach (see
+    # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
+    # connect-time failure — which completes enough of the protocol to get an actual message, e.g.
+    # "FATAL: password authentication failed" — this one is a purely local failure before any bytes
+    # reach the network, typically the worker running out of a local resource needed to open a new
+    # socket (file descriptors, ephemeral ports). Transient: the condition clears once the worker's
+    # resource pressure eases, so a fresh connect attempt after backoff usually succeeds. The literal
+    # "no error details available" suffix is the signal — libpq only omits the message in this local,
+    # pre-handshake case, so it never matches a genuine (and permanent) server-reported rejection.
+    "connection is bad: no error details available",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
