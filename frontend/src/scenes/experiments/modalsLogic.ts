@@ -21,14 +21,12 @@ export interface modalsLogicValues {
     isPauseExperimentModalOpen: boolean
     isPrimaryMetricModalOpen: boolean
     isPrimaryMetricSourceModalOpen: boolean
-    isPrimaryMetricsReorderModalOpen: boolean
     isPrimarySharedMetricModalOpen: boolean
     isReleaseConditionsModalOpen: boolean
     isResumeExperimentModalOpen: boolean
     isRunningTimeConfigModalOpen: boolean
     isSecondaryMetricModalOpen: boolean
     isSecondaryMetricSourceModalOpen: boolean
-    isSecondaryMetricsReorderModalOpen: boolean
     isSecondarySharedMetricModalOpen: boolean
     isStatsEngineModalOpen: boolean
     isVariantDeltaTimeseriesModalOpen: boolean
@@ -69,9 +67,6 @@ export interface modalsLogicActions {
     closePrimaryMetricSourceModal: () => {
         value: true
     }
-    closePrimaryMetricsReorderModal: () => {
-        value: true
-    }
     closePrimarySharedMetricModal: () => {
         value: true
     }
@@ -88,9 +83,6 @@ export interface modalsLogicActions {
         value: true
     }
     closeSecondaryMetricSourceModal: () => {
-        value: true
-    }
-    closeSecondaryMetricsReorderModal: () => {
         value: true
     }
     closeSecondarySharedMetricModal: () => {
@@ -132,9 +124,6 @@ export interface modalsLogicActions {
     openPrimaryMetricSourceModal: () => {
         value: true
     }
-    openPrimaryMetricsReorderModal: () => {
-        value: true
-    }
     openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => {
         sharedMetricId: number | null
     }
@@ -151,9 +140,6 @@ export interface modalsLogicActions {
         uuid: string
     }
     openSecondaryMetricSourceModal: () => {
-        value: true
-    }
-    openSecondaryMetricsReorderModal: () => {
         value: true
     }
     openSecondarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => {
@@ -212,10 +198,6 @@ export const modalsLogic = kea<modalsLogicType>([
         closeSecondarySharedMetricModal: true,
         openVariantDeltaTimeseriesModal: true,
         closeVariantDeltaTimeseriesModal: true,
-        openPrimaryMetricsReorderModal: true,
-        closePrimaryMetricsReorderModal: true,
-        openSecondaryMetricsReorderModal: true,
-        closeSecondaryMetricsReorderModal: true,
         openRunningTimeConfigModal: true,
         closeRunningTimeConfigModal: true,
     }),
@@ -323,20 +305,6 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openVariantDeltaTimeseriesModal: () => true,
                 closeVariantDeltaTimeseriesModal: () => false,
-            },
-        ],
-        isPrimaryMetricsReorderModalOpen: [
-            false,
-            {
-                openPrimaryMetricsReorderModal: () => true,
-                closePrimaryMetricsReorderModal: () => false,
-            },
-        ],
-        isSecondaryMetricsReorderModalOpen: [
-            false,
-            {
-                openSecondaryMetricsReorderModal: () => true,
-                closeSecondaryMetricsReorderModal: () => false,
             },
         ],
         isDescriptionModalOpen: [

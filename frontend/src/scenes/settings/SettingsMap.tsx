@@ -53,6 +53,7 @@ import {
     WarehouseGroupPropertiesSetting,
     WarehousePersonPropertiesSetting,
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
+import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -175,7 +176,12 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import { HomepageSetting, SidebarItemsSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
+import {
+    HomepageSetting,
+    SidebarItemsSetting,
+    SidebarLayoutSetting,
+    SidebarMyToolsSetting,
+} from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -362,8 +368,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'mcp-servers-manage',
-                title: 'MCP servers',
-                description: 'Install and manage MCP servers for your PostHog AI and PostHog Desktop agents.',
+                title: null,
                 component: <McpStoreSettings />,
                 keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
@@ -448,6 +453,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsAccountConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
+            },
+            {
+                id: 'customer-analytics-calendar-sync',
+                title: 'Calendar sync',
+                description:
+                    'Connect your Google Calendar to sync meetings with customers into their accounts. Each team member connects their own calendar.',
+                component: <CalendarSyncConfig />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
+                keywords: ['calendar', 'meetings', 'google', 'sync', 'accounts'],
             },
             {
                 id: 'customer-analytics-event-stream',
@@ -2053,6 +2067,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
                 component: <HomepageSetting />,
                 keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
+            },
+            {
+                id: 'sidebar-layout',
+                title: 'Layout',
+                description: 'Control how dense the sidebar rows are.',
+                component: <SidebarLayoutSetting />,
+                keywords: ['sidebar', 'layout', 'density', 'compact', 'comfortable'],
             },
             {
                 id: 'sidebar-items',

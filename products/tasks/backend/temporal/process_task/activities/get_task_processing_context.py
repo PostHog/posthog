@@ -23,6 +23,8 @@ from products.tasks.backend.constants import (
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
+    vm_sandbox_origin_in_rollout,
+    vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.facade.api import ensure_task_run_session
@@ -33,7 +35,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_TTL_SECONDS,
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
+from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -212,6 +214,19 @@ class TaskProcessingContext:
             Task.OriginProduct.IMAGE_BUILDER.value,
         )
         return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
+
+    def max_run_duration(self) -> timedelta | None:
+        """Hard wall-clock cap on total run time, or None when the run is exempt.
+
+        Unlike the inactivity timeout, this is not reset by heartbeats, so it stops a
+        wedged-but-heartbeating agent that would otherwise run forever. Interactive
+        sessions can legitimately stay open for hours under a human, so they are
+        uncapped; autonomous runs get the cap as a safety net, unless the setting
+        disables it deployment-wide.
+        """
+        if self.mode == "interactive":
+            return None
+        return resolve_max_run_duration()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.
@@ -468,6 +483,7 @@ def _resolve_modal_vm_sandbox(
     #     org-targeted payload variants decide which default VM image an org gets.
     allowed_origins: set[str] = set()
     default_base_origins: set[str] = set()
+    origin_rollout_percentages: dict[str, float] = {}
     default_custom_image: str | None = None
     if state_override is None:
         try:
@@ -477,9 +493,11 @@ def _resolve_modal_vm_sandbox(
             return VmSandboxDecision(use_vm_sandbox=False)
         allowed_origins = vm_sandbox_allowed_origin_products(payload)
         default_base_origins = vm_sandbox_default_base_origin_products(payload)
+        origin_rollout_percentages = vm_sandbox_origin_rollout_percentages(payload)
         default_custom_image = vm_sandbox_default_custom_image(payload)
 
-    origin_allows_default_base = origin_product in default_base_origins
+    origin_in_percentage_rollout = vm_sandbox_origin_in_rollout(origin_product, run_id, origin_rollout_percentages)
+    origin_allows_default_base = origin_product in default_base_origins or origin_in_percentage_rollout
 
     # Custom images are VM-only, so VM historically required one. image_builder always
     # runs on VM (it builds images on that base); origins in the default-base allowlist
@@ -508,10 +526,12 @@ def _resolve_modal_vm_sandbox(
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=bool(allowed_origins or default_base_origins),
+        flag_enabled=bool(allowed_origins or default_base_origins or origin_rollout_percentages),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
         default_base_origin_products=sorted(default_base_origins),
+        origin_product_rollout_percentages=origin_rollout_percentages,
+        origin_in_percentage_rollout=origin_in_percentage_rollout,
         default_custom_image=default_custom_image,
         custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,

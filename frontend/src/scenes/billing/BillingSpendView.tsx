@@ -17,7 +17,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
 
-import { buildBillingCsv, currencyFormatter, getUsageTypeOptions } from './billing-utils'
+import { buildBillingCsv, currencyFormatter, getSpendTypeOptions } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
@@ -105,7 +105,7 @@ export function BillingSpendView(): JSX.Element {
                             value={filters.usage_types || []}
                             onChange={(value: string[]) => setFilters({ usage_types: value })}
                             placeholder="All products"
-                            options={getUsageTypeOptions(featureFlags)}
+                            options={getSpendTypeOptions(featureFlags)}
                             allowCustomValues={false}
                         />
                     </div>

@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     daysOfWeekLabel,
     getExcludedDaysOfWeek,
@@ -23,12 +21,9 @@ export const InsightResultMetadata = ({
 }: InsightResultMetadataProps): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const { samplingFactor, trendsFilter, dateRange, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const quillDateFilterEnabled = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER] === 'test'
     // Only insights that apply daysOfWeek server-side get the note
-    const excludedDays =
-        quillDateFilterEnabled && querySupportsDaysOfWeek(querySource) ? getExcludedDaysOfWeek(dateRange) : []
+    const excludedDays = querySupportsDaysOfWeek(querySource) ? getExcludedDaysOfWeek(dateRange) : []
     const excludedLabel = daysOfWeekLabel(excludedDays)
     const excludedText = ['Weekends', 'Weekdays'].includes(excludedLabel) ? excludedLabel.toLowerCase() : excludedLabel
 
@@ -47,13 +42,13 @@ export const InsightResultMetadata = ({
                     Excluding {excludedText}
                 </span>
             ) : null}
-            {trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] ? (
+            {trendsFilter?.hideWeekends ? (
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
                     Weekends hidden
                 </span>
             ) : null}
-            {quillDateFilterEnabled && dateRange?.excludeIncompletePeriods ? (
+            {dateRange?.excludeIncompletePeriods ? (
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
                     Incomplete period excluded

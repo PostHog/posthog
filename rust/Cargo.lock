@@ -3789,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -4128,7 +4128,10 @@ name = "embedding-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aws-config",
+ "aws-sdk-dynamodb",
  "axum 0.7.9",
+ "chrono",
  "common-alloc",
  "common-continuous-profiling",
  "common-kafka",
@@ -5414,6 +5417,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "thiserror 2.0.18",
 ]
@@ -8473,6 +8477,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "metrics",
+ "personhog-coordination",
  "serde",
  "serde_json",
  "serial_test",
@@ -8503,7 +8508,10 @@ dependencies = [
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
+ "serde",
+ "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -8534,6 +8542,7 @@ dependencies = [
  "metrics",
  "personhog-common",
  "personhog-coordination",
+ "personhog-leader",
  "personhog-proto",
  "prost 0.13.5",
  "rdkafka",
@@ -8654,6 +8663,7 @@ dependencies = [
  "personhog-proto",
  "rand 0.8.5",
  "rdkafka",
+ "rustls 0.23.37",
  "serde_json",
  "sqlx",
  "tokio",
@@ -9002,9 +9012,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.21.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5dc5d94870b23655fceae57574d6741475b114be5a018b25d22dd2aa076fbe13"
+checksum = "f18c4d4994979983e9cf672c351ada7e794673da15d3a61a38a6d6b5ef3ba44e"
 dependencies = [
  "backtrace",
  "brotli 7.0.0",
@@ -9246,11 +9256,11 @@ dependencies = [
  "personhog-proto",
  "quick_cache",
  "rand 0.8.5",
+ "rdkafka",
  "regex",
  "rstest",
  "serde",
  "serde_json",
- "serve-metrics",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",

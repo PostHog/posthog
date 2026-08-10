@@ -168,6 +168,7 @@ export interface RoleLookupResponseApi {
  * * `gitlab` - Gitlab
  * * `google-ads` - Google Ads
  * * `google-analytics` - Google Analytics
+ * * `google-calendar` - Google Calendar
  * * `google-cloud-service-account` - Google Cloud Service Account
  * * `google-cloud-storage` - Google Cloud Storage
  * * `google-pubsub` - Google Pubsub
@@ -216,6 +217,7 @@ export const IntegrationKindEnumApi = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
@@ -406,13 +408,18 @@ export interface GitHubAvailableInstallationApi {
      * @nullable
      */
     account_type: string | null
-    /** A project in the organization that already has this installation linked. */
-    source_team_id: number
+    /**
+     * A project in the organization that already has this installation linked. Null when the installation isn't linked to any project yet — it was found via the user's personal GitHub link and can be adopted by linking it here.
+     * @nullable
+     */
+    source_team_id: number | null
 }
 
 export interface GitHubAvailableInstallationsResponseApi {
-    /** Distinct GitHub installations in the organization available to link to this project. */
+    /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
     installations: GitHubAvailableInstallationApi[]
+    /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
+    personal_github_connected: boolean
 }
 
 export interface GitHubLinkExistingRequestApi {
@@ -477,6 +484,7 @@ export interface IntegrationAccessRequestApi {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -515,6 +523,73 @@ export interface IntegrationAccessRequestApi {
 export interface IntegrationAccessRequestResponseApi {
     /** Whether the access request was accepted and the project admins were notified. */
     success: boolean
+}
+
+/**
+ * Query parameters to send to the target.
+ */
+export type PostHogConnectionForwardApiQuery = { [key: string]: string }
+
+/**
+ * * `GET` - GET
+ * * `POST` - POST
+ * * `PUT` - PUT
+ * * `PATCH` - PATCH
+ * * `DELETE` - DELETE
+ */
+export type PostHogConnectionForwardMethodEnumApi =
+    (typeof PostHogConnectionForwardMethodEnumApi)[keyof typeof PostHogConnectionForwardMethodEnumApi]
+
+export const PostHogConnectionForwardMethodEnumApi = {
+    Get: 'GET',
+    Post: 'POST',
+    Put: 'PUT',
+    Patch: 'PATCH',
+    Delete: 'DELETE',
+} as const
+
+export interface PostHogConnectionForwardApi {
+    /** HTTP method to use against the target project's API.
+     *
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE */
+    method: PostHogConnectionForwardMethodEnumApi
+    /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+    path: string
+    /** Query parameters to send to the target. */
+    query?: PostHogConnectionForwardApiQuery
+    /** JSON request body for write methods. */
+    data?: unknown
+}
+
+export interface PostHogConnectionForwardResponseApi {
+    /** HTTP status the target project returned. */
+    status: number
+    /** The target project's response body, passed through. */
+    data: unknown
+}
+
+export interface PostHogConnectionTargetApi {
+    /** Project id to use in target API paths. It is the connected project's id, not this one's. */
+    project_id: number
+    /** Name of the connected project. */
+    project_name: string
+    /** Id of the organization the connected project belongs to. */
+    organization_id: string
+    /** Name of the organization the connected project belongs to. */
+    organization_name: string
+    /** Cloud region the connected project lives in, e.g. `US` or `EU`. */
+    region: string
+    /** Base URL requests through this connection are sent to. */
+    base_url: string
+}
+
+export interface PostHogConnectionTargetErrorApi {
+    /** Why the connected project's context could not be read. */
+    error: string
 }
 
 export type RoleExternalReferencesListParams = {
@@ -570,6 +645,7 @@ export type IntegrationsListParams = {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -629,6 +705,7 @@ export const IntegrationsListKind = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',

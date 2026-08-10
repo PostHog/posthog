@@ -88,18 +88,19 @@ export const ISSUE_STATUS_CONFIG: Record<IssueStatus, IssueStatusConfig> = {
     },
 }
 
-export const IssueStatusDot = ({ status, className }: { status: IssueStatus; className?: string }): JSX.Element => {
-    const config = ISSUE_STATUS_CONFIG[status] ?? UNKNOWN_STATUS_CONFIG
-    return (
-        <Dot
-            className={clsx(
-                '!border-0 !p-0 [&_[data-slot=dot-inner]]:!bg-[var(--error-tracking-status-color)]',
-                className
-            )}
-            style={{ '--error-tracking-status-color': config.color } as React.CSSProperties}
-        />
-    )
+// A status can arrive from outside the enum at runtime (stale persisted filters, URL params,
+// AI-tool output, or deprecated status names), and an unguarded config lookup crashes the whole
+// scene. Render a neutral fallback instead.
+export function getIssueStatusConfig(status: IssueStatus): IssueStatusConfig {
+    return ISSUE_STATUS_CONFIG[status] ?? UNKNOWN_STATUS_CONFIG
 }
+
+export const IssueStatusDot = ({ status, className }: { status: IssueStatus; className?: string }): JSX.Element => (
+    <Dot
+        className={clsx('!border-0 !p-0 [&_[data-slot=dot-inner]]:!bg-[var(--error-tracking-status-color)]', className)}
+        style={{ '--error-tracking-status-color': getIssueStatusConfig(status).color } as React.CSSProperties}
+    />
+)
 
 interface StatusIndicatorProps {
     status: IssueStatus
@@ -114,7 +115,7 @@ export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorP
     { status, size = 'small', intent = false, className, withTooltip },
     ref
 ): JSX.Element {
-    const config = ISSUE_STATUS_CONFIG[status] ?? UNKNOWN_STATUS_CONFIG
+    const config = getIssueStatusConfig(status)
     const tooltip = withTooltip ? config.tooltip : undefined
     const content = (
         <div ref={ref} className={clsx('flex items-center', className, sizeVariants[size])}>

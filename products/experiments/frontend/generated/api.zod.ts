@@ -975,6 +975,8 @@ export const experimentsEndCreateBodyConclusionCommentMax = 4000
 export const experimentsEndCreateBodyOpenCleanupPrDefault = false
 export const experimentsEndCreateBodyRepositoryMax = 255
 
+export const experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault = false
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -1005,7 +1007,13 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsEndCreateBodyRepositoryMax)
         .nullish()
         .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
         ),
 })
 
@@ -1059,7 +1067,7 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
  * Session recordings of this experiment matching a bucket.
  *
  * Answers the questions a recordings query can't express on its own — "fired any of these
- * metrics", "fired none of them", "entered the funnel but never completed it in this
+ * metrics", "fired none of them", "was exposed but never completed the funnel in this
  * session" — by returning a bounded, most-recent-first list of session IDs to pass back as
  * a recordings query's session_ids. POST because the metric list doesn't fit a query
  * string; the endpoint only reads.
@@ -1079,7 +1087,7 @@ export const ExperimentsSessionBucketsCreateBody = /* @__PURE__ */ zod
                 '\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff'
             )
             .describe(
-                "Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.\n\n\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff"
+                "Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the experiment analysis. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.\n\n\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff"
             ),
         metric_uuids: zod
             .array(zod.string().describe("UUID of one of the experiment's metrics."))
@@ -1129,6 +1137,7 @@ export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
 export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
 export const experimentsShipVariantCreateBodyRepositoryMax = 255
 
+export const experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault = false
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -1161,7 +1170,13 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsShipVariantCreateBodyRepositoryMax)
         .nullish()
         .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
         ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod

@@ -363,6 +363,7 @@ class ExternalDataSourceType(models.TextChoices):
     FLOATAPP = "FloatApp", "FloatApp"
     FLOWLU = "Flowlu", "Flowlu"
     FORMBRICKS = "Formbricks", "Formbricks"
+    FRAMER = "Framer", "Framer"
     FREEAGENT = "FreeAgent", "FreeAgent"
     FREIGHTVIEW = "Freightview", "Freightview"
     FRESHCALLER = "Freshcaller", "Freshcaller"
@@ -1319,6 +1320,12 @@ class ExternalDataSourceType(models.TextChoices):
     AIRBRIDGE = "Airbridge", "Airbridge"
     SNOVIO = "Snovio", "Snovio"
     GOOGLEMERCHANTCENTER = "GoogleMerchantCenter", "GoogleMerchantCenter"
+    RAISELY = "Raisely", "Raisely"
+    WINDSORAI = "WindsorAi", "WindsorAi"
+    WIX = "Wix", "Wix"
+    SEVALLA = "Sevalla", "Sevalla"
+    MOTION = "Motion", "Motion"
+    IMPACTPARTNER = "ImpactPartner", "ImpactPartner"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

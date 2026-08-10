@@ -56,6 +56,7 @@ export enum Scene {
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
+    ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
@@ -392,6 +393,12 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,
+
+    // Error tracking
+    [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

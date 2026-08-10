@@ -222,7 +222,10 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         index for index, query in enumerate(executed) if "DROP TABLE IF EXISTS" in query and "customers" in query
     )
     rename_index = next(index for index, query in enumerate(executed) if "RENAME TO" in query)
-    assert len(registration_indexes) == 2
+    assert len(registration_indexes) == 1
+    registration_query = executed[registration_indexes[0]]
+    assert "_ph_partition_key=2026-07/a.parquet" in registration_query
+    assert "_ph_partition_key=2026-08/b.parquet" in registration_query
     assert len(verification_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
     assert max(verification_indexes) < drop_live_index < rename_index

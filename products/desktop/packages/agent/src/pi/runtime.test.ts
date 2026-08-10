@@ -244,6 +244,31 @@ describe("PiRuntime", () => {
     });
   });
 
+  it("routes extension UI and errors outside the conversation stream", () => {
+    const { client, emit } = createClient();
+    const runtime = new PiRuntime(client);
+    const extensionListener = vi.fn();
+    const conversationListener = vi.fn();
+    runtime.onExtensionEvent(extensionListener);
+    runtime.onConversationEvent(conversationListener);
+
+    emit({
+      type: "extension_ui_request",
+      id: "extension-1",
+      method: "notify",
+      message: "Done",
+    } as unknown as AgentSessionEvent);
+    emit({
+      type: "extension_error",
+      extensionPath: "/extensions/example.ts",
+      event: "tool_call",
+      error: "boom",
+    } as unknown as AgentSessionEvent);
+
+    expect(extensionListener).toHaveBeenCalledTimes(2);
+    expect(conversationListener).not.toHaveBeenCalled();
+  });
+
   it("normalizes live Pi events before forwarding them", () => {
     const { client, emit } = createClient();
     const runtime = new PiRuntime(client);

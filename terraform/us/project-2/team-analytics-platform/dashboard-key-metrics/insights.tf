@@ -650,9 +650,15 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
         {
           "kind": "EventsNode",
           "math": "total",
-          "event": "subscription_delivery_started",
+          "event": "slo_operation_started",
           "custom_name": "Started",
           "properties": [
+            {
+              "key": "operation",
+              "type": "event",
+              "value": ["subscription_delivery"],
+              "operator": "exact"
+            },
             {
               "key": "region",
               "type": "event",
@@ -664,9 +670,21 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
         {
           "kind": "EventsNode",
           "math": "total",
-          "event": "subscription_delivery_exhausted",
-          "custom_name": "Exhausted (failed)",
+          "event": "slo_operation_completed",
+          "custom_name": "Succeeded",
           "properties": [
+            {
+              "key": "operation",
+              "type": "event",
+              "value": ["subscription_delivery"],
+              "operator": "exact"
+            },
+            {
+              "key": "outcome",
+              "type": "event",
+              "value": ["success"],
+              "operator": "exact"
+            },
             {
               "key": "region",
               "type": "event",
@@ -686,7 +704,7 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
         "showLegend": true,
         "showValuesOnSeries": true,
         "formulaNodes": [
-          { "formula": "(A-B)/A", "custom_name": "Success rate" }
+          { "formula": "B/A", "custom_name": "Success rate" }
         ],
         "aggregationAxisFormat": "percentage_scaled"
       },
@@ -704,7 +722,7 @@ resource "posthog_insight" "alert_failures_by_exception_type_aggregated" {
     "kind": "DataTableNode",
     "source": {
       "kind": "HogQLQuery",
-      "query": "SELECT \n  CASE \n    WHEN properties.traceback LIKE '%RuntimeError: No results found for insight with alert id =%' \n      THEN 'RuntimeError: No results found for insight'\n    WHEN properties.traceback LIKE '%ValueError: Relative alerts not supported for non time series trends%' \n      THEN 'ValueError: Relative alerts not supported for non time series trends'\n    WHEN properties.traceback LIKE '%UnboundLocalError: cannot access local variable%config%' \n      THEN 'UnboundLocalError: cannot access local variable config'\n    WHEN properties.traceback LIKE '%pydantic_core._pydantic_core.ValidationError%AlertCondition%type%Field required%' \n      THEN 'ValidationError: AlertCondition missing required field \"type\"'\n    WHEN properties.traceback LIKE '%QueryTimeoutError%' OR properties.traceback LIKE '%timeout%'\n      THEN 'Query timeout error'\n    WHEN properties.traceback LIKE '%PermissionError%' OR properties.traceback LIKE '%permission%'\n      THEN 'Permission error'\n    WHEN properties.traceback LIKE '%KeyError%' \n      THEN 'KeyError: Missing expected key'\n    WHEN properties.traceback LIKE '%AttributeError%' \n      THEN 'AttributeError: Missing attribute'\n    WHEN properties.traceback LIKE '%IndexError%' \n      THEN 'IndexError: List index out of range'\n    WHEN properties.traceback LIKE '%TypeError%' \n      THEN 'TypeError: Type mismatch'\n    WHEN properties.traceback IS NULL OR properties.traceback = ''\n      THEN 'Unknown (no traceback)'\n    ELSE 'Other exception type'\n  END AS exception_type,\n  count() AS failure_count,\n  count() * 100.0 / sum(count()) OVER () AS percentage_of_failures,\n  uniq(properties.alert_id) AS unique_alerts_affected,\n  uniq(properties.team_id) AS unique_teams_affected,\n  min(timestamp) AS first_occurrence,\n  max(timestamp) AS last_occurrence\nFROM events\nWHERE event = 'alert check failed'\n  AND timestamp >= now() - INTERVAL 30 DAY\n  AND timestamp < now()\nGROUP BY exception_type\nORDER BY failure_count DESC\nLIMIT 100"
+      "query": "SELECT\n  coalesce(\n    properties.error_type,\n    if(properties.alert_state = 'Errored', 'Alert configuration error', 'Unknown error')\n  ) AS exception_type,\n  count() AS failure_count,\n  count() * 100.0 / sum(count()) OVER () AS percentage_of_failures,\n  uniq(properties.resource_id) AS unique_alerts_affected,\n  uniq(properties.team_id) AS unique_teams_affected,\n  min(timestamp) AS first_occurrence,\n  max(timestamp) AS last_occurrence\nFROM events\nWHERE event = 'slo_operation_completed'\n  AND properties.operation = 'alert_check'\n  AND (properties.outcome = 'failure' OR properties.alert_state = 'Errored')\n  AND timestamp >= now() - INTERVAL 30 DAY\n  AND timestamp < now()\nGROUP BY exception_type\nORDER BY failure_count DESC\nLIMIT 100"
     }
   })
   tags = ["managed-by:terraform"]
