@@ -956,6 +956,52 @@ describe('featureFlagLogic', () => {
             }
         })
 
+        it('keeps an in-progress schedule edit through a later reload', async () => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/98/`]: () => [
+                        200,
+                        { ...MOCK_FEATURE_FLAG, id: 98, active: false },
+                    ],
+                },
+            })
+            router.actions.push(`${urls.featureFlag(98)}?tab=schedule`)
+            const inactiveFlagLogic = featureFlagLogic({ id: 98 })
+            inactiveFlagLogic.mount()
+
+            try {
+                await expectLogic(inactiveFlagLogic)
+                    .toFinishAllListeners()
+                    .toMatchValues({ schedulePayload: partial({ active: true }) })
+
+                // The user starts drafting a change before a second load (e.g. clicking Edit) lands
+                inactiveFlagLogic.actions.setSchedulePayload(NEW_FLAG.filters, false, {}, null, null)
+
+                await expectLogic(inactiveFlagLogic, () => {
+                    inactiveFlagLogic.actions.loadFeatureFlag()
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ schedulePayload: partial({ active: false }) })
+            } finally {
+                inactiveFlagLogic.unmount()
+            }
+        })
+
+        it('does not fetch every flag in the project when deep-linking to the schedule tab of an unsaved flag', async () => {
+            router.actions.push(`${urls.featureFlag('new')}?tab=schedule`)
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+
+            try {
+                await expectLogic(newLogic)
+                    .toFinishAllListeners()
+                    .toMatchValues({ activeTab: FeatureFlagsTab.SCHEDULE })
+                    .toNotHaveDispatchedActions(['loadScheduledChanges'])
+            } finally {
+                newLogic.unmount()
+            }
+        })
+
         it('falls back to overview instead of keeping the current tab when the URL names an unknown tab', async () => {
             router.actions.push(`${urls.featureFlag(1)}?tab=usage`)
             await expectLogic(logic).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })

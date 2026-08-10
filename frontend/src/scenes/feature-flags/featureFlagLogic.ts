@@ -881,6 +881,7 @@ export interface featureFlagLogicValues {
     repeatsValue: RecurrenceInterval | 'cron' | 'none'
     roleBasedAccessEnabled: boolean
     scheduleDateMarker: any
+    scheduleDefaultsAppliedFromFlag: boolean
     schedulePayload: ScheduleFlagPayload
     schedulePayloadErrors: any
     schedulePreset: PairedPresetKey | null
@@ -925,6 +926,9 @@ export interface featureFlagLogicActions {
     } // sidePanelStateLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addVariant: () => {
+        value: true
+    }
+    applyScheduleDefaultsFromFlag: () => {
         value: true
     }
     applyTemplate: (templateId: string) => {
@@ -2065,6 +2069,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         applyTemplate: (templateId: string) => ({ templateId }),
         setFlagIntent: (intent: FlagIntent | null) => ({ intent }),
         applyUrlIntent: true,
+        applyScheduleDefaultsFromFlag: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -2590,6 +2595,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 applyUrlIntent: () => true,
                 loadFeatureFlag: () => false,
+            },
+        ],
+        // Unlike urlTemplateApplied/urlIntentApplied, this does not reset on loadFeatureFlag:
+        // it corrects the schedule form's default exactly once, the first time the real flag
+        // loads. Resetting it on every load would let a later reload (e.g. clicking Edit)
+        // reapply the default and wipe a scheduled change the user is still drafting.
+        scheduleDefaultsAppliedFromFlag: [
+            false,
+            {
+                applyScheduleDefaultsFromFlag: () => true,
             },
         ],
         flagIntent: [
@@ -3628,11 +3643,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
-            // schedule form's default was computed against the NEW_FLAG placeholder and the
-            // scheduled-changes fetch ran without a flag id. Redo both against the loaded flag.
-            if (featureFlag && values.selectedTab === FeatureFlagsTab.SCHEDULE) {
+            // schedule form's default was computed against the NEW_FLAG placeholder. Correct
+            // it once against the loaded flag; only on the first load, so a later reload (e.g.
+            // clicking Edit) does not overwrite a scheduled change the user is still drafting.
+            if (
+                featureFlag &&
+                values.selectedTab === FeatureFlagsTab.SCHEDULE &&
+                !values.scheduleDefaultsAppliedFromFlag
+            ) {
                 actions.setSchedulePayload(NEW_FLAG.filters, !featureFlag.active, {}, null, null)
-                actions.loadScheduledChanges()
+                // An unsaved flag has no id to scope the request to, and the scheduled-changes
+                // endpoint drops an empty record_id filter and returns every flag's scheduled
+                // changes for the project instead of none
+                if (featureFlag.id) {
+                    actions.loadScheduledChanges()
+                }
+                actions.applyScheduleDefaultsFromFlag()
             }
             if (values.copyDestinationProject) {
                 actions.loadCopyDependencyRequirements()
@@ -3826,7 +3852,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (tab === FeatureFlagsTab.SCHEDULE) {
                 const oppositeActive = !values.featureFlag.active
                 actions.setSchedulePayload(NEW_FLAG.filters, oppositeActive, {}, null, null)
-                actions.loadScheduledChanges()
+                // An unsaved flag has no id to scope the request to, and the scheduled-changes
+                // endpoint drops an empty record_id filter and returns every flag's scheduled
+                // changes for the project instead of none
+                if (values.featureFlag.id) {
+                    actions.loadScheduledChanges()
+                }
             }
         },
         createScheduledChangeFailure: ({ error }) => {
