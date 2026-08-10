@@ -189,7 +189,10 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 sessionPlayerData: import('../../../../types').SessionPlayerData
             ) => {
                 if (thumbLeftPos && slider && sessionPlayerData?.durationMs) {
-                    return ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) * sessionPlayerData.durationMs
+                    const time = ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) * sessionPlayerData.durationMs
+                    // A stale thumb position, or a slider measured while its container is narrow, can push
+                    // the ratio past 1, so bound the label to the recording's total.
+                    return clamp(time, 0, sessionPlayerData.durationMs)
                 }
                 return 0
             },

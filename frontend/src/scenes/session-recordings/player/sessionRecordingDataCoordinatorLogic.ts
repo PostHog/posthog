@@ -326,8 +326,7 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
         durationMs: (
             start: Dayjs | null,
             end: Dayjs | null,
-            sessionPlayerMetaData: SessionRecordingType | null,
-            fullyLoaded: boolean
+            sessionPlayerMetaData: SessionRecordingType | null
         ) => number
         segments: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
@@ -695,18 +694,16 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         durationMs: [
-            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded],
-            (
-                start: Dayjs | null,
-                end: Dayjs | null,
-                meta: SessionRecordingType | null,
-                fullyLoaded: boolean
-            ): number => {
+            (s) => [s.start, s.end, s.sessionPlayerMetaData],
+            (start: Dayjs | null, end: Dayjs | null, meta: SessionRecordingType | null): number => {
                 if (!start || !end) {
                     return 0
                 }
                 const snapshotDuration = end.diff(start)
-                if (fullyLoaded && meta?.recording_duration) {
+                // Cap the total at the metadata duration whether or not loading has finished. Waiting for
+                // `fullyLoaded` let a partly loaded recording advertise a total that a skewed snapshot had
+                // already stretched past its real length.
+                if (meta?.recording_duration) {
                     return Math.min(snapshotDuration, meta.recording_duration * 1000)
                 }
                 return snapshotDuration

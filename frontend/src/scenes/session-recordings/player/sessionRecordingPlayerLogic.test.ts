@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import * as sessionRecordingDataCoordinatorLogicModule from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
@@ -271,15 +272,18 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('currentPlayerTime clamping', () => {
-        // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
+        // Mock recording: start=1682952380877, metadata span 11868ms, recording_duration=11s.
+        // durationMs is capped to recording_duration, so the clock total is 11000ms.
         const START = 1682952380877
-        const DURATION = 11868
+        const DURATION = 11000
 
         it.each([
             { description: 'before start', timestamp: START - 1000, expected: 0 },
             { description: 'at start', timestamp: START, expected: 0 },
             { description: 'at midpoint', timestamp: START + 5000, expected: 5000 },
-            { description: 'at end', timestamp: START + DURATION, expected: DURATION },
+            { description: 'at the capped end', timestamp: START + DURATION, expected: DURATION },
+            // a frame past the recording_duration cap but within the metadata span clamps to the cap
+            { description: 'past the cap but within the metadata span', timestamp: START + 11868, expected: DURATION },
             { description: 'beyond end', timestamp: START + DURATION + 5000, expected: DURATION },
         ])('clamps to [$expected] when $description', async ({ timestamp, expected }) => {
             await expectLogic(logic).toDispatchActions([
@@ -820,8 +824,19 @@ describe('sessionRecordingPlayerLogic', () => {
                 description: 'reports the leading unplayable span when the initial full snapshot is late',
                 firstSourceSnapshots: [inc(START), inc(START + 1000)],
                 secondSourceSnapshots: [fs(LATE_FS_TS)],
+                // the recording is long enough for the late opening to be real capture, not a skew artifact
+                recordingDurationSeconds: 360,
                 expectedLeadingUnplayableMs: LATE_FS_TS - START,
                 expectedHasLate: true,
+            },
+            {
+                description: 'does not warn when the leading gap is wider than the whole recording',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [fs(LATE_FS_TS)],
+                // a 5-minute gap on a 100-second recording is a duration artifact, so the banner stays hidden
+                recordingDurationSeconds: 100,
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: false,
             },
             {
                 description: 'reports no unplayable span when a full snapshot exists at the start',
@@ -855,7 +870,19 @@ describe('sessionRecordingPlayerLogic', () => {
             },
         ])(
             '$description',
-            ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {
+            ({
+                firstSourceSnapshots,
+                secondSourceSnapshots,
+                recordingDurationSeconds,
+                expectedLeadingUnplayableMs,
+                expectedHasLate,
+            }) => {
+                if (recordingDurationSeconds !== undefined) {
+                    sessionRecordingMetaLogic({ sessionRecordingId: '2' }).actions.loadRecordingMetaSuccess({
+                        ...recordingMetaJson,
+                        recording_duration: recordingDurationSeconds,
+                    } as any)
+                }
                 seedRecording(firstSourceSnapshots, secondSourceSnapshots)
 
                 expect(logic.values.leadingUnplayableMs).toBe(expectedLeadingUnplayableMs)

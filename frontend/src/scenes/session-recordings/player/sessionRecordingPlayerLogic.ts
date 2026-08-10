@@ -1067,7 +1067,7 @@ export interface sessionRecordingPlayerLogicMeta {
             sessionPlayerData: SessionPlayerData,
             seekRenderability: (timestamp: number) => SeekRenderability
         ) => number
-        hasLateFullSnapshot: (leadingUnplayableMs: number) => boolean
+        hasLateFullSnapshot: (leadingUnplayableMs: number, sessionPlayerData: SessionPlayerData) => boolean
         isWaitingForIngestion: (
             seekRenderability: (timestamp: number) => SeekRenderability,
             currentTimestamp: number | undefined
@@ -1649,7 +1649,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const time = currentTimestamp - sessionPlayerData.start.valueOf()
-                return clamp(time, 0, sessionPlayerData.durationMs || Infinity)
+                // `|| Infinity` disabled the upper clamp whenever durationMs was 0, letting the relative
+                // time run past a not-yet-known total; a 0 total should pin the label at 0 instead.
+                return clamp(time, 0, sessionPlayerData.durationMs)
             },
         ],
 
@@ -1847,8 +1849,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         hasLateFullSnapshot: [
-            (s) => [s.leadingUnplayableMs],
-            (leadingUnplayableMs: number): boolean => leadingUnplayableMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
+            (s) => [s.leadingUnplayableMs, s.sessionPlayerData],
+            (leadingUnplayableMs: number, sessionPlayerData: SessionPlayerData): boolean => {
+                if (leadingUnplayableMs <= LATE_FULL_SNAPSHOT_THRESHOLD_MS) {
+                    return false
+                }
+                // A gap wider than the whole recording is a duration artifact, such as a skewed snapshot
+                // timestamp, not real missing capture. Don't claim we lost the opening in that case.
+                const durationMs = sessionPlayerData.durationMs
+                return durationMs <= 0 || leadingUnplayableMs <= durationMs
+            },
         ],
 
         // True while the player is buffering on a position whose FullSnapshot hasn't been

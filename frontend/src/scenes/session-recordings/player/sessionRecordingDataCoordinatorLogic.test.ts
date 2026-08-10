@@ -169,7 +169,9 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             ])
             expect(logic.values.sessionPlayerData).toMatchObject({
                 person: recordingMetaJson.person,
-                durationMs: 11868,
+                // capped to recording_duration (11s) so the player clock matches the list, even though the
+                // metadata span is 11868ms and loading has not finished
+                durationMs: 11000,
                 snapshotsByWindowId: {},
                 bufferedToTime: 0,
             })

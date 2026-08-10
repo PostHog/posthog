@@ -3,7 +3,7 @@
 exports[`sessionRecordingPlayerLogic loading session core loads metadata and snapshots by default 1`] = `
 {
   "bufferedToTime": 0,
-  "durationMs": 11868,
+  "durationMs": 11000,
   "end": "2023-05-01T14:46:32.745Z",
   "fullyLoaded": false,
   "person": {
@@ -37,7 +37,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
 exports[`sessionRecordingPlayerLogic loading session core loads metadata and snapshots if autoplay 1`] = `
 {
   "bufferedToTime": 0,
-  "durationMs": 11868,
+  "durationMs": 11000,
   "end": "2023-05-01T14:46:32.745Z",
   "fullyLoaded": false,
   "person": {
