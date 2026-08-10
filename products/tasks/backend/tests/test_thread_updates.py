@@ -442,15 +442,19 @@ class TestLifecycleEvents(TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(
             events[0].payload,
-            {"run_id": str(run.id), "environment": "cloud", "branch": "casey/activity", "run_number": 1},
+            {"run_id": str(run.id), "environment": "cloud", "branch": "casey/activity"},
         )
 
     @patch(_FLAG_TARGET, return_value=True)
-    def test_each_run_of_a_task_is_numbered(self, _flag) -> None:
-        self.task.create_run()
-        self.task.create_run()
+    def test_each_run_gets_its_own_start(self, _flag) -> None:
+        # Numbering is the client's job, from the ordered feed: counting runs here would race
+        # two concurrent creations onto the same number.
+        first = self.task.create_run()
+        second = self.task.create_run()
 
-        self.assertEqual([event.payload["run_number"] for event in self._events("run_started")], [1, 2])
+        events = self._events("run_started")
+        self.assertEqual([event.payload["run_id"] for event in events], [str(first.id), str(second.id)])
+        self.assertNotIn("run_number", events[0].payload)
 
     @patch(_FLAG_TARGET, return_value=True)
     def test_failure_carries_the_first_line_of_the_error(self, _flag) -> None:

@@ -6963,12 +6963,16 @@ def _emittable_task(task_id: str | UUID, team_id: int, *, event: str) -> Task | 
     return task
 
 
-def post_run_started_event(run: TaskRun, *, run_number: int) -> None:
+def post_run_started_event(run: TaskRun) -> None:
     """Record that a run began, so the timeline has a start for its later events.
 
     Emitted at run creation rather than on the ``IN_PROGRESS`` transition: creation is the
     one point every environment goes through, and it is the moment a person sees the task
     pick up. Best-effort and never raises.
+
+    Carries no run number. Counting a task's runs here is racy — two concurrent creations
+    read the same count and stamp the same number for good — and a client reading an ordered
+    feed can number the rows itself.
     """
     try:
         task = _emittable_task(run.task_id, run.team_id, event=TaskActivityEvent.RUN_STARTED)
@@ -6982,7 +6986,6 @@ def post_run_started_event(run: TaskRun, *, run_number: int) -> None:
                 "run_id": str(run.id),
                 "environment": run.environment,
                 "branch": run.branch or "",
-                "run_number": run_number,
             },
             event_key=str(run.id),
         )
@@ -7035,7 +7038,7 @@ def post_awaiting_input_event(run: TaskRun) -> None:
         logger.exception("Failed to post awaiting-input event", extra={"task_id": str(run.task_id)})
 
 
-def post_artifact_event(artifact: TaskArtifact, *, revised: bool) -> None:
+def post_artifact_event(artifact: TaskArtifact, *, revised: bool, run_id: str | UUID | None = None) -> None:
     """Record that the agent wrote an artifact, or a new version of one.
 
     Artifacts are what comments attach to, so a timeline that shows comments without the
@@ -7061,7 +7064,11 @@ def post_artifact_event(artifact: TaskArtifact, *, revised: bool) -> None:
                 "artifact_type": artifact.artifact_type,
                 "version": version,
             },
-            event_key=f"{artifact.id}:{version}",
+            # The run is part of the key because two runs can land on the same version number
+            # (the version is computed before the artifact row is locked). Keying on the
+            # version alone would drop the second revision as a duplicate; keying on the run
+            # still makes a retry within one run idempotent.
+            event_key=f"{artifact.id}:{version}:{run_id or artifact.task_run_id}",
         )
     except Exception:
         logger.exception("Failed to post artifact event", extra={"artifact_id": str(artifact.id)})

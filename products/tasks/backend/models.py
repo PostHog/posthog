@@ -445,7 +445,7 @@ class Task(DeletedMetaFields, models.Model):
         # Deferred: the facade imports this module, so a module-level import would cycle.
         from products.tasks.backend.facade.api import post_run_started_event  # noqa: PLC0415
 
-        post_run_started_event(task_run, run_number=self.runs.count())
+        post_run_started_event(task_run)
         self.capture_event(
             "task_run_created",
             {

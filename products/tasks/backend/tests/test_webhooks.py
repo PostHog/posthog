@@ -269,6 +269,35 @@ class TestGitHubPRWebhook(TestCase):
             },
         )
 
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks._capture_pr_event")
+    def test_close_is_recorded_when_it_is_the_first_webhook_seen_for_the_pr(self, _capture, mock_get_secret):
+        # The claim list is read before the url is backfilled, so a run whose first webhook is
+        # the close would never have the merge recorded — and GitHub may not redeliver.
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch="feature/first-seen-on-close",
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/42",
+                "merged": True,
+                "head": {"ref": "feature/first-seen-on-close", "repo": {"full_name": "posthog/posthog"}},
+                "merged_by": {"login": "someone"},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertTrue((run.output or {}).get("pr_merged"))
+
     def _merged_pr_payload(self, pr_url: str) -> dict:
         return {
             "action": "closed",

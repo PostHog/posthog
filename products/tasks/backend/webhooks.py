@@ -201,6 +201,17 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
+        # The claim list was read before that backfill. When the first webhook we see for a PR
+        # is its close, the url is persisted here but missing from the stale list, so the close
+        # would go unrecorded — and GitHub is not obliged to redeliver.
+        #
+        # Only a run that claimed nothing at all counts this url as its own. A run that already
+        # claims another PR keeps the equality rule below: a same-branch webhook for a
+        # different PR must not speak for the PR this run does claim.
+        if not claimed_pr_urls and pr_url in read_pr_urls(
+            task_run.output if isinstance(task_run.output, dict) else {}
+        ):
+            claimed_pr_urls = [pr_url]
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
