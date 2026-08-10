@@ -276,3 +276,110 @@ class TestCommentActivity(CommentActivityTestCase):
         assert first_activity.read_at is not None
         assert TaskCommentActivity.objects.get(comment=second, user=self.author).read_at is None
         assert TaskActivity.objects.get(team=self.team, user=self.author, task=self.task).read_at is None
+
+
+class TestCommentActivityTimeline(CommentActivityTestCase):
+    """The collapsed comment rows the activity timeline renders."""
+
+    def _rows(self):
+        page = tasks_facade.list_task_comment_activity(self.task.id, self.team.id, self.author.id)
+        assert page is not None
+        return page.comments
+
+    def test_a_thread_is_one_row_positioned_at_its_newest_reply(self):
+        # One row per reply would push every other event off the panel, so replies fold into
+        # the root and the root moves to the newest reply's time.
+        root = self._comment(content="this needs a guard")
+        older = self._comment(content="unrelated thread")
+        reply = self._comment(content="agreed, on it", source_comment=root, created_by=self.author)
+
+        rows = self._rows()
+
+        self.assertEqual([row.id for row in rows], [root.id, older.id])
+        self.assertEqual(rows[0].reply_count, 1)
+        self.assertEqual(rows[0].last_activity_at, reply.created_at)
+        self.assertEqual(rows[0].latest_reply.content, "agreed, on it")
+
+    def test_resolve_events_are_not_replies(self):
+        # The Comments tab excludes thread-state events from its count; a second definition
+        # here is how the two surfaces start disagreeing.
+        root = self._comment()
+        self._comment(content="agreed", source_comment=root, created_by=self.author)
+        self._comment(
+            content="Resolved this thread",
+            source_comment=root,
+            created_by=self.author,
+            item_context={"taskId": str(self.task.id), "threadState": "resolved"},
+        )
+
+        row = self._rows()[0]
+
+        self.assertEqual(row.reply_count, 1)
+        self.assertTrue(row.resolved)
+        assert row.state_event is not None
+        self.assertEqual(row.state_event.state, "resolved")
+        self.assertEqual(row.state_event.author.id, self.author.id)
+
+    def test_reopening_supersedes_an_earlier_resolve(self):
+        root = self._comment()
+        for state in ("resolved", "open"):
+            self._comment(
+                content=f"{state} this thread",
+                source_comment=root,
+                created_by=self.author,
+                item_context={"taskId": str(self.task.id), "threadState": state},
+            )
+
+        row = self._rows()[0]
+
+        self.assertFalse(row.resolved)
+        assert row.state_event is not None
+        self.assertEqual(row.state_event.state, "open")
+
+    def test_participants_are_listed_in_speaking_order(self):
+        root = self._comment(created_by=self.peer)
+        self._comment(content="looking", source_comment=root, created_by=self.author)
+        self._comment(content="still looking", source_comment=root, created_by=self.author)
+
+        row = self._rows()[0]
+
+        self.assertEqual([person.id for person in row.participants], [self.peer.id, self.author.id])
+
+    def test_mentions_come_from_the_projected_notification_rows(self):
+        root = self._comment()
+        self._record_activity(root, [self.author.id])
+
+        self.assertEqual(self._rows()[0].mentioned_user_ids, [self.author.id])
+
+    def test_the_anchor_travels_with_the_row(self):
+        # A comment without its quoted selection is just a notification.
+        self._comment(
+            item_context={
+                "taskId": str(self.task.id),
+                "anchor": {"kind": "text", "quote": "every event should also go to the activity panel"},
+            }
+        )
+
+        self.assertEqual(self._rows()[0].selected_text, "every event should also go to the activity panel")
+
+    def test_threads_from_every_target_arrive_in_one_call(self):
+        canvas = Canvas.objects.create(
+            team=self.team,
+            channel=self.channel,
+            name="Activity mockup",
+            created_by=self.author,
+            generation_task_id=self.task.id,
+        )
+        self._comment(scope="task", item_id=str(self.task.id), item_context={"taskId": str(self.task.id)})
+        self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        self._comment()
+
+        self.assertEqual({row.target.type for row in self._rows()}, {"task", "canvas", "artifact"})
+
+    def test_a_task_the_user_cannot_see_returns_nothing(self):
+        # A task in another team is invisible here, so the endpoint must not answer for it.
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        with team_scope(other_team.id, canonical=True):
+            stranger_task = Task.objects.create(team=other_team, title="Not yours", created_by=self.peer)
+
+        self.assertIsNone(tasks_facade.list_task_comment_activity(stranger_task.id, self.team.id, self.author.id))

@@ -50551,6 +50551,7 @@ export namespace Schemas {
       /** @nullable */
       forwarded_to_agent_at?: string | null;
       forwarded_by?: TaskUserBasicInfo | null;
+      mentioned_user_ids?: number[];
     }
 
     export interface PaginatedTaskThreadMessageDTOList {
@@ -74066,6 +74067,80 @@ export namespace Schemas {
       enabled?: boolean;
     }
 
+    export interface TaskCommentTarget {
+      /** Stable target id. */
+      id: string;
+      /** Target type: task, artifact, or canvas. */
+      type: string;
+      /** Display name of the comment target. */
+      name: string;
+    }
+
+    export interface TaskCommentStateEvent {
+      /** Thread state the event set: 'resolved' or 'open'. */
+      state: string;
+      /** Who changed the thread's state. */
+      author: TaskUserBasicInfo | null;
+      /** When the state changed. */
+      created_at: string;
+    }
+
+    export interface TaskCommentReplyPreview {
+      /** Who wrote the newest reply. */
+      author: TaskUserBasicInfo | null;
+      /** Bounded excerpt of the newest reply. */
+      content: string;
+      /** When the newest reply was written. */
+      created_at: string;
+    }
+
+    /**
+     * One comment thread as the activity timeline renders it.
+     */
+    export interface TaskCommentActivity {
+      /** Root comment id. */
+      id: string;
+      /** Task, artifact, or canvas receiving the comment. */
+      target: TaskCommentTarget;
+      /** Bounded excerpt of the root comment body. */
+      content: string;
+      /** Whether the root comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Text selected when the comment was created.
+         * @nullable
+         */
+      selected_text: string | null;
+      /** Who started the thread. */
+      author: TaskUserBasicInfo | null;
+      /** When the thread started. */
+      created_at: string;
+      /** Newest activity in the thread; its timeline position. */
+      last_activity_at: string;
+      /** Number of human replies, excluding resolve and reopen events. */
+      reply_count: number;
+      /** Everyone who spoke, in speaking order. */
+      participants: TaskUserBasicInfo[];
+      /** Users mentioned anywhere in the thread. */
+      mentioned_user_ids: number[];
+      /** Whether the thread is resolved. */
+      resolved: boolean;
+      /** Latest resolve or reopen, if any. */
+      state_event: TaskCommentStateEvent | null;
+      /** Newest reply, if any. */
+      latest_reply: TaskCommentReplyPreview | null;
+    }
+
+    export interface TaskCommentActivityResponse {
+      /** Comment threads, newest activity first. */
+      comments: TaskCommentActivity[];
+      /**
+         * Reserved for pagination; always null today.
+         * @nullable
+         */
+      next: string | null;
+    }
+
     export interface TaskCommentAnchor {
       /** Anchor kind. */
       kind?: string;
@@ -74109,15 +74184,6 @@ export namespace Schemas {
          * @maximum 1
          */
       height?: number;
-    }
-
-    export interface TaskCommentTarget {
-      /** Stable target id. */
-      id: string;
-      /** Target type: task, artifact, or canvas. */
-      type: string;
-      /** Display name of the comment target. */
-      name: string;
     }
 
     export interface TaskCommentEntry {

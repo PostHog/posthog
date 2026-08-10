@@ -59,6 +59,7 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
+from products.tasks.backend.logic.services.user_display import hedgehog_config, user_basic_info
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -240,6 +241,7 @@ __all__ = [
     "task_comment_mentions_allowed",
     "list_task_artifacts",
     "list_task_comments",
+    "list_task_comment_activity",
     "retrieve_task_comment",
     "update_sandbox_environment",
     "update_task",
@@ -308,42 +310,10 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
     )
 
 
-def _hedgehog_config(user: "User") -> dict | None:
-    """Mirror core ``UserBasicSerializer.get_hedgehog_config`` so ``created_by`` output is identical."""
-    config = user.hedgehog_config
-    if not config:
-        return None
-    if config.get("version") == 2:
-        actor_options = config.get("actor_options", {})
-        return {
-            "use_as_profile": config.get("use_as_profile"),
-            "color": actor_options.get("color"),
-            "accessories": actor_options.get("accessories"),
-            "skin": actor_options.get("skin"),
-        }
-    return {
-        "use_as_profile": config.get("use_as_profile"),
-        "color": config.get("color"),
-        "accessories": config.get("accessories"),
-        "skin": config.get("skin"),
-    }
-
-
-def _user_basic_info(user: "User | None") -> contracts.TaskUserBasicInfo | None:
-    """Map a core ``User`` to the display DTO (matches ``UserBasicSerializer`` fields)."""
-    if user is None:
-        return None
-    return contracts.TaskUserBasicInfo(
-        id=user.id,
-        uuid=user.uuid,
-        distinct_id=str(user.distinct_id),
-        first_name=user.first_name,
-        last_name=user.last_name,
-        email=user.email,
-        is_email_verified=user.is_email_verified,
-        hedgehog_config=_hedgehog_config(user),
-        role_at_organization=user.role_at_organization,
-    )
+# Re-exported from the shared display mapper: the module-level names stay so the many call
+# sites below read unchanged, and one implementation feeds every surface.
+_hedgehog_config = hedgehog_config
+_user_basic_info = user_basic_info
 
 
 # Presigned log URLs are cached just under their 1-hour S3 expiry to avoid regeneration.
@@ -6226,7 +6196,9 @@ def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred:
     return True
 
 
-def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:
+def _thread_message_to_dto(
+    message: TaskThreadMessage, *, mentioned_user_ids: Sequence[int] = ()
+) -> contracts.TaskThreadMessageDTO:
     return contracts.TaskThreadMessageDTO(
         id=message.id,
         task=message.task_id,
@@ -6238,6 +6210,7 @@ def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMe
         author=_user_basic_info(message.author if message.author_id else None),
         forwarded_to_agent_at=message.forwarded_to_agent_at,
         forwarded_by=_user_basic_info(message.forwarded_by if message.forwarded_by_id else None),
+        mentioned_user_ids=list(mentioned_user_ids),
     )
 
 
@@ -6259,7 +6232,18 @@ def list_thread_messages(
         .select_related("author", "forwarded_by")
         .order_by("created_at", "id")
     )
-    return [_thread_message_to_dto(message) for message in messages]
+    messages = list(messages)
+    # One query for the whole thread's mentions rather than one per message: clients need
+    # them to tell "mentioned you" rows from ordinary ones without re-parsing content.
+    mentions_by_message: dict[UUID, list[int]] = {}
+    for message_id, mentioned_user_id in TaskThreadMessageMention.objects.filter(
+        team_id=team_id, message_id__in=[message.id for message in messages]
+    ).values_list("message_id", "mentioned_user_id"):
+        mentions_by_message.setdefault(message_id, []).append(mentioned_user_id)
+    return [
+        _thread_message_to_dto(message, mentioned_user_ids=sorted(mentions_by_message.get(message.id, [])))
+        for message in messages
+    ]
 
 
 def create_thread_message(
@@ -6435,6 +6419,23 @@ def retrieve_task_comment(
         )
     except InvalidTaskCommentCursor:
         raise ValueError("Invalid task comment cursor") from None
+
+
+def list_task_comment_activity(
+    task_id: str | UUID, team_id: int, user_id: int | None
+) -> contracts.TaskCommentActivityPageDTO | None:
+    """Every comment thread on the task, collapsed for the activity timeline.
+
+    ``None`` when the task isn't visible to the user — the same gate the thread listing uses.
+    """
+    from products.tasks.backend.logic.services.task_comments import (  # noqa: PLC0415 — mirrors the sibling comment facades
+        list_comment_activity,
+    )
+
+    task = _visible_task(task_id, team_id, user_id)
+    if task is None:
+        return None
+    return list_comment_activity(team_id=team_id, task_id=task.id)
 
 
 def list_mentions(

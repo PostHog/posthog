@@ -3039,6 +3039,7 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
                 zod.null(),
             ])
             .optional(),
+        mentioned_user_ids: zod.array(zod.number()).optional(),
     })
     .describe("Response shape for one message in a task's thread.")
 

@@ -3631,6 +3631,7 @@ export interface TaskThreadMessageDTOApi {
     /** @nullable */
     forwarded_to_agent_at?: string | null
     forwarded_by?: TaskUserBasicInfoApi | null
+    mentioned_user_ids?: number[]
 }
 
 export interface PaginatedTaskThreadMessageDTOListApi {
@@ -3648,6 +3649,71 @@ export interface PaginatedTaskThreadMessageDTOListApi {
 export interface TaskThreadMessageWriteApi {
     /** Message text. */
     content: string
+}
+
+export interface TaskCommentStateEventApi {
+    /** Thread state the event set: 'resolved' or 'open'. */
+    state: string
+    /** Who changed the thread's state. */
+    author: TaskUserBasicInfoApi | null
+    /** When the state changed. */
+    created_at: string
+}
+
+export interface TaskCommentReplyPreviewApi {
+    /** Who wrote the newest reply. */
+    author: TaskUserBasicInfoApi | null
+    /** Bounded excerpt of the newest reply. */
+    content: string
+    /** When the newest reply was written. */
+    created_at: string
+}
+
+/**
+ * One comment thread as the activity timeline renders it.
+ */
+export interface TaskCommentActivityApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Bounded excerpt of the root comment body. */
+    content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** Who started the thread. */
+    author: TaskUserBasicInfoApi | null
+    /** When the thread started. */
+    created_at: string
+    /** Newest activity in the thread; its timeline position. */
+    last_activity_at: string
+    /** Number of human replies, excluding resolve and reopen events. */
+    reply_count: number
+    /** Everyone who spoke, in speaking order. */
+    participants: TaskUserBasicInfoApi[]
+    /** Users mentioned anywhere in the thread. */
+    mentioned_user_ids: number[]
+    /** Whether the thread is resolved. */
+    resolved: boolean
+    /** Latest resolve or reopen, if any. */
+    state_event: TaskCommentStateEventApi | null
+    /** Newest reply, if any. */
+    latest_reply: TaskCommentReplyPreviewApi | null
+}
+
+export interface TaskCommentActivityResponseApi {
+    /** Comment threads, newest activity first. */
+    comments: TaskCommentActivityApi[]
+    /**
+     * Reserved for pagination; always null today.
+     * @nullable
+     */
+    next: string | null
 }
 
 /**

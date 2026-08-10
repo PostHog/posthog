@@ -1650,6 +1650,7 @@ class TaskThreadMessageSerializer(DataclassSerializer):
             "author",
             "forwarded_to_agent_at",
             "forwarded_by",
+            "mentioned_user_ids",
         ]
 
 
@@ -3535,3 +3536,41 @@ class AgentProxyCallbackResponseSerializer(serializers.Serializer):
     dispatched = serializers.BooleanField(
         help_text="True when the requested side effect was dispatched; false when skipped (e.g. run not found)."
     )
+
+
+class TaskCommentStateEventSerializer(serializers.Serializer):
+    state = serializers.CharField(help_text="Thread state the event set: 'resolved' or 'open'.")
+    author = TaskUserBasicInfoSerializer(allow_null=True, help_text="Who changed the thread's state.")
+    created_at = serializers.DateTimeField(help_text="When the state changed.")
+
+
+class TaskCommentReplyPreviewSerializer(serializers.Serializer):
+    author = TaskUserBasicInfoSerializer(allow_null=True, help_text="Who wrote the newest reply.")
+    content = serializers.CharField(help_text="Bounded excerpt of the newest reply.")
+    created_at = serializers.DateTimeField(help_text="When the newest reply was written.")
+
+
+class TaskCommentActivitySerializer(serializers.Serializer):
+    """One comment thread as the activity timeline renders it."""
+
+    id = serializers.UUIDField(help_text="Root comment id.")
+    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    content = serializers.CharField(help_text="Bounded excerpt of the root comment body.")
+    content_truncated = serializers.BooleanField(help_text="Whether the root comment body has more content.")
+    selected_text = serializers.CharField(allow_null=True, help_text="Text selected when the comment was created.")
+    author = TaskUserBasicInfoSerializer(allow_null=True, help_text="Who started the thread.")
+    created_at = serializers.DateTimeField(help_text="When the thread started.")
+    last_activity_at = serializers.DateTimeField(help_text="Newest activity in the thread; its timeline position.")
+    reply_count = serializers.IntegerField(help_text="Number of human replies, excluding resolve and reopen events.")
+    participants = TaskUserBasicInfoSerializer(many=True, help_text="Everyone who spoke, in speaking order.")
+    mentioned_user_ids = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Users mentioned anywhere in the thread."
+    )
+    resolved = serializers.BooleanField(help_text="Whether the thread is resolved.")
+    state_event = TaskCommentStateEventSerializer(allow_null=True, help_text="Latest resolve or reopen, if any.")
+    latest_reply = TaskCommentReplyPreviewSerializer(allow_null=True, help_text="Newest reply, if any.")
+
+
+class TaskCommentActivityResponseSerializer(serializers.Serializer):
+    comments = TaskCommentActivitySerializer(many=True, help_text="Comment threads, newest activity first.")
+    next = serializers.CharField(allow_null=True, help_text="Reserved for pagination; always null today.")

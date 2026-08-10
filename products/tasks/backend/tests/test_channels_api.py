@@ -9,7 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Integration, Organization, OrganizationMembership, Team, User
+from posthog.models import Comment, Integration, Organization, OrganizationMembership, Team, User
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
@@ -272,6 +272,32 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
 
         listed = self.author_client.get(self._thread_url()).json()
         self.assertEqual([m["content"] for m in listed], ["What about mobile?"])
+
+    def test_comment_activity_lists_threads_for_the_task(self):
+        Comment.objects.create(
+            team=self.team,
+            scope="task",
+            item_id=str(self.task.id),
+            item_context={"taskId": str(self.task.id)},
+            content="worth a second look",
+            created_by=self.peer,
+        )
+
+        response = self.author_client.get(f"{self._thread_url()}comment_activity/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertEqual([row["content"] for row in body["comments"]], ["worth a second look"])
+        self.assertEqual(body["comments"][0]["target"]["type"], "task")
+        self.assertEqual(body["comments"][0]["author"]["id"], self.peer.id)
+
+    def test_comment_activity_404s_for_a_task_outside_the_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        response = self.author_client.get(
+            f"/api/projects/{other_team.id}/tasks/{self.task.id}/thread_messages/comment_activity/"
+        )
+
+        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
 
     def test_delete_is_author_only(self):
         message_id = self.peer_client.post(self._thread_url(), {"content": "mine"}).json()["id"]

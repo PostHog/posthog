@@ -73,6 +73,7 @@ import type {
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
+    TaskCommentActivityResponseApi,
     TaskCommentDetailApi,
     TaskCommentsResponseApi,
     TaskCreateApi,
@@ -2365,6 +2366,28 @@ export const tasksThreadMessagesSendToAgentCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskThreadMessageDTOApi),
     })
+}
+
+export const getTasksThreadMessagesCommentActivityRetrieveUrl = (projectId: string, taskId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/thread_messages/comment_activity/`
+}
+
+/**
+ * Every comment thread on the task, collapsed one row per thread and ordered by newest activity — what the activity timeline renders. One request for the whole task rather than one per artifact.
+ * @summary List comment activity
+ */
+export const tasksThreadMessagesCommentActivityRetrieve = async (
+    projectId: string,
+    taskId: string,
+    options?: RequestInit
+): Promise<TaskCommentActivityResponseApi> => {
+    return apiMutator<TaskCommentActivityResponseApi>(
+        getTasksThreadMessagesCommentActivityRetrieveUrl(projectId, taskId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
