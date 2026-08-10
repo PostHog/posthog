@@ -155,6 +155,11 @@ export const VariableInput = ({
         inputRef.current?.focus()
     }, [])
 
+    const commit = (value: any): void => {
+        onChange(variable.id, value, isNull)
+        closePopover()
+    }
+
     const variableAsHogQL = `{variables.${variable.code_name}}`
 
     return (
@@ -167,10 +172,7 @@ export const VariableInput = ({
                         className="flex flex-1"
                         value={String(localInputValue)}
                         onChange={(value) => setLocalInputValue(value)}
-                        onPressEnter={() => {
-                            onChange(variable.id, localInputValue, isNull)
-                            closePopover()
-                        }}
+                        onPressEnter={() => commit(localInputValue)}
                     />
                 )}
                 {variable.type === 'Number' && (
@@ -181,10 +183,7 @@ export const VariableInput = ({
                         className="flex flex-1"
                         value={Number(localInputValue)}
                         onChange={(value) => setLocalInputValue(String(value ?? 0))}
-                        onPressEnter={() => {
-                            onChange(variable.id, Number(localInputValue), isNull)
-                            closePopover()
-                        }}
+                        onPressEnter={() => commit(Number(localInputValue))}
                     />
                 )}
                 {variable.type === 'Boolean' && (
@@ -217,10 +216,7 @@ export const VariableInput = ({
                     <DateField
                         variable={{ ...variable, default_value: String(localInputValue) } as DateVariable}
                         updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value)}
-                        onApply={(value) => {
-                            onChange(variable.id, value, isNull)
-                            closePopover()
-                        }}
+                        onApply={commit}
                         onSave={() => {}}
                     />
                 )}
@@ -230,14 +226,7 @@ export const VariableInput = ({
                         // Without this the button stretches to the tallest sibling, which for a date
                         // variable is the relative-date column.
                         className="self-start"
-                        onClick={() => {
-                            onChange(
-                                variable.id,
-                                variable.type === 'Number' ? Number(localInputValue) : localInputValue,
-                                isNull
-                            )
-                            closePopover()
-                        }}
+                        onClick={() => commit(variable.type === 'Number' ? Number(localInputValue) : localInputValue)}
                     >
                         {showEditingUI ? 'Save' : 'Update'}
                     </LemonButton>
