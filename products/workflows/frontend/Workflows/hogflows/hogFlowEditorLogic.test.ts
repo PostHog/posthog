@@ -216,6 +216,20 @@ describe('hogFlowEditorLogic', () => {
             expect(continueEdge?.data?.label).toBe('No match')
         })
 
+        it('keeps a target handle on a step nothing points at', async () => {
+            const mockFlow = createMockHogFlow()
+            // Re-pointing an edge can leave a step with no incoming edge. It still needs a target
+            // handle, otherwise there is nowhere to drop a connection back onto it.
+            const orphaned = { ...mockFlow, edges: mockFlow.edges.filter((edge) => edge.to !== 'exit') }
+            await expectLogic(logic, () => {
+                logic.actions.resetFlowFromHogFlow(orphaned)
+            }).toDispatchActions(['setNodesRaw'])
+
+            const exitNode = logic.values.nodes.find((node) => node.id === 'exit')
+
+            expect(exitNode?.handles?.some((handle) => handle.type === 'target')).toBe(true)
+        })
+
         it('should use custom names when provided for conditional branches', () => {
             const mockFlow = createMockHogFlow(['User is premium', 'User is in trial'])
             logic.actions.resetFlowFromHogFlow(mockFlow)

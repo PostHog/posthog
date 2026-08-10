@@ -2320,6 +2320,25 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
 
+                    // Every step that can receive a connection gets a target handle up front, not
+                    // just the ones something currently points at. Deriving them from edges alone
+                    // strands a step the moment its last incoming edge is re-pointed away: with no
+                    // handle there is nowhere to drop a connection back onto it. The trigger is
+                    // excluded because nothing may connect to it.
+                    hogFlow.actions.forEach((action) => {
+                        if (action.id === TRIGGER_NODE_ID) {
+                            return
+                        }
+                        handlesByIdByNodeId[action.id] = {
+                            [`target_${action.id}`]: {
+                                id: `target_${action.id}`,
+                                type: 'target',
+                                position: Position.Top,
+                                ...TOP_HANDLE_POSITION,
+                            },
+                        }
+                    })
+
                     edges.forEach((edge) => {
                         if (!handlesByIdByNodeId[edge.source]) {
                             handlesByIdByNodeId[edge.source] = {}

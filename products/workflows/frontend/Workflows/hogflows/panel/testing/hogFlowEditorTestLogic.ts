@@ -808,9 +808,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             groups
                         )
                     } catch (e: any) {
-                        if (!e.message?.includes('breakpoint')) {
-                            actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
+                        // A breakpoint has to keep unwinding: swallowing it here would resolve this
+                        // superseded run as a success and let it overwrite the newer response.
+                        if (e.message?.includes('breakpoint')) {
+                            throw e
                         }
+                        actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
                         return null
                     }
                 },
