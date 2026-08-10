@@ -50,16 +50,22 @@ LOGGER = get_logger(__name__)
 CONSECUTIVE_TIMEOUTS_TO_PAUSE = 5
 
 
-def _get_previous_jobs(saved_query_id: UUID, current_job_id: UUID, count: int) -> "QuerySet[DataModelingJob]":
+def _get_previous_jobs(
+    saved_query_id: UUID, current_job_id: UUID, count: int, ignore_cancelled: bool = False
+) -> "QuerySet[DataModelingJob]":
     """Get the most recent jobs for a saved query, excluding the current job."""
-    return (
+    jobs = (
         DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE)
         .exclude(id=current_job_id)
         # a skipped run never executed, so it is evidence of neither health nor failure. Leaving it
         # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
         .exclude(status=DataModelingJobStatus.SKIPPED)
-        .order_by("-created_at")[:count]
     )
+    if ignore_cancelled:
+        # A cancelled run is our doing (preemption, a deploy), so it says nothing about whether the
+        # query recovered. The timeout counter keeps treating it as a break, deliberately.
+        jobs = jobs.exclude(status=DataModelingJobStatus.CANCELLED)
+    return jobs.order_by("-created_at")[:count]
 
 
 def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job_id: UUID) -> tuple[bool, int]:
@@ -201,7 +207,7 @@ def _maybe_notify_materialization_failure(
     # An idempotent retry can land here with a job another path already completed or cancelled.
     if job.status != DataModelingJobStatus.FAILED:
         return False
-    previous_job = _get_previous_jobs(saved_query.id, job.id, 1).first()
+    previous_job = _get_previous_jobs(saved_query.id, job.id, 1, ignore_cancelled=True).first()
     if previous_job is not None and previous_job.status == DataModelingJobStatus.FAILED:
         return False
 
@@ -258,6 +264,7 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     if not inputs.update_node:
         return
     error = inputs.error
+    saved_query = None
     try:
         saved_query = await _get_saved_query_for_job(job)
         if saved_query is None:
@@ -294,12 +301,21 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
                     f"Suspended node {inputs.node_id} (clickhouse) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
                 )
 
-        if not inputs.cancelled:
-            notified = await _maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
-            if notified:
-                await logger.ainfo(f"Sent materialization failure notification for node {inputs.node_id}")
     except Exception as e:
         capture_exception(e)
         await logger.aexception(
             f"Failed to run error-specific recovery for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
         )
+
+    # Kept out of the recovery block above: a failing pause or revert is exactly when someone most
+    # needs telling, so it must not take the notification down with it.
+    if saved_query is not None and not inputs.cancelled:
+        try:
+            notified = await _maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
+            if notified:
+                await logger.ainfo(f"Sent materialization failure notification for node {inputs.node_id}")
+        except Exception as e:
+            capture_exception(e)
+            await logger.aexception(
+                f"Failed to notify materialization failure for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
+            )

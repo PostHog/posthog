@@ -203,6 +203,50 @@ class TestFailMaterializationActivity:
         else:
             mock_create.assert_not_called()
 
+    async def test_a_cancelled_run_does_not_restart_the_streak(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        await _make_job(ateam, asaved_query, DataModelingJob.Status.CANCELLED)
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="Some non-timeout error",
+        )
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.fail_materialization.create_notification"
+        ) as mock_create:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        mock_create.assert_not_called()
+
+    async def test_notifies_when_recovery_raises(self, activity_environment, ateam, anode, asaved_query, adag):
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="Some non-timeout error",
+        )
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.fail_materialization.maybe_suspend_node_for_engine",
+                side_effect=Exception("suspension blew up"),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.fail_materialization.create_notification"
+            ) as mock_create,
+        ):
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        mock_create.assert_called_once()
+
     async def test_does_not_notify_when_cancelled(self, activity_environment, ateam, anode, asaved_query, adag):
         current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
 
