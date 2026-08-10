@@ -15,7 +15,6 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { NotificationBus } from "@posthog/ui/features/notifications/notifications";
 import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
 import { AddCustomSoundDialog } from "@posthog/ui/features/settings/sections/AddCustomSoundDialog";
-import { SlackCommentNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackCommentNotificationsSettings";
 import {
   type CompletionSound,
   type CustomSound,
@@ -386,8 +385,6 @@ export function NotificationsSettings() {
       )}
 
       {spokenNarrationEnabled && <SpokenNotificationsSection />}
-
-      <SlackCommentNotificationsSettings />
 
       <NotificationTestHarness
         bus={bus}
