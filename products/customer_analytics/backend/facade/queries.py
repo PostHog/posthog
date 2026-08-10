@@ -8,8 +8,8 @@ the ``django.setup()`` path.
 """
 
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
+from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import AccountsTableQueryRunner
 from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
-from products.customer_analytics.backend.query_runners.accounts_table_query_runner import AccountsTableQueryRunner
 
 __all__ = [
     "AccountsQueryRunner",

@@ -221,7 +221,7 @@ The tool is registered for the page regardless of agent mode. The Customer analy
 
 - `products/customer_analytics/backend/models` — the `Account` model (`external_id` = group key).
 - `products/customer_analytics/backend/hogql_queries/accounts_query_runner.py` — the current Accounts page query runner, which builds positional list rows through HogQL.
-- `products/customer_analytics/backend/query_runners/accounts_table_query_runner.py` — the typed Postgres-only `AccountsTableQuery` runner. It returns keyed rows for the planned Accounts page migration but is not wired into the page yet.
+- `products/customer_analytics/backend/hogql_queries/accounts_table_query_runner.py` — the typed Postgres-only `AccountsTableQuery` runner. It returns keyed rows for the planned Accounts page migration but is not wired into the page yet.
 - `products/customer_analytics/backend/max_tools/` — `OpenAccountTool` and other account Max tools.
 - `ee/hogai/core/agent_modes/presets/customer_analytics.py` — the Customer analytics agent mode (gated by the `customer-analytics-csp` flag).
 

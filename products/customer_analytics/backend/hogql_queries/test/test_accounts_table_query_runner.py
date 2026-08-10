@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest
 
 from django.utils import timezone
@@ -26,13 +27,13 @@ from posthog.models import OrganizationMembership, Tag, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import AccountsTableQueryRunner
 from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipDefinition,
     CustomPropertyValue,
     DisplayType,
 )
-from products.customer_analytics.backend.query_runners.accounts_table_query_runner import AccountsTableQueryRunner
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -42,6 +43,7 @@ except ImportError:
     pass
 
 
+@freeze_time("2026-01-15T12:00:00Z")
 class TestAccountsTableQueryRunner(BaseTest):
     def _run(self, query: AccountsTableQuery) -> AccountsTableQueryResponse:
         return AccountsTableQueryRunner(query=query, team=self.team, user=self.user).calculate()
