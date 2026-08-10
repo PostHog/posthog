@@ -652,6 +652,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.cohorts",
+    "products.experiments",
     "products.exports",
     "products.signals",
     "products.tasks",
@@ -836,6 +837,16 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.comment_access.*",
+]
+from = [
+    "products.canvas",
+]
+
+# The shared activity log delegates personal-canvas visibility to this narrow,
+# product-owned boundary, mirroring how loops do it for tasks.
+[[interfaces]]
+expose = [
+    "backend\\.activity_visibility.*",
 ]
 from = [
     "products.canvas",

@@ -119,6 +119,13 @@ Sales and subscription reports also need your vendor number (App Store Connect â
             "403 Client Error: Forbidden for url: https://api.appstoreconnect.apple.com": "Your App Store Connect API key does not have access to this data. Give the key a role that can read it (Finance or Sales for reports), then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_get` has no retry loop of its own â€” it relies on the tracked session's urllib3 adapter
+        # to retry a connection failure or read timeout. Once that budget is exhausted, Temporal
+        # retries the whole activity, so this is transient and self-recovering. The host is fixed
+        # (never user input), so matching on it doesn't risk swallowing an unrelated failure.
+        return {"HTTPSConnectionPool(host='api.appstoreconnect.apple.com'"}
+
     def get_schemas(
         self,
         config: AppStoreConnectSourceConfig,
