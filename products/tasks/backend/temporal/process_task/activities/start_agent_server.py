@@ -15,12 +15,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import (
-    OAuthTokenError,
-    SandboxExecutionError,
-    SandboxMissingRepositoryError,
-    SandboxNetworkPolicyError,
-)
+from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
@@ -196,17 +191,8 @@ class _LaunchParams:
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
-    if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox:
+    if ctx.use_modal_network_allowlist:
         return None
-    if ctx.allowed_domains is not None and ctx.use_modal_network_allowlist and ctx.use_modal_vm_sandbox:
-        if ctx.agentsh_domain_allowlist is None or ctx.network_policy_fingerprint is None:
-            record_network_enforcement("configuration_validation", "vm", "agentsh", "failure")
-            raise SandboxNetworkPolicyError(
-                "The VM sandbox has no valid agentsh network policy. Update its network settings and run the task again.",
-                {"run_id": ctx.run_id, "sandbox_environment_id": ctx.sandbox_environment_id},
-                cause=RuntimeError("compiled agentsh network policy is missing"),
-            )
-        return list(ctx.agentsh_domain_allowlist)
     if ctx.agentsh_domain_allowlist is not None:
         return list(ctx.agentsh_domain_allowlist)
     return ctx.allowed_domains
@@ -215,8 +201,6 @@ def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
 def _network_enforcement_observation(ctx: TaskProcessingContext) -> str:
     if ctx.allowed_domains is None:
         return "unrestricted"
-    if ctx.use_modal_network_allowlist and ctx.use_modal_vm_sandbox:
-        return "modal_requested_sandbox_created_agentsh_ready"
     if ctx.use_modal_network_allowlist:
         return "modal_requested_sandbox_created"
     return "agentsh_ready"
@@ -225,8 +209,6 @@ def _network_enforcement_observation(ctx: TaskProcessingContext) -> str:
 def _record_network_enforcement_observation(ctx: TaskProcessingContext) -> None:
     runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
     observation = _network_enforcement_observation(ctx)
-    if ctx.allowed_domains is not None and ctx.use_modal_network_allowlist and ctx.use_modal_vm_sandbox:
-        _agentsh_domains_for(ctx)
     record_network_enforcement("startup_observed", runtime, observation, "success")
 
 
@@ -333,7 +315,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         )
 
     agentsh_domains = _agentsh_domains_for(ctx)
-    if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox and ctx.allowed_domains is not None:
+    if ctx.use_modal_network_allowlist and ctx.allowed_domains is not None:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
         emit_agent_log(
             ctx.run_id,

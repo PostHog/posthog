@@ -478,6 +478,8 @@ def _resolve_modal_vm_sandbox(
     state: dict | None = None,
 ) -> VmSandboxDecision:
     if allowed_domains is not None and not use_modal_network_allowlist:
+        # Restricted VMs rely exclusively on Modal's provider policy, so routing cannot
+        # consult overrides or rollout flags until that independent policy flag is enabled.
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
             run_id=run_id,

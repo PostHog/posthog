@@ -333,12 +333,13 @@ step — it is the synchronization point, blocking until the warmup completes.
 Restricted runs can use the VM runtime only when `tasks-modal-network-allowlist` is also enabled.
 The network flag interlock runs before state overrides, image-builder routing, custom-image routing,
 and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
-Restricted VM runs use Modal's `outbound_domain_allowlist` and retain agentsh inside the VM.
-Restricted gVisor runs use Modal enforcement when the network flag is enabled and agentsh otherwise.
+Modal is the sole network enforcement layer whenever that flag is enabled, including on VMs; agentsh
+is not started with a network policy on those runs. The provider policy applies outside the sandbox,
+so it covers traffic from the VM and its Docker containers without tracing their process trees.
 Modal applies domain restrictions using the requested hostname or TLS SNI. Raw IP connections without
-an allowed SNI fail, while a connection to an IP with an allowed SNI can pass Modal's outer boundary.
-agentsh remains active on restricted VMs as a separate in-VM boundary.
-Test both boundaries independently because their hostname and port semantics can differ.
+an allowed SNI fail, while a connection to an IP with an allowed SNI can pass the boundary. This is an
+SNI allowlist, not DNS-to-destination-IP binding. Test both host and container traffic because their
+network paths differ.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
 
@@ -389,7 +390,9 @@ task = Task.create_and_run(
 
 The temporal workflow resolves and compiles allowed domains at execution time, so environment updates
 take effect on the next run. The compiled policy and its fingerprint stay fixed across activity retries.
-On restricted VM runs, Modal enforces the outer boundary and agentsh enforces the in-VM boundary.
+Modal enforces the network boundary on every restricted run when
+`tasks-modal-network-allowlist` is enabled. During the rollout, restricted runs without that flag stay
+on gVisor and use agentsh; they cannot route to a VM without the provider policy.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Desktop settings UI.

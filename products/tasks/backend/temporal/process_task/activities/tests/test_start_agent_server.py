@@ -1,7 +1,7 @@
 import pytest
 from freezegun import freeze_time
 
-from products.tasks.backend.exceptions import SandboxMissingRepositoryError, SandboxNetworkPolicyError
+from products.tasks.backend.exceptions import SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -103,8 +103,8 @@ def _context(
                 use_modal_network_allowlist=True,
                 network_policy_fingerprint="policy-hash",
             ),
-            "modal_requested_sandbox_created_agentsh_ready",
-            ["example.com", "api.posthog.com"],
+            "modal_requested_sandbox_created",
+            None,
         ),
     ],
 )
@@ -115,23 +115,6 @@ def test_network_enforcement_observation_matches_completed_checks(
 ) -> None:
     assert _network_enforcement_observation(context) == expected_observation
     assert _agentsh_domains_for(context) == expected_agentsh_domains
-
-
-def test_restricted_vm_rejects_missing_compiled_agentsh_policy(mocker) -> None:
-    context = _context(
-        allowed_domains=["example.com"],
-        use_modal_vm_sandbox=True,
-        use_modal_network_allowlist=True,
-    )
-    record_enforcement = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_network_enforcement"
-    )
-
-    with pytest.raises(SandboxNetworkPolicyError) as error:
-        _agentsh_domains_for(context)
-
-    assert error.value.non_retryable is True
-    record_enforcement.assert_called_once_with("configuration_validation", "vm", "agentsh", "failure")
 
 
 async def test_start_failure_does_not_report_network_enforcement_observation(mocker) -> None:
