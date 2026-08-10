@@ -2,6 +2,14 @@ from .assignment import TicketAssignment
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
 from .email_message_mapping import EmailMessageMapping
 from .email_outbox_message import EmailOutboxMessage
+from .email_thread import (
+    EMAIL_THREAD_COMMENT_SCOPE,
+    EmailThread,
+    EmailThreadMessage,
+    EmailThreadMessageDirection,
+    EmailThreadParticipant,
+    EmailThreadParticipantKind,
+)
 from .github_comment_mapping import GithubCommentMapping
 from .restore_token import ConversationRestoreToken
 from .signing_secret import SigningSecret
@@ -22,6 +30,12 @@ __all__ = [
     "EmailChannelKind",
     "EmailMessageMapping",
     "EmailOutboxMessage",
+    "EMAIL_THREAD_COMMENT_SCOPE",
+    "EmailThread",
+    "EmailThreadMessage",
+    "EmailThreadMessageDirection",
+    "EmailThreadParticipant",
+    "EmailThreadParticipantKind",
     "GithubCommentMapping",
     "Priority",
     "RuleType",

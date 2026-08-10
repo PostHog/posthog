@@ -317,6 +317,7 @@ class TestCommentReplySlackSignal(APIBaseTest):
             ("from_slack_reply_not_echoed", "parent", "Insight", {"from_slack": True}, False),
             ("emoji_reaction_not_mirrored", "parent", "Insight", {"is_emoji": True}, False),
             ("conversations_ticket_excluded", "parent", "conversations_ticket", None, False),
+            ("email_thread_excluded", "parent", "EmailThread", None, False),
             ("top_level_comment", None, "Insight", None, False),
         ]
     )
