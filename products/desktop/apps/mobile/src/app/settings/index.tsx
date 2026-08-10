@@ -6,7 +6,14 @@ import {
 import { router } from "expo-router";
 import { ArrowSquareOut, CaretRight, SpeakerHigh } from "phosphor-react-native";
 import { useState } from "react";
-import { Linking, Pressable, ScrollView, Switch, View } from "react-native";
+import {
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  Switch,
+  View,
+} from "react-native";
 import { useAuthStore, useProjectsQuery, useUserQuery } from "@/features/auth";
 import { useDismissedReportsStore } from "@/features/inbox/stores/dismissedReportsStore";
 import { usePushTokenStore } from "@/features/notifications/stores/pushTokenStore";
@@ -720,7 +727,14 @@ export default function SettingsScreen() {
         open={projectSheetOpen}
         title="Active project"
         value={projectId != null ? String(projectId) : ""}
-        onChange={(value) => setProjectId(Number(value))}
+        onChange={(value) => {
+          if (!setProjectId(Number(value))) {
+            Alert.alert(
+              "Can't switch project",
+              "Your login isn't authorized for that project. Log out and back in to grant access to it.",
+            );
+          }
+        }}
         onClose={() => setProjectSheetOpen(false)}
         options={scopedTeams.map((id) => ({
           value: String(id),

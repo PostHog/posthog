@@ -65,6 +65,7 @@ import {
 } from "@/features/tasks/composer/options";
 import { RepositoryPickerInline } from "@/features/tasks/composer/RepositoryPickerInline";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
+import { taskKeys } from "@/features/tasks/hooks/useTasks";
 import { useUserIntegrations } from "@/features/tasks/hooks/useUserIntegrations";
 import { useWarmTask } from "@/features/tasks/hooks/useWarmTask";
 import { pendingPromptRecoveryStoreApi } from "@/features/tasks/stores/pendingPromptRecoveryStore";
@@ -86,6 +87,7 @@ import {
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { logger } from "@/lib/logger";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
+import { queryClient } from "@/lib/queryClient";
 import { toRgba, useThemeColors } from "@/lib/theme";
 
 const log = logger.scope("task-create");
@@ -351,6 +353,11 @@ export default function NewTaskScreen() {
       pendingTaskPromptStoreApi.move(pendingKey, task.id);
       currentPendingKey = task.id;
       pendingPromptRecoveryStoreApi.clear(pendingKey);
+
+      // The task list only refetches while it already has an active run, so
+      // without an explicit invalidation the new task can stay hidden from
+      // the overview indefinitely.
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
 
       // Seed the per-task composer config with the mode/model/reasoning the
       // user picked here, so the task detail screen reflects them and every

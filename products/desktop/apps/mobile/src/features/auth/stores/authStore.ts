@@ -37,7 +37,8 @@ interface AuthState {
 
   // Methods
   loginWithOAuth: (region: CloudRegion) => Promise<void>;
-  setProjectId: (projectId: number) => void;
+  /** Returns false when the token isn't scoped to the requested project. */
+  setProjectId: (projectId: number) => boolean;
   loginWithPersonalApiKey: (params: {
     token: string;
     projectId: number;
@@ -123,12 +124,20 @@ export const useAuthStore = create<AuthState>()(
 
       setProjectId: (projectId: number) => {
         const { scopedTeams, projectId: current } = get();
+        if (projectId === current) return true;
         // Guard: only switch to a project the token is actually scoped to.
-        if (!scopedTeams.includes(projectId) || projectId === current) return;
+        if (!scopedTeams.includes(projectId)) {
+          logger.warn("Rejected switch to out-of-scope project", {
+            projectId,
+            scopedTeams: scopedTeams.length,
+          });
+          return false;
+        }
         set({ projectId });
         // Drop cached data scoped to the previous project so tasks, inbox,
         // automations, etc. refetch against the newly-selected one.
         queryClient.clear();
+        return true;
       },
 
       loginWithOAuth: async (region: CloudRegion) => {
