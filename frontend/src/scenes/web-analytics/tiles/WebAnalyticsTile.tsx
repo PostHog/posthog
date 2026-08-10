@@ -1118,6 +1118,8 @@ export const WebStatsTableTile = ({
         ]
     )
 
+    const canFilterRow = !includeHost && productTab !== ProductTab.PAGE_REPORTS
+
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
             // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick
@@ -1130,7 +1132,7 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
-            return { onClick: () => onClick(breakdownValue) }
+            return { onClick: () => onClick(breakdownValue), ...(canFilterRow && { title: 'Filter by this value' }) }
         }
 
         return {
@@ -1140,7 +1142,7 @@ export const WebStatsTableTile = ({
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
             showLoadNextButton: enablePagination,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination, canFilterRow])
 
     const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({
