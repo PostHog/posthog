@@ -28,10 +28,10 @@ describe('GitHubInstallationLink', () => {
 
         render(<GitHubInstallationLink installations={installations} loading={false} onLink={onLink} />)
 
-        expect(screen.getAllByText('Link existing installation')).toHaveLength(1)
+        expect(screen.getAllByText('Choose an account')).toHaveLength(1)
         expect(screen.queryByText('PostHog')).not.toBeInTheDocument()
 
-        await user.click(screen.getByText('Link existing installation'))
+        await user.click(screen.getByText('Choose an account'))
         await user.click(await screen.findByText('PostHog'))
 
         expect(onLink).toHaveBeenCalledWith('101')

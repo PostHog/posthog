@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -40,34 +40,46 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
 
     return (
         <Integration kind="github">
-            <div className="flex flex-col gap-y-2">
+            {/* w-full because Integration drops its children into a bare flex row, which would
+                otherwise size the banner to its longest word. */}
+            <div className="flex flex-col gap-y-2 w-full">
+                {/* An install GitHub already has is the exception, not a second way to connect, so it
+                    reads as an aside with its own action rather than a button competing with the one
+                    below. */}
+                {canLinkExisting && (
+                    <LemonBanner type="info" hideIcon>
+                        <div className="flex items-center gap-3">
+                            <span className="min-w-0 text-sm font-normal">
+                                {multipleInstallations ? (
+                                    <>Already installed on more than one of your GitHub accounts.</>
+                                ) : (
+                                    <>
+                                        Already installed on your GitHub account{' '}
+                                        <code>{accountLabel(installations[0])}</code>.
+                                    </>
+                                )}
+                            </span>
+                            <GitHubInstallationLink
+                                installations={installations}
+                                loading={linkedGithubInstallationLoading}
+                                onLink={linkExistingGithubInstallation}
+                                projectName={currentTeam?.name}
+                            />
+                        </div>
+                    </LemonBanner>
+                )}
                 <div className="flex flex-wrap gap-2">
                     {/* This leaves PostHog entirely, and a GitHub App installs at most once per
                         account, so GitHub offers install where it's missing and configure where it
-                        isn't. Connecting is only a promise we can keep while this project has
-                        nothing linked; past that the honest label is the destination. */}
+                        isn't. "Connect account" matches the Linear and Jira cards, which name the
+                        third party's container. */}
                     <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
-                        {isConnected ? 'Manage on GitHub' : 'Connect organization'}
+                        {isConnected ? 'Manage on GitHub' : 'Connect account'}
                     </LemonButton>
-                    {canLinkExisting && (
-                        <GitHubInstallationLink
-                            installations={installations}
-                            loading={linkedGithubInstallationLoading}
-                            onLink={linkExistingGithubInstallation}
-                        />
-                    )}
                 </div>
                 {isConnected && (
                     <p className="text-secondary text-xs mb-0">
-                        Install the PostHog app on another GitHub account, or change which repositories this
-                        installation can see.
-                    </p>
-                )}
-                {canLinkExisting && (
-                    <p className="text-secondary text-xs mb-0">
-                        {multipleInstallations
-                            ? 'Choose an existing GitHub installation to connect to this project.'
-                            : 'A GitHub App installs once per organization. Link the installation you already have instead of reinstalling.'}
+                        Add the PostHog app to another GitHub account, or change which repositories it can see.
                     </p>
                 )}
                 {!isConnected && installations.length === 0 && githubPersonalConnected === false && (
@@ -82,14 +94,23 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     )
 }
 
+// The GitHub account name is what a person recognizes, so it carries the label wherever we have
+// it. The id is a fallback for an installation whose account metadata never arrived.
+function accountLabel(installation: GitHubAvailableInstallationApi): string {
+    return installation.account_name ?? `installation ${installation.installation_id}`
+}
+
 export function GitHubInstallationLink({
     installations,
     loading,
     onLink,
+    projectName,
 }: {
     installations: GitHubAvailableInstallationApi[]
     loading: boolean
     onLink: (installationId?: string) => void
+    /** Named on the button, so it's clear which project the install lands in. */
+    projectName?: string
 }): JSX.Element | null {
     if (installations.length === 0) {
         return null
@@ -99,8 +120,13 @@ export function GitHubInstallationLink({
         // Always name the installation, even when there's only one to pick. Omitting it asks the
         // backend to auto-resolve from a sibling project, which an orphan installation has none of.
         return (
-            <LemonButton type="secondary" loading={loading} onClick={() => onLink(installations[0].installation_id)}>
-                Link existing installation
+            <LemonButton
+                type="secondary"
+                size="small"
+                loading={loading}
+                onClick={() => onLink(installations[0].installation_id)}
+            >
+                Connect to {projectName ?? 'this project'}
             </LemonButton>
         )
     }
@@ -109,13 +135,13 @@ export function GitHubInstallationLink({
         <LemonMenu
             items={installations.map((installation) => ({
                 key: installation.installation_id,
-                label: installation.account_name ?? `Installation ${installation.installation_id}`,
-                disabledReason: loading ? 'Linking an installation' : undefined,
+                label: accountLabel(installation),
+                disabledReason: loading ? 'Connecting an account' : undefined,
                 onClick: () => onLink(installation.installation_id),
             }))}
         >
-            <LemonButton type="secondary" loading={loading} sideIcon={<IconChevronDown />}>
-                Link existing installation
+            <LemonButton type="secondary" size="small" loading={loading} sideIcon={<IconChevronDown />}>
+                Choose an account
             </LemonButton>
         </LemonMenu>
     )
