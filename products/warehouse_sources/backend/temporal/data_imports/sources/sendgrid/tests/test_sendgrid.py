@@ -11,6 +11,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import (
     SendGridResumeConfig,
     _offset_from_url,
+    _to_date_string,
     _to_epoch_seconds,
     get_endpoint_permissions,
     get_status_code,
@@ -82,6 +83,74 @@ class TestToEpochSeconds:
 
     def test_naive_datetime_treated_as_utc(self) -> None:
         assert _to_epoch_seconds(datetime(2023, 11, 14, 22, 13, 20)) == 1700000000
+
+
+class TestToDateString:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("2024-01-15", "2024-01-15"),
+            ("2024-01-15T00:00:00", "2024-01-15"),
+            (date(2024, 1, 15), "2024-01-15"),
+            (datetime(2024, 1, 15, 22, 13, 20, tzinfo=UTC), "2024-01-15"),
+            # Epoch seconds — the cursor may round-trip through storage as a number.
+            (1705270400, "2024-01-14"),
+        ],
+    )
+    def test_to_date_string(self, value: Any, expected: str) -> None:
+        assert _to_date_string(value) == expected
+
+    def test_naive_datetime_treated_as_utc(self) -> None:
+        assert _to_date_string(datetime(2024, 1, 15, 22, 13, 20)) == "2024-01-15"
+
+
+class TestStats:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_nested_daily_metrics_into_one_row_per_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        body = [
+            {"date": "2024-01-01", "stats": [{"metrics": {"requests": 10, "delivered": 8, "bounces": 1}}]},
+            {"date": "2024-01-02", "stats": [{"metrics": {"requests": 5, "delivered": 5, "bounces": 0}}]},
+        ]
+        params, _urls = _wire(session, [_response(body)])
+
+        rows = _rows(_source("stats", _make_manager()))
+
+        # The nested {date, stats:[{metrics}]} shape flattens to flat daily rows the denominator lives on.
+        assert rows == [
+            {"date": "2024-01-01", "requests": 10, "delivered": 8, "bounces": 1},
+            {"date": "2024-01-02", "requests": 5, "delivered": 5, "bounces": 0},
+        ]
+        assert params[0]["aggregated_by"] == "day"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_first_sync_backfills_a_required_start_date(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response([])])
+
+        # /stats rejects a request with no start_date, so a cursorless sync must still send one.
+        _rows(_source("stats", _make_manager()))
+
+        assert "start_date" in params[0]
+        # A YYYY-MM-DD string, not epoch seconds — the format /stats requires.
+        datetime.strptime(params[0]["start_date"], "%Y-%m-%d")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_cursor_becomes_a_date_formatted_start_date(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response([])])
+
+        _rows(
+            _source(
+                "stats",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-10",
+                incremental_field="date",
+            )
+        )
+
+        assert params[0]["start_date"] == "2024-03-10"
 
 
 class TestOffsetFromUrl:
