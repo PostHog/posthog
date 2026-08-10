@@ -26,7 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientNonRetryableError,
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    PostHogInternalDatabaseError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
@@ -345,6 +348,11 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
     [
         ("operational_error", OperationalError, "query_wait_timeout"),
         ("interface_error", InterfaceError, "connection already closed"),
+        # Raised by shared pipeline code (e.g. cdp_producer's should_run check) when a lookup
+        # against PostHog's own app DB fails — already reclassified clear of wording a customer's
+        # misconfigured source host would produce, so it must get the same NonReportableError
+        # treatment as the Django exception types above, not fall through to the default branch.
+        ("posthog_internal_database_error", PostHogInternalDatabaseError, "Failed to check hog function triggers"),
     ]
 )
 @pytest.mark.asyncio

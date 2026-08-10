@@ -114,7 +114,8 @@ class SandboxConfig(BaseModel):
     # (the limit); Modal bills max(request, actual). When False, request == limit (fixed size).
     burstable_resources: bool = False
     # Request floor used when `burstable_resources` is True: the box reserves this much and bursts
-    # up to `cpu_cores` / `memory_gb`. Clamped to the limit at create time so it never exceeds it.
+    # up to `cpu_cores` / `memory_gb`. Read through the `effective_*_request` properties, which
+    # apply the limit clamp and the VM memory pin.
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
@@ -147,6 +148,21 @@ class SandboxConfig(BaseModel):
     @property
     def is_vm(self) -> bool:
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
+
+    @property
+    def effective_cpu_request_cores(self) -> float:
+        """CPU floor the provider actually reserves when burstable: the configured request,
+        clamped to the limit."""
+        return min(float(self.cpu_request_cores), float(self.cpu_cores))
+
+    @property
+    def effective_memory_request_mb(self) -> int:
+        """Memory floor the provider actually reserves when burstable. VM memory can't burst,
+        so a VM's request is pinned to its limit; gVisor requests are clamped to the limit."""
+        memory_limit_mb = int(self.memory_gb * 1024)
+        if self.is_vm:
+            return memory_limit_mb
+        return min(int(self.memory_request_mb), memory_limit_mb)
 
 
 WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
@@ -472,12 +488,18 @@ class SandboxBase(ABC):
     def create_directory_snapshot(self, path: str) -> str: ...
 
     @abstractmethod
+    def prune_snapshot_heavy_dirs(self, path: str) -> None: ...
+
+    @abstractmethod
     def destroy(self) -> None: ...
 
     @abstractmethod
     def is_running(self) -> bool: ...
 
     def read_agent_server_session_init_ms(self) -> int | None:
+        return None
+
+    def read_cpu_usage_usec(self) -> int | None:
         return None
 
     def _read_health_session_init_ms(self, port: int) -> int | None:

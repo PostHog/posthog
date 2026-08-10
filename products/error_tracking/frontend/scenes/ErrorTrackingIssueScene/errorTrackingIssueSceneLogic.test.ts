@@ -19,6 +19,8 @@ describe('errorTrackingIssueSceneLogic', () => {
             get: {
                 '/api/environments/:team_id/error_tracking/issues/:id/': {},
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
+                // Fails by default, so every test in this file also proves the panel degrades quietly.
+                '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'ClickHouse is unhappy' }],
             },
             post: {
                 '/api/environments/:team_id/query/': { results: [] },
@@ -40,6 +42,11 @@ describe('errorTrackingIssueSceneLogic', () => {
 
         expect(logic.values.eventsQuery).toBe(initialQuery)
         expect(logic.values.eventsQueryKey).toBe(initialKey)
+    })
+
+    it('leaves linked reports empty and does not fail when the signals lookup errors', async () => {
+        // Letting the loader reject would toast an error on every issue page during a signals outage.
+        await expectLogic(logic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({ linkedReports: [] })
     })
 
     it('changes the events query key when the search query changes', () => {

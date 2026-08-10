@@ -677,7 +677,7 @@ export class FolderInstructionsConflictError extends Error {
 
 export interface TaskArtifactUploadRequest {
   name: string;
-  type: "user_attachment" | "skill_bundle";
+  type: "output" | "user_attachment" | "skill_bundle";
   size: number;
   content_type?: string;
   source?: string;
@@ -706,6 +706,8 @@ export interface FinalizedTaskArtifactUpload {
   metadata?: TaskArtifactUploadRequest["metadata"];
   storage_path: string;
   uploaded_at?: string;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
 }
 
 export interface CloudRunOptions {
