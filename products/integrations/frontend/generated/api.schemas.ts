@@ -162,6 +162,7 @@ export interface RoleLookupResponseApi {
  * * `customerio-track` - Customerio Track
  * * `customerio-webhook` - Customerio Webhook
  * * `databricks` - Databricks
+ * * `display-video-360` - Display Video 360
  * * `email` - Email
  * * `firebase` - Firebase
  * * `github` - Github
@@ -212,6 +213,7 @@ export const IntegrationKindEnumApi = {
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
+    DisplayVideo360: 'display-video-360',
     Email: 'email',
     Firebase: 'firebase',
     Github: 'github',
@@ -480,6 +482,7 @@ export interface IntegrationAccessRequestApi {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
+     * * `display-video-360` - Display Video 360
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -642,6 +645,7 @@ export type IntegrationsListParams = {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
+     * * `display-video-360` - Display Video 360
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -703,6 +707,7 @@ export const IntegrationsListKind = {
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
+    DisplayVideo360: 'display-video-360',
     Email: 'email',
     Firebase: 'firebase',
     Github: 'github',

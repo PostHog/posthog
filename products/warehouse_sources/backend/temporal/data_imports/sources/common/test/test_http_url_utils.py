@@ -37,6 +37,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
             "https://x.test/?key=a&password=b&secret=c&sig=d&signature=e&token=f",
             "https://x.test/?key=REDACTED&password=REDACTED&secret=REDACTED&sig=REDACTED&signature=REDACTED&token=REDACTED",
         ),
+        # Pre-signed object-storage download URLs (GCS V4 / S3 SigV4) — the signature and
+        # credential must not survive into a log line where they could be replayed.
+        (
+            "https://storage.googleapis.com/b/report.csv?X-Goog-Credential=sa%40p.iam&X-Goog-Signature=deadbeef&X-Goog-Expires=900",
+            "https://storage.googleapis.com/b/report.csv?X-Goog-Credential=REDACTED&X-Goog-Signature=REDACTED&X-Goog-Expires=900",
+        ),
         # Unrelated params are preserved verbatim
         (
             "https://api.example.com/?cursor=abc123&limit=50",
