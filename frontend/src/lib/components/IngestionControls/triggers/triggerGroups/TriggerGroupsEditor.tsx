@@ -15,7 +15,6 @@ import {
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { EventTriggerSelect } from 'lib/components/IngestionControls/triggers/EventTrigger'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS, TeamMembershipLevel } from 'lib/constants'
@@ -29,12 +28,13 @@ import {
     SessionRecordingTriggerGroup,
     TriggerPropertyFilter,
 } from '~/lib/components/IngestionControls/types'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyOperator } from '~/types'
 
 import { CreateFromLegacyModal } from './CreateFromLegacyModal'
 import { replayTriggersV2Logic } from './replayTriggersV2Logic'
 import { TriggerGroupCard } from './TriggerGroupCard'
 import { triggerGroupFormLogic } from './triggerGroupFormLogic'
+import { propertyFiltersToTriggerFilters, triggerFiltersToPropertyFilters } from './triggerPropertyFilters'
 
 /** Operators supported by the SDK for trigger property evaluation */
 const SUPPORTED_OPERATORS: PropertyOperator[] = [
@@ -47,32 +47,6 @@ const SUPPORTED_OPERATORS: PropertyOperator[] = [
     PropertyOperator.GreaterThan,
     PropertyOperator.LessThan,
 ]
-
-/** Convert our trigger property filters to the AnyPropertyFilter format PropertyFilters component expects */
-function triggerFiltersToPropertyFilters(filters: TriggerPropertyFilter[]): AnyPropertyFilter[] {
-    return filters.map(
-        (f) =>
-            ({
-                key: f.key,
-                type: f.type === 'person' ? PropertyFilterType.Person : PropertyFilterType.Event,
-                operator: (f.operator as PropertyOperator) || PropertyOperator.Exact,
-                value: f.value ?? '',
-            }) as AnyPropertyFilter
-    )
-}
-
-/** Convert PropertyFilters output back to our trigger property filter format. Drops half-typed rows
- * (a key picked but no value yet), which JSON would send without a `value` and the API rejects. */
-export function propertyFiltersToTriggerFilters(filters: AnyPropertyFilter[]): TriggerPropertyFilter[] {
-    return filters
-        .filter((f) => f.key && !isEmptyProperty(f))
-        .map((f) => ({
-            key: f.key!,
-            type: f.type === PropertyFilterType.Person ? ('person' as const) : ('event' as const),
-            operator: 'operator' in f ? (f.operator as TriggerPropertyFilter['operator']) : 'exact',
-            value: (f as { value: TriggerPropertyFilter['value'] }).value,
-        }))
-}
 
 export function TriggerGroupsEditor(): JSX.Element {
     const {

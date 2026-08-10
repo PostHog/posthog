@@ -1,6 +1,6 @@
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { propertyFiltersToTriggerFilters } from './TriggerGroupsEditor'
+import { propertyFiltersToTriggerFilters } from './triggerPropertyFilters'
 
 describe('propertyFiltersToTriggerFilters', () => {
     it('drops a row that has a key but no value yet', () => {
