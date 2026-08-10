@@ -90,6 +90,32 @@ describe('usage map', () => {
             expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(false)
         })
 
+        // The dormant-consumer trap: a deployment that reads this key less often than the
+        // rolling window has no entry in `reads`, only a last-seen record. If the verdict
+        // were built from `reads` alone, one active caller reading once after activation
+        // would declare the previous value retirable while that consumer is still on it.
+        it('is false while a caller seen only outside the rolling window predates activation', () => {
+            const usage = build({
+                reads: { [`${KEY}|${WORKER}`]: 100 },
+                lastSeen: { [`${KEY}|${WORKER}`]: AFTER, [`${KEY}|${DJANGO}`]: BEFORE },
+            })
+            expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(false)
+            expect(usage.keys[KEY]?.callers).toContainEqual({
+                caller: DJANGO,
+                reads24h: 0,
+                lastSeen: new Date(BEFORE).toISOString(),
+                onCurrentValue: false,
+            })
+        })
+
+        it('is true when a caller seen only outside the rolling window has moved on', () => {
+            const usage = build({
+                reads: { [`${KEY}|${WORKER}`]: 100 },
+                lastSeen: { [`${KEY}|${WORKER}`]: AFTER, [`${KEY}|${DJANGO}`]: AFTER },
+            })
+            expect(usage.keys[KEY]?.safeToRetirePrevious).toBe(true)
+        })
+
         it('is false for a key that is not mid-rotation, since there is nothing to retire', () => {
             const steady: SecretsSnapshot = {
                 ...ROTATING,

@@ -26,6 +26,7 @@ export const USAGE_OBJECT_KEY = 'integrations/usage/latest.json'
 export interface UsageCallerEntry {
     /** The calling deployment, as authenticated by its signing key. */
     caller: string
+    /** Reads inside the rolling window. Zero for a deployment last seen before it. */
     reads24h: number
     lastSeen: string | null
     /** True when this deployment has read the key since the current value was activated. */
@@ -41,6 +42,10 @@ export interface UsageKeyEntry {
     /**
      * True when every deployment known to read this key has read it since the current
      * value became AWSCURRENT, and at least one such deployment exists.
+     *
+     * "Known to read" spans every caller with a last-seen record, not only those active
+     * inside the rolling window, so a deployment that reads the key rarely still holds
+     * the verdict back until it has moved on.
      *
      * This is sound only because callers do not cache: a read after activation
      * necessarily returned the new value, so "has read since" means "is now using the
@@ -95,7 +100,12 @@ export function buildUsageMap(opts: {
             const activatedAt = snapshot.versionCreatedAt ? Date.parse(snapshot.versionCreatedAt) : null
             for (const [field, at] of opts.lastSeen) {
                 const [fieldKey, caller] = field.split('|')
-                if (fieldKey === key && caller && callers.has(caller)) {
+                // Deliberately not gated on a read inside the rolling window: last-seen is
+                // kept indefinitely, so a deployment that reads this key less often than
+                // `quietWindowHours` still has to appear here. Dropping it would let a
+                // single read from any one caller declare the previous value retirable
+                // while a dormant consumer is still on it.
+                if (fieldKey === key && caller) {
                     const entry = ensure(caller)
                     entry.lastSeen = new Date(at).toISOString()
                     // A read after activation necessarily returned the new value, because
