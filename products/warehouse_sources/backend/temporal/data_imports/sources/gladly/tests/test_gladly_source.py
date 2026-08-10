@@ -30,7 +30,7 @@ class TestGladlySource:
         assert config.iconPath == "/static/services/gladly.png"
 
         field_names = [f.name for f in config.fields]
-        assert field_names == ["organization", "agent_email", "api_token"]
+        assert field_names == ["organization", "agent_email", "api_token", "domain"]
 
     def test_api_token_field_is_secret_password(self):
         config = self.source.get_source_config
@@ -40,8 +40,8 @@ class TestGladlySource:
         assert token_field.required is True
 
     def test_connection_host_fields_cover_organization(self):
-        # The org subdomain decides where the stored token gets sent.
-        assert self.source.connection_host_fields == ["organization"]
+        # The org subdomain and the domain together decide where the stored token gets sent.
+        assert self.source.connection_host_fields == ["organization", "domain"]
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -108,7 +108,7 @@ class TestGladlySource:
         mock_validate.return_value = mock_return
 
         assert self.source.validate_credentials(self.config, self.team_id) == mock_return
-        mock_validate.assert_called_once_with("myorg", "agent@x.com", "token")
+        mock_validate.assert_called_once_with("myorg", "agent@x.com", "token", "gladly.com")
 
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = mock.MagicMock()
@@ -117,18 +117,21 @@ class TestGladlySource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is GladlyResumeConfig
 
+    @pytest.mark.parametrize("domain", ["gladly.com", "gladly.qa"])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source.gladly_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_gladly_source):
+    def test_source_for_pipeline_plumbs_arguments(self, mock_gladly_source, domain):
         inputs = mock.MagicMock()
         inputs.schema_name = "customers"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-02T03:04:05.000Z"
         manager = mock.MagicMock()
+        config = GladlySourceConfig(organization="myorg", agent_email="agent@x.com", api_token="token", domain=domain)
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+        self.source.source_for_pipeline(config, manager, inputs)
 
         mock_gladly_source.assert_called_once()
         kwargs = mock_gladly_source.call_args.kwargs
+        assert kwargs["domain"] == domain
         assert kwargs["organization"] == "myorg"
         assert kwargs["agent_email"] == "agent@x.com"
         assert kwargs["api_token"] == "token"
