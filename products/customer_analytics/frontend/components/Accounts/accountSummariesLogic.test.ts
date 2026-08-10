@@ -11,7 +11,7 @@ import {
 import type { AccountApi, AccountChannelSummaryApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { periodLabel } from './AccountSummariesExpansion'
-import { accountSummariesLogic } from './accountSummariesLogic'
+import { accountSummariesLogic, FIRST_SUMMARY_QUIET_POLLS } from './accountSummariesLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     // Keep the real module for everything else — connected logics call other generated
@@ -44,11 +44,12 @@ describe('accountSummariesLogic', () => {
     })
 
     afterEach(() => {
+        // Clears this account's entry in the module-level backfill deadlines, which would
+        // otherwise leave the next test's mount resuming a poll it never started.
+        logic?.actions.stopFirstSummaryPolling()
         logic?.unmount()
     })
 
-    // Account id is a parameter because the in-flight backfill deadlines are module state,
-    // so a test that leaves one pending would otherwise bleed into the next.
     const mount = async (accountId = 'acc-1'): Promise<void> => {
         logic = accountSummariesLogic({ accountId })
         logic.mount()
@@ -108,7 +109,7 @@ describe('accountSummariesLogic', () => {
         expect(logic.values.cadenceSaving).toBe(false)
     })
 
-    it('watches for the backfilled first summary after turning summaries on, and stops once it lands', async () => {
+    it('watches for the backfilled summaries after turning summaries on', async () => {
         mockRetrieve.mockResolvedValue(ACCOUNT)
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockPatch.mockResolvedValue(ACCOUNT)
@@ -124,7 +125,6 @@ describe('accountSummariesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.summariesResult.summaries).toEqual([SUMMARY])
-        expect(logic.values.generatingFirstSummary).toBe(false)
     })
 
     it('resumes the wait after the account row is collapsed and re-expanded', async () => {
@@ -142,7 +142,7 @@ describe('accountSummariesLogic', () => {
         expect(logic.values.generatingFirstSummary).toBe(true)
     })
 
-    it('keeps waiting until every daily summary lands, not just the first', async () => {
+    it('keeps waiting while summaries are still arriving, then stops when the backfill goes quiet', async () => {
         const daily = { ...ACCOUNT, slack_summary_cadence: 'daily' } as AccountApi
         mockRetrieve.mockResolvedValue(daily)
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
@@ -152,15 +152,20 @@ describe('accountSummariesLogic', () => {
         logic.actions.setCadence('daily')
         await expectLogic(logic).toFinishAllListeners()
 
-        // count, not results length: a page holds 5 and the backfill writes 7.
-        mockList.mockResolvedValue({ count: 3, next: null, previous: null, results: [SUMMARY] })
-        logic.actions.loadSummaries()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.generatingFirstSummary).toBe(true)
+        // count, not results length: a page holds 5 while a daily backfill writes up to 7.
+        for (const count of [3, 6]) {
+            mockList.mockResolvedValue({ count, next: null, previous: null, results: [SUMMARY] })
+            logic.actions.loadSummaries()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.generatingFirstSummary).toBe(true)
+        }
 
-        mockList.mockResolvedValue({ count: 7, next: null, previous: null, results: [SUMMARY] })
-        logic.actions.loadSummaries()
-        await expectLogic(logic).toFinishAllListeners()
+        // A backfilled day with no messages writes no summary, so 6 of 7 is where this one ends.
+        for (let poll = 0; poll < FIRST_SUMMARY_QUIET_POLLS; poll++) {
+            logic.actions.loadSummaries()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
         expect(logic.values.generatingFirstSummary).toBe(false)
     })
 
