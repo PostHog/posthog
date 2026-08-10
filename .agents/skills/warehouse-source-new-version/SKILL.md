@@ -90,6 +90,7 @@ Add it when any of these hold:
 - A version bump can change the auth scheme, not just the wire format. Then the source config needs both credential shapes as optional fields, auth construction dispatches on the resolved version, and `validate_credentials` enforces the pair that version needs — form-level `required` can't express "depends on the pin".
 - When the vendor renames a collection between versions, keep the schema/table name set identical across versions and put the rename in a per-version path on the endpoint config — otherwise discovery diffs orphan the table on repin.
 - When the new version has no equivalent for an old endpoint (a dropped collection, not a rename), keep that table only on the versions that serve it and let the table set differ by version — never map it to a guessed path just to keep the sets equal, since docs are the sole source of truth and an unverified path makes a new source surface a table that 404s at sync time.
+- A source with no dispatch may currently read its version from a constant on a shared model (e.g. the OAuth `Integration` model) that also drives version-independent flows like OAuth token minting. Repoint only the sync request path onto the resolved pin; leave that constant, since bumping it changes those other flows' version with a blast radius beyond this source.
 
 ## Self-improvement
 
