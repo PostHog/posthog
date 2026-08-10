@@ -217,7 +217,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     return (
         <div data-attr="experiment-recordings-tab">
-            <ReplayVisionPromoBanner source="experiment-recordings-tab" className="mb-2" />
+            <ReplayVisionPromoBanner source="experiment-recordings-tab" className="mb-4" />
             {usingExposureFallback && (
                 <LemonBanner type="info" className="mb-2">
                     {EXPOSURE_FALLBACK_NOTICE}
