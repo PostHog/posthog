@@ -11,9 +11,15 @@ export function isTicketCommand(content: string): boolean {
 }
 
 /**
- * Mirrors the support side panel's plan gate (`canCreateTicket` in sidepanelTicketsLogic.ts, minus
- * the billing-topic bypass added by `canEmail`): /ticket must not create tickets for orgs the
- * panel would turn away.
+ * Mirrors the paid-support entitlement in `canCreateTicket` (sidepanelTicketsLogic.ts), so /ticket does
+ * not create tickets for orgs the support panel would turn away. Keep the two in sync.
+ *
+ * Two differences from the panel are deliberate. The panel also admits an otherwise ineligible org on
+ * `isBillingIssue`, `isErrorReport`, and `hasSupportExemption`, which are set by support-form and
+ * error-boundary entry points that a chat thread cannot observe, so billing questions and crash reports
+ * go through the panel instead. And the panel waits for `isBillingResolved` before turning anyone away,
+ * whereas a null `billing` reads as ineligible here, so an ineligible org gets no window while
+ * entitlement is still loading.
  */
 export function canCreateSupportTicket(billing: BillingType | null, isCurrentOrganizationNew: boolean): boolean {
     const hasActiveTrial =
