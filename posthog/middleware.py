@@ -1192,8 +1192,10 @@ class CSPMiddleware:
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
-                "media-src https://res.cloudinary.com",
-                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                # allow all sites so the session replay player can load third-party video and media
+                "media-src 'self' data: blob: https:",
+                # allow all sites so the session replay player can load third-party images
+                "img-src 'self' data: blob: https:",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps

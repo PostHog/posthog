@@ -1868,6 +1868,20 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
 
+    @parameterized.expand(["media-src", "img-src"])
+    def test_replay_media_directives_allow_any_https_origin(self, directive):
+        from django.test import RequestFactory
+
+        from posthog.middleware import CSPMiddleware
+
+        def get_response(_request):
+            return HttpResponse("<html></html>", content_type="text/html")
+
+        middleware = CSPMiddleware(get_response)
+        response = middleware(RequestFactory().get("/some-page/"))
+        csp = response["Content-Security-Policy-Report-Only"]
+        assert f"{directive} 'self' data: blob: https:" in csp
+
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
