@@ -16,7 +16,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
-import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
+import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -171,6 +171,7 @@ export interface workflowLogicValues {
           }
         | false
         | null
+    saveAttemptedActionIds: string[] | null
     saveBaseUpdatedAt: string | null
     scheduleConfigSources: {
         natural_language: boolean
@@ -1835,6 +1836,9 @@ export interface workflowLogicActions {
     markAutoSave: (isAutoSave: boolean) => {
         isAutoSave: boolean
     }
+    markSaveAttempted: (actionIds: string[]) => {
+        actionIds: string[]
+    }
     partialSetWorkflowActionConfig: (
         actionId: string,
         config: Partial<HogFlowAction['config']>
@@ -2544,7 +2548,8 @@ export interface workflowLogicMeta {
             workflow: HogFlow,
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
             hogFunctionTemplatesByIdLoading: boolean,
-            scheduleStartsAt: string | null
+            scheduleStartsAt: string | null,
+            saveAttemptedActionIds: string[] | null
         ) => Record<string, HogFlowActionValidationResult | null>
         workflowHasActionErrors: (
             workflow: HogFlow,
@@ -2707,6 +2712,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
+        markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
             variables,
         }),
@@ -2930,6 +2936,18 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
+        // Gates when per-field step messages become visible: the action ids that were present at
+        // the last save/enable attempt. Every step is validated the whole time (so the node badge
+        // and enable-gate work), but a step only shows its messages once the user has tried to
+        // save or enable with that step in place, which is the point where they can act on them.
+        // A step added later stays quiet until the next attempt.
+        saveAttemptedActionIds: [
+            null as string[] | null,
+            {
+                markSaveAttempted: (_, { actionIds }) => actionIds,
+                loadWorkflowSuccess: () => null,
+            },
+        ],
         // Set when another channel (another UI tab, MCP, or the API) saved this workflow while we had
         // unsaved local edits. Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
         // we reload or save, since both reconcile us with the server copy.
@@ -3053,12 +3071,19 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading, s.scheduleStartsAt],
+            (s) => [
+                s.workflow,
+                s.hogFunctionTemplatesById,
+                s.hogFunctionTemplatesByIdLoading,
+                s.scheduleStartsAt,
+                s.saveAttemptedActionIds,
+            ],
             (
                 workflow: HogFlow,
                 hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
                 hogFunctionTemplatesByIdLoading: boolean,
-                scheduleStartsAt: string | null
+                scheduleStartsAt: string | null,
+                saveAttemptedActionIds: string[] | null
             ): Record<string, HogFlowActionValidationResult | null> => {
                 // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
                 // step types make no sense without a person, so we block them at save time.
@@ -3096,35 +3121,39 @@ export const workflowLogic = kea<workflowLogicType>([
                             const emailValue = action.config.inputs?.email?.value as any | undefined
                             const emailTemplating = action.config.inputs?.email?.templating
 
-                            const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html:
-                                    !emailValue?.html && !emailValue?.text
-                                        ? 'HTML or plain text is required'
-                                        : emailValue?.html
+                            const bodyError =
+                                !emailValue?.html && !emailValue?.text
+                                    ? 'Add some content to the email body'
+                                    : ((emailValue?.html
                                           ? getTemplatingError(emailValue?.html, emailTemplating)
-                                          : undefined,
-                                text: emailValue?.text
-                                    ? getTemplatingError(emailValue?.text, emailTemplating)
-                                    : undefined,
+                                          : undefined) ??
+                                      (emailValue?.text
+                                          ? getTemplatingError(emailValue?.text, emailTemplating)
+                                          : undefined))
+
+                            const emailErrors: EmailFieldErrors = {
+                                body: bodyError,
                                 subject: !emailValue?.subject
-                                    ? 'Subject is required'
+                                    ? 'Add a subject line'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
                                 from: !emailValue?.from?.integrationId
-                                    ? 'Choose who to send this email from'
+                                    ? 'Choose an email sender, or connect a new one'
                                     : undefined,
                                 to: !emailValue?.to?.email
-                                    ? 'To is required'
+                                    ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
                             }
 
-                            const combinedErrors = Object.values(emailTemplateErrors)
-                                .filter((v) => !!v)
-                                .join(', ')
+                            const hasEmailErrors = Object.values(emailErrors).some((v) => !!v)
 
-                            if (combinedErrors) {
+                            if (hasEmailErrors) {
                                 result.valid = false
-                                result.errors = {
-                                    email: combinedErrors,
+                                // Placed on each input by the templater, not joined into one blob under
+                                // the whole field. Held back until a save/enable attempt made with this
+                                // step present, so opening or adding a template-started step (which
+                                // always lacks a sender) reads as clean.
+                                if (saveAttemptedActionIds?.includes(action.id)) {
+                                    result.emailErrors = emailErrors
                                 }
                             }
                         } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {
@@ -3162,6 +3191,13 @@ export const workflowLogic = kea<workflowLogicType>([
                                 result.valid = result.valid && configValidation.valid
                                 result.errors = { ...configValidation.errors, ...result.errors }
                                 result.warnings = { ...result.warnings, ...configValidation.warnings }
+
+                                if (action.type === 'function_email') {
+                                    // The generic validator also joins the email sub-fields into one
+                                    // blob under the `email` key; drop it so nothing renders under the
+                                    // whole input. Per-field messages come from `emailErrors` instead.
+                                    delete result.errors.email
+                                }
                             }
                         }
 
@@ -3306,7 +3342,13 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setExternallyEdited(false)
         },
+        submitWorkflow: () => {
+            actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
+        },
         saveWorkflowPartial: async ({ workflow }) => {
+            // Recorded before the error guard: an enable attempt on an invalid draft must still
+            // reveal the per-field step messages even though the save itself is aborted.
+            actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
             const merged = { ...values.workflow, ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 lemonToast.error('Fix all errors before enabling')
