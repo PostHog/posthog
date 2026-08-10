@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+
 _URL_SCHEME_RE = re.compile(
     r"[a-z][a-z0-9+.\-]*://"
     r"|\b(?:javascript|data|vbscript|file|ftp|mailto|tel|sms):"
@@ -192,6 +193,7 @@ sanitize_message_body = partial(
     log_event="email_utils.message_body_sanitized",
     fallback="",
 )
+
 
 # Zero-width space inserted after `.` and `:` to break auto-link patterns.
 # We previously used `&#46;` / `&#58;` HTML entities, but Customer.io's
