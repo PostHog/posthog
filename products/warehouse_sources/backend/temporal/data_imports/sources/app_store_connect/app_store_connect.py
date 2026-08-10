@@ -673,10 +673,10 @@ def _find_analytics_report(
 ) -> str | None:
     url = f"{BASE_URL}/v1/analyticsReportRequests/{request_id}/reports"
     report_ids: dict[str, str] = {}
-    for resources, _, _ in _iter_pages(
+    for page in _iter_pages(
         session, token_provider, logger, url, {"filter[category]": config.analytics_report_category}
     ):
-        for resource in resources:
+        for resource in page.resources:
             row = _flatten_resource(resource)
             if row.get("name") and row.get("id"):
                 report_ids[str(row["name"])] = str(row["id"])
@@ -702,10 +702,8 @@ def _analytics_instances(
 ) -> list[tuple[str, date]]:
     url = f"{BASE_URL}/v1/analyticsReports/{report_id}/instances"
     instances: list[tuple[str, date]] = []
-    for resources, _, _ in _iter_pages(
-        session, token_provider, logger, url, {"filter[granularity]": ANALYTICS_GRANULARITY}
-    ):
-        for resource in resources:
+    for page in _iter_pages(session, token_provider, logger, url, {"filter[granularity]": ANALYTICS_GRANULARITY}):
+        for resource in page.resources:
             row = _flatten_resource(resource)
             processing_date = _to_date(row.get("processingDate"))
             if not row.get("id") or processing_date is None:
@@ -727,8 +725,8 @@ def _analytics_segments(
 ) -> list[dict[str, Any]]:
     url = f"{BASE_URL}/v1/analyticsReportInstances/{instance_id}/segments"
     segments: list[dict[str, Any]] = []
-    for resources, _, _ in _iter_pages(session, token_provider, logger, url, {}):
-        segments.extend(row for row in (_flatten_resource(resource) for resource in resources) if row.get("url"))
+    for page in _iter_pages(session, token_provider, logger, url, {}):
+        segments.extend(row for row in (_flatten_resource(resource) for resource in page.resources) if row.get("url"))
     # Row keys carry the line's position within the instance, so segment order has to be
     # deterministic across re-reads or the same key would name a different row each time.
     segments.sort(key=lambda segment: str(segment.get("id")))
