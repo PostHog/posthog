@@ -493,7 +493,8 @@ export interface accountsLogicMeta {
         ) => AccountsQuery | AccountsTableQuery | null
         accountsDataTableQuery: (
             hogqlQuery: DataTableNode,
-            accountsQuerySource: AccountsQuery | AccountsTableQuery | null
+            accountsQuerySource: AccountsQuery | AccountsTableQuery | null,
+            visibleColumnNames: string[]
         ) => DataTableNode
         tableRowsTransformer: (
             accountsQuerySource: AccountsQuery | AccountsTableQuery | null,
@@ -983,13 +984,14 @@ export const accountsLogic = kea<accountsLogicType>([
             },
         ],
         accountsDataTableQuery: [
-            (s) => [s.hogqlQuery, s.accountsQuerySource],
+            (s) => [s.hogqlQuery, s.accountsQuerySource, s.visibleColumnNames],
             (
                 hogqlQuery: DataTableNode,
-                accountsQuerySource: AccountsQuery | AccountsTableQuery | null
+                accountsQuerySource: AccountsQuery | AccountsTableQuery | null,
+                visibleColumnNames: string[]
             ): DataTableNode => ({
                 ...hogqlQuery,
-                columns: (hogqlQuery.source as AccountsQuery).select ?? [],
+                columns: visibleColumnNames,
                 source: accountsQuerySource ?? hogqlQuery.source,
             }),
         ],

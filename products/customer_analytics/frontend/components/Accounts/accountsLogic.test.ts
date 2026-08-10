@@ -172,7 +172,7 @@ describe('accountsLogic', () => {
         })
 
         expect(logic.values.accountsDataTableQuery.source.kind).toBe('AccountsTableQuery')
-        expect(logic.values.accountsDataTableQuery.columns).toEqual(logic.values.querySelectColumns)
+        expect(logic.values.accountsDataTableQuery.columns).toEqual(logic.values.visibleColumnNames)
     })
 
     it('keeps the previous positional response stable while switching runners', () => {
