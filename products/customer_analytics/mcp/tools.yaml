@@ -410,7 +410,7 @@ tools:
         title: List announcement channels
         description: >
             List the Slack channels a Customer Analytics announcement can be sent to — the channels the SupportHog bot
-            is a member of. Each result has the channel `id` (pass these to `announcements-create`), `name`, and
+            is a member of. Each result has the channel `id` (pass these to `announcements-create-prepare`), `name`, and
             `customer_name` — the name of the account whose `slack_channel_id` property points at the channel, or null
             when no account is mapped to it. Channels mapped to an account sort first. Returns an empty list when the
             SupportHog Slack bot is not connected, or when Slack channels cannot be fetched right now.
@@ -478,7 +478,7 @@ tools:
             Fetch a single Customer Analytics announcement by `short_id`, including its per-channel `deliveries` — one
             row per targeted Slack channel with the delivery `status` (pending, sent, or failed), the Slack `error` code
             when it failed, and `slack_message_ts` plus `sent_at` when it succeeded. Use this to check delivery progress
-            after `announcements-create`.
+            after `announcements-create-execute`.
         feature_flag: customer-analytics-csp
     calendar-sync-list:
         operation: calendar_sync_list
