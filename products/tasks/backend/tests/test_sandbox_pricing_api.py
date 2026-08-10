@@ -3,24 +3,18 @@ from decimal import Decimal
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from rest_framework.test import APIClient
-
-from posthog.models import Organization, User
 
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
 
 
-class TestSandboxComputePricingAPI(TestCase):
+class TestSandboxComputePricingAPI(SimpleTestCase):
     def setUp(self) -> None:
-        organization = Organization.objects.create(name="Test organization")
-        user = User.objects.create_user(email="test@example.com", password="password")
-        organization.members.add(user)
         self.client = APIClient()
-        self.client.force_authenticate(user)
 
-    def test_returns_current_and_expired_rates_without_scheduled_rates(self) -> None:
+    def test_anonymous_request_returns_current_and_expired_rates_without_scheduled_rates(self) -> None:
         cards = (
             self._rate_card("v1", datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)),
             self._rate_card("v2", datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 3, 1, tzinfo=UTC)),

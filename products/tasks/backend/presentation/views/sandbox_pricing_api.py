@@ -2,13 +2,9 @@ from dataclasses import asdict
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.authentication import SessionAuthentication
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.logic.services.sandbox_pricing import get_compute_rate_card_catalog
 
@@ -39,9 +35,9 @@ class SandboxComputePricingSerializer(serializers.Serializer):
 
 @extend_schema(tags=["sandbox-compute-pricing"])
 class SandboxComputePricingViewSet(viewsets.ViewSet):
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    authentication_classes: list[type] = []
+    permission_classes = [AllowAny]
+    throttle_classes: list[type] = []
     http_method_names = ["get", "head", "options"]
 
     @extend_schema(
