@@ -23,6 +23,7 @@ from posthog.models.comment import Comment
 from posthog.models.team import Team
 from posthog.temporal.common.client import sync_connect
 
+from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
     SupportChannel as SupportChannel,
     TicketSummary as TicketSummary,
@@ -167,8 +168,9 @@ def trigger_immediate_channel_summary(
     Fire-and-forget: the caller's own write already succeeded, so a Temporal failure is
     logged and swallowed rather than raised.
     """
-    # Deferred: products.conversations.backend.temporal imports the summarize workflow, which
-    # imports the customer_analytics facade, which imports this module at module level.
+    # Deferred: importing anything under temporal/ runs that package's __init__, which loads
+    # the summarize workflow, which imports the customer_analytics facade, which imports this
+    # module at module level.
     from products.conversations.backend.temporal.channel_summary.schemas import ChannelSummaryInput  # noqa: PLC0415
     from products.conversations.backend.temporal.channel_summary.summarize import (  # noqa: PLC0415
         AccountChannelSummaryWorkflow,
@@ -189,9 +191,9 @@ def trigger_immediate_channel_summary(
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
     )
-    # Must stay identical to the id the coordinator derives, so a backfill and a scheduled
-    # tick racing over one period resolve to a single run.
-    workflow_id = f"account-channel-summary-{account_id}-{cadence}-{period_start.date().isoformat()}"
+    workflow_id = build_channel_summary_workflow_id(
+        account_id=account_id, cadence=cadence, period_start=period_start.date()
+    )
     try:
         client = sync_connect()
         asyncio.run(

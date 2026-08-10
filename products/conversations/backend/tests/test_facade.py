@@ -10,6 +10,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models import Team
 
+from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.api import (
     SupportMessageSendError,
     list_account_tickets,
@@ -168,7 +169,7 @@ class TestTriggerImmediateChannelSummary(BaseTest):
         assert connect.called is expected_dispatch
         assert run.called is expected_dispatch
 
-    def test_workflow_id_matches_the_one_the_coordinator_derives(self):
+    def test_dispatches_under_the_shared_workflow_id(self):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         client = MagicMock()
@@ -180,11 +181,7 @@ class TestTriggerImmediateChannelSummary(BaseTest):
         ):
             self._trigger()
 
-        workflow_input = client.start_workflow.call_args.args[1]
-        # Diverging from this id lets a backfill and a scheduled tick summarize one period twice.
-        coordinator_id = (
-            f"account-channel-summary-{workflow_input.account_id}"
-            f"-{workflow_input.cadence}-{workflow_input.period_start[:10]}"
+        assert client.start_workflow.call_args.kwargs["id"] == build_channel_summary_workflow_id(
+            account_id=ACCOUNT_ID, cadence="daily", period_start=PERIOD_START.date()
         )
-        assert client.start_workflow.call_args.kwargs["id"] == coordinator_id
-        assert workflow_input.slack_channel_id == "C123"
+        assert client.start_workflow.call_args.args[1].slack_channel_id == "C123"
