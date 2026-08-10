@@ -1063,7 +1063,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.organization.save()
         runner = ErrorTrackingQueryRunner(
             team=self.team,
-            query=ErrorTrackingQuery(kind="ErrorTrackingQuery", dateRange=DateRange()),
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
         )
 
         with self.assertRaises(UserAccessControlError):
