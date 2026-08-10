@@ -23,7 +23,7 @@ const BREAKDOWN_LIMIT = 10
  * goes away. A request that served many is shared, and there is no non-arbitrary way to split it —
  * reading one more flag off an existing response costs nothing. Bucketing keeps those two cases
  * visibly separate instead of averaging them into a per-flag number that would imply the wrong
- * optimisation.
+ * optimization.
  *
  * Locally evaluated reads issue no `/flags` request at all, so they carry no request id and drop
  * out via the `notEmpty` filter rather than needing a `locally_evaluated` predicate.
