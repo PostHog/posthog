@@ -473,8 +473,12 @@ export interface accountsLogicMeta {
             sortOrder: AccountSortOrder,
             canSortClientSide: boolean
         ) => BuildAccountsTableQueryPlanInput
-        accountsTableQueryPlan: (accountsTableQueryPlanInput: any) => AccountsTableQueryPlan | null
-        accountsTableResponsePlan: (accountsTableQueryPlanInput: any) => AccountsTableQueryPlan | null
+        accountsTableQueryPlan: (
+            accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
+        ) => AccountsTableQueryPlan | null
+        accountsTableResponsePlan: (
+            accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
+        ) => AccountsTableQueryPlan | null
         hogqlQuery: (
             searchQuery: string,
             tagsFilter: string[],
@@ -502,7 +506,7 @@ export interface accountsLogicMeta {
             visibleColumnNames: string[]
         ) => DataTableNode
         tableRowsTransformer: (
-            accountsTableResponsePlan: any,
+            accountsTableResponsePlan: AccountsTableQueryPlan | null,
             sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         metricsQuery: (
