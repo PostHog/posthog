@@ -15,7 +15,7 @@ import { ActivityScope } from '~/types'
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import { experimentSceneLogic } from '../experimentSceneLogic'
+import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
@@ -128,7 +128,7 @@ export function ExperimentView(): JSX.Element {
 
     // Ordered as: results (Metrics), configuration (Settings, Code, Variants),
     // feature tabs (Recordings, User feedback), audit trail (History)
-    const tabs: LemonTab<string>[] = [
+    const tabs: LemonTab<ExperimentTab>[] = [
         {
             key: 'metrics',
             label: 'Metrics',
@@ -140,13 +140,13 @@ export function ExperimentView(): JSX.Element {
             content: <SettingsTab />,
         },
         ...(!isExperimentDraft
-            ? [
+            ? ([
                   {
                       key: 'code',
                       label: 'Code',
                       content: <CodeTab />,
                   },
-              ]
+              ] satisfies LemonTab<ExperimentTab>[])
             : []),
         {
             key: 'variants',
@@ -154,22 +154,22 @@ export function ExperimentView(): JSX.Element {
             content: <VariantsTab />,
         },
         ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
-            ? [
+            ? ([
                   {
                       key: 'recordings',
                       label: 'Recordings',
                       content: <ExperimentReplayTab experiment={experiment} />,
                   },
-              ]
+              ] satisfies LemonTab<ExperimentTab>[])
             : []),
         ...(experiment.feature_flag
-            ? [
+            ? ([
                   {
                       key: 'feedback',
                       label: 'User feedback',
                       content: <ExperimentFeedbackTab experiment={experiment} />,
                   },
-              ]
+              ] satisfies LemonTab<ExperimentTab>[])
             : []),
         {
             key: 'history',
@@ -204,7 +204,7 @@ export function ExperimentView(): JSX.Element {
                     <ExperimentHeader />
                     <LemonTabs
                         // Fall back to the default tab if the active one is conditionally hidden
-                        activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : 'metrics'}
+                        activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
                         // Keep the tab bar full-width, but cap the content under each tab for readability
