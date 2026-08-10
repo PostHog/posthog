@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OffsetPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -56,6 +57,44 @@ def _to_epoch_seconds(value: Any) -> int:
     if isinstance(value, date):
         return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
     return int(value)
+
+
+def _to_date_string(value: Any) -> str:
+    """Coerce an incremental cursor value to a `YYYY-MM-DD` string for the `start_date` filter.
+
+    The stats `date` field is a bare date string, but the pipeline may hand the cursor back as a
+    datetime/date depending on how it round-tripped through storage.
+    """
+    if isinstance(value, datetime):
+        dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return dt.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(value, tz=UTC).date().isoformat()
+    # Already a string: trust the leading YYYY-MM-DD, tolerating a trailing time component.
+    return str(value)[:10]
+
+
+def _format_cursor(value: Any, param_format: str) -> Any:
+    return _to_date_string(value) if param_format == "date" else _to_epoch_seconds(value)
+
+
+def _default_backfill_value(config: SendGridEndpointConfig) -> Any:
+    assert config.default_backfill_days is not None
+    start = datetime.now(UTC) - timedelta(days=config.default_backfill_days)
+    return _format_cursor(start, config.incremental_param_format)
+
+
+def _flatten_daily_stats(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten one `{date, stats: [{metrics: {...}}]}` bucket into a row per metrics entry, with the
+    bucket `date` merged in. `aggregated_by=day` with no breakdown yields one row per date."""
+    date_value = item.get("date")
+    rows: list[dict[str, Any]] = []
+    for entry in item.get("stats") or []:
+        metrics = entry.get("metrics") or {}
+        rows.append({"date": date_value, **metrics})
+    return rows
 
 
 def _offset_from_url(url: str) -> int:
@@ -115,15 +154,20 @@ def _build_params(
     if config.pagination == "metadata":
         params["page_size"] = config.page_size
 
-    if (
-        should_use_incremental_field
-        and config.incremental_param
-        and incremental_field
-        and db_incremental_field_last_value is not None
-    ):
-        # start_time is inclusive (created >= start_time); the boundary row re-appears but merge
-        # dedupes it on the primary key.
-        params[config.incremental_param] = _to_epoch_seconds(db_incremental_field_last_value)
+    if config.incremental_param:
+        cursor = (
+            db_incremental_field_last_value
+            if (should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None)
+            else None
+        )
+        if cursor is not None:
+            # The filter is inclusive (e.g. created >= start_time); the boundary row re-appears but
+            # merge dedupes it on the primary key.
+            params[config.incremental_param] = _format_cursor(cursor, config.incremental_param_format)
+        elif config.default_backfill_days is not None:
+            # No cursor, but the API requires the start param (stats). Backfill a fixed window rather
+            # than sending a request the API would reject.
+            params[config.incremental_param] = _default_backfill_value(config)
 
     return params
 
@@ -168,6 +212,23 @@ def sendgrid_source(
 
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
 
+    resource_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": params,
+            # data_key wraps the array for metadata endpoints ("result"); None means the body
+            # is the array itself (suppression/asm/stats). Fail loud on a shape change instead
+            # of silently syncing 0 rows.
+            "data_selector": config.data_key,
+            "data_selector_required": True,
+        },
+    }
+
+    if config.response_shape == "daily_stats":
+        # stats rows are nested one level deeper than the bare array; flatten them into flat daily rows.
+        resource_config["data_map"] = _flatten_daily_stats
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": SENDGRID_BASE_URL,
@@ -178,20 +239,7 @@ def sendgrid_source(
             "paginator": _build_paginator(config),
         },
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    # data_key wraps the array for metadata endpoints ("result"); None means the body
-                    # is the array itself (suppression/asm). Fail loud on a shape change instead of
-                    # silently syncing 0 rows.
-                    "data_selector": config.data_key,
-                    "data_selector_required": True,
-                },
-            }
-        ],
+        "resources": [resource_config],
     }
 
     initial_paginator_state = _initial_paginator_state(config, resumable_source_manager)
