@@ -6,8 +6,10 @@ from django.db import migrations
 # only PRs already open at this deploy are affected.
 #
 # One statement, not batched: the filter is `event = 'pr_created'` on a per-task table, so
-# the row count is small and bounded by the number of PRs tasks have ever opened.
+# the row count is small and bounded by the number of PRs tasks have ever opened while the
+# announcement flag was on. The UPDATE joins on primary keys, so it takes row locks only.
 BACKFILL_SQL = """
+-- migration-analyzer: safe reason=Touches only pr_created rows in posthog_task_thread_message written before event_key existed - a few hundred at most - and updates them by primary key
 WITH ranked AS (
     SELECT
         id,
