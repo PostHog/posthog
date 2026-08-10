@@ -68,6 +68,8 @@ catalog:
     # Common utilities
     fast-equals: ^6.0.0
     fuse.js: ^7.1.0
+    query-selector-shadow-dom: ^1.0.0
+    '@types/query-selector-shadow-dom': ^1.0.0
     ts-pattern: '4.3'
     use-debounce: ^9.0.3
     # React types

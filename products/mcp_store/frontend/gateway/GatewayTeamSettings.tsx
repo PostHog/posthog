@@ -1,61 +1,132 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
-import { MCPPolicyPresetEnumApi } from '../generated/api.schemas'
-import { AudienceEnumApi } from '../generated/api.schemas'
+import { urls } from 'scenes/urls'
+
 import { ServerIcon } from '../scene/icons'
 import { GatewayServerEntry, isTemplateOnlyServer, mcpGatewayLogic } from './mcpGatewayLogic'
 
-const PRESETS: { value: MCPPolicyPresetEnumApi; label: string; description: string }[] = [
-    { value: 'allow', label: 'Allow all', description: 'Every tool is set to Always Allow.' },
-    { value: 'user', label: 'Member decides', description: 'Every call asks first.' },
-    { value: 'ask', label: 'Ask for destructive', description: 'Destructive tools need approval, rest Always Allow.' },
-    { value: 'block', label: 'Block destructive', description: 'Destructive tools are Blocked, rest Always Allow.' },
-]
+const SERVER_PREVIEW_LIMIT = 10
 
-export function GatewayTeamSettings(): JSX.Element {
+interface gatewayTeamSettingsViewLogicValues {
+    serverSearch: string
+    serversExpanded: boolean
+}
+
+interface gatewayTeamSettingsViewLogicActions {
+    setServerSearch: (serverSearch: string) => { serverSearch: string }
+    toggleServersExpanded: () => { value: true }
+}
+
+type gatewayTeamSettingsViewLogicType = MakeLogicType<
+    gatewayTeamSettingsViewLogicValues,
+    gatewayTeamSettingsViewLogicActions
+>
+
+const gatewayTeamSettingsViewLogic = kea<gatewayTeamSettingsViewLogicType>([
+    path(['products', 'mcp_store', 'frontend', 'gateway', 'gatewayTeamSettingsViewLogic']),
+    actions({
+        setServerSearch: (serverSearch: string) => ({ serverSearch }),
+        toggleServersExpanded: true,
+    }),
+    reducers({
+        serverSearch: ['', { setServerSearch: (_, { serverSearch }) => serverSearch }],
+        serversExpanded: [
+            false,
+            {
+                setServerSearch: () => false,
+                toggleServersExpanded: (expanded) => !expanded,
+            },
+        ],
+    }),
+])
+
+export interface GatewayTeamSettingsProps {
+    onOpenServer?: (id: string) => void
+}
+
+export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps = {}): JSX.Element {
     const {
-        allServersEnabledLoading,
+        allServersEnabledTarget,
         allowCustomServers,
         allowCustomServersLoading,
         allowMemberAgentAccess,
         allowMemberAgentAccessLoading,
-        applyingPresetByAudience,
-        config,
+        configLoading,
+        configMutationInProgress,
         defaultServersEnabled,
         enabledServerCount,
         mergedServers,
         serverEnabledLoadingIds,
         templateEnabledLoadingIds,
     } = useValues(mcpGatewayLogic)
-    const { setAllowCustomServers, setAllowMemberAgentAccess, applyPreset, setAllServersEnabled } =
-        useActions(mcpGatewayLogic)
-    const [serverSearch, setServerSearch] = useState('')
+    const { setAllowCustomServers, setAllowMemberAgentAccess, setAllServersEnabled } = useActions(mcpGatewayLogic)
+    const { serverSearch, serversExpanded } = useValues(gatewayTeamSettingsViewLogic)
+    const { setServerSearch, toggleServersExpanded } = useActions(gatewayTeamSettingsViewLogic)
 
-    const filteredServers = mergedServers.filter((server) =>
-        server.name.toLowerCase().includes(serverSearch.trim().toLowerCase())
-    )
-    const presetUpdateInProgress = Object.keys(applyingPresetByAudience).length > 0
+    const normalizedServerSearch = serverSearch.trim().toLowerCase()
+    const filteredServers = mergedServers
+        .filter(
+            (server) =>
+                !normalizedServerSearch ||
+                server.name.toLowerCase().includes(normalizedServerSearch) ||
+                server.url.toLowerCase().includes(normalizedServerSearch)
+        )
+        .sort((first, second) => first.name.localeCompare(second.name, undefined, { sensitivity: 'base' }))
+    const displayedServers = serversExpanded ? filteredServers : filteredServers.slice(0, SERVER_PREVIEW_LIMIT)
+    const serverUpdateInProgress = serverEnabledLoadingIds.size > 0 || templateEnabledLoadingIds.size > 0
+    const teamSettingsMutationInProgress = configMutationInProgress || serverUpdateInProgress
+    const configMutationDisabledReason = configLoading
+        ? 'Wait for team settings to load'
+        : teamSettingsMutationInProgress
+          ? 'Wait for the team settings update to finish'
+          : undefined
+    const bulkServerUpdateDisabledReason = configLoading
+        ? 'Wait for team settings to load'
+        : teamSettingsMutationInProgress
+          ? 'Wait for the team settings update to finish'
+          : null
+    const enableAllDisabledReason = bulkServerUpdateDisabledReason
+        ? bulkServerUpdateDisabledReason
+        : defaultServersEnabled && enabledServerCount === mergedServers.length
+          ? 'All servers are already enabled'
+          : null
+    const disableAllDisabledReason = bulkServerUpdateDisabledReason
+        ? bulkServerUpdateDisabledReason
+        : !defaultServersEnabled && enabledServerCount === 0
+          ? 'All servers are already disabled'
+          : null
 
     return (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 min-w-0">
+            <div className="flex flex-col gap-1">
+                <h2 className="mb-0">Team settings</h2>
+                <p className="mb-0 text-secondary">
+                    Choose which MCP servers your team can use and who can manage access.
+                </p>
+            </div>
+
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Custom servers</h3>
                 <div className="border rounded p-3 flex items-center justify-between gap-3">
                     <div>
                         <div className="font-semibold">Allow custom servers</div>
                         <div className="text-sm text-secondary">
-                            Members can add their own MCP servers, the same way admins do. Team rules and baselines
-                            still apply.
+                            Members can add their own MCP servers the same way admins do. Team rules still apply.
                         </div>
                     </div>
                     <LemonSwitch
                         checked={allowCustomServers}
                         loading={allowCustomServersLoading}
+                        disabledReason={configMutationDisabledReason}
                         aria-label={`${allowCustomServers ? 'Disable' : 'Enable'} custom MCP servers`}
-                        onChange={setAllowCustomServers}
+                        onChange={(allowed) => {
+                            if (!teamSettingsMutationInProgress && !configLoading) {
+                                setAllowCustomServers(allowed)
+                            }
+                        }}
                     />
                 </div>
             </div>
@@ -73,168 +144,165 @@ export function GatewayTeamSettings(): JSX.Element {
                     <LemonSwitch
                         checked={allowMemberAgentAccess}
                         loading={allowMemberAgentAccessLoading}
+                        disabledReason={configMutationDisabledReason}
                         aria-label={`${allowMemberAgentAccess ? 'Disable' : 'Enable'} member-managed agent access`}
-                        onChange={setAllowMemberAgentAccess}
+                        onChange={(allowed) => {
+                            if (!teamSettingsMutationInProgress && !configLoading) {
+                                setAllowMemberAgentAccess(allowed)
+                            }
+                        }}
                     />
                 </div>
-            </div>
-
-            <div className="flex flex-col gap-3">
-                <h3 className="mb-0">Policy baselines</h3>
-                {(['members', 'agents'] as AudienceEnumApi[]).map((audience) => {
-                    const current =
-                        audience === 'members' ? config?.member_default_preset : config?.agent_default_preset
-                    const applyingPreset = applyingPresetByAudience[audience]
-                    return (
-                        <div key={audience} className="border rounded p-3 flex flex-col gap-2">
-                            <div className="font-semibold capitalize">{audience}</div>
-                            <div className="flex gap-2 flex-wrap">
-                                {PRESETS.map((preset) => (
-                                    <LemonButton
-                                        key={preset.value}
-                                        size="small"
-                                        type={current === preset.value ? 'primary' : 'secondary'}
-                                        tooltip={preset.description}
-                                        loading={applyingPreset === preset.value}
-                                        disabledReason={
-                                            presetUpdateInProgress
-                                                ? 'Wait for the baseline update to finish'
-                                                : undefined
-                                        }
-                                        onClick={() => applyPreset(audience, preset.value)}
-                                    >
-                                        {preset.label}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        </div>
-                    )
-                })}
             </div>
 
             <LemonDivider />
 
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
+                <div>
+                    <div className="flex items-center gap-2">
+                        <h3 className="mb-0">Server access</h3>
+                        <LemonTag type="muted" size="small">
+                            {enabledServerCount} of {mergedServers.length} enabled
+                        </LemonTag>
+                    </div>
+                    <p className="mb-0 mt-1 text-sm text-secondary">
+                        Every server is available to the team by default. Disable everything to curate access from zero.
+                        Servers added to the catalog later stay off too. You can also disable individual servers.
+                    </p>
+                </div>
+
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <h3 className="mb-0">
-                        Server access · {enabledServerCount} of {mergedServers.length} enabled
-                    </h3>
                     <LemonInput
                         type="search"
-                        placeholder="Search servers…"
+                        placeholder="Search servers"
                         value={serverSearch}
                         onChange={setServerSearch}
                         size="small"
+                        aria-label="Search servers"
                     />
-                </div>
-                <div className="border rounded p-3 flex items-center justify-between gap-3">
-                    <div>
-                        <div className="font-semibold">All servers</div>
-                        <div className="text-sm text-secondary">
-                            Turning this off disables every server, including catalog servers PostHog adds later.
-                            Turning it on enables them all. You can still switch individual servers below.
-                        </div>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconCheck />}
+                            loading={allServersEnabledTarget === true}
+                            disabledReason={enableAllDisabledReason}
+                            onClick={() => {
+                                if (!teamSettingsMutationInProgress && !configLoading) {
+                                    setAllServersEnabled(true)
+                                }
+                            }}
+                        >
+                            Enable all
+                        </LemonButton>
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconX />}
+                            loading={allServersEnabledTarget === false}
+                            disabledReason={disableAllDisabledReason}
+                            onClick={() => {
+                                if (!teamSettingsMutationInProgress && !configLoading) {
+                                    setAllServersEnabled(false)
+                                }
+                            }}
+                        >
+                            Disable all
+                        </LemonButton>
                     </div>
-                    <LemonSwitch
-                        checked={defaultServersEnabled}
-                        loading={allServersEnabledLoading}
-                        disabledReason={
-                            serverEnabledLoadingIds.size > 0 || templateEnabledLoadingIds.size > 0
-                                ? 'Wait for the server update to finish'
-                                : undefined
-                        }
-                        aria-label={`${defaultServersEnabled ? 'Disable' : 'Enable'} all MCP servers for the team`}
-                        onChange={setAllServersEnabled}
-                    />
                 </div>
-                <div className="text-sm text-secondary">
-                    Switching a server off blocks members and agents alike. Servers no one has touched follow the "All
-                    servers" default above.
-                </div>
-                <div className="border rounded divide-y">
-                    {filteredServers.map((server) => (
-                        <GatewayServerAccessRow key={server.id} server={server} />
+
+                <div className="border rounded divide-y overflow-hidden">
+                    {displayedServers.map((server) => (
+                        <GatewayServerAccessRow key={server.id} server={server} onOpenServer={onOpenServer} />
                     ))}
                     {filteredServers.length === 0 && (
                         <div className="p-3 text-sm text-secondary">
                             {mergedServers.length === 0
-                                ? 'No servers configured for this team yet.'
-                                : `No servers match “${serverSearch.trim()}”.`}
+                                ? 'No servers are available for this team yet.'
+                                : `No servers match “${serverSearch.trim()}”. Clear the search and try again.`}
+                        </div>
+                    )}
+                    {filteredServers.length > SERVER_PREVIEW_LIMIT && (
+                        <div className="p-1">
+                            <LemonButton type="tertiary" size="small" fullWidth center onClick={toggleServersExpanded}>
+                                {serversExpanded
+                                    ? 'View less'
+                                    : `View ${filteredServers.length - SERVER_PREVIEW_LIMIT} more`}
+                            </LemonButton>
                         </div>
                     )}
                 </div>
             </div>
-
-            <GatewayRulesSection />
         </div>
     )
 }
 
-function GatewayServerAccessRow({ server }: { server: GatewayServerEntry }): JSX.Element {
-    const { allServersEnabledLoading, serverEnabledLoadingIds, templateEnabledLoadingIds } = useValues(mcpGatewayLogic)
+function GatewayServerAccessRow({
+    server,
+    onOpenServer,
+}: {
+    server: GatewayServerEntry
+    onOpenServer?: (id: string) => void
+}): JSX.Element {
+    const { configMutationInProgress, serverEnabledLoadingIds, templateEnabledLoadingIds } = useValues(mcpGatewayLogic)
     const { toggleServerEnabled, setTemplateEnabled } = useActions(mcpGatewayLogic)
 
     // Untouched catalog templates have no registry row yet: toggling one
     // materializes it through set_template_enabled instead of a PATCH.
     const templateOnly = isTemplateOnlyServer(server)
-    const loading =
-        allServersEnabledLoading ||
-        (templateOnly && server.template_id
+    const rowLoading =
+        templateOnly && server.template_id
             ? templateEnabledLoadingIds.has(server.template_id)
-            : serverEnabledLoadingIds.has(server.id))
+            : serverEnabledLoadingIds.has(server.id)
+    const serverUpdateInProgress = serverEnabledLoadingIds.size > 0 || templateEnabledLoadingIds.size > 0
 
     return (
-        <div className="flex items-center gap-3 p-2">
-            <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
-            <div className="flex-1 min-w-0">
-                <div className="font-semibold">{server.name}</div>
-                <div className="text-xs text-secondary truncate">{server.url}</div>
-            </div>
+        <div className={`flex items-center gap-3 p-2 ${server.is_team_enabled ? '' : 'opacity-60'}`}>
+            {templateOnly ? (
+                <div className="flex min-w-0 flex-1 items-center gap-3 px-2 py-1">
+                    <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
+                    <div className="flex-1 min-w-0">
+                        <div className="font-semibold truncate">{server.name}</div>
+                        <div className="text-xs text-secondary truncate">{server.description}</div>
+                    </div>
+                </div>
+            ) : (
+                <LemonButton
+                    type="tertiary"
+                    className="min-w-0 flex-1 justify-start"
+                    to={onOpenServer ? undefined : urls.mcpGatewayServer(server.id)}
+                    onClick={onOpenServer ? () => onOpenServer(server.id) : undefined}
+                >
+                    <div className="flex min-w-0 items-center gap-3">
+                        <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
+                        <div className="flex-1 min-w-0 text-left">
+                            <div className="font-semibold truncate">{server.name}</div>
+                            <div className="text-xs text-secondary truncate">{server.description}</div>
+                        </div>
+                    </div>
+                </LemonButton>
+            )}
             <LemonSwitch
                 checked={server.is_team_enabled}
-                loading={loading}
-                aria-label={`${server.is_team_enabled ? 'Turn off' : 'Turn on'} ${server.name} for the team`}
-                onChange={(checked) =>
-                    templateOnly && server.template_id
-                        ? setTemplateEnabled(server.template_id, checked)
-                        : toggleServerEnabled(server.id, checked)
+                loading={rowLoading}
+                disabledReason={
+                    configMutationInProgress || serverUpdateInProgress
+                        ? 'Wait for the team settings update to finish'
+                        : undefined
                 }
+                aria-label={`${server.is_team_enabled ? 'Turn off' : 'Turn on'} ${server.name} for the team`}
+                onChange={(checked) => {
+                    if (rowLoading || configMutationInProgress || serverUpdateInProgress) {
+                        return
+                    }
+                    if (templateOnly && server.template_id) {
+                        setTemplateEnabled(server.template_id, checked)
+                    } else {
+                        toggleServerEnabled(server.id, checked)
+                    }
+                }}
             />
-        </div>
-    )
-}
-
-function GatewayRulesSection(): JSX.Element {
-    const { ruleEnabledLoadingIds, rules, rulesLoading } = useValues(mcpGatewayLogic)
-    const { toggleRuleEnabled } = useActions(mcpGatewayLogic)
-
-    return (
-        <div className="flex flex-col gap-2">
-            <h3 className="mb-0">Org rules</h3>
-            <div className="text-sm text-secondary">
-                Guardrails evaluated before any scope policy. A matching enabled rule locks the tool for its audience —
-                no scope can loosen it.
-            </div>
-            <div className="border rounded divide-y">
-                {rules.length === 0 && !rulesLoading ? (
-                    <div className="p-3 text-sm text-secondary">No org rules yet.</div>
-                ) : (
-                    rules.map((rule) => (
-                        <div key={rule.id} className="flex items-center gap-3 p-3">
-                            <div className="flex-1">
-                                <div className="font-semibold">{rule.name}</div>
-                                <div className="text-xs text-secondary">{rule.description}</div>
-                            </div>
-                            <LemonSwitch
-                                checked={rule.enabled ?? true}
-                                loading={ruleEnabledLoadingIds.has(rule.id)}
-                                aria-label={`${(rule.enabled ?? true) ? 'Disable' : 'Enable'} ${rule.name}`}
-                                onChange={(checked) => toggleRuleEnabled(rule.id, checked)}
-                            />
-                        </div>
-                    ))
-                )}
-            </div>
         </div>
     )
 }

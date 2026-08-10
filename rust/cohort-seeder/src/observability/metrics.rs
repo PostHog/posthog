@@ -44,6 +44,9 @@ pub const RUNS_PLANNING_WITHHELD: &str = "seeder_runs_planning_withheld_total";
 pub const RECONCILE_DISPATCHES: &str = "seeder_reconcile_dispatches_total";
 /// Dispatch claims lost to a concurrent writer, labelled by the run's `kind` (counter).
 pub const RECONCILE_CAS_LOST: &str = "seeder_reconcile_cas_lost_total";
+/// Reconciling runs with no usable dispatch record, counted once per run per stretch and labelled by
+/// `reason` (counter). A topic rename re-dispatches every in-flight run at once; the label keeps that
+/// expected spike apart from a corrupt record.
 pub const RECONCILE_RECORD_INVALID: &str = "seeder_reconcile_record_invalid_total";
 pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in_flight";
 /// Runs currently in the reconcile protocol, labelled by the run's `kind` (gauge). Published for
@@ -51,6 +54,8 @@ pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in
 pub const RUNS_RECONCILING: &str = "seeder_runs_reconciling";
 // Liveness, marker watcher, and observation.
 pub const RECONCILE_MARKERS_OBSERVED: &str = "seeder_reconcile_markers_observed_total";
+/// Records the watcher rejected, labelled by `reason` (counter). On a dedicated marker topic every
+/// record should be a marker, so any of these means something is mis-pointed or corrupt.
 pub const RECONCILE_MARKER_PARSE_FAILURES: &str = "seeder_reconcile_marker_parse_failures_total";
 pub const RECONCILE_MARKER_WATCH_LAG: &str = "seeder_reconcile_marker_watch_lag";
 pub const RECONCILE_LIVENESS_LAGGING_PARTITIONS: &str =

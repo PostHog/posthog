@@ -456,6 +456,31 @@ pub enum TrimResult {
 }
 
 pub fn trim_properties_to_fit_size(properties: &Value, target_bytes: usize) -> TrimResult {
+    let candidates: Vec<String> = match properties.as_object() {
+        Some(map) => {
+            let mut keys: Vec<String> = map
+                .keys()
+                .filter(|k| can_trim_property(k))
+                .cloned()
+                .collect();
+            keys.sort();
+            keys
+        }
+        None => Vec::new(),
+    };
+    trim_properties_with_candidates(properties, target_bytes, candidates)
+}
+
+/// Same contract as [`trim_properties_to_fit_size`], but the caller names
+/// which keys may be removed and in what order — removal walks `candidates`
+/// front to back. The caller is responsible for excluding protected
+/// properties from the list; `CannotFit` when the candidates run out before
+/// the document fits.
+pub fn trim_properties_with_candidates(
+    properties: &Value,
+    target_bytes: usize,
+    candidates: Vec<String>,
+) -> TrimResult {
     let mut current = jsonb_column_size(properties);
     if current <= target_bytes {
         return TrimResult::Fits;
@@ -472,14 +497,7 @@ pub fn trim_properties_to_fit_size(properties: &Value, target_bytes: usize) -> T
     // exact and the deficit shrinks geometrically, bounding the total cost
     // at O(document) per pass for a handful of passes. This can remove a
     // key or two more than the strict minimum in padding-heavy edge cases.
-    // Removal order stays alphabetical, matching the pipeline's trim.
     let mut trimmed = map.clone();
-    let mut candidates: Vec<String> = map
-        .keys()
-        .filter(|k| can_trim_property(k))
-        .cloned()
-        .collect();
-    candidates.sort();
     let mut candidates = candidates.into_iter();
 
     while current > target_bytes {

@@ -20,6 +20,10 @@
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js"
     },
+    "./project-trust": {
+      "types": "./dist/project-trust.d.ts",
+      "import": "./dist/project-trust.js"
+    },
     "./extensions": {
       "types": "./dist/extensions/registry.d.ts",
       "import": "./dist/extensions/registry.js"

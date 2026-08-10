@@ -188,9 +188,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
-        msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
-        logger.debug(msg)
-        capture_exception(Exception(msg))
+        # `rows_tracked` is decremented by rows actually written, but incremented by
+        # `resource.rows_to_sync`, a pre-extraction COUNT(*) probe (see e.g. `_get_rows_to_sync`)
+        # that can race with concurrent changes on a live source table. A small positive leftover
+        # here is an expected consequence of that estimate rather than a pipeline bug, so log it
+        # instead of capture_exception; finish_row_tracking below clears the key regardless.
+        logger.warning(f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}")
 
     await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -593,6 +596,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 **timeout_params,
             )  # type: ignore
 
+            # Run-finalization ownership (terminal status write, v3 lock release, post-import
+            # start) — the full contract lives on the PipelineResult docstring. False on every
+            # failure path by construction: a raising activity returns no result, so this line
+            # is never reached and the workflow finalizes in `finally`.
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
 

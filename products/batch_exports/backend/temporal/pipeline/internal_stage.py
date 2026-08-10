@@ -48,15 +48,15 @@ from products.batch_exports.backend.service import (
     afetch_last_run_records_completed,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
-from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel, resolve_batch_exports_model
-from products.batch_exports.backend.temporal.spmc import (
-    compose_filters_clause,
+from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
+from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel, resolve_batch_exports_model
 from products.batch_exports.backend.temporal.sql.common import get_s3_function_call
 from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
@@ -263,7 +263,11 @@ async def insert_into_internal_stage_activity(
         set_status_to_running_task(run_id=inputs.run_id),
     ):
         _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema, inputs.batch_export_id
+            inputs.team_id,
+            inputs.batch_export_model,
+            inputs.batch_export_schema,
+            inputs.batch_export_id,
+            is_backfill=inputs.backfill_details is not None,
         )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -602,9 +606,6 @@ async def _write_batch_export_record_batches_to_internal_stage(
         min_insert_block_size_bytes=settings.BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES,
         # Disable all of these so only the bytes limits counts.
         min_insert_block_size_rows=0,
-        # TEMPORARY: pin batch export queries to ClickHouse 26.6 semantics to ensure compatibility
-        # after upgrade
-        compatibility="26.6",
     ) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")

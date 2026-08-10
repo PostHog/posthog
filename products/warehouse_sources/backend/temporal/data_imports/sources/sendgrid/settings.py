@@ -27,6 +27,12 @@ class SendGridEndpointConfig:
     incremental_param: Optional[str] = None
     # Static query params always sent (e.g. templates' `generations`).
     extra_params: dict[str, str] = field(default_factory=dict)
+    # SendGrid scope this endpoint reads, spelled as `/scopes` reports it. Surfaced per table in the
+    # schema picker when the key can't reach the endpoint, so the user grants that one access rather
+    # than regenerating a key that was never the problem.
+    required_scope: str = ""
+    # Appended to the missing-scope message where granting the scope may not be enough on its own.
+    permission_note: Optional[str] = None
 
 
 def _epoch_field(name: str) -> IncrementalField:
@@ -51,6 +57,7 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         partition_key="created",
         incremental_fields=[_epoch_field("created")],
         incremental_param="start_time",
+        required_scope="suppression.bounces.read",
     ),
     "blocks": SendGridEndpointConfig(
         name="blocks",
@@ -60,6 +67,7 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         partition_key="created",
         incremental_fields=[_epoch_field("created")],
         incremental_param="start_time",
+        required_scope="suppression.blocks.read",
     ),
     "invalid_emails": SendGridEndpointConfig(
         name="invalid_emails",
@@ -69,6 +77,7 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         partition_key="created",
         incremental_fields=[_epoch_field("created")],
         incremental_param="start_time",
+        required_scope="suppression.invalid_emails.read",
     ),
     "spam_reports": SendGridEndpointConfig(
         name="spam_reports",
@@ -78,6 +87,7 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         partition_key="created",
         incremental_fields=[_epoch_field("created")],
         incremental_param="start_time",
+        required_scope="suppression.spam_reports.read",
     ),
     "global_unsubscribes": SendGridEndpointConfig(
         name="global_unsubscribes",
@@ -87,12 +97,14 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         partition_key="created",
         incremental_fields=[_epoch_field("created")],
         incremental_param="start_time",
+        required_scope="suppression.unsubscribes.read",
     ),
     "unsubscribe_groups": SendGridEndpointConfig(
         name="unsubscribe_groups",
         path="/asm/groups",
         primary_keys=["id"],
         pagination="single",
+        required_scope="asm.groups.read",
     ),
     "marketing_lists": SendGridEndpointConfig(
         name="marketing_lists",
@@ -101,6 +113,10 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         pagination="metadata",
         data_key="result",
         page_size=100,
+        required_scope="marketing.read",
+        # Marketing Campaigns is provisioned per account, and legacy Marketing Campaigns serves a
+        # different API entirely, so both deny `/marketing/lists` however the key is scoped.
+        permission_note="Accounts without Marketing Campaigns, or on legacy Marketing Campaigns, cannot sync this table.",
     ),
     "templates": SendGridEndpointConfig(
         name="templates",
@@ -110,6 +126,7 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         data_key="result",
         page_size=100,
         extra_params={"generations": "legacy,dynamic"},
+        required_scope="templates.read",
     ),
 }
 

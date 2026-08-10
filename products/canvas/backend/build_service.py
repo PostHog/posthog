@@ -44,6 +44,7 @@ from products.canvas.backend.source import (
     SYNTHETIC_INDEX_HTML,
     diagnostic,
     has_errors,
+    synthetic_source_project,
     validate_relative_path,
     validate_source_project,
 )
@@ -312,8 +313,6 @@ def current_source_project(canvas: Canvas) -> tuple[dict[str, Any], str | None]:
     if canvas.current_source_version_id:
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=canvas.current_source_version_id)
         return read_source_project(version), str(version.id)
-    from products.canvas.backend.source import synthetic_source_project  # noqa: PLC0415
-
     return synthetic_source_project(canvas.legacy_code), None
 
 
@@ -424,11 +423,33 @@ def publish_source_project(
 
     key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
 
+    # A migrated canvas's pre-relational source must survive its first publish:
+    # it becomes a real parent version here so history (undo/revert) can reach
+    # it — otherwise nulling legacy_code below would discard the only copy.
+    # Same upload-then-commit posture as the main project.
+    legacy_upload: tuple[str, str, int] | None = None
+    if current_id is None and (canvas.legacy_code or "").strip():
+        legacy_upload = upload_source_project(canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code))
+
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
             canvas, has_expected_version=has_expected_version, expected_version_id=expected_version_id
         )
         first_publish = canvas.current_source_version_id is None and not (canvas.legacy_code or "").strip()
+        if (
+            legacy_upload is not None
+            and canvas.current_source_version_id is None
+            and (canvas.legacy_code or "").strip()
+        ):
+            legacy_key, legacy_digest, legacy_size = legacy_upload
+            canvas.current_source_version = CanvasSourceVersion.objects.create(
+                team_id=canvas.team_id,
+                canvas=canvas,
+                source_hash=legacy_digest,
+                source_object_key=legacy_key,
+                source_size=legacy_size,
+                prompt="Imported source",
+            )
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
