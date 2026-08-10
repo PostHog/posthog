@@ -40,9 +40,19 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
+from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
+    ErrorTrackingBreakdownsQueryRunner,
+)
+from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+    ErrorTrackingIssueCorrelationQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
+from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
+    ErrorTrackingSimilarIssuesQueryRunner,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -1038,6 +1048,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
 
     def test_requires_error_tracking_viewer_access(self):
+        for runner_class in (
+            ErrorTrackingQueryRunner,
+            ErrorTrackingBreakdownsQueryRunner,
+            ErrorTrackingIssueCorrelationQueryRunner,
+            ErrorTrackingSimilarIssuesQueryRunner,
+        ):
+            self.assertTrue(issubclass(runner_class, ErrorTrackingQueryRunnerAccessMixin))
+
         AccessControl.objects.create(team=self.team, resource="error_tracking", access_level="none")
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

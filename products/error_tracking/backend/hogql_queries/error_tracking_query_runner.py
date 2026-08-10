@@ -12,16 +12,15 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 
 
-class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
+class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
     query: ErrorTrackingQuery
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
@@ -29,10 +28,6 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     date_to: datetime.datetime
 
     CACHE_VERSION = 2
-
-    def validate_query_runner_access(self, user: User) -> bool:
-        UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("error_tracking", "viewer")
-        return True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

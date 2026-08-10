@@ -162,7 +162,10 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "ErrorTrackingBreakdownsQuery": ["error_tracking:read"],
+    "ErrorTrackingIssueCorrelationQuery": ["error_tracking:read"],
     "ErrorTrackingQuery": ["error_tracking:read"],
+    "ErrorTrackingSimilarIssuesQuery": ["error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
