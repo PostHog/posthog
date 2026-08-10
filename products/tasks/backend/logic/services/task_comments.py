@@ -546,11 +546,12 @@ def _participants_by_root(
         speakers[root_id].append(author_id)
 
     wanted = {author_id for ids in speakers.values() for author_id in ids}
-    users = {user.id: user_basic_info(user) for user in User.objects.filter(id__in=wanted)}
-    return {
-        root_id: [users[author_id] for author_id in ids if users.get(author_id) is not None]
-        for root_id, ids in speakers.items()
-    }
+    users: dict[int, contracts.TaskUserBasicInfo] = {}
+    for user in User.objects.filter(id__in=wanted):
+        info = user_basic_info(user)
+        if info is not None:
+            users[user.id] = info
+    return {root_id: [users[author_id] for author_id in ids if author_id in users] for root_id, ids in speakers.items()}
 
 
 def _mentioned_user_ids_by_root(*, team_id: int, root_ids: Sequence[UUID]) -> dict[UUID, list[int]]:
