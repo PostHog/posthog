@@ -396,7 +396,10 @@ export const conversationsViewsCreateBodyNameMax = 400
 export const conversationsViewsCreateBodyFiltersOneSearchMax = 200
 
 export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsCreateBodyNameMax),
+    name: zod
+        .string()
+        .max(conversationsViewsCreateBodyNameMax)
+        .describe('Display name of the view, as it appears in the ticket views list.'),
     filters: zod
         .object({
             status: zod
@@ -532,7 +535,11 @@ export const conversationsViewsPartialUpdateBodyNameMax = 400
 export const conversationsViewsPartialUpdateBodyFiltersOneSearchMax = 200
 
 export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsPartialUpdateBodyNameMax).optional(),
+    name: zod
+        .string()
+        .max(conversationsViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the view, as it appears in the ticket views list.'),
     filters: zod
         .object({
             status: zod

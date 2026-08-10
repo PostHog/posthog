@@ -1226,13 +1226,20 @@ export interface TicketViewFiltersApi {
 }
 
 export interface TicketViewApi {
+    /** Internal UUID of the view. */
     readonly id: string
+    /** Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets. */
     readonly short_id: string
-    /** @maxLength 400 */
+    /**
+     * Display name of the view, as it appears in the ticket views list.
+     * @maxLength 400
+     */
     name: string
     /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
     filters?: TicketViewFiltersApi
+    /** When the view was created. */
     readonly created_at: string
+    /** The user who created this view. */
     readonly created_by: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
@@ -1248,13 +1255,20 @@ export interface PaginatedTicketViewListApi {
 }
 
 export interface PatchedTicketViewApi {
+    /** Internal UUID of the view. */
     readonly id?: string
+    /** Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets. */
     readonly short_id?: string
-    /** @maxLength 400 */
+    /**
+     * Display name of the view, as it appears in the ticket views list.
+     * @maxLength 400
+     */
     name?: string
     /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
     filters?: TicketViewFiltersApi
+    /** When the view was created. */
     readonly created_at?: string
+    /** The user who created this view. */
     readonly created_by?: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
