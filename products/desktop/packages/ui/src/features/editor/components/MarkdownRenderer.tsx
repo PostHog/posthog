@@ -29,7 +29,11 @@ function preprocessMarkdown(content: string): string {
   return content.replace(/\n([^\n].*)\n(---+|___+|\*\*\*+)\n/g, "\n$1\n\n$2\n");
 }
 
-function markdownUrlTransform(value: string): string {
+function markdownUrlTransform(value: string, key: string): string {
+  // Report summaries reference their charts as `[label](chart:<id>)` links.
+  // The scheme survives only on `href` so `![x](chart:y)` can't become an
+  // unsanitized image; consumers decide what a chart href renders as.
+  if (key === "href" && value.startsWith("chart:")) return value;
   if (isPostHogCodeDeeplink(value)) return value;
   return defaultUrlTransform(value);
 }
