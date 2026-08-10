@@ -8663,6 +8663,7 @@ dependencies = [
  "personhog-proto",
  "rand 0.8.5",
  "rdkafka",
+ "rustls 0.23.37",
  "serde_json",
  "sqlx",
  "tokio",
@@ -9011,9 +9012,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.21.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5dc5d94870b23655fceae57574d6741475b114be5a018b25d22dd2aa076fbe13"
+checksum = "f18c4d4994979983e9cf672c351ada7e794673da15d3a61a38a6d6b5ef3ba44e"
 dependencies = [
  "backtrace",
  "brotli 7.0.0",

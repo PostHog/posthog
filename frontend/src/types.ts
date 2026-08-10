@@ -6019,6 +6019,7 @@ export enum ActivityScope {
     OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
+    DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
@@ -6087,7 +6088,7 @@ export interface DataWarehouseTable {
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
 
-export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled' | 'Skipped'
 
 export interface DataWarehouseSavedQueryRunHistory {
     status: DataModelingJobStatus
@@ -6334,7 +6335,7 @@ export interface WebhookInfo {
 export interface DataModelingJob {
     id: string
     saved_query_id: string
-    status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+    status: DataModelingJobStatus
     rows_materialized: number
     rows_expected: number | null
     error: string | null

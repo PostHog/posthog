@@ -30,6 +30,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelInstructionsDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
+    SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
     TaskAutomationDTO,
@@ -134,6 +135,11 @@ class TaskUserBasicInfoSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = TaskUserBasicInfo
+
+
+class SlackThreadReferenceSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SlackThreadReferenceDTO
 
 
 TASK_RUN_ARTIFACT_MAX_SIZE_BYTES = 30 * 1024 * 1024
@@ -280,6 +286,15 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    uploaded_by = serializers.ChoiceField(
+        choices=["agent", "user"],
+        required=False,
+        help_text="Whether the artifact version was uploaded by the task agent or an interactive user.",
+    )
+    uploaded_by_user_id = serializers.IntegerField(
+        required=False,
+        help_text="User id for an interactive user upload. Absent for agent uploads and legacy entries.",
+    )
     dismissed_at = serializers.CharField(
         required=False,
         help_text="Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
@@ -287,8 +302,9 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     url = serializers.URLField(
         required=False,
         help_text=(
-            "Presigned download URL for the artifact. Populated on the finalize-upload response so "
-            "the caller can link to the file directly; it is time-limited and not persisted on the manifest."
+            "Stable download URL for the artifact. Populated on the finalize-upload response so "
+            "the caller can link to the file; it redirects to a fresh presigned URL on each request "
+            "and is not persisted on the manifest."
         ),
     )
 
@@ -390,6 +406,7 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    slack_thread_references = SlackThreadReferenceSerializer(many=True, read_only=True)
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
         read_only=True,
@@ -422,6 +439,7 @@ class TaskSerializer(DataclassSerializer):
             "created_by",
             "ci_prompt",
             "channel",
+            "slack_thread_references",
         ]
 
 
@@ -2615,6 +2633,16 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         max_length=255,
         help_text="Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
     )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=3,
+        help_text="GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.",
+    )
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        return TaskWriteSerializer().validate_repositories(value)
+
     github_integration = serializers.IntegerField(
         required=False,
         default=None,

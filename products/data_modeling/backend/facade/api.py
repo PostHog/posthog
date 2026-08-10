@@ -19,6 +19,8 @@ _LAZY = {
     "update_node_type": "logic.saved_query_dag_sync",
     "is_saved_query_on_v2_schedule": "logic.node_materialization",
     "materialize_saved_query": "logic.node_materialization",
+    "get_saved_query_ids_for_nodes": "logic.saved_query_reads",
+    "get_saved_query_summary": "logic.saved_query_reads",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "start_node_materialization": "logic.node_materialization",
     "apply_saved_query_frequency_anchor": "logic.schedule_reconcile",
