@@ -139,6 +139,7 @@ class TestForwardPendingUserMessage(TestCase):
         )
         measured_at = timezone.now()
         calls = []
+
         def measure(*args):
             calls.append("measure")
             return {"sb-fwd": (1_234_567, measured_at)}
