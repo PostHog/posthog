@@ -76,6 +76,15 @@ export interface onboardingEventUsageLogicActions {
     reportOnboardingGoalSelected: (goal: string) => {
         goal: string
     }
+    reportOnboardingUseCaseSelected: (
+        useCase: string,
+        recommendedProducts: readonly string[],
+        properties?: OnboardingEventProperties
+    ) => {
+        properties: OnboardingEventProperties | undefined
+        recommendedProducts: readonly string[]
+        useCase: string
+    }
     reportOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => {
         mode: 'cloud' | 'local'
     }
@@ -146,6 +155,15 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
     actions({
         reportOnboardingStepViewed: (stepId: SelfDrivingOnboardingStepId) => ({ stepId }),
         reportOnboardingGoalSelected: (goal: string) => ({ goal }),
+        reportOnboardingUseCaseSelected: (
+            useCase: string,
+            recommendedProducts: readonly string[],
+            properties?: OnboardingEventProperties
+        ) => ({
+            useCase,
+            recommendedProducts,
+            properties,
+        }),
         reportOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => ({ mode }),
         reportOnboardingPlanSelected: (plan: 'free' | 'pay_as_you_go') => ({ plan }),
         reportOnboardingCloudRunQueued: (props: { taskId: string; runId: string; repository: string }) => props,
@@ -189,6 +207,14 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             posthog.capture('onboarding goal selected', {
                 goal,
                 ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
+            })
+        },
+        reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts, properties }) => {
+            posthog.capture('onboarding use case selected', {
+                use_case: useCase,
+                recommended_products: recommendedProducts,
+                ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
         reportOnboardingInstallModeSelected: ({ mode }) => {

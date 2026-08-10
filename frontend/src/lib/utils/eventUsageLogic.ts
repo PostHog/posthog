@@ -10,6 +10,7 @@ import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -1642,22 +1643,22 @@ export interface eventUsageLogicActions {
         properties: OnboardingEventProperties | undefined
     }
     reportOnboardingStepCompleted: (
-        stepKey: string,
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
         productKey?: string,
         properties?: OnboardingEventProperties
     ) => {
         productKey: string | undefined
         properties: OnboardingEventProperties | undefined
-        stepKey: string
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
     }
     reportOnboardingStepSkipped: (
-        stepKey: string,
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
         productKey?: string,
         properties?: OnboardingEventProperties
     ) => {
         productKey: string | undefined
         properties: OnboardingEventProperties | undefined
-        stepKey: string
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
     }
     reportOnboardingUseCaseSelected: (
         useCase: string,
@@ -2741,7 +2742,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             properties,
         }),
         reportOnboardingStepCompleted: (
-            stepKey: string,
+            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
             productKey?: string,
             properties?: OnboardingEventProperties
         ) => ({
@@ -2750,7 +2751,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             properties,
         }),
         reportOnboardingStepSkipped: (
-            stepKey: string,
+            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
             productKey?: string,
             properties?: OnboardingEventProperties
         ) => ({

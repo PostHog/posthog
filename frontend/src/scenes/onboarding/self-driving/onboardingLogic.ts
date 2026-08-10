@@ -12,7 +12,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import type { TeamPublicType, TeamType } from '~/types'
 
 import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from '../onboardingEventUsageLogic'
-import { ONBOARDING_TOOLS, optionsForSetup, resolveSetup } from '../shared/useCases'
+import { optionsForSetup, productKeysForSetup, resolveSetup } from '../shared/useCases'
 import type { TeamOption } from '../shared/useCases'
 import type { OnboardingUseCaseKey } from '../shared/useCases'
 import { useCaseSelectionLogic } from './useCaseSelectionLogic'
@@ -46,18 +46,6 @@ export interface onboardingLogicActions {
 }
 
 export type onboardingLogicType = MakeLogicType<onboardingLogicValues, onboardingLogicActions>
-
-function productKeysForSetup(useCase: OnboardingUseCaseKey | null): ProductKey[] {
-    const setup = resolveSetup(useCase)
-    return Array.from(
-        new Set([
-            setup.primaryProduct,
-            ...setup.tools.map((key) => ONBOARDING_TOOLS[key].productKey),
-            ...(setup.additionalTools ?? []),
-            ...setup.sidebarExtras,
-        ])
-    )
-}
 
 function completedOnboardingMap(
     team: TeamPublicType | TeamType | null,
@@ -124,7 +112,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             actions.setIsCompleting(true)
             const team = values.currentTeam
             const setup = resolveSetup(useCase)
-            const products = productKeysForSetup(useCase)
+            const products = productKeysForSetup(setup)
             const options = optionsForSetup(setup)
             const needsReplayAdminSetup =
                 options.includes('replay_masking_floor') && team?.session_recording_masking_config == null

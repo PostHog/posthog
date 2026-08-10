@@ -173,6 +173,17 @@ export interface OnboardingSetup {
     extraSteps?: OnboardingExtraStepId[]
 }
 
+export function productKeysForSetup(setup: OnboardingSetup): ProductKey[] {
+    return Array.from(
+        new Set([
+            setup.primaryProduct,
+            ...setup.tools.map((key) => ONBOARDING_TOOLS[key].productKey),
+            ...(setup.additionalTools ?? []),
+            ...setup.sidebarExtras,
+        ])
+    )
+}
+
 export interface OnboardingUseCase extends OnboardingSetup {
     key: OnboardingUseCaseKey
     icon: FileSystemIconType
