@@ -28,9 +28,8 @@ increase?" and Billing tools are available, start here rather than jumping strai
 the product-specific metric skill. Once the billable usage type, project, and window are
 known, hand off to the relevant product tools or skill for the root-cause drilldown.
 
-This skill is not meant for broad invoice, plan, refund, credit, or contract questions.
-If the user's question is about invoice correctness, subscription state, credits,
-refunds, or revenue reporting, use the appropriate billing/support workflow instead.
+This skill is not meant for broad invoice, plan, refund, contractual credit, subscription,
+or contract questions. Keep it focused on usage and spend behavior.
 
 ## Available tools
 
@@ -53,8 +52,8 @@ Some clients expose PostHog MCP tools through `mcp__posthog__exec` instead of di
 `billing`, inspect the relevant tool schema, and call the Billing tool through the
 dispatcher before deciding Billing usage investigation is unavailable.
 
-Read `references/spike-alert-mechanics.md` when you need alert detector thresholds,
-URL parameter meanings, or usage type mappings.
+Read `references/spike-alert-mechanics.md` when the prompt comes from a usage alert
+email or dashboard link and you need URL parameter or weekday/weekend baseline guidance.
 
 Read `references/usage-type-routing.md` before doing product-specific drilldown.
 
@@ -142,9 +141,9 @@ Compare that day to prior days in the same day class:
 - weekday alert day: compare to prior weekdays in the visible range
 - weekend alert day: compare to prior weekend days in the visible range
 
-Prefer this over comparing only to yesterday. The detector normalizes against separate
-weekday/weekend baselines, so weekend traffic can look normal next to Friday but still
-be unusual compared with previous weekends.
+Prefer this over comparing only to yesterday. Weekend traffic can look normal next to
+Friday but still be unusual compared with previous weekends, and the same applies to
+weekday patterns.
 
 Report:
 
