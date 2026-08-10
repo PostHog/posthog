@@ -179,7 +179,7 @@ export function AlertDefinitionSection({
                                     value: 'detector',
                                     label: 'Anomaly detection',
                                     description: showAnomalyGuidance
-                                        ? 'Choose this if you want to know when a metric looks unusual but you are not sure which number should trigger an alert.'
+                                        ? 'Choose this when you want an alert for unusual changes and do not know what threshold to set.'
                                         : 'Automatically flag unusual changes using statistical models. No fixed value needed.',
                                     'data-attr': 'alertForm-mode-detector',
                                 },
