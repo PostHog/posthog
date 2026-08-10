@@ -1163,6 +1163,31 @@ h3.MarkdownNotebook__text-block--heading {
     border-left-color: var(--markdown-notebook-table-gutter);
 }
 
+/* A table inside a text group sits on the card that already carries the prose, so it drops the
+   card chrome and keeps only the grid's own outline. The background is left alone because it
+   already matches the card, and overriding it here would also cancel the AI-writing highlight. */
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block {
+    margin: 0.5rem 0;
+    border: 1px solid var(--markdown-notebook-table-divider);
+    border-radius: 0.25rem;
+    box-shadow: none;
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block:focus-within {
+    border-color: color-mix(in sRGB, var(--primary) 34%, var(--markdown-notebook-table-divider));
+}
+
+/* A standalone table rounds its right corners only, because its left edge is the card gutter.
+   Inside a group both edges are the grid, so the left corners round too. */
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block th:first-child {
+    border-top-left-radius: calc(0.25rem - 1px);
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block tbody tr:last-child td:first-child,
+.MarkdownNotebook__text-group .MarkdownNotebook__table-block table:not(:has(tbody tr)) th:first-child {
+    border-bottom-left-radius: calc(0.25rem - 1px);
+}
+
 .MarkdownNotebook__list-block {
     box-sizing: border-box;
     width: calc(100% - var(--markdown-notebook-content-offset));
