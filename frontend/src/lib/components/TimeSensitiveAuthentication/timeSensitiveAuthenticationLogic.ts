@@ -118,9 +118,6 @@ export interface timeSensitiveAuthenticationLogicActions {
     checkReauthentication: () => {
         value: true
     }
-    showSsoReauthenticationError: () => {
-        value: true
-    }
     precheck: () => any
     precheckFailure: (
         error: string,
@@ -160,6 +157,9 @@ export interface timeSensitiveAuthenticationLogicActions {
     }
     setTotpAvailable: (available: boolean) => {
         available: boolean
+    }
+    showSsoReauthenticationError: () => {
+        value: true
     }
     submitReauthentication: () => {
         value: boolean

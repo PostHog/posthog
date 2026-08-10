@@ -54,6 +54,8 @@ def sso_failure_redirect_url(request: HttpRequest, error_code: str, is_reauth: b
         next_url = get_safe_next_url(request.GET.get("next") or getattr(request, "session", {}).get("next"), request)
         if next_url:
             separator = "&" if "?" in next_url else "?"
+            # next_url is validated same-origin above and the error code is urlencoded, so this is a redirect target, not HTML
+            # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
             return f"{next_url}{separator}{urlencode({'error_code': error_code})}"
 
     return f"/login?{urlencode({'error_code': error_code})}"
