@@ -5,7 +5,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     AccountsTableAccountFieldColumn,
+    AccountsTableAccountIdFilter,
+    AccountsTableAssignedToFilter,
     AccountsTableCustomPropertyColumn,
+    AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
     AccountsTableCustomPropertyHistoryPoint,
     AccountsTableNoteCountColumn,
@@ -13,7 +16,10 @@ from posthog.schema import (
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
     AccountsTableRow,
+    AccountsTableSearchFilter,
     AccountsTableTagsColumn,
+    AccountsTableTagsFilter,
+    AccountsTableUnassignedFilter,
     CachedAccountsTableQueryResponse,
 )
 
@@ -26,7 +32,10 @@ from posthog.rbac.user_access_control import UserAccessControl, UserAccessContro
 from products.customer_analytics.backend.facade import api, contracts
 
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
+ACCOUNTS_TABLE_MAX_FILTERS = 50
+ACCOUNTS_TABLE_MAX_FILTER_VALUES = 100
 ACCOUNTS_TABLE_MAX_PAGE_SIZE = 500
+ACCOUNTS_TABLE_MAX_STRING_LENGTH = 1_000
 
 
 class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse]):
@@ -81,6 +90,94 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
             custom_property_history_windows=custom_property_history_windows,
         )
 
+    def _filters(self) -> tuple[contracts.AccountTableFilter, ...]:
+        query_filters = self.query.filters or []
+        if len(query_filters) > ACCOUNTS_TABLE_MAX_FILTERS:
+            raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_FILTERS} filters.")
+
+        filters: list[contracts.AccountTableFilter] = []
+        try:
+            for filter_ in query_filters:
+                if (
+                    isinstance(filter_, AccountsTableSearchFilter)
+                    and len(filter_.query) > ACCOUNTS_TABLE_MAX_STRING_LENGTH
+                ):
+                    raise ValidationError(
+                        f"Account table filter strings support up to {ACCOUNTS_TABLE_MAX_STRING_LENGTH} characters."
+                    )
+                filter_values = (
+                    filter_.tagNames
+                    if isinstance(filter_, AccountsTableTagsFilter)
+                    else filter_.userIds
+                    if isinstance(filter_, AccountsTableAssignedToFilter)
+                    else filter_.values or []
+                    if isinstance(filter_, AccountsTableCustomPropertyFilter)
+                    else []
+                )
+                if len(filter_values) > ACCOUNTS_TABLE_MAX_FILTER_VALUES:
+                    raise ValidationError(
+                        f"Account table filters support up to {ACCOUNTS_TABLE_MAX_FILTER_VALUES} values."
+                    )
+                if any(
+                    isinstance(value, str) and len(value) > ACCOUNTS_TABLE_MAX_STRING_LENGTH for value in filter_values
+                ):
+                    raise ValidationError(
+                        f"Account table filter strings support up to {ACCOUNTS_TABLE_MAX_STRING_LENGTH} characters."
+                    )
+                if isinstance(filter_, AccountsTableSearchFilter):
+                    filters.append(contracts.AccountTableSearchFilter(query=filter_.query))
+                elif isinstance(filter_, AccountsTableTagsFilter):
+                    filters.append(contracts.AccountTableTagsFilter(tag_names=tuple(filter_.tagNames)))
+                elif isinstance(filter_, AccountsTableAssignedToFilter):
+                    filters.append(contracts.AccountTableAssignedToFilter(user_ids=tuple(filter_.userIds)))
+                elif isinstance(filter_, AccountsTableUnassignedFilter):
+                    filters.append(contracts.AccountTableUnassignedFilter())
+                elif isinstance(filter_, AccountsTableAccountIdFilter):
+                    filters.append(contracts.AccountTableAccountIdFilter(account_id=UUID(filter_.accountId)))
+                elif isinstance(filter_, AccountsTableCustomPropertyFilter):
+                    filters.append(
+                        contracts.AccountTableCustomPropertyFilter(
+                            definition_id=UUID(filter_.definitionId),
+                            operator=contracts.AccountTableCustomPropertyOperator(filter_.operator.value),
+                            values=tuple(filter_.values or ()),
+                        )
+                    )
+        except ValueError as error:
+            raise ValidationError("Account table filter IDs must be valid UUIDs.") from error
+        return tuple(filters)
+
+    def _sort(self) -> contracts.AccountTableSort | None:
+        if self.query.sort is None:
+            return None
+
+        column = self.query.sort.column
+        direction = contracts.AccountTableSortDirection(self.query.sort.direction.value)
+        if isinstance(column, AccountsTableAccountFieldColumn):
+            return contracts.AccountTableSort(
+                kind=contracts.AccountTableSortKind.ACCOUNT_FIELD,
+                direction=direction,
+                account_field=contracts.AccountTableField(column.field.value),
+            )
+        if isinstance(column, AccountsTableTagsColumn):
+            return contracts.AccountTableSort(kind=contracts.AccountTableSortKind.TAGS, direction=direction)
+        if isinstance(column, AccountsTableNoteCountColumn):
+            return contracts.AccountTableSort(kind=contracts.AccountTableSortKind.NOTE_COUNT, direction=direction)
+        try:
+            if isinstance(column, AccountsTableRelationshipColumn):
+                return contracts.AccountTableSort(
+                    kind=contracts.AccountTableSortKind.RELATIONSHIP,
+                    direction=direction,
+                    definition_id=UUID(column.definitionId),
+                )
+            if isinstance(column, AccountsTableCustomPropertyColumn):
+                return contracts.AccountTableSort(
+                    kind=contracts.AccountTableSortKind.CUSTOM_PROPERTY,
+                    direction=direction,
+                    definition_id=UUID(column.definitionId),
+                )
+        except ValueError as error:
+            raise ValidationError("Account table sort definition IDs must be valid UUIDs.") from error
+
     def _calculate(self) -> AccountsTableQueryResponse:
         user_access_control = self.user_access_control
         if user_access_control is None:
@@ -98,6 +195,8 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                 team_id=self.team.id,
                 user_access_control=user_access_control,
                 selection=self._column_selection(),
+                filters=self._filters(),
+                sort=self._sort(),
                 offset=offset,
                 limit=limit,
             )

@@ -267,6 +267,38 @@
             "required": ["kind", "field"],
             "type": "object"
         },
+        "AccountsTableAccountIdFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "accountId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "account_id",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "accountId"],
+            "type": "object"
+        },
+        "AccountsTableAssignedToFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "assigned_to",
+                    "type": "string"
+                },
+                "userIds": {
+                    "description": "Match accounts where any listed user actively holds any relationship.",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "userIds"],
+            "type": "object"
+        },
         "AccountsTableColumn": {
             "description": "A typed column supported by the Postgres-backed Accounts table.",
             "discriminator": {
@@ -310,6 +342,30 @@
             "required": ["kind", "definitionId"],
             "type": "object"
         },
+        "AccountsTableCustomPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "definitionId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "custom_property",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyOperator"
+                },
+                "values": {
+                    "description": "Values interpreted according to the custom property definition's display type.",
+                    "items": {
+                        "type": ["string", "number", "boolean"]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "definitionId", "operator"],
+            "type": "object"
+        },
         "AccountsTableCustomPropertyHistoryColumn": {
             "additionalProperties": false,
             "properties": {
@@ -344,8 +400,56 @@
             "required": ["timestamp", "value"],
             "type": "object"
         },
+        "AccountsTableCustomPropertyOperator": {
+            "enum": [
+                "exact",
+                "is_not",
+                "icontains",
+                "not_icontains",
+                "regex",
+                "not_regex",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "is_set",
+                "is_not_set",
+                "is_date_exact",
+                "is_date_before",
+                "is_date_after"
+            ],
+            "type": "string"
+        },
         "AccountsTableCustomPropertyValue": {
             "type": ["string", "number", "boolean", "null"]
+        },
+        "AccountsTableFilter": {
+            "description": "A typed filter applied to the Postgres-backed Accounts table.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableSearchFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableTagsFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAssignedToFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableUnassignedFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAccountIdFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyFilter"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "AccountsTableNoteCountColumn": {
             "additionalProperties": false,
@@ -368,6 +472,13 @@
                     },
                     "type": "array"
                 },
+                "filters": {
+                    "description": "Filters are combined with AND. Values within tag and assignment filters use OR.",
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableFilter"
+                    },
+                    "type": "array"
+                },
                 "kind": {
                     "const": "AccountsTableQuery",
                     "type": "string"
@@ -384,6 +495,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/AccountsTableQueryResponse"
+                },
+                "sort": {
+                    "$ref": "#/definitions/AccountsTableSort"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -550,11 +664,96 @@
             "required": ["id", "name", "accountFields", "relationships", "customProperties", "customPropertyHistory"],
             "type": "object"
         },
+        "AccountsTableSearchFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "search",
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
+        "AccountsTableSort": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "$ref": "#/definitions/AccountsTableSortableColumn"
+                },
+                "direction": {
+                    "$ref": "#/definitions/AccountsTableSortDirection"
+                }
+            },
+            "required": ["column", "direction"],
+            "type": "object"
+        },
+        "AccountsTableSortDirection": {
+            "enum": ["asc", "desc"],
+            "type": "string"
+        },
+        "AccountsTableSortableColumn": {
+            "description": "A typed column that supports server-side sorting.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableAccountFieldColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableTagsColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableNoteCountColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableRelationshipColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
         "AccountsTableTagsColumn": {
             "additionalProperties": false,
             "properties": {
                 "kind": {
                     "const": "tags",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableTagsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "tags",
+                    "type": "string"
+                },
+                "tagNames": {
+                    "description": "Match accounts carrying any of these tag names.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "tagNames"],
+            "type": "object"
+        },
+        "AccountsTableUnassignedFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "unassigned",
                     "type": "string"
                 }
             },

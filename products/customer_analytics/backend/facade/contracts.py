@@ -202,6 +202,87 @@ class AccountTableColumnSelection:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableSearchFilter:
+    query: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableTagsFilter:
+    tag_names: tuple[str, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedToFilter:
+    user_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableUnassignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAccountIdFilter:
+    account_id: UUID
+
+
+class AccountTableCustomPropertyOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    CONTAINS = "icontains"
+    DOES_NOT_CONTAIN = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    DATE_EXACT = "is_date_exact"
+    DATE_BEFORE = "is_date_before"
+    DATE_AFTER = "is_date_after"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyFilter:
+    definition_id: UUID
+    operator: AccountTableCustomPropertyOperator
+    values: tuple[float | bool | str, ...] = ()
+
+
+AccountTableFilter = (
+    AccountTableSearchFilter
+    | AccountTableTagsFilter
+    | AccountTableAssignedToFilter
+    | AccountTableUnassignedFilter
+    | AccountTableAccountIdFilter
+    | AccountTableCustomPropertyFilter
+)
+
+
+class AccountTableSortKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    TAGS = "tags"
+    NOTE_COUNT = "note_count"
+    RELATIONSHIP = "relationship"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+class AccountTableSortDirection(str, Enum):
+    ASCENDING = "asc"
+    DESCENDING = "desc"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableSort:
+    kind: AccountTableSortKind
+    direction: AccountTableSortDirection
+    account_field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTableCustomPropertyHistoryPoint:
     timestamp: datetime
     value: float

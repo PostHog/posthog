@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
@@ -14,17 +14,26 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     AccountsTableAccountField,
     AccountsTableAccountFieldColumn,
+    AccountsTableAccountIdFilter,
+    AccountsTableAssignedToFilter,
     AccountsTableCustomPropertyColumn,
+    AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
+    AccountsTableCustomPropertyOperator,
     AccountsTableNoteCountColumn,
     AccountsTableQuery,
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
+    AccountsTableSearchFilter,
+    AccountsTableSort,
+    AccountsTableSortDirection,
     AccountsTableTagsColumn,
+    AccountsTableTagsFilter,
+    AccountsTableUnassignedFilter,
 )
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Tag, Team
+from posthog.models import OrganizationMembership, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControl
@@ -32,7 +41,10 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import (
     ACCOUNTS_TABLE_MAX_COLUMNS,
+    ACCOUNTS_TABLE_MAX_FILTER_VALUES,
+    ACCOUNTS_TABLE_MAX_FILTERS,
     ACCOUNTS_TABLE_MAX_PAGE_SIZE,
+    ACCOUNTS_TABLE_MAX_STRING_LENGTH,
     AccountsTableQueryRunner,
 )
 from products.customer_analytics.backend.models import (
@@ -123,7 +135,8 @@ class TestAccountsTableQueryRunner(BaseTest):
                         definitionId=str(numeric_definition.id),
                         windowDays=30,
                     ),
-                ]
+                ],
+                filters=[],
             )
         )
 
@@ -164,13 +177,15 @@ class TestAccountsTableQueryRunner(BaseTest):
                 value_num=index,
             )
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             page = api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=UserAccessControl(user=self.user, team=self.team),
                 selection=contracts.AccountTableColumnSelection(
                     custom_property_definition_ids=frozenset({definition.id})
                 ),
+                filters=(),
+                sort=None,
                 offset=0,
                 limit=100,
             )
@@ -220,6 +235,329 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert response.limit == 1
         assert response.offset == 1
 
+    def test_combines_search_tag_and_active_assignment_filters(self) -> None:
+        active_account = create_account(team_id=self.team.id, name="Acme active")
+        ended_account = create_account(team_id=self.team.id, name="Acme ended")
+        untagged_account = create_account(team_id=self.team.id, name="Acme untagged")
+        tag = Tag.objects.create(team=self.team, name="enterprise")
+        active_account.tagged_items.create(tag=tag)
+        ended_account.tagged_items.create(tag=tag)
+        definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name="CSM")
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=active_account,
+            definition=definition,
+            user=self.user,
+        )
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=ended_account,
+            definition=definition,
+            user=self.user,
+            ended_at=timezone.now(),
+        )
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[
+                    AccountsTableSearchFilter(query="acme"),
+                    AccountsTableTagsFilter(tagNames=["enterprise"]),
+                    AccountsTableAssignedToFilter(userIds=[self.user.id]),
+                ],
+            )
+        )
+
+        assert [row.id for row in response.results] == [str(active_account.id)]
+        assert str(untagged_account.id) not in {row.id for row in response.results}
+
+    def test_unassigned_and_account_id_filters(self) -> None:
+        assigned_account = create_account(team_id=self.team.id, name="Assigned")
+        unassigned_account = create_account(team_id=self.team.id, name="Unassigned")
+        definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name="CSM")
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=assigned_account,
+            definition=definition,
+            user=self.user,
+        )
+
+        unassigned_response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableUnassignedFilter()]))
+        account_response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[AccountsTableAccountIdFilter(accountId=str(assigned_account.id))],
+            )
+        )
+
+        assert [row.id for row in unassigned_response.results] == [str(unassigned_account.id)]
+        assert [row.id for row in account_response.results] == [str(assigned_account.id)]
+
+    @parameterized.expand(
+        [
+            ("greater_than", AccountsTableCustomPropertyOperator.GT, [10], {"High"}),
+            ("negative_includes_unset", AccountsTableCustomPropertyOperator.IS_NOT, [20], {"Low", "Unset"}),
+            ("is_not_set", AccountsTableCustomPropertyOperator.IS_NOT_SET, [], {"Unset"}),
+        ]
+    )
+    def test_filters_typed_custom_properties(
+        self,
+        _name: str,
+        operator: AccountsTableCustomPropertyOperator,
+        values: list[int],
+        expected_names: set[str],
+    ) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="MRR",
+            display_type=DisplayType.CURRENCY,
+        )
+        high = create_account(team_id=self.team.id, name="High")
+        low = create_account(team_id=self.team.id, name="Low")
+        create_account(team_id=self.team.id, name="Unset")
+        CustomPropertyValue.objects.unscoped().create(team=self.team, account=high, definition=definition, value_num=20)
+        CustomPropertyValue.objects.unscoped().create(team=self.team, account=low, definition=definition, value_num=5)
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[
+                    AccountsTableCustomPropertyFilter(
+                        definitionId=str(definition.id),
+                        operator=operator,
+                        values=values,
+                    )
+                ],
+            )
+        )
+
+        assert {row.name for row in response.results} == expected_names
+
+    @parameterized.expand(
+        [
+            (
+                "text_contains",
+                DisplayType.TEXT,
+                {"value_str": "enterprise"},
+                AccountsTableCustomPropertyOperator.ICONTAINS,
+                ["ter"],
+                {"Set"},
+            ),
+            (
+                "negative_text_includes_unset",
+                DisplayType.TEXT,
+                {"value_str": "enterprise"},
+                AccountsTableCustomPropertyOperator.NOT_ICONTAINS,
+                ["zzz"],
+                {"Set", "Unset"},
+            ),
+            (
+                "boolean",
+                DisplayType.BOOLEAN,
+                {"value_bool": True},
+                AccountsTableCustomPropertyOperator.EXACT,
+                ["true"],
+                {"Set"},
+            ),
+            (
+                "date",
+                DisplayType.DATE,
+                {"value_datetime": datetime(2026, 1, 1, 14, 30, tzinfo=UTC)},
+                AccountsTableCustomPropertyOperator.IS_DATE_BEFORE,
+                ["2026-02-01T00:00:00Z"],
+                {"Set"},
+            ),
+        ]
+    )
+    def test_filters_custom_property_operator_families(
+        self,
+        _name: str,
+        display_type: DisplayType,
+        value_kwargs: dict[str, object],
+        operator: AccountsTableCustomPropertyOperator,
+        values: list[str],
+        expected_names: set[str],
+    ) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name=f"Property {_name}",
+            display_type=display_type,
+        )
+        set_account = create_account(team_id=self.team.id, name="Set")
+        create_account(team_id=self.team.id, name="Unset")
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=set_account,
+            definition=definition,
+            **value_kwargs,
+        )
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[
+                    AccountsTableCustomPropertyFilter(
+                        definitionId=str(definition.id),
+                        operator=operator,
+                        values=values,
+                    )
+                ],
+            )
+        )
+
+        assert {row.name for row in response.results} == expected_names
+
+    def test_rejects_excessive_filter_count_and_string_length(self) -> None:
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[AccountsTableSearchFilter(query="a")] * (ACCOUNTS_TABLE_MAX_FILTERS + 1),
+                )
+            )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[AccountsTableSearchFilter(query="a" * (ACCOUNTS_TABLE_MAX_STRING_LENGTH + 1))],
+                )
+            )
+
+    def test_rejects_excessive_custom_property_filter_values(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="Health score",
+            display_type=DisplayType.NUMBER,
+        )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[
+                        AccountsTableCustomPropertyFilter(
+                            definitionId=str(definition.id),
+                            operator=AccountsTableCustomPropertyOperator.EXACT,
+                            values=list(range(ACCOUNTS_TABLE_MAX_FILTER_VALUES + 1)),
+                        )
+                    ],
+                )
+            )
+
+    def test_sorts_before_paginating_across_supported_column_kinds(self) -> None:
+        alpha = create_account(team_id=self.team.id, name="Alpha", _properties={"stripe_customer_id": "cus_z"})
+        beta = create_account(team_id=self.team.id, name="Beta", _properties={"stripe_customer_id": "cus_a"})
+        create_account(team_id=self.team.id, name="Gamma")
+        alpha.tagged_items.create(tag=Tag.objects.create(team=self.team, name="z-tag"))
+        beta.tagged_items.create(tag=Tag.objects.create(team=self.team, name="a-tag"))
+        for account, count in [(alpha, 2), (beta, 1)]:
+            for _ in range(count):
+                ResourceNotebook.objects.create(
+                    account=account,
+                    notebook=Notebook.objects.create(team=self.team, created_by=self.user),
+                )
+        relationship_definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name="CSM")
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        AccountRelationship.objects.unscoped().create(
+            team=self.team, account=alpha, definition=relationship_definition, user=self.user
+        )
+        AccountRelationship.objects.unscoped().create(
+            team=self.team, account=beta, definition=relationship_definition, user=other_user
+        )
+        custom_property_definition = create_custom_property_definition(
+            team_id=self.team.id, name="MRR", display_type=DisplayType.CURRENCY
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team, account=alpha, definition=custom_property_definition, value_num=20
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team, account=beta, definition=custom_property_definition, value_num=5
+        )
+
+        paginated = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[],
+                sort=AccountsTableSort(
+                    column=AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME),
+                    direction=AccountsTableSortDirection.ASC,
+                ),
+                limit=1,
+                offset=1,
+            )
+        )
+        assert [row.name for row in paginated.results] == ["Beta"]
+        assert paginated.hasMore is True
+
+        sort_cases = [
+            (
+                AccountsTableAccountFieldColumn(field=AccountsTableAccountField.STRIPE_CUSTOMER_ID),
+                ["Beta", "Alpha", "Gamma"],
+            ),
+            (AccountsTableTagsColumn(), ["Beta", "Alpha", "Gamma"]),
+            (AccountsTableNoteCountColumn(), ["Alpha", "Beta", "Gamma"]),
+            (
+                AccountsTableRelationshipColumn(definitionId=str(relationship_definition.id)),
+                ["Alpha", "Beta", "Gamma"],
+            ),
+            (
+                AccountsTableCustomPropertyColumn(definitionId=str(custom_property_definition.id)),
+                ["Beta", "Alpha", "Gamma"],
+            ),
+        ]
+        for column, expected_names in sort_cases:
+            with self.subTest(column_type=type(column).__name__):
+                direction = (
+                    AccountsTableSortDirection.DESC
+                    if isinstance(column, AccountsTableNoteCountColumn)
+                    else AccountsTableSortDirection.ASC
+                )
+                response = self._run(
+                    AccountsTableQuery(
+                        columns=[],
+                        filters=[],
+                        sort=AccountsTableSort(column=column, direction=direction),
+                    )
+                )
+                assert [row.name for row in response.results] == expected_names
+
+    def test_rejects_regex_custom_property_filters(self) -> None:
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[
+                        AccountsTableCustomPropertyFilter(
+                            definitionId=str(definition.id),
+                            operator=AccountsTableCustomPropertyOperator.REGEX,
+                            values=["^enter.*"],
+                        )
+                    ],
+                )
+            )
+
+    def test_rejects_operator_incompatible_with_custom_property_type(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="MRR", display_type=DisplayType.CURRENCY
+        )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[
+                        AccountsTableCustomPropertyFilter(
+                            definitionId=str(definition.id),
+                            operator=AccountsTableCustomPropertyOperator.ICONTAINS,
+                            values=["2"],
+                        )
+                    ],
+                )
+            )
+
     @parameterized.expand(["relationship", "custom_property"])
     def test_rejects_definition_from_another_team(self, column_kind: str) -> None:
         other_team = Team.objects.create(organization=self.organization)
@@ -234,7 +572,38 @@ class TestAccountsTableQueryRunner(BaseTest):
             column = AccountsTableCustomPropertyColumn(definitionId=str(custom_property_definition.id))
 
         with self.assertRaises(ValidationError):
-            self._run(AccountsTableQuery(columns=[column]))
+            self._run(AccountsTableQuery(columns=[column], filters=[]))
+
+    @parameterized.expand(["filter", "sort"])
+    def test_rejects_filter_or_sort_definition_from_another_team(self, query_part: str) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        definition = create_custom_property_definition(team_id=other_team.id, name="Other plan")
+        filter_ = (
+            AccountsTableCustomPropertyFilter(
+                definitionId=str(definition.id),
+                operator=AccountsTableCustomPropertyOperator.IS_SET,
+                values=[],
+            )
+            if query_part == "filter"
+            else None
+        )
+        sort = (
+            AccountsTableSort(
+                column=AccountsTableCustomPropertyColumn(definitionId=str(definition.id)),
+                direction=AccountsTableSortDirection.ASC,
+            )
+            if query_part == "sort"
+            else None
+        )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[filter_] if filter_ else [],
+                    sort=sort,
+                )
+            )
 
     def test_rejects_history_for_non_numeric_custom_property(self) -> None:
         definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
@@ -242,14 +611,18 @@ class TestAccountsTableQueryRunner(BaseTest):
         with self.assertRaises(ValidationError):
             self._run(
                 AccountsTableQuery(
-                    columns=[AccountsTableCustomPropertyHistoryColumn(definitionId=str(definition.id), windowDays=30)]
+                    columns=[AccountsTableCustomPropertyHistoryColumn(definitionId=str(definition.id), windowDays=30)],
+                    filters=[],
                 )
             )
 
     def test_rejects_malformed_definition_id(self) -> None:
         with self.assertRaises(ValidationError):
             self._run(
-                AccountsTableQuery(columns=[AccountsTableCustomPropertyColumn(definitionId="not-a-definition-id")])
+                AccountsTableQuery(
+                    columns=[AccountsTableCustomPropertyColumn(definitionId="not-a-definition-id")],
+                    filters=[],
+                )
             )
 
     @pytest.mark.ee
@@ -273,7 +646,7 @@ class TestAccountsTableQueryRunner(BaseTest):
         )
 
         blocked_runner = AccountsTableQueryRunner(
-            query=AccountsTableQuery(columns=[]),
+            query=AccountsTableQuery(columns=[], filters=[], limit=1),
             team=self.team,
             user=self.user,
         )
@@ -284,7 +657,7 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         blocking_access.delete()
         unblocked_cache_key = AccountsTableQueryRunner(
-            query=AccountsTableQuery(columns=[]),
+            query=AccountsTableQuery(columns=[], filters=[], limit=1),
             team=self.team,
             user=self.user,
         ).get_cache_key()
@@ -304,11 +677,27 @@ class TestAccountsTableQueryAPI(APIBaseTest):
         )
         return value
 
+    def test_query_endpoint_rejects_unsupported_filters(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "AccountsTableQuery",
+                    "columns": [],
+                    "filters": [{"kind": "unsupported"}],
+                },
+                "refresh": "force_blocking",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
         account = create_account(team_id=self.team.id, name="Acme")
         endpoint = f"/api/projects/{self.team.id}/query/"
         payload = {
-            "query": AccountsTableQuery(columns=[]).model_dump(),
+            "query": AccountsTableQuery(columns=[], filters=[]).model_dump(),
             "refresh": "force_blocking",
         }
 

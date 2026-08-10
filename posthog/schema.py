@@ -14,6 +14,8 @@ from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
     AccountsTableAccountField as AccountsTableAccountField,
+    AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
+    AccountsTableSortDirection as AccountsTableSortDirection,
     Action as Action,
     AgentMode as AgentMode,
     AggregationAxisFormat as AggregationAxisFormat,
@@ -330,6 +332,14 @@ class AccountsTableAccountFieldColumn(BaseModel):
     kind: Literal["account_field"] = "account_field"
 
 
+class AccountsTableAccountIdFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accountId: str
+    kind: Literal["account_id"] = "account_id"
+
+
 class AccountsTableCustomPropertyColumn(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -382,11 +392,34 @@ class AccountsTableRelationshipColumn(BaseModel):
     kind: Literal["relationship"] = "relationship"
 
 
+class AccountsTableSearchFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["search"] = "search"
+    query: str
+
+
 class AccountsTableTagsColumn(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     kind: Literal["tags"] = "tags"
+
+
+class AccountsTableTagsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["tags"] = "tags"
+    tagNames: list[str] = Field(..., description="Match accounts carrying any of these tag names.")
+
+
+class AccountsTableUnassignedFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["unassigned"] = "unassigned"
 
 
 class AlertScheduleRestrictionWindow(BaseModel):
@@ -3043,6 +3076,30 @@ class AccountCustomPropertyFilter(BaseModel):
         description=("Customer analytics account custom property — the key is the property definition id"),
     )
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class AccountsTableAssignedToFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["assigned_to"] = "assigned_to"
+    userIds: list[int] = Field(
+        ...,
+        description=("Match accounts where any listed user actively holds any relationship."),
+    )
+
+
+class AccountsTableCustomPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    definitionId: str
+    kind: Literal["custom_property"] = "custom_property"
+    operator: AccountsTableCustomPropertyOperator
+    values: list[str | float | bool] | None = Field(
+        default=None,
+        description=("Values interpreted according to the custom property definition's display type."),
+    )
 
 
 class AccountsTableRow(BaseModel):
@@ -8647,6 +8704,24 @@ class AccountsTableQueryResponse(BaseModel):
             " access."
         ),
     )
+
+
+class AccountsTableSort(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: (
+        AccountsTableAccountFieldColumn
+        | AccountsTableTagsColumn
+        | AccountsTableNoteCountColumn
+        | AccountsTableRelationshipColumn
+        | AccountsTableCustomPropertyColumn
+    ) = Field(
+        ...,
+        description="A typed column that supports server-side sorting.",
+        discriminator="kind",
+    )
+    direction: AccountsTableSortDirection
 
 
 class ActorsPropertyTaxonomyQueryResponse(BaseModel):
@@ -24154,11 +24229,26 @@ class AccountsTableQuery(BaseModel):
         ...,
         description=("Columns to load for each account. Account identity fields are always returned."),
     )
+    filters: (
+        list[
+            AccountsTableSearchFilter
+            | AccountsTableTagsFilter
+            | AccountsTableAssignedToFilter
+            | AccountsTableUnassignedFilter
+            | AccountsTableAccountIdFilter
+            | AccountsTableCustomPropertyFilter
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=("Filters are combined with AND. Values within tag and assignment filters use OR."),
+    )
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: conint(ge=1) | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: AccountsTableQueryResponse | None = None
+    sort: AccountsTableSort | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

@@ -2819,6 +2819,91 @@ export type AccountsTableColumn =
     | AccountsTableCustomPropertyColumn
     | AccountsTableCustomPropertyHistoryColumn
 
+/**
+ * A typed column that supports server-side sorting.
+ * @discriminator kind
+ */
+export type AccountsTableSortableColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+
+export enum AccountsTableSortDirection {
+    Ascending = 'asc',
+    Descending = 'desc',
+}
+
+export interface AccountsTableSort {
+    column: AccountsTableSortableColumn
+    direction: AccountsTableSortDirection
+}
+
+export interface AccountsTableSearchFilter {
+    kind: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilter {
+    kind: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilter {
+    kind: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: integer[]
+}
+
+export interface AccountsTableUnassignedFilter {
+    kind: 'unassigned'
+}
+
+export interface AccountsTableAccountIdFilter {
+    kind: 'account_id'
+    accountId: string
+}
+
+export enum AccountsTableCustomPropertyOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    Contains = 'icontains',
+    DoesNotContain = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+    GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
+    LessThan = 'lt',
+    LessThanOrEqual = 'lte',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    DateExact = 'is_date_exact',
+    DateBefore = 'is_date_before',
+    DateAfter = 'is_date_after',
+}
+
+export interface AccountsTableCustomPropertyFilter {
+    kind: 'custom_property'
+    definitionId: string
+    operator: AccountsTableCustomPropertyOperator
+    /** Values interpreted according to the custom property definition's display type. */
+    values?: (string | number | boolean)[]
+}
+
+/**
+ * A typed filter applied to the Postgres-backed Accounts table.
+ * @discriminator kind
+ */
+export type AccountsTableFilter =
+    | AccountsTableSearchFilter
+    | AccountsTableTagsFilter
+    | AccountsTableAssignedToFilter
+    | AccountsTableUnassignedFilter
+    | AccountsTableAccountIdFilter
+    | AccountsTableCustomPropertyFilter
+
 export type AccountsTableCustomPropertyValue = string | number | boolean | null
 
 export interface AccountsTableCustomPropertyHistoryPoint {
@@ -2859,6 +2944,9 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     kind: NodeKind.AccountsTableQuery
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
+    /** Filters are combined with AND. Values within tag and assignment filters use OR. */
+    filters?: AccountsTableFilter[]
+    sort?: AccountsTableSort
     limit?: positive_integer
     offset?: integer
 }

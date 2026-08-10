@@ -49,6 +49,29 @@ class WindowDays(float, Enum):
     NUMBER_90 = 90
 
 
+class AccountsTableCustomPropertyOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    IS_DATE_EXACT = "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before"
+    IS_DATE_AFTER = "is_date_after"
+
+
+class AccountsTableSortDirection(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
