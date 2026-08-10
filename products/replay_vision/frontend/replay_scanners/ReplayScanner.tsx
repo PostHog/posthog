@@ -26,6 +26,7 @@ import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
 import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
+import { ScannerEnabledSwitch } from './components/ScannerEnabledSwitch'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerRunTab } from './components/ScannerRunTab'
@@ -75,6 +76,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
+                        <ScannerEnabledSwitch scanner={scanner} />
                         {activeTab !== ReplayScannerTab.Calibration && (
                             <LemonButton
                                 type="secondary"
