@@ -496,20 +496,16 @@ def _register_prepared_parquet_files(
 ) -> int:
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
-    shadow_name = _data_imports_shadow_table_name(inputs)
+    shadow_name, previous_name = _new_registration_table_names()
     parquet_paths = psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(path) for path in landing_paths))
     partition_columns = _hive_partition_columns(inputs.metadata.landing_uri, landing_paths)
 
     setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
-    with conn.transaction():
+    shadow_is_published = False
+    publish_attempted = False
+    try:
         with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
-            conn.execute(
-                psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                    psql.Identifier(schema_name),
-                    psql.Identifier(shadow_name),
-                )
-            )
             conn.execute(
                 psql.SQL(
                     "CREATE TABLE {}.{} AS SELECT * FROM "
@@ -564,19 +560,25 @@ def _register_prepared_parquet_files(
         generation_is_stale = False
         with _stage_timer(stage="publish", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id) as timer:
             if _prepared_generation_is_current(inputs):
-                conn.execute(
-                    psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                        psql.Identifier(schema_name),
-                        psql.Identifier(table_name),
+                publish_attempted = True
+                # Keep this transaction limited to publication. DuckLake flushes staged file
+                # metadata at commit, so including registration makes the catalog commit expensive.
+                with conn.transaction():
+                    conn.execute(
+                        psql.SQL("ALTER TABLE IF EXISTS {}.{} RENAME TO {}").format(
+                            psql.Identifier(schema_name),
+                            psql.Identifier(table_name),
+                            psql.Identifier(previous_name),
+                        )
                     )
-                )
-                conn.execute(
-                    psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
-                        psql.Identifier(schema_name),
-                        psql.Identifier(shadow_name),
-                        psql.Identifier(table_name),
+                    conn.execute(
+                        psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
+                            psql.Identifier(schema_name),
+                            psql.Identifier(shadow_name),
+                            psql.Identifier(table_name),
+                        )
                     )
-                )
+                shadow_is_published = True
             else:
                 timer.set_status("STALE")
                 generation_is_stale = True
@@ -584,13 +586,34 @@ def _register_prepared_parquet_files(
         if generation_is_stale:
             raise _StalePreparedGenerationError
 
-    return registered_count
+        return registered_count
+    finally:
+        cleanup_names = [previous_name] if publish_attempted else []
+        if not shadow_is_published:
+            cleanup_names.insert(0, shadow_name)
+        _cleanup_registration_tables(conn, schema_name, cleanup_names)
 
 
-def _data_imports_shadow_table_name(inputs: DuckLakeRegisterDataImportsActivityInputs) -> str:
-    schema_fragment = re.sub(r"[^A-Za-z0-9]", "", inputs.metadata.source_schema_id)[:8]
-    job_fragment = re.sub(r"[^A-Za-z0-9]", "", inputs.job_id)[:8]
-    return f"__ph_register_{schema_fragment}_{job_fragment}"
+def _new_registration_table_names() -> tuple[str, str]:
+    attempt_token = uuid.uuid4().hex
+    return f"__ph_register_{attempt_token}", f"__ph_previous_{attempt_token}"
+
+
+def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, table_names: list[str]) -> None:
+    for table_name in table_names:
+        try:
+            conn.execute(
+                psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(table_name),
+                )
+            )
+        except Exception:
+            LOGGER.warning(
+                "Failed to clean up DuckLake registration table",
+                table_name=f"{schema_name}.{table_name}",
+                exc_info=True,
+            )
 
 
 def _hive_partition_columns(landing_uri: str, landing_paths: list[str]) -> list[str]:

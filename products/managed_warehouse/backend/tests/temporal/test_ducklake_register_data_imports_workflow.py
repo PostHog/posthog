@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import contextlib
+from collections.abc import Iterator
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -166,11 +167,26 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     conn = MagicMock()
     conn.__enter__ = MagicMock(return_value=conn)
     conn.__exit__ = MagicMock(return_value=False)
-    conn.transaction.return_value.__enter__ = MagicMock()
-    conn.transaction.return_value.__exit__ = MagicMock(return_value=False)
+    active_transaction: object | None = None
+    transaction_tokens: list[object] = []
+    executed_with_transactions: list[tuple[str, object | None]] = []
+
+    @contextlib.contextmanager
+    def transaction() -> Iterator[None]:
+        nonlocal active_transaction
+        transaction_token = object()
+        transaction_tokens.append(transaction_token)
+        active_transaction = transaction_token
+        try:
+            yield
+        finally:
+            active_transaction = None
+
+    conn.transaction.side_effect = transaction
 
     def execute(query: object) -> MagicMock:
         query_text = str(query)
+        executed_with_transactions.append((query_text, active_transaction))
         if "SELECT count(*) FROM read_parquet" in query_text:
             return MagicMock(fetchone=MagicMock(return_value=(2,)))
         if "SELECT count(*) FROM" in query_text:
@@ -218,17 +234,31 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_indexes = [index for index, query in enumerate(executed) if "ducklake_add_data_files" in query]
     verification_indexes = [index for index, query in enumerate(executed) if "SELECT count(*) FROM" in query]
-    drop_live_index = next(
-        index for index, query in enumerate(executed) if "DROP TABLE IF EXISTS" in query and "customers" in query
+    rename_indexes = [index for index, query in enumerate(executed) if "RENAME TO" in query]
+    previous_cleanup_index = next(
+        index for index, query in enumerate(executed) if "DROP TABLE IF EXISTS" in query and "__ph_previous_" in query
     )
-    rename_index = next(index for index, query in enumerate(executed) if "RENAME TO" in query)
     assert len(registration_indexes) == 1
     registration_query = executed[registration_indexes[0]]
     assert "_ph_partition_key=2026-07/a.parquet" in registration_query
     assert "_ph_partition_key=2026-08/b.parquet" in registration_query
     assert len(verification_indexes) == 2
+    assert len(rename_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
-    assert max(verification_indexes) < drop_live_index < rename_index
+    assert max(verification_indexes) < min(rename_indexes)
+    assert max(rename_indexes) < previous_cleanup_index
+    assert "ALTER TABLE IF EXISTS" in executed[rename_indexes[0]]
+    assert "postgres_customers" in executed[rename_indexes[0]]
+    assert "__ph_previous_" in executed[rename_indexes[0]]
+    assert executed[rename_indexes[0]].index("postgres_customers") < executed[rename_indexes[0]].index("__ph_previous_")
+    assert "__ph_register_" in executed[rename_indexes[1]]
+    assert "postgres_customers" in executed[rename_indexes[1]]
+    assert executed[rename_indexes[1]].index("__ph_register_") < executed[rename_indexes[1]].index("postgres_customers")
+    assert len(transaction_tokens) == 1
+    assert [query for query, token in executed_with_transactions if token is transaction_tokens[0]] == [
+        executed[index] for index in rename_indexes
+    ]
+    conn.transaction.assert_called_once_with()
     assert any("SET PARTITIONED BY" in query for query in executed)
     workload_metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema")
@@ -267,7 +297,7 @@ def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
     workload_metrics.bytes.record.assert_not_called()
 
 
-def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
+def test_copy_activity_does_not_publish_a_row_count_mismatch_when_cleanup_fails(monkeypatch):
     monkeypatch.setattr(
         registration_module,
         "_copy_prepared_parquet_files",
@@ -275,13 +305,14 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
     )
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
     conn = MagicMock()
-    conn.transaction.return_value.__enter__ = MagicMock()
-    conn.transaction.return_value.__exit__ = MagicMock(return_value=False)
     counts = iter([(10,), (9,)])
 
     def execute(query: object) -> MagicMock:
-        if "SELECT count(*) FROM" in str(query):
+        query_text = str(query)
+        if "SELECT count(*) FROM" in query_text:
             return MagicMock(fetchone=MagicMock(return_value=next(counts)))
+        if "DROP TABLE IF EXISTS" in query_text and "__ph_register_" in query_text:
+            raise RuntimeError("cleanup failed")
         return MagicMock()
 
     conn.execute.side_effect = execute
@@ -300,8 +331,100 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
         copy_and_register_ducklake_data_imports_activity(_activity_inputs())
 
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
-    assert not any("DROP TABLE IF EXISTS" in query and "customers" in query for query in executed)
+    conn.transaction.assert_not_called()
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed) == 1
     assert not any("RENAME TO" in query for query in executed)
+
+
+def test_copy_activity_cleans_shadow_when_generation_becomes_stale_before_publish(monkeypatch):
+    monkeypatch.setattr(
+        registration_module,
+        "_copy_prepared_parquet_files",
+        lambda source_uri, landing_uri: ([f"{landing_uri}/file.parquet"], 100),
+    )
+    freshness = MagicMock(side_effect=[True, False])
+    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", freshness)
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "SELECT count(*) FROM" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=(10,)))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(
+        registration_module,
+        "_connect_to_duckgres_for_team",
+        lambda team_id: contextlib.nullcontext(conn),
+    )
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    heartbeater = MagicMock()
+    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
+    heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+    stale_counter = MagicMock()
+    stale_metric = MagicMock(return_value=stale_counter)
+    monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_stale_metric", stale_metric)
+
+    assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is False
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert freshness.call_count == 2
+    conn.transaction.assert_not_called()
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed) == 1
+    assert not any("RENAME TO" in query for query in executed)
+    stale_metric.assert_called_once_with(team_id=1, schema_id="schema", stage="publish")
+    stale_counter.add.assert_called_once_with(1)
+
+
+def test_registration_tables_are_owned_by_one_activity_attempt(monkeypatch):
+    attempt_ids = iter([uuid.UUID(int=1), uuid.UUID(int=2)])
+    monkeypatch.setattr(registration_module.uuid, "uuid4", lambda: next(attempt_ids))
+
+    first_shadow, first_previous = registration_module._new_registration_table_names()
+    second_shadow, second_previous = registration_module._new_registration_table_names()
+
+    assert {first_shadow, first_previous}.isdisjoint({second_shadow, second_previous})
+    assert first_shadow == f"__ph_register_{uuid.UUID(int=1).hex}"
+    assert first_previous == f"__ph_previous_{uuid.UUID(int=1).hex}"
+    assert all(len(name) <= 63 for name in (first_shadow, first_previous, second_shadow, second_previous))
+
+
+def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypatch):
+    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    conn = MagicMock()
+    commit_error = RuntimeError("commit acknowledgement lost")
+
+    @contextlib.contextmanager
+    def transaction() -> Iterator[None]:
+        yield
+        raise commit_error
+
+    conn.transaction.side_effect = transaction
+
+    def execute(query: object) -> MagicMock:
+        query_text = str(query)
+        if "SELECT count(*) FROM" in query_text:
+            return MagicMock(fetchone=MagicMock(return_value=(10,)))
+        if "DROP TABLE IF EXISTS" in query_text:
+            raise RuntimeError("cleanup unavailable")
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+
+    with pytest.raises(RuntimeError) as error:
+        registration_module._register_prepared_parquet_files(
+            _activity_inputs(),
+            conn,
+            [f"{_activity_inputs().metadata.landing_uri}/file.parquet"],
+        )
+
+    assert error.value is commit_error
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert len([query for query in executed if "RENAME TO" in query]) == 2
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed) == 1
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_previous_" in query for query in executed) == 1
 
 
 @pytest.mark.asyncio
