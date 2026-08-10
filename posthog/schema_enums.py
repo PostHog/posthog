@@ -407,6 +407,7 @@ class AssistantTool(StrEnum):
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
+    CREATE_EVALUATION = "create_evaluation"
     LIST_LLM_SKILLS = "list_llm_skills"
     GET_LLM_SKILL = "get_llm_skill"
     GET_LLM_SKILL_FILE = "get_llm_skill_file"

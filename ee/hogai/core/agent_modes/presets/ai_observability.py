@@ -56,6 +56,20 @@ The assistant used run_hog_eval_test because:
 3. The results show whether the evaluation logic is correct
 """.strip()
 
+POSITIVE_EXAMPLE_SAVE_EVAL = """
+User: Great, save that one so it runs from now on
+Assistant: I'll save it as an online evaluation on this project.
+*Uses create_evaluation with evaluation_type: 'hog', the source that just passed run_hog_eval_test, and a name and description*
+The assistant reports the evaluation's link and whether it is running or paused.
+""".strip()
+
+POSITIVE_EXAMPLE_SAVE_EVAL_REASONING = """
+The assistant used create_evaluation because:
+1. Testing only previews an evaluation — nothing is stored until it is created
+2. The source had already been verified against real events, so it is ready to save
+3. The tool returns a link the user can open to review the evaluation and turn it on
+""".strip()
+
 POSITIVE_EXAMPLE_FIX_EVAL_ERRORS = """
 User: The eval is failing with a null error on some events
 Assistant: I'll fix the null handling and test again.
@@ -112,7 +126,7 @@ The assistant used get_llm_skill then update_llm_skill because:
 3. Carrying every other field forward means the assistant didn't have to round-trip description, license, files, etc.
 """.strip()
 
-AI_OBSERVABILITY_MODE_DESCRIPTION = "Specialized mode for AI observability. Search and analyze LLM traces for usage, costs, latency, and errors. Write and test Hog evaluation code against real events. Create, update, and archive shared agent skills for the team."
+AI_OBSERVABILITY_MODE_DESCRIPTION = "Specialized mode for AI observability. Search and analyze LLM traces for usage, costs, latency, and errors. Write and test Hog evaluation code against real events, and save evaluations that score new generations, traces, and sessions. Create, update, and archive shared agent skills for the team."
 
 
 class AIObservabilityAgentToolkit(AgentToolkit):
@@ -134,6 +148,10 @@ class AIObservabilityAgentToolkit(AgentToolkit):
             reasoning=POSITIVE_EXAMPLE_FIX_EVAL_ERRORS_REASONING,
         ),
         TodoWriteExample(
+            example=POSITIVE_EXAMPLE_SAVE_EVAL,
+            reasoning=POSITIVE_EXAMPLE_SAVE_EVAL_REASONING,
+        ),
+        TodoWriteExample(
             example=POSITIVE_EXAMPLE_DISCOVER_SKILL,
             reasoning=POSITIVE_EXAMPLE_DISCOVER_SKILL_REASONING,
         ),
@@ -149,12 +167,14 @@ class AIObservabilityAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
+        from products.ai_observability.backend.tools.create_evaluation import CreateEvaluationTool
         from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestTool
         from products.skills.backend.tools.skills import ArchiveLLMSkillTool, CreateLLMSkillTool, UpdateLLMSkillTool
 
         return [
             SearchLLMTracesTool,
             RunHogEvalTestTool,
+            CreateEvaluationTool,
             CreateLLMSkillTool,
             UpdateLLMSkillTool,
             ArchiveLLMSkillTool,

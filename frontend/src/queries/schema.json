@@ -4093,6 +4093,7 @@
                 "call_mcp_server",
                 "search_llm_traces",
                 "run_hog_eval_test",
+                "create_evaluation",
                 "list_llm_skills",
                 "get_llm_skill",
                 "get_llm_skill_file",
