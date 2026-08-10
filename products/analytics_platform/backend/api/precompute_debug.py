@@ -157,9 +157,9 @@ def _fetch_samples_from_query_log(team_id: int, job_ids_by_hash: dict[str, str])
             """
             SELECT
                 multiSearchFirstIndex(query, %(job_ids)s) AS idx,
-                anyLast(JSONExtractString(log_comment, 'query_type')) AS query_type,
-                anyLast(JSONExtractString(log_comment, 'trigger')) AS trigger,
-                anyLast(JSONExtractRaw(log_comment, 'query')) AS query_json,
+                argMax(JSONExtractString(log_comment, 'query_type'), event_time) AS query_type,
+                argMax(JSONExtractString(log_comment, 'trigger'), event_time) AS trigger,
+                argMax(JSONExtractRaw(log_comment, 'query'), event_time) AS query_json,
                 max(event_time) AS last_insert_at
             FROM clusterAllReplicas(%(cluster)s, system, query_log)
             WHERE event_time > now() - INTERVAL %(lookback_days)s DAY
