@@ -907,6 +907,35 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             assert response.json()["results"][0]["content"] == "comment other reply"
             assert response.json()["results"][1]["content"] == "comment reply"
 
+    def test_list_page_size_is_client_choosable_and_capped(self) -> None:
+        Comment.objects.bulk_create(
+            Comment(team=self.team, created_by=self.user, scope="Notebook", item_id="big", content=f"c{i}")
+            for i in range(120)
+        )
+
+        # Default page size still stops at 100, so the whole thread does not arrive by accident.
+        default = self.client.get(f"/api/projects/{self.team.id}/comments?scope=Notebook&item_id=big").json()
+        assert len(default["results"]) == 100
+        assert default["next"] is not None
+
+        # A client that renders the thread whole can ask for all of it in one request.
+        whole = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=Notebook&item_id=big&page_size=500"
+        ).json()
+        assert len(whole["results"]) == 120
+        assert whole["next"] is None
+
+        # The cap holds: asking for more than the max never returns more than the max in one page.
+        Comment.objects.bulk_create(
+            Comment(team=self.team, created_by=self.user, scope="Notebook", item_id="huge", content=f"h{i}")
+            for i in range(510)
+        )
+        capped = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=Notebook&item_id=huge&page_size=100000"
+        ).json()
+        assert len(capped["results"]) == 500
+        assert capped["next"] is not None
+
     @parameterized.expand(
         [
             ("no_comments", [], "", 0),

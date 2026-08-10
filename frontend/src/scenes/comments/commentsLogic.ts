@@ -520,12 +520,10 @@ export const commentsLogic = kea<commentsLogicType>([
                         return []
                     }
 
-                    const response = await api.comments.list({
+                    return await api.comments.listAll({
                         scope: props.scope,
                         item_id: props.item_id,
                     })
-
-                    return response.results
                 },
                 sendComposedContent: async ({ asTask }) => {
                     const existingComments = values.comments ?? []
@@ -622,11 +620,10 @@ export const commentsLogic = kea<commentsLogicType>([
                             // loader value this handler returns, and our return would supersede its result.
                             // A refetch failure isn't a Slack failure: fall through to the optimistic append.
                             try {
-                                const response = await api.comments.list({
+                                return await api.comments.listAll({
                                     scope: props.scope,
                                     item_id: props.item_id,
                                 })
-                                return response.results
                             } catch {
                                 // fall through
                             }

@@ -583,6 +583,11 @@ class CommentErrorSerializer(serializers.Serializer):
 class CommentPagination(pagination.CursorPagination):
     ordering = "-created_at"
     page_size = 100
+    # A discussion thread is rendered whole, not browsed a page at a time, so its client asks for the
+    # lot in as few round-trips as it can. Opt into a client-chosen size, capped so one request can
+    # never pull an unbounded thread into memory.
+    page_size_query_param = "page_size"
+    max_page_size = 500
 
 
 class CommentListQueryParamsSerializer(serializers.Serializer):

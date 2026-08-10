@@ -2808,6 +2808,17 @@ const api = {
             return new ApiRequest().comments().withQueryString(params).get()
         },
 
+        // A discussion thread is shown in full, so callers that render one want every comment, not the
+        // first page. Asks for the largest page the server allows and follows the cursor for the rest,
+        // so a thread over 100 comments no longer silently truncates. Bounded by loadPaginatedResults.
+        async listAll(params: Partial<CommentType> = {}): Promise<CommentType[]> {
+            const url = new ApiRequest()
+                .comments()
+                .withQueryString({ ...params, page_size: 500 })
+                .assembleFullUrl()
+            return api.loadPaginatedResults<CommentType>(url)
+        },
+
         async getCount(
             params: Partial<CommentType> & {
                 exclude_emoji_reactions?: boolean
