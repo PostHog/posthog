@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -296,9 +298,27 @@ class TestAccountSummariesEndpoint(APIBaseTest):
         if expected_dispatch:
             assert dispatch.call_count == 7
             starts = [call.kwargs["period_start"] for call in dispatch.call_args_list]
-            assert starts == sorted(starts)
+            assert starts == sorted(starts, reverse=True)
             assert {call.kwargs["cadence"] for call in dispatch.call_args_list} == {"daily"}
             assert {call.kwargs["slack_channel_id"] for call in dispatch.call_args_list} == {"C123"}
+
+    def test_backfill_is_capped_per_team_per_day(self):
+        cache.clear()
+        account = create_account(team_id=self.team.id, _properties={"slack_channel_id": "C123"})
+        detail = f"/api/environments/{self.team.id}/accounts/{account.id}/"
+
+        with (
+            patch("products.customer_analytics.backend.facade.api.CHANNEL_SUMMARY_BACKFILL_DAILY_CAP", 4),
+            patch("products.customer_analytics.backend.facade.api.trigger_immediate_channel_summary") as dispatch,
+        ):
+            response = self.client.patch(detail, {"slack_summary_cadence": "daily"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # An API-driven dispatch has no per-run cap of its own, so one caller opting in many
+        # channel-bound accounts could otherwise start unbounded LLM work in a burst.
+        assert dispatch.call_count == 4
+        starts = [call.kwargs["period_start"] for call in dispatch.call_args_list]
+        assert starts == sorted(starts, reverse=True)
 
     def test_a_failed_backfill_does_not_fail_the_update(self):
         account = create_account(team_id=self.team.id, _properties={"slack_channel_id": "C123"})

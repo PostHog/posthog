@@ -31,6 +31,8 @@ const ACCOUNT = {
     slack_summary_cadence: 'weekly',
 } as unknown as AccountApi
 
+const CADENCE_OFF = { ...ACCOUNT, slack_summary_cadence: null } as unknown as AccountApi
+
 const SUMMARY = { id: 's-1', cadence: 'weekly', content: '## What happened' } as AccountChannelSummaryApi
 
 describe('accountSummariesLogic', () => {
@@ -109,9 +111,9 @@ describe('accountSummariesLogic', () => {
     })
 
     it('watches for the backfilled summaries after turning summaries on', async () => {
-        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockRetrieve.mockResolvedValue(CADENCE_OFF)
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
-        mockPatch.mockResolvedValue(ACCOUNT)
+        mockPatch.mockResolvedValue(CADENCE_OFF)
         await mount()
 
         logic.actions.setCadence('daily')
@@ -126,9 +128,9 @@ describe('accountSummariesLogic', () => {
     })
 
     it('resumes the wait after the account row is collapsed and re-expanded', async () => {
-        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockRetrieve.mockResolvedValue(CADENCE_OFF)
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
-        mockPatch.mockResolvedValue(ACCOUNT)
+        mockPatch.mockResolvedValue(CADENCE_OFF)
         await mount('acc-collapse')
 
         logic.actions.setCadence('daily')
@@ -141,10 +143,9 @@ describe('accountSummariesLogic', () => {
     })
 
     it('keeps waiting while summaries are still arriving, then stops when the backfill goes quiet', async () => {
-        const daily = { ...ACCOUNT, slack_summary_cadence: 'daily' } as AccountApi
-        mockRetrieve.mockResolvedValue(daily)
+        mockRetrieve.mockResolvedValue(CADENCE_OFF)
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
-        mockPatch.mockResolvedValue(daily)
+        mockPatch.mockResolvedValue(CADENCE_OFF)
         await mount('acc-daily')
         const startedAt = Date.now()
         const nowSpy = jest.spyOn(Date, 'now')
@@ -169,9 +170,9 @@ describe('accountSummariesLogic', () => {
     })
 
     it('stops waiting at the deadline even when no summary ever lands', async () => {
-        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockRetrieve.mockResolvedValue(CADENCE_OFF)
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
-        mockPatch.mockResolvedValue(ACCOUNT)
+        mockPatch.mockResolvedValue(CADENCE_OFF)
         await mount('acc-deadline')
         const startedAt = Date.now()
         const nowSpy = jest.spyOn(Date, 'now')
@@ -191,6 +192,8 @@ describe('accountSummariesLogic', () => {
     it.each([
         ['the account already has summaries', [SUMMARY], 'daily' as const],
         ['summaries are being turned off', [], null],
+        // ACCOUNT starts on 'weekly', and only an off-to-on switch backfills.
+        ['switching between two enabled cadences', [], 'daily' as const],
     ])('does not poll when %s', async (_name, results, cadence) => {
         mockRetrieve.mockResolvedValue(ACCOUNT)
         mockList.mockResolvedValue({ count: results.length, next: null, previous: null, results })

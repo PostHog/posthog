@@ -26,6 +26,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
@@ -2806,13 +2807,47 @@ def update_account_for_view(
     return _to_account_view(account)
 
 
+# Roughly 70 accounts opting into a daily cadence in one day, far above real use.
+CHANNEL_SUMMARY_BACKFILL_DAILY_CAP = 500
+
+
+def _reserve_backfill_budget(team_id: int, requested: int) -> int:
+    """How many of ``requested`` backfill dispatches this team may still start today.
+
+    The coordinator throttles itself with per-run caps, but these dispatches are driven by
+    an API call, so one caller opting in many channel-bound accounts could otherwise start
+    unbounded LLM work in a burst. ``cache.incr`` is atomic, so parallel requests cannot all
+    slip under the ceiling. Whatever this refuses, the coordinator still summarizes on
+    schedule.
+    """
+    window = int(datetime.now(UTC).timestamp()) // 86400
+    key = f"ca_channel_summary_backfills:{team_id}:{window}"
+    cache.add(key, 0, timeout=86400)
+    try:
+        used = cache.incr(key, requested)
+    except ValueError:
+        # The key expired between add and incr; this request is the window's first.
+        used = requested
+    allowed = requested - max(0, used - CHANNEL_SUMMARY_BACKFILL_DAILY_CAP)
+    return max(0, allowed)
+
+
 def _dispatch_initial_channel_summary(account: Account) -> None:
     cadence = account.slack_summary_cadence
     slack_channel_id = (account._properties or {}).get("slack_channel_id")
     if not cadence or not slack_channel_id:
         return
     periods = _channel_summaries_logic.get_initial_summary_periods(cadence, timezone.now(), account.team.timezone_info)
-    for period in periods:
+    allowed = _reserve_backfill_budget(account.team_id, len(periods))
+    if allowed < len(periods):
+        logger.warning(
+            "channel_summary_backfill_throttled",
+            team_id=account.team_id,
+            requested=len(periods),
+            allowed=allowed,
+        )
+    # Newest first, so a partly-throttled backfill keeps the periods a user looks at first.
+    for period in sorted(periods, key=lambda p: p.start, reverse=True)[:allowed]:
         try:
             trigger_immediate_channel_summary(
                 team_id=account.team_id,

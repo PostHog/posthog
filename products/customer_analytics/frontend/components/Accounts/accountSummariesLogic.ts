@@ -273,13 +273,15 @@ export const accountSummariesLogic = kea<accountSummariesLogicType>([
             posthog.capture(AccountsEvents.SummariesPageChanged, { page })
         },
         setCadence: async ({ cadence }) => {
+            // Only an off-to-on switch backfills, so only that one starts a wait.
+            const wasOff = !values.summariesResult.cadence
             try {
                 await accountsPartialUpdate(String(values.currentTeamId), props.accountId, {
                     slack_summary_cadence: cadence,
                 })
                 actions.setCadenceSuccess(cadence)
                 posthog.capture(AccountsEvents.SummaryCadenceChanged, { cadence: cadence ?? 'off' })
-                if (cadence && !values.summariesResult.summaries?.length) {
+                if (cadence && wasOff && !values.summariesResult.summaries?.length) {
                     backfillDeadlines.set(props.accountId, Date.now() + FIRST_SUMMARY_POLL_TIMEOUT_MS)
                     actions.startFirstSummaryPolling()
                 } else if (!cadence) {
