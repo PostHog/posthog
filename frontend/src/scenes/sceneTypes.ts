@@ -395,6 +395,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Error tracking
     [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
 

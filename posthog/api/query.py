@@ -175,6 +175,33 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
 }
 
 
+def required_scopes_for_query_tree(query: object) -> list[str] | None:
+    """Collect product scopes from every executable query node, including wrapped sources."""
+    scopes: list[str] = []
+
+    def visit(node: object) -> None:
+        if isinstance(node, dict):
+            kind = node.get("kind")
+            if isinstance(kind, str):
+                for scope in _QUERY_KIND_SCOPES.get(kind, []):
+                    if scope not in scopes:
+                        scopes.append(scope)
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(query)
+    if not scopes:
+        return None
+
+    top_level_kind = query.get("kind") if isinstance(query, dict) else None
+    if top_level_kind not in _QUERY_KIND_SCOPES and "query:read" not in scopes:
+        scopes.insert(0, "query:read")
+    return scopes
+
+
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -188,8 +215,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         if getattr(view, "action", None) != "create":
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
-        kind = query.get("kind") if isinstance(query, dict) else None
-        return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
+        return required_scopes_for_query_tree(query)
 
     def get_throttles(self):
         if self.action == "draft_sql":

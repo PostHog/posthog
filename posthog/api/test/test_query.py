@@ -10,7 +10,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest import mock
+from unittest import TestCase, mock
 from unittest.mock import patch
 
 from django.conf import settings
@@ -36,7 +36,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE, required_scopes_for_query_tree
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -47,6 +47,33 @@ from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+
+class TestQueryRequiredScopes(TestCase):
+    def test_top_level_product_query_replaces_generic_query_scope(self):
+        self.assertEqual(required_scopes_for_query_tree({"kind": "ErrorTrackingQuery"}), ["error_tracking:read"])
+
+    def test_wrapped_product_query_requires_generic_and_product_scopes(self):
+        self.assertEqual(
+            required_scopes_for_query_tree(
+                {"kind": "DataTableNode", "source": {"kind": "ErrorTrackingBreakdownsQuery"}}
+            ),
+            ["query:read", "error_tracking:read"],
+        )
+
+    def test_collects_scopes_from_lists_in_query_tree(self):
+        self.assertEqual(
+            required_scopes_for_query_tree(
+                {
+                    "kind": "DataTableNode",
+                    "sources": [
+                        {"kind": "ErrorTrackingSimilarIssuesQuery"},
+                        {"kind": "MetricsQuery"},
+                    ],
+                }
+            ),
+            ["query:read", "error_tracking:read", "metrics:read"],
+        )
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
