@@ -136,14 +136,14 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
 
+    is_reauth = is_sso_reauth_begin(request)
+
     # Checked before any session mutation below, so a misconfigured provider can never sign anyone out.
     if backend not in sso_providers:
-        return redirect(f"/login?error_code=invalid_sso_provider")
+        return redirect(sso_failure_redirect_url(request, "invalid_sso_provider", is_reauth=is_reauth))
 
     if not sso_providers[backend]:
-        return redirect("/login?error_code=improperly_configured_sso")
-
-    is_reauth = is_sso_reauth_begin(request)
+        return redirect(sso_failure_redirect_url(request, "improperly_configured_sso", is_reauth=is_reauth))
 
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
@@ -1314,6 +1314,10 @@ def social_reauth(
         )
         raise AuthFailed(backend, "reauth_user_mismatch")
 
+    # Rotate the key the way `login()` would on a fresh sign-in. A step-up window is exactly what a
+    # copied session cookie wants, so the identifier that existed before it has to stop working. The
+    # session data - and with it the signed-in user - survives the rotation.
+    request.session.cycle_key()
     request.session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
     request.session.pop(settings.SESSION_STEP_UP_REQUIRED_KEY, None)
 

@@ -22,7 +22,7 @@ describe('timeSensitiveAuthenticationLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => null as any)
         logic = timeSensitiveAuthenticationLogic()
         logic.mount()
     })

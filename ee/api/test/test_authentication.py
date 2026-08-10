@@ -3,7 +3,7 @@ import json
 import uuid
 import datetime
 from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 from freezegun.api import freeze_time
@@ -307,7 +307,28 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertIn("accounts.google.com", response.headers["Location"])
         self.assertEqual(self.client.session.session_key, session_key_before)
 
-    def test_failed_sso_reauth_returns_to_the_page_that_asked_for_it(self):
+    @parameterized.expand(
+        [
+            ("plain_path", "/settings/user", "/settings/user?error_code=improperly_configured_sso"),
+            (
+                "path_with_query",
+                "/settings/user?tab=danger",
+                "/settings/user?tab=danger&error_code=improperly_configured_sso",
+            ),
+            # The error code has to stay ahead of the fragment, or the browser reads it as fragment text
+            # and the modal never learns the re-auth failed.
+            (
+                "path_with_fragment",
+                "/settings/user#danger-zone",
+                "/settings/user?error_code=improperly_configured_sso#danger-zone",
+            ),
+            # An unusable `next` still must not land a signed-in user on /login, which drops the error code
+            ("offsite_next", "https://evil.example.com/steal", "/?error_code=improperly_configured_sso"),
+        ]
+    )
+    def test_failed_sso_reauth_returns_to_the_page_that_asked_for_it(self, _name, next_url, expected_location):
+        query = urlencode({"reauth": "true", "next": next_url})
+
         with (
             self.settings(**GOOGLE_MOCK_SETTINGS),
             patch(
@@ -315,11 +336,9 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 side_effect=AuthConnectionError(cast(Any, "google-oauth2"), "unreachable"),
             ),
         ):
-            response = self.client.get("/login/google-oauth2/?reauth=true&next=/settings/user")
+            response = self.client.get(f"/login/google-oauth2/?{query}")
 
-        self.assertRedirects(
-            response, "/settings/user?error_code=improperly_configured_sso", fetch_redirect_response=False
-        )
+        self.assertRedirects(response, expected_location, fetch_redirect_response=False)
         self.assertTrue(self.client.session.get("_auth_user_id"))
 
     def _begin_google_reauth(self) -> str:
@@ -334,6 +353,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
         session.save()
         last_reauth_at_before = session[settings.SESSION_LAST_REAUTH_AT_KEY]
+        session_key_before = session.session_key
 
         with self.settings(**GOOGLE_MOCK_SETTINGS):
             state = self._begin_google_reauth()
@@ -353,6 +373,12 @@ class TestEEAuthenticationAPI(APILicensedTest):
         login_context = cast(dict, login_activity.detail)["context"]
         self.assertEqual(login_context["reauth"], True)
         self.assertEqual(login_context["login_method"], "Google OAuth")
+
+        # Opening the sensitive-action window has to retire the session id that existed before it,
+        # so a cookie copied earlier can't ride the window the victim just opened.
+        self.assertNotEqual(self.client.session.session_key, session_key_before)
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = cast(str, session_key_before)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("social_core.backends.base.BaseAuth.request")
     def test_sso_reauth_with_a_different_identity_is_rejected_without_signing_out(self, mock_request):
