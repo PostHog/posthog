@@ -205,6 +205,12 @@ def _shutdown_run_charge_should_drop(job_id: str, team_id: int) -> bool:
     sync types, since many live schemas carry no sync_type at all), and v3 stages its watermark
     until the loader sees the final batch, which a cut-short run never sends.
 
+    Webhook schemas keep the charge on both pipeline versions: their drain is destructive (the
+    buffered S3 files are deleted right after each yielded batch), so the cut-short run is the only
+    run that can ever bill those rows — and on v3 the loader still delivers its queued batches,
+    since a Completed job's batches are loadable. Each webhook row is extracted exactly once, so
+    keeping the charge bills it exactly once.
+
     Known corner kept billable anyway: a resumable source with a desc-sorted resource reaches the
     shutdown branch too (`should_check_shutdown` raises for any resumable source), and desc sorts
     only persist `earliest_value` per batch — its retrigger re-extracts from the top. Unchanged
@@ -213,6 +219,8 @@ def _shutdown_run_charge_should_drop(job_id: str, team_id: int) -> bool:
     """
     job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).select_related("schema").first()
     if job is None or job.schema is None:
+        return False
+    if job.schema.is_webhook:
         return False
     return job.pipeline_version == ExternalDataJob.PipelineVersion.V3 or not job.schema.table_row_count_is_cumulative
 

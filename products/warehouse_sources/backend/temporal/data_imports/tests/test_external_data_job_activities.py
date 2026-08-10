@@ -119,6 +119,9 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
         (ExternalDataJob.PipelineVersion.V2, None, True, False),
         # v3 stages its watermark until the final batch, which a cut-short run never sends
         (ExternalDataJob.PipelineVersion.V3, ExternalDataSchema.SyncType.INCREMENTAL, True, False),
+        # Webhook drains delete their buffered files as they read, so no later run can re-extract
+        # (and re-bill) these rows — the cut-short run is the only place their charge can live
+        (ExternalDataJob.PipelineVersion.V3, ExternalDataSchema.SyncType.WEBHOOK, True, True),
     ],
 )
 # transaction=True: the activity writes through database_sync_to_async_pool, which runs off this
