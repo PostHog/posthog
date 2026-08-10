@@ -141,6 +141,7 @@ export async function reportCommitArtefacts(opts: {
 export async function reportTaskRunBranch(opts: {
   taskId: string | undefined;
   taskRunId: string | undefined;
+  repository: string;
   branch: string;
   updateCheckoutBranch?: boolean;
   env?: Record<string, string | undefined>;
@@ -161,7 +162,15 @@ export async function reportTaskRunBranch(opts: {
     }
     await client.updateTaskRun(opts.taskId, opts.taskRunId, {
       ...(opts.updateCheckoutBranch !== false && { branch: opts.branch }),
-      output: { head_branch: opts.branch },
+      output: {
+        head_branch: opts.branch,
+        head_branches: [
+          {
+            repository: opts.repository.trim().toLowerCase(),
+            branch: opts.branch,
+          },
+        ],
+      },
     });
   } catch (err) {
     warn(`failed to attach branch ${opts.branch} to task run: ${err}`);

@@ -372,6 +372,7 @@ describe("reportTaskRunBranch", () => {
     await reportTaskRunBranch({
       taskId: "task-1",
       taskRunId: "run-1",
+      repository: "PostHog/PostHog",
       branch: "posthog-code/fix-foo",
       env: ENV,
       envFilePath: NO_ENV_FILE,
@@ -387,7 +388,15 @@ describe("reportTaskRunBranch", () => {
       method: "PATCH",
       body: JSON.stringify({
         branch: "posthog-code/fix-foo",
-        output: { head_branch: "posthog-code/fix-foo" },
+        output: {
+          head_branch: "posthog-code/fix-foo",
+          head_branches: [
+            {
+              repository: "posthog/posthog",
+              branch: "posthog-code/fix-foo",
+            },
+          ],
+        },
       }),
     });
   });
@@ -403,6 +412,7 @@ describe("reportTaskRunBranch", () => {
     await reportTaskRunBranch({
       taskId: "task-1",
       taskRunId: "run-1",
+      repository: "PostHog/PostHog",
       branch: "posthog-code/fix-foo",
       updateCheckoutBranch: false,
       env: ENV,
@@ -414,7 +424,15 @@ describe("reportTaskRunBranch", () => {
     expect(init).toMatchObject({
       method: "PATCH",
       body: JSON.stringify({
-        output: { head_branch: "posthog-code/fix-foo" },
+        output: {
+          head_branch: "posthog-code/fix-foo",
+          head_branches: [
+            {
+              repository: "posthog/posthog",
+              branch: "posthog-code/fix-foo",
+            },
+          ],
+        },
       }),
     });
   });

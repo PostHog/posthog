@@ -187,6 +187,7 @@ export function runSignedCommitTool(
       await reportTaskRunBranch({
         taskId: ctx.taskId,
         taskRunId: ctx.taskRunId,
+        repository: result.repository,
         branch: result.branch,
         // Only the task repository branch controls the next checkout. The
         // reported head branch still lets PR webhooks bind commits made from a

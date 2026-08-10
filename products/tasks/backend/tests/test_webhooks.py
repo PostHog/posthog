@@ -1107,7 +1107,10 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             branch="master",
-            output={"head_branch": "posthog-code/feature"},
+            output={
+                "head_branch": "posthog-code/feature",
+                "head_branches": [{"repository": "posthog/posthog", "branch": "posthog-code/feature"}],
+            },
         )
         result = find_task_run(branch="posthog-code/feature", repository="posthog/posthog")
         self.assertEqual(result, task_run)
@@ -1117,9 +1120,23 @@ class TestFindTaskRun(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            output={"head_branch": "posthog-code/feature"},
+            output={
+                "head_branch": "posthog-code/feature",
+                "head_branches": [{"repository": "posthog/posthog", "branch": "posthog-code/feature"}],
+            },
         )
         self.assertIsNone(find_task_run(branch="posthog-code/feature", repository="acme/other"))
+
+    def test_signed_commit_head_branch_requires_repository_pair(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={
+                "head_branches": [{"repository": "posthog/code", "branch": "posthog-code/feature"}],
+            },
+        )
+        self.assertIsNone(find_task_run(branch="posthog-code/feature", repository="posthog/posthog"))
 
     def test_finds_multi_repository_run_from_snapshot(self):
         self.task.repositories = ["posthog/posthog", "posthog/code"]

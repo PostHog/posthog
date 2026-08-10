@@ -88,13 +88,14 @@ def find_task_run(
         if task_run:
             return task_run
 
-        # Signed commits report their pushed branch separately from ``branch``.
-        # The latter controls which branch provisioning checks out and cannot
-        # represent a repository nested below a multi-repo workspace root.
+        # Signed commits report every pushed repository/branch pair separately
+        # from ``branch``. The latter controls provisioning's next checkout and
+        # cannot represent nested repositories or multiple PR branches.
+        head_branch = {"repository": repository.lower(), "branch": branch}
         task_run = (
             TaskRun.objects.filter(
                 _run_repository_filter(repository),
-                output__head_branch=branch,
+                output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
             )
             .select_related(*TASK_RUN_SELECT_RELATED)

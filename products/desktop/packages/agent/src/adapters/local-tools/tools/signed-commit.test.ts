@@ -113,6 +113,7 @@ describe("signed-commit tool handler", () => {
     expect(reportTaskRunBranch).toHaveBeenCalledWith({
       taskId: "task-1",
       taskRunId: "run-1",
+      repository: "x/y",
       branch: "posthog-code/feature",
       updateCheckoutBranch: true,
     });
@@ -132,6 +133,7 @@ describe("signed-commit tool handler", () => {
     expect(reportTaskRunBranch).toHaveBeenCalledWith({
       taskId: "task-1",
       taskRunId: "run-1",
+      repository: "x/y",
       branch: "posthog-code/feature",
       updateCheckoutBranch: true,
     });
@@ -154,6 +156,7 @@ describe("signed-commit tool handler", () => {
     expect(reportTaskRunBranch).toHaveBeenCalledWith({
       taskId: "task-1",
       taskRunId: "run-1",
+      repository: "x/y",
       branch: "posthog-code/feature",
       updateCheckoutBranch: false,
     });
