@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _HOST_UNREACHABLE_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SourceField = (
@@ -126,10 +129,12 @@ class SupabaseSource(PostgresSource):
 
         # The direct host (IPv6-only by default) is the only host that supports logical
         # replication, so CDC users need it. We let the real connection attempt decide
-        # reachability — it succeeds when the IPv4 add-on is enabled — and only swap in a
-        # clearer message when it fails, since the generic Postgres error is opaque.
+        # reachability — it succeeds when the IPv4 add-on is enabled. Only the unreachable
+        # failure is the IPv4 case, so swap in Supabase-specific pooler guidance there; other
+        # failures (bad password, missing database, SSL) already have clear messages, and
+        # blaming them on IPv4 would misdirect the user.
         is_direct_host = bool(_SUPABASE_DIRECT_HOST_RE.match((config.host or "").strip()))
         success, error = super().validate_credentials(config, team_id, schema_name=schema_name)
-        if not success and is_direct_host:
+        if not success and is_direct_host and error == _HOST_UNREACHABLE_ERROR:
             return False, _SUPABASE_DIRECT_HOST_IPV4_HINT
         return success, error
