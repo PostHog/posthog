@@ -66,8 +66,8 @@ def classify_task_needs_repo(
 
     Biased toward False: a false negative answers an analytics ask with no repo
     (recoverable — the user re-asks with code intent), while a false positive
-    walls the user behind the Connect-GitHub gate even for "what's my DAU".
-    Defaults to False on error for the same reason.
+    spends a discovery-agent sandbox run on "what's my DAU". Defaults to False
+    on error for the same reason.
     """
     conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
     normalized = f"{conversation}\nLatest message: {event_text}".lower()
@@ -152,8 +152,8 @@ def classify_task_needs_repo(
         "event names, identification logic, SDK setup) — that's a code fix in their repo → "
         "needs_repo. When in doubt, lean needs_repo=false — code-focused tasks usually carry "
         "explicit signals (file extensions, 'PR', 'commit', framework names, function or class "
-        "names). Analytics, data, and configuration asks are the common case and should not be "
-        "walled behind a Connect-GitHub prompt on a guess.\n\n"
+        "names). Analytics, data, and configuration asks are the common case and should not send "
+        "us hunting for a repository on a guess.\n\n"
         f"Conversation:\n{conversation}\n\n"
         f"Latest message: {event_text}\n\n"
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
