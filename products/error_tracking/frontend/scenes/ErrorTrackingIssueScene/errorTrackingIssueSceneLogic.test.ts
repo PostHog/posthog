@@ -19,8 +19,7 @@ describe('errorTrackingIssueSceneLogic', () => {
             get: {
                 '/api/environments/:team_id/error_tracking/issues/:id/': {},
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
-                // The linked-reports lookup is supplementary, and every test in this file mounts the
-                // logic, so it fails here by default to keep the degradation path the mounted default.
+                // Fails by default, so every test in this file also proves the panel degrades quietly.
                 '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'ClickHouse is unhappy' }],
             },
             post: {
@@ -46,8 +45,7 @@ describe('errorTrackingIssueSceneLogic', () => {
     })
 
     it('leaves linked reports empty and does not fail when the signals lookup errors', async () => {
-        // The panel is supplementary context, so a signals or ClickHouse outage has to stay silent.
-        // Letting the loader reject would dispatch a failure and toast on every issue page.
+        // Letting the loader reject would toast an error on every issue page during a signals outage.
         await expectLogic(logic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({ linkedReports: [] })
     })
 

@@ -16,7 +16,7 @@ export default meta
 
 type Story = StoryObj<typeof LinkedReportsSection>
 
-function makeReport(overrides: Partial<SignalReportApi>): SignalReportApi {
+function makeReport(overrides: Partial<SignalReportApi> = {}): SignalReportApi {
     return {
         id: '019f9582-93e7-77c1-8912-4f541d70cb13',
         status: 'ready',
@@ -27,25 +27,13 @@ function makeReport(overrides: Partial<SignalReportApi>): SignalReportApi {
     } as SignalReportApi
 }
 
-/** The panel column is 300px wide with 8px of padding either side. */
-function Panel({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="w-[284px]">{children}</div>
-}
-
-export const FixProposed: Story = {
-    render: () => (
-        <Panel>
-            <LinkedReportsSection reports={[makeReport({})]} />
-        </Panel>
-    ),
-}
-
 export const SeveralReportsAcrossStates: Story = {
     render: () => (
-        <Panel>
+        // The panel column is 300px wide with 8px of padding either side.
+        <div className="w-[284px]">
             <LinkedReportsSection
                 reports={[
-                    makeReport({}),
+                    makeReport(),
                     makeReport({
                         id: '019f954a-8ed0-7a18-a198-3ffed1a2def0',
                         status: 'resolved',
@@ -67,6 +55,6 @@ export const SeveralReportsAcrossStates: Story = {
                     }),
                 ]}
             />
-        </Panel>
+        </div>
     ),
 }

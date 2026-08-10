@@ -23,6 +23,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { fetchLinkedReports } from 'lib/signals/linkedReports'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
@@ -51,8 +52,8 @@ import {
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
-import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import { SignalSourceProductApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
@@ -655,18 +656,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     if (!ticketUuid) {
                         return []
                     }
-                    try {
-                        const response = await signalsReportsList(getCurrentTeamId().toString(), {
-                            source_id: ticketUuid,
-                            source_product: 'conversations',
-                            include_all_statuses: true,
-                        })
-                        return response.results || []
-                    } catch (error) {
-                        // Supplementary context: a signals or ClickHouse hiccup must not break the ticket.
-                        console.error('Failed to load linked reports:', error)
-                        return []
-                    }
+                    // A teammate answering a customer needs to know an investigation was dismissed just
+                    // as much as that one is running, so this asks for the dismissed ones too.
+                    return await fetchLinkedReports({
+                        sourceProduct: SignalSourceProductApi.Conversations,
+                        sourceId: ticketUuid,
+                        includeAllStatuses: true,
+                    })
                 },
             },
         ],
