@@ -294,24 +294,29 @@ export function FreeformCanvasView({
   // Drafts are excluded from this list and fetched separately.
   const { versions, isLoading: versionsLoading } =
     useCanvasVersions(dashboardId);
-  const { drafts, isLoading: draftsLoading } = useCanvasDrafts(dashboardId);
+  // Drafts drive the Draft-preview/Promote toolbar, which only shows in edit
+  // mode; skip the fetch for read-only viewers (who cannot browse a draft).
+  const { drafts, isLoading: draftsLoading } = useCanvasDrafts(
+    interactive ? dashboardId : undefined,
+  );
   const commentTaskId = canvasCommentTaskId(genTaskId, versions);
   // The browsed version is a draft preview when it matches a staged draft
   // rather than a published version. Drives the Draft label and Promote action.
-  const browsedDraft =
-    drafts.find((draft) => draft.versionId === browseVersionId) ?? null;
-  const browsingDraft = !!browsedDraft;
+  const browsingDraft = drafts.some(
+    (draft) => draft.versionId === browseVersionId,
+  );
 
   // Clear a browse that points at a version the canvas no longer offers (e.g.
-  // pruned server-side while open). A browsed draft is a valid target, so it is
-  // not cleared.
+  // pruned server-side while open). Published versions and drafts are both valid
+  // browse targets.
   useEffect(() => {
     if (
       shouldClearCanvasBrowse({
-        versions,
-        drafts,
-        versionsLoading,
-        draftsLoading,
+        browseTargetIds: [
+          ...versions.map((version) => version.id),
+          ...drafts.map((draft) => draft.versionId),
+        ],
+        loading: versionsLoading || draftsLoading,
         browseVersionId,
       })
     ) {

@@ -114,46 +114,32 @@ describe("canvasVersionNavigation", () => {
 });
 
 describe("shouldClearCanvasBrowse", () => {
+  const VERSION_IDS = VERSIONS.map((v) => v.id);
+
   it.each([
-    ["no browse", null, false, VERSIONS, false],
-    ["browse still in the list", "v2", false, VERSIONS, false],
-    ["browse pruned from the list", "vX", false, VERSIONS, true],
-    ["still loading is not absence", "vX", true, VERSIONS, false],
-    ["empty list is not absence", "vX", false, [], false],
+    ["no browse", null, false, VERSION_IDS, false],
+    ["browse still in the list", "v2", false, VERSION_IDS, false],
+    ["browse pruned from the list", "vX", false, VERSION_IDS, true],
+    ["still loading is not absence", "vX", true, VERSION_IDS, false],
+    ["empty targets is not absence", "vX", false, [], false],
+    // A staged draft is a valid target even though it is not a published version.
+    [
+      "draft is a valid target",
+      "draft-1",
+      false,
+      [...VERSION_IDS, "draft-1"],
+      false,
+    ],
   ] as const)(
     "%s → %s",
-    (_name, browseVersionId, versionsLoading, versions, expected) => {
+    (_name, browseVersionId, loading, browseTargetIds, expected) => {
       expect(
         shouldClearCanvasBrowse({
-          versions: [...versions],
-          versionsLoading,
+          browseTargetIds: [...browseTargetIds],
+          loading,
           browseVersionId,
         }),
       ).toBe(expected);
     },
   );
-
-  it("keeps a browse that points at a draft (not in published history)", () => {
-    expect(
-      shouldClearCanvasBrowse({
-        versions: [...VERSIONS],
-        drafts: [{ versionId: "draft-1" }],
-        versionsLoading: false,
-        draftsLoading: false,
-        browseVersionId: "draft-1",
-      }),
-    ).toBe(false);
-  });
-
-  it("does not clear while drafts are still loading", () => {
-    expect(
-      shouldClearCanvasBrowse({
-        versions: [...VERSIONS],
-        drafts: [],
-        versionsLoading: false,
-        draftsLoading: true,
-        browseVersionId: "draft-1",
-      }),
-    ).toBe(false);
-  });
 });

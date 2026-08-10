@@ -337,21 +337,30 @@ def _assert_build_capacity(team_id: int) -> None:
         raise CanvasBuildCapacityExceeded
 
 
-def _claim_canvas_head(canvas: Canvas, *, has_expected_version: bool, expected_version_id: str | UUID | None) -> Canvas:
+def _claim_canvas_head(
+    canvas: Canvas,
+    *,
+    has_expected_version: bool,
+    expected_version_id: str | UUID | None,
+    check_capacity: bool = True,
+) -> Canvas:
     """Lock the canvas row and claim the right to advance its head.
 
-    Enforces the optimistic-version guard and the team build-capacity cap
-    under the row lock plus the team advisory lock. Must run inside a
-    transaction; returns the locked row. Raises CanvasVersionConflict or
-    CanvasBuildCapacityExceeded.
+    Enforces the optimistic-version guard under the row lock, and (unless
+    check_capacity is False) the team build-capacity cap under the team advisory
+    lock. Promote passes check_capacity=False so adopting an already-built draft
+    can't be blocked by the cap; it enforces capacity itself on the rebuild path.
+    Must run inside a transaction; returns the locked row. Raises
+    CanvasVersionConflict or CanvasBuildCapacityExceeded.
     """
     locked = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
     current_id = str(locked.current_source_version_id) if locked.current_source_version_id else None
     expected = str(expected_version_id) if expected_version_id else None
     if has_expected_version and current_id != expected:
         raise CanvasVersionConflict(current_id)
-    _lock_team_build_capacity(locked.team_id)
-    _assert_build_capacity(locked.team_id)
+    if check_capacity:
+        _lock_team_build_capacity(locked.team_id)
+        _assert_build_capacity(locked.team_id)
     return locked
 
 
@@ -483,28 +492,11 @@ def publish_source_project(
         canvas.save(update_fields=update_fields)
 
     # The pre-publish capabilities come from the parent version the claim
-    # recorded under the head lock — exact even against a concurrent publish,
-    # unlike a read taken before the transaction. None means "predates the
-    # snapshot", not "empty".
-    previous_capabilities = (
-        CanvasSourceVersion.objects.for_team(canvas.team_id)
-        .filter(pk=version.parent_version_id)
-        .values_list("capabilities", flat=True)
-        .first()
-        if version.parent_version_id
-        else None
+    # recorded under the head lock, so the diff is exact even against a
+    # concurrent publish.
+    changes = _capabilities_changes(
+        _version_capabilities(canvas.team_id, version.parent_version_id), version.capabilities
     )
-    changes = None
-    if previous_capabilities != version.capabilities:
-        changes = [
-            Change(
-                type="Canvas",
-                action="changed",
-                field="capabilities",
-                before=previous_capabilities,
-                after=version.capabilities,
-            )
-        ]
     _log_canvas_activity(
         canvas,
         user=created_by,
@@ -599,31 +591,13 @@ def create_draft_version(
         )
         build = _queue_build(version)
 
-    head_capabilities = (
-        CanvasSourceVersion.objects.for_team(canvas.team_id)
-        .filter(pk=version.parent_version_id)
-        .values_list("capabilities", flat=True)
-        .first()
-        if version.parent_version_id
-        else None
-    )
-    changes = None
-    if head_capabilities != version.capabilities:
-        changes = [
-            Change(
-                type="Canvas",
-                action="changed",
-                field="capabilities",
-                before=head_capabilities,
-                after=version.capabilities,
-            )
-        ]
+    head_capabilities = _version_capabilities(canvas.team_id, version.parent_version_id)
     _log_canvas_activity(
         canvas,
         user=created_by,
         was_impersonated=was_impersonated,
         activity="drafted",
-        detail=Detail(name=canvas.name, changes=changes),
+        detail=Detail(name=canvas.name, changes=_capabilities_changes(head_capabilities, version.capabilities)),
     )
     return version, build, capability_widening(head_capabilities, version.capabilities)
 
@@ -646,19 +620,12 @@ def promote_draft_version(
     drafts, CanvasVersionConflict, and CanvasBuildCapacityExceeded (rebuilds only).
     """
     with transaction.atomic(), team_scope(canvas.team_id):
-        canvas = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
-        current_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
-        expected = str(expected_current_version_id) if expected_current_version_id else None
-        if current_id != expected:
-            raise CanvasVersionConflict(current_id)
-        previous_head_capabilities = (
-            CanvasSourceVersion.objects.for_team(canvas.team_id)
-            .filter(pk=canvas.current_source_version_id)
-            .values_list("capabilities", flat=True)
-            .first()
-            if canvas.current_source_version_id
-            else None
+        # Same head guard as revert; capacity is only enforced on the rebuild
+        # path below, so adopting a surviving build can't hit the cap.
+        canvas = _claim_canvas_head(
+            canvas, has_expected_version=True, expected_version_id=expected_current_version_id, check_capacity=False
         )
+        previous_head_id = canvas.current_source_version_id
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
             pk=version_id, canvas_id=canvas.id, draft=True
         )
@@ -680,17 +647,7 @@ def promote_draft_version(
             build = _queue_build(version)
         canvas.save(update_fields=update_fields)
 
-    changes = None
-    if previous_head_capabilities != version.capabilities:
-        changes = [
-            Change(
-                type="Canvas",
-                action="changed",
-                field="capabilities",
-                before=previous_head_capabilities,
-                after=version.capabilities,
-            )
-        ]
+    changes = _capabilities_changes(_version_capabilities(canvas.team_id, previous_head_id), version.capabilities)
     _log_canvas_activity(
         canvas,
         user=user,
@@ -699,6 +656,26 @@ def promote_draft_version(
         detail=Detail(name=canvas.name, changes=changes),
     )
     return canvas, build
+
+
+def _version_capabilities(team_id: int, version_id: str | UUID | None) -> dict | None:
+    """The declared capabilities of a source version, or None when there is no such
+    version. None means "predates the capabilities snapshot", not an empty manifest."""
+    if not version_id:
+        return None
+    return (
+        CanvasSourceVersion.objects.for_team(team_id)
+        .filter(pk=version_id)
+        .values_list("capabilities", flat=True)
+        .first()
+    )
+
+
+def _capabilities_changes(before: dict | None, after: dict | None) -> list[Change] | None:
+    """A one-field Change list recording a capabilities-manifest diff, or None when unchanged."""
+    if before == after:
+        return None
+    return [Change(type="Canvas", action="changed", field="capabilities", before=before, after=after)]
 
 
 def _log_canvas_activity(

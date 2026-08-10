@@ -62,30 +62,21 @@ export function canvasVersionNavigation(args: {
 /**
  * Whether an active browse points at a version the canvas no longer offers
  * (e.g. it was pruned server-side while the canvas was open) and should be
- * cleared. A browsed draft counts as present — drafts are a valid preview
- * target even though they are excluded from the published history. A
- * still-loading history (versions or drafts) is not evidence of absence.
+ * cleared. `browseTargetIds` is every id that is a valid browse target —
+ * published versions and staged drafts alike (drafts are a valid preview
+ * target even though they are excluded from the published history). A
+ * still-loading history is not evidence of absence.
  */
 export function shouldClearCanvasBrowse(args: {
-  versions: readonly { id: string }[];
-  drafts?: readonly { versionId: string }[];
-  versionsLoading: boolean;
-  draftsLoading?: boolean;
+  browseTargetIds: readonly string[];
+  loading: boolean;
   browseVersionId: string | null;
 }): boolean {
-  const {
-    versions,
-    drafts = [],
-    versionsLoading,
-    draftsLoading = false,
-    browseVersionId,
-  } = args;
+  const { browseTargetIds, loading, browseVersionId } = args;
   return (
     !!browseVersionId &&
-    !versionsLoading &&
-    !draftsLoading &&
-    versions.length > 0 &&
-    !versions.some((v) => v.id === browseVersionId) &&
-    !drafts.some((d) => d.versionId === browseVersionId)
+    !loading &&
+    browseTargetIds.length > 0 &&
+    !browseTargetIds.includes(browseVersionId)
   );
 }

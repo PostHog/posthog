@@ -499,26 +499,28 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .select_related("created_by")
             .order_by("-created_at")[:VERSIONS_WINDOW]
         )
+        # Newest build per draft version. Only the id/status/version are needed,
+        # so skip the heavy manifest/diagnostics JSON columns.
         latest_build_by_version: dict[Any, CanvasBuild] = {}
-        for build in canvas.builds.filter(source_version_id__in=[version.id for version in draft_versions]).order_by(
-            "source_version_id", "-created_at"
+        for build in (
+            canvas.builds.filter(source_version_id__in=[version.id for version in draft_versions])
+            .only("id", "source_version_id", "status")
+            .order_by("source_version_id", "-created_at")
         ):
             latest_build_by_version.setdefault(build.source_version_id, build)
-        data = [
-            {
-                "version_id": str(version.id),
-                "prompt": version.prompt,
-                "created_by": version.created_by,
-                "created_at": version.created_at,
-                "build_status": latest_build_by_version[version.id].status
-                if version.id in latest_build_by_version
-                else None,
-                "build_id": str(latest_build_by_version[version.id].id)
-                if version.id in latest_build_by_version
-                else None,
-            }
-            for version in draft_versions
-        ]
+        data = []
+        for version in draft_versions:
+            build = latest_build_by_version.get(version.id)
+            data.append(
+                {
+                    "version_id": str(version.id),
+                    "prompt": version.prompt,
+                    "created_by": version.created_by,
+                    "created_at": version.created_at,
+                    "build_status": build.status if build else None,
+                    "build_id": str(build.id) if build else None,
+                }
+            )
         return Response(CanvasDraftSerializer(data, many=True).data)
 
     @extend_schema(
