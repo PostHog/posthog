@@ -130,6 +130,18 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             )
         return errors
 
+    def get_retryable_errors(self) -> set[str]:
+        # `/payments/search` has no internal retry wrapper — the shared session's retry adapter only
+        # covers GET/HEAD/OPTIONS, since POSTs aren't safe to blindly retry in general — but a search
+        # request has no side effects, so a 503 here is a transient upstream blip, not a bug. Temporal
+        # retries the whole activity, so this stays out of tracked exception noise. Matched on the full
+        # status+reason phrase (not just "for url: .../payments/search") so a 4xx on the same endpoint —
+        # which would be a real bug, e.g. a malformed request body — is never swallowed the same way.
+        return {
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
+            "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
