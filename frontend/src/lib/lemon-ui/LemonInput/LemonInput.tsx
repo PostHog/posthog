@@ -297,8 +297,13 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (onPressEnter && event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                            onPressEnter(event)
+                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                            // Enter commits without blurring — through onPressEnter, and through a
+                            // surrounding form's implicit submission even when there is no handler
+                            // here. End the draft either way, so the field stops showing empty while
+                            // the consumer's value is what actually got submitted.
+                            setNumberDraftEmpty(false)
+                            onPressEnter?.(event)
                         }
                     }}
                     {...props}

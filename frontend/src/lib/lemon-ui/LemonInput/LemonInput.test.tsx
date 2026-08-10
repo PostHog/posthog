@@ -163,6 +163,22 @@ describe('LemonInput', () => {
         expect(wrapper.classList).toContain('LemonInput--has-content')
     })
 
+    it('ends the draft when Enter commits without blurring', () => {
+        // A number input takes part in a form's implicit submission, and Enter fires no blur, so
+        // without this the field keeps reading empty while the consumer's fallback is what just
+        // got submitted. Deliberately not gated on an onPressEnter handler — implicit submission
+        // happens whether or not the consumer wired one.
+        const { container } = render(<NumberFieldHarness fallback={100} />)
+        const input = container.querySelector<HTMLInputElement>('input')!
+
+        fireEvent.focus(input)
+        fireEvent.change(input, { target: { value: '' } })
+        expect(input.value).toBe('')
+
+        fireEvent.keyDown(input, { key: 'Enter' })
+        expect(input.value).toBe('100')
+    })
+
     it('leaves a cleared text input to its consumer', () => {
         function TextFieldHarness(): JSX.Element {
             const [value, setValue] = useState<string>('abc')
