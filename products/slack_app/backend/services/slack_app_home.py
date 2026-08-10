@@ -20,6 +20,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 
@@ -356,6 +357,7 @@ def render_home_view(
     project_state: ProjectState | None = None,
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
+    has_project_access: bool = True,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -363,6 +365,14 @@ def render_home_view(
     blocks: list[dict] = []
 
     blocks.extend(_header_blocks())
+
+    # Nothing below the fold means anything to someone who can't reach a project: the
+    # cards are scoped to one, and mentioning @PostHog won't work either. Say so once
+    # and stop, rather than drawing empty cards that read as "you have no tasks yet".
+    if not has_project_access:
+        blocks.append({"type": "divider"})
+        blocks.extend(_no_project_access_blocks())
+        return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
 
     # Section 1 — workspace activity: aggregates across everyone's Slack-started work,
     # rather than the calling user's own. Admin-only, and first because it's the reason
@@ -468,6 +478,45 @@ def _header_blocks() -> list[dict]:
             "Tune how @PostHog mentions get routed and answered from this Slack workspace.",
         ),
     ]
+
+
+def _no_project_access_blocks() -> list[dict]:
+    """Shown when the viewer can't reach any PostHog project connected to this workspace.
+
+    Covers both halves of the same dead end — no project is connected yet, or one is but
+    the viewer isn't a member of its organization — because from Slack the two are
+    indistinguishable and the next step is the same page either way.
+    """
+    site_url = (settings.SITE_URL or "").rstrip("/")
+    blocks: list[dict] = [
+        _section_title(
+            "🔒 No project to show yet",
+            "This Slack workspace isn't connected to a PostHog project you can see, "
+            "so there's nothing to set up here and @PostHog mentions won't run.",
+        ),
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": ("Connect a project in PostHog, or ask an admin to add you to one that's already connected."),
+            },
+        },
+    ]
+    if site_url:
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "url": f"{site_url}/settings/project-integrations",
+                        "text": {"type": "plain_text", "text": "Connect PostHog to Slack", "emoji": True},
+                        "style": "primary",
+                    }
+                ],
+            }
+        )
+    return blocks
 
 
 def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
@@ -1314,6 +1363,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
+        has_project_access=bool(accessible),
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
@@ -1688,6 +1738,7 @@ def _republish_home(
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
+        has_project_access=bool(accessible),
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
@@ -1734,7 +1785,6 @@ def _resolve_tasks_state(
     accessible-team scoping) does not generalise.
     """
 
-    from django.conf import settings
     from django.utils import timezone as django_timezone
 
     from products.slack_app.backend.models import SlackThreadTaskMapping

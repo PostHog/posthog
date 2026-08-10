@@ -1160,3 +1160,51 @@ class TestInteractionResolvesTheViewersIntegration:
 
         assert first is not None and reordered is not None
         assert first.id == reordered.id == oldest
+
+
+class TestNoProjectAccessCard:
+    """What someone sees when no PostHog project connected here is visible to them.
+
+    Without this the tab draws its normal cards against nothing: no project picker, and a
+    Tasks card inviting them to mention @PostHog — which won't run either, for the same
+    reason. The regression to catch is a card reappearing in that state.
+    """
+
+    def _view(self, **overrides) -> dict:
+        kwargs: dict[str, Any] = {
+            "effective": AIPreferences(),
+            "user_row": None,
+            "is_admin": True,
+            "has_project_access": False,
+            "tasks_state": TasksState(),
+            "stats_state": StatsState(tasks_started=4),
+            "account_state": AccountState(enabled=True, link_url="https://app/link"),
+            "project_state": ProjectState(candidates=(ProjectChoice(team_id=1, label="Org · Team"),)),
+        }
+        kwargs.update(overrides)
+        return render_home_view(**kwargs)
+
+    def test_explains_the_dead_end_and_links_to_the_settings_page(self):
+        text = _all_text(self._view())
+
+        assert "No project to show yet" in text
+        assert "ask an admin" in text
+        urls = [
+            element["url"]
+            for block in self._view()["blocks"]
+            for element in block.get("elements", []) or []
+            if "url" in element
+        ]
+        assert urls == ["http://localhost:8010/settings/project-integrations"]
+
+    def test_suppresses_every_card_that_needs_a_project(self):
+        # Each of these would otherwise render from the states passed above.
+        text = _all_text(self._view())
+
+        assert "🦔 Tasks" not in text
+        assert "Workspace activity" not in text
+        assert "Project routing" not in text
+        assert not _action_ids(self._view())
+
+    def test_normal_tab_is_untouched_when_a_project_is_reachable(self):
+        assert "No project to show yet" not in _all_text(self._view(has_project_access=True))
