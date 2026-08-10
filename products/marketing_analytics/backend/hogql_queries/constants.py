@@ -575,11 +575,7 @@ TABLE_PATTERNS = {
         "campaign_table_keywords": _get_enum_values(_TABLE_KEYWORDS_ENUMS[source]),
         "campaign_table_exclusions": _get_enum_values(_TABLE_EXCLUSIONS_ENUMS[source]),
         "stats_table_keywords": [_get_field_default(config, "statsTableName")],
-        # The schema names the source config declares. Keywords cast a wide net so
-        # legacy and user-prefixed table names still resolve; these let the factory
-        # prefer an exact match when several synced schemas share a keyword.
         "campaign_table_name": _get_field_default(config, "campaignTableName"),
-        "stats_table_name": _get_field_default(config, "statsTableName"),
     }
     for source, config in _CONFIG_MODELS.items()
 }

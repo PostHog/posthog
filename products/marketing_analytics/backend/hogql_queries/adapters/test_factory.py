@@ -26,7 +26,6 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     TikTokAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
-from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -171,14 +170,13 @@ class TestMetaAdsConfigDiscovery(BaseTest):
     returns False at AD_GROUP / AD respectively.
     """
 
-    def _make_table(self, schema_name: str, columns: dict | None = None) -> DataWarehouseTable:
+    def _make_table(self, schema_name: str) -> DataWarehouseTable:
         """Build a DataWarehouseTable mock with name `metaads_<schema_name>`. The
         factory's `_extract_schema_name` strips the `metaads_` prefix to get the
         canonical schema name, which is what we match against MetaAdsResource.
         """
         table = Mock()
         table.name = f"metaads_{schema_name}"
-        table.columns = columns or {}
         return cast(DataWarehouseTable, table)
 
     def _make_factory(self) -> MarketingSourceFactory:
@@ -207,9 +205,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
         # static return type is the common base; cast to narrow for the tests.
         return cast(
             MetaAdsConfig | None,
-            factory._create_native_config(
-                self._make_source(), tables, NativeMarketingSource.META_ADS, MetaAdsConfig, MetaAdsAdapter
-            ),
+            factory._create_native_config(self._make_source(), tables, NativeMarketingSource.META_ADS, MetaAdsConfig),
         )
 
     def test_meta_only_campaign_tables_yields_config_with_no_optional_tables(self):
@@ -406,7 +402,6 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
     def _make_table(self, prefix: str, schema_name: str) -> DataWarehouseTable:
         table = Mock()
         table.name = f"{prefix}_{schema_name}"
-        table.columns = {}
         return cast(DataWarehouseTable, table)
 
     def _make_factory(self) -> MarketingSourceFactory:
@@ -452,13 +447,7 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         )
         tables = [self._make_table(prefix, schema) for schema in unique_schemas]
 
-        config = factory._create_native_config(
-            self._make_source(source_type),
-            tables,
-            native_source,
-            config_class,
-            MarketingSourceFactory._adapter_registry[source_type],
-        )
+        config = factory._create_native_config(self._make_source(source_type), tables, native_source, config_class)
 
         assert config is not None, f"{source_type} should produce a config from a full hierarchy"
         assert config.adset_table is not None, f"{source_type}: adset_table not detected"
@@ -488,13 +477,7 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         unique_schemas = list(dict.fromkeys(schemas[k] for k in ("campaign", "stats", "adset", "adset_stats")))
         tables = [self._make_table(prefix, schema) for schema in unique_schemas]
 
-        config = factory._create_native_config(
-            self._make_source(source_type),
-            tables,
-            native_source,
-            config_class,
-            MarketingSourceFactory._adapter_registry[source_type],
-        )
+        config = factory._create_native_config(self._make_source(source_type), tables, native_source, config_class)
 
         assert config is not None
         assert config.adset_table is not None
@@ -507,21 +490,10 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
             )
 
 
-class TestNativeCampaignSlotResolution(BaseTest):
-    """Campaign and stats slots are matched by keyword, so an unrelated synced schema can
-    claim a slot it has none of the columns for. Google Ads' `campaign_budget` matches the
-    same `campaign` keyword as `campaign` but carries no `campaign_id`, and binding it made
-    every marketing analytics query fail to resolve.
-    """
-
-    _GOOGLE_CAMPAIGN_COLUMNS = {"campaign_id": "String", "campaign_name": "String"}
-    _GOOGLE_STATS_COLUMNS = {"campaign_id": "String", "metrics_cost_micros": "Int64"}
-    _GOOGLE_BUDGET_COLUMNS = {"campaign_budget_id": "String", "campaign_budget_name": "String"}
-
-    def _make_table(self, schema_name: str, columns: dict) -> DataWarehouseTable:
+class TestNativeCampaignTableResolution(BaseTest):
+    def _make_table(self, schema_name: str) -> DataWarehouseTable:
         table = Mock()
         table.name = f"googleads.{schema_name}"
-        table.columns = columns
         return cast(DataWarehouseTable, table)
 
     def _make_factory(self) -> MarketingSourceFactory:
@@ -534,58 +506,28 @@ class TestNativeCampaignSlotResolution(BaseTest):
         context = QueryContext(date_range=date_range, team=self.team, base_currency=DEFAULT_CURRENCY)
         return MarketingSourceFactory(context=context)
 
-    def _create_google_config(self, tables: list[DataWarehouseTable]) -> GoogleAdsConfig | None:
+    @parameterized.expand([("budget_last", False), ("budget_first", True)])
+    def test_campaign_budget_never_wins_the_campaign_slot(self, _name: str, reverse: bool):
+        """`campaign_budget` contains the `campaign` keyword but has no campaign columns,
+        so binding it made every marketing analytics query fail to resolve with
+        `Field not found: campaign_id`. It used to win whenever it came last, and the
+        queryset supplying these tables has no ordering.
+        """
+        campaign = self._make_table("campaign")
+        stats = self._make_table("campaign_overview_stats")
+        budget = self._make_table("campaign_budget")
+        tables = [campaign, stats, budget]
+
         source = Mock()
         source.id = "googleads_source_id"
         source.source_type = "GoogleAds"
-        return cast(
-            GoogleAdsConfig | None,
-            self._make_factory()._create_native_config(
-                source, tables, NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig, GoogleAdsAdapter
-            ),
+        config = self._make_factory()._create_native_config(
+            source,
+            list(reversed(tables)) if reverse else tables,
+            NativeMarketingSource.GOOGLE_ADS,
+            GoogleAdsConfig,
         )
-
-    @parameterized.expand([("budget_last", False), ("budget_first", True)])
-    def test_campaign_budget_never_wins_the_campaign_slot(self, _name: str, reverse: bool):
-        campaign = self._make_table("campaign", self._GOOGLE_CAMPAIGN_COLUMNS)
-        stats = self._make_table("campaign_overview_stats", self._GOOGLE_STATS_COLUMNS)
-        budget = self._make_table("campaign_budget", self._GOOGLE_BUDGET_COLUMNS)
-        tables = [campaign, stats, budget]
-
-        config = self._create_google_config(list(reversed(tables)) if reverse else tables)
 
         assert config is not None
         assert config.campaign_table is campaign
         assert config.stats_table is stats
-
-    def test_keyword_only_match_prefers_the_table_carrying_the_id_column(self):
-        """No candidate matches the declared `campaign` schema name, so the slot falls back
-        to the keyword match — it must still pick a table the adapter can reference."""
-        legacy = self._make_table("campaign_budget", self._GOOGLE_BUDGET_COLUMNS)
-        renamed = self._make_table("campaign_v2", self._GOOGLE_CAMPAIGN_COLUMNS)
-        stats = self._make_table("campaign_overview_stats", self._GOOGLE_STATS_COLUMNS)
-
-        config = self._create_google_config([legacy, renamed, stats])
-
-        assert config is not None
-        assert config.campaign_table is renamed
-
-    def test_synced_campaign_table_without_id_column_drops_the_source(self):
-        """A single candidate is kept even when it can't be confirmed, but once it has
-        synced and demonstrably lacks the id column the adapter joins on, the source is
-        dropped so the rest of the dashboard still renders."""
-        budget_only = self._make_table("campaign_budget", self._GOOGLE_BUDGET_COLUMNS)
-        stats = self._make_table("campaign_overview_stats", self._GOOGLE_STATS_COLUMNS)
-
-        assert self._create_google_config([budget_only, stats]) is None
-
-    def test_unsynced_campaign_table_is_still_bound(self):
-        """`columns` is empty until the first sync lands — that must not be read as a
-        missing column, or a freshly connected source would vanish from the dashboard."""
-        campaign = self._make_table("campaign", {})
-        stats = self._make_table("campaign_overview_stats", {})
-
-        config = self._create_google_config([campaign, stats])
-
-        assert config is not None
-        assert config.campaign_table is campaign

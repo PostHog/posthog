@@ -66,45 +66,6 @@ def _extract_schema_name(table_suffix: str, source_type: str) -> str:
     return table_suffix
 
 
-def _table_has_column(table: DataWarehouseTable, column_name: str) -> bool:
-    """Column-existence check for a warehouse table, mirroring
-    `MarketingSourceAdapter._table_has_column` for the stage before an adapter exists."""
-    try:
-        columns = getattr(table, "columns", None)
-        return bool(columns and hasattr(columns, "__contains__") and column_name in columns)
-    except (TypeError, AttributeError, KeyError):
-        return False
-
-
-def _resolve_slot(
-    candidates: list[tuple[str, DataWarehouseTable]],
-    expected_schema_name: Optional[str],
-    required_column: Optional[str],
-) -> Optional[DataWarehouseTable]:
-    """Pick the table for a keyword-matched slot.
-
-    Keywords match on substrings, so an unrelated synced schema can claim a slot it has
-    none of the columns for — Google Ads' `campaign_budget` matches the same `campaign`
-    keyword as `campaign` but carries no campaign columns, which makes every query
-    referencing the campaign id fail to resolve. Prefer the schema name the source config
-    declares, then a candidate that actually exposes the column the adapter will
-    reference, and never let unordered database rows decide.
-    """
-    if not candidates:
-        return None
-    if expected_schema_name is not None:
-        for schema_name, table in candidates:
-            if schema_name == expected_schema_name:
-                return table
-    # `columns` stays empty until the first sync lands, so a lone candidate is kept even
-    # when the column can't be confirmed — the column check only breaks ties.
-    if len(candidates) > 1 and required_column is not None:
-        for _, table in candidates:
-            if _table_has_column(table, required_column):
-                return table
-    return candidates[0][1]
-
-
 class MarketingSourceFactory:
     """Factory for creating and managing marketing source adapters."""
 
@@ -252,7 +213,7 @@ class MarketingSourceFactory:
             if spec is None:
                 continue
             native_source, config_class = spec
-            config = self._create_native_config(source, tables, native_source, config_class, adapter_class)
+            config = self._create_native_config(source, tables, native_source, config_class)
             if config is None:
                 continue
             adapters.append(adapter_class(config=config, context=self.context))
@@ -265,7 +226,6 @@ class MarketingSourceFactory:
         tables: list[DataWarehouseTable],
         native_source: NativeMarketingSource,
         config_class: type[HierarchicalNativeAdsConfig],
-        adapter_class: type[MarketingSourceAdapter],
     ) -> Optional[HierarchicalNativeAdsConfig]:
         """Build the config for a native source: detect campaign + stats tables (always
         required), plus optional adset / ad entity + stats tables when the source has
@@ -276,11 +236,8 @@ class MarketingSourceFactory:
         """
         patterns = TABLE_PATTERNS[native_source]
         hierarchy_names = NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES.get(native_source, {})
-        # The columns the adapter will reference on whichever tables fill these slots.
-        campaign_pk_column = getattr(adapter_class, "_campaign_pk_column", None)
-        campaign_stats_fk_column = getattr(adapter_class, "_campaign_stats_fk_column", None)
-        campaign_candidates: list[tuple[str, DataWarehouseTable]] = []
-        stats_candidates: list[tuple[str, DataWarehouseTable]] = []
+        campaign_table: Optional[DataWarehouseTable] = None
+        campaign_stats_table: Optional[DataWarehouseTable] = None
         adset_table: Optional[DataWarehouseTable] = None
         adset_stats_table: Optional[DataWarehouseTable] = None
         ad_table: Optional[DataWarehouseTable] = None
@@ -294,63 +251,40 @@ class MarketingSourceFactory:
         ad_table_name = hierarchy_names.get("ad_table")
         ad_unified = ad_table_name is not None and ad_table_name == hierarchy_names.get("ad_stats_table")
 
-        # Sorted so every slot resolves the same way on each run: the queryset feeding
-        # `tables` has no ordering, and rows move as syncs rewrite them.
-        for table in sorted(tables, key=lambda t: t.name):
+        for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
-                campaign_candidates.append((schema_name, table))
+            # Exact schema-name match: a keyword match also claims unrelated schemas that
+            # merely contain it, such as Google Ads `campaign_budget`, which has none of
+            # the campaign columns the adapter goes on to reference.
+            if schema_name == patterns["campaign_table_name"]:
+                campaign_table = table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
-                stats_candidates.append((schema_name, table))
-            # Exact schema-name match (not keyword) so ad-group / ad tables don't
-            # collide with the campaign keyword.
-            elif adset_table is None and schema_name == hierarchy_names.get("adset_table"):
+                campaign_stats_table = table
+            elif schema_name == hierarchy_names.get("adset_table"):
                 adset_table = table
                 if adset_unified:
                     adset_stats_table = table
-            elif adset_stats_table is None and schema_name == hierarchy_names.get("adset_stats_table"):
+            elif schema_name == hierarchy_names.get("adset_stats_table"):
                 adset_stats_table = table
-            elif ad_table is None and schema_name == hierarchy_names.get("ad_table"):
+            elif schema_name == hierarchy_names.get("ad_table"):
                 ad_table = table
                 if ad_unified:
                     ad_stats_table = table
-            elif ad_stats_table is None and schema_name == hierarchy_names.get("ad_stats_table"):
+            elif schema_name == hierarchy_names.get("ad_stats_table"):
                 ad_stats_table = table
-
-        campaign_table = _resolve_slot(campaign_candidates, patterns["campaign_table_name"], campaign_pk_column)
-        campaign_stats_table = _resolve_slot(stats_candidates, patterns["stats_table_name"], campaign_stats_fk_column)
 
         # Legacy Google Ads users may have `campaign_stats` synced instead of the
         # newer registered `campaign_overview_stats` — same shape, accept either.
         if not campaign_stats_table and native_source == NativeMarketingSource.GOOGLE_ADS:
-            for table in sorted(tables, key=lambda t: t.name):
+            for table in tables:
                 if "campaign_stats" in table.name.split(".")[-1].lower():
                     campaign_stats_table = table
                     break
 
         if not (campaign_table and campaign_stats_table):
             return None
-
-        # A table that has synced but lacks the id column the adapter joins and groups on
-        # can't produce a resolvable query. Drop this one source so the rest of the
-        # dashboard still renders, rather than failing the whole union at compile time.
-        for table, column, slot in (
-            (campaign_table, campaign_pk_column, "campaign_table"),
-            (campaign_stats_table, campaign_stats_fk_column, "stats_table"),
-        ):
-            if column and table.columns and not _table_has_column(table, column):
-                self.logger.warning(
-                    "Skipping native marketing source: bound table is missing the expected id column",
-                    source_type=source.source_type,
-                    slot=slot,
-                    table=table.name,
-                    expected_column=column,
-                )
-                return None
 
         return config_class(
             source_type=source.source_type,
