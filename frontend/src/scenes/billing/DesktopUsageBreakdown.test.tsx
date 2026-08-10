@@ -16,7 +16,8 @@ describe('DesktopUsageBreakdown', () => {
                 }}
             />
         )
-        expect(screen.getByLabelText('82% tokens and 18% cloud compute')).toBeTruthy()
+        const usageMix = screen.getByLabelText('82% tokens and 18% cloud compute')
+        expect(usageMix.firstElementChild).toHaveStyle({ width: '82%' })
         expect(screen.getByText(/\$12\.34/)).toBeTruthy()
         expect(screen.getByText(/\$2\.66/)).toBeTruthy()
         expect(screen.getByText(/1\.5 core-seconds · 4\.5 GiB-seconds/)).toBeTruthy()

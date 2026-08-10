@@ -83,7 +83,7 @@ export const DesktopUsageBreakdown = ({ summary }: { summary: UsageSummary }): J
             >
                 {totalCredits > 0 && (
                     <>
-                        <div className="bg-accent" style={{ width: `${tokenPercent}%` }} />
+                        <div className="bg-accent" style={{ width: `${roundedTokenPercent}%` }} />
                         <div className="flex-1 bg-[var(--data-color-2)]" />
                     </>
                 )}
