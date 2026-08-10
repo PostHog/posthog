@@ -529,7 +529,9 @@ async def _relay_loop(
                         run_id=run_id,
                         status_code=status,
                     )
-                    await redis_stream.mark_error(f"Sandbox returned HTTP {status}")
+                    await _mark_sandbox_error_best_effort(
+                        redis_stream, run_id, f"Sandbox returned HTTP {status}"
+                    )
                     return True
                 # 5xx — transient server error, worth retrying
                 reconnect_count += 1
@@ -561,8 +563,10 @@ async def _relay_loop(
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
         # Exhausted reconnect attempts
-        await redis_stream.mark_error(
-            f"Lost connection to sandbox after {MAX_RECONNECT_ATTEMPTS} reconnection attempts"
+        await _mark_sandbox_error_best_effort(
+            redis_stream,
+            run_id,
+            f"Lost connection to sandbox after {MAX_RECONNECT_ATTEMPTS} reconnection attempts",
         )
         return True
     finally:
@@ -572,6 +576,19 @@ async def _relay_loop(
             await heartbeat_task
         except asyncio.CancelledError:
             pass
+
+
+async def _mark_sandbox_error_best_effort(
+    redis_stream: TaskRunRedisStream, run_id: str, message: str
+) -> None:
+    try:
+        await redis_stream.mark_error(message)
+    except Exception as error:
+        logger.exception(
+            "relay_sandbox_events_mark_error_failed",
+            run_id=run_id,
+            error=str(error),
+        )
 
 
 def _is_session_update(event_data: dict) -> bool:

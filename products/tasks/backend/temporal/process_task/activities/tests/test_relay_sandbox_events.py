@@ -26,6 +26,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _is_keepalive_event,
     _is_session_update,
     _mark_error_unless_run_is_terminal,
+    _mark_sandbox_error_best_effort,
     _persist_final_message,
     _relay_loop,
     relay_sandbox_events,
@@ -372,6 +373,22 @@ class TestRelaySandboxEventsMissingActor:
 
 
 class TestRelaySandboxEventsErrorHandling:
+    async def test_confirmed_sandbox_loss_survives_redis_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(mark_error=AsyncMock(side_effect=RuntimeError("redis unavailable")))
+        logger_mock = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "logger", logger_mock)
+
+        await _mark_sandbox_error_best_effort(
+            cast(TaskRunRedisStream, redis_stream), "run-id", "Sandbox returned HTTP 404"
+        )
+
+        redis_stream.mark_error.assert_awaited_once_with("Sandbox returned HTTP 404")
+        logger_mock.exception.assert_called_once_with(
+            "relay_sandbox_events_mark_error_failed",
+            run_id="run-id",
+            error="redis unavailable",
+        )
+
     @parameterized.expand(
         [
             ("read_error", httpx.ReadError),
@@ -712,8 +729,8 @@ class TestRelaySandboxEventsErrorHandling:
                 return None
 
             async def aiter_sse(self):
-                if False:
-                    yield
+                if getattr(self, "emit_event", False):
+                    yield SimpleNamespace()
 
         def fake_connect_sse(*_args: object, **_kwargs: object) -> EmptyEventSource:
             nonlocal connect_attempts
