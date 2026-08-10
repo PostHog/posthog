@@ -27,7 +27,13 @@ import {
 } from '@/tools/confirmed-action-runtime'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({ project_id: true })
+const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({
+    project_id: true,
+}).extend({
+    id: DataCatalogCertificationsCertifyCreateParams.shape['id'].describe(
+        'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
+    ),
+})
 
 const DataCatalogCertificationCertifySchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -93,6 +99,10 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
 
 const DataCatalogCertificationDeprecateSchema = DataCatalogCertificationsDeprecateCreateParams.omit({
     project_id: true,
+}).extend({
+    id: DataCatalogCertificationsDeprecateCreateParams.shape['id'].describe(
+        'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
+    ),
 })
 
 const DataCatalogCertificationDeprecateSchemaExecute = z.strictObject({
@@ -182,6 +192,9 @@ const dataCatalogCertificationPropose = (): ToolBase<
         }
         if (params.notes !== undefined) {
             body['notes'] = params.notes
+        }
+        if (params.proposed_status !== undefined) {
+            body['proposed_status'] = params.proposed_status
         }
         const result = await context.api.request<Schemas.DataCatalogCertification>({
             method: 'POST',

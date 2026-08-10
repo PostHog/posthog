@@ -213,6 +213,8 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
+    EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
     // $feature_flag_called keep-first dedup config
     /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
@@ -351,6 +353,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
 
         // $feature_flag_called keep-first dedup config
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',

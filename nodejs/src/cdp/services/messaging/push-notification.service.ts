@@ -65,10 +65,14 @@ const pushNotificationRescheduledCounter = new Counter({
 })
 
 // Apple rate-limits new APNs provider tokens (returns 429 TooManyProviderTokenUpdates if refreshed more
-// than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Redis
+// than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Valkey
 // keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
 const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
 const APNS_JWT_TTL_SECONDS = 45 * 60
+
+// One entry per signing key, so the ceiling is the number of APNs integrations routed through this pod.
+// Pruned on write rather than on a timer.
+const APNS_JWT_LOCAL_CACHE_MAX = 500
 
 // A push action fans out to its selected channels within one invocation. Cap the count so a workflow
 // crafted with a huge channel list can't tie up a worker with an unbounded outbound-request loop; a real
@@ -162,13 +166,20 @@ export class PushNotificationService {
         private integrationManager: IntegrationManagerService,
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
-        private redis: RedisV2 | null,
+        private valkey: RedisV2,
         private messageAssetsService?: MessageAssetsService
     ) {}
 
+    // Both Valkey calls for the APNs token are failOpen, so an outage turns every send into a fresh mint —
+    // the exact pattern Apple answers with 429 TooManyProviderTokenUpdates. This per-pod copy bounds that
+    // to one token per pod per TTL. It is a fallback, not the cache: Valkey is still read first, so the
+    // fleet normally shares one token per key.
+    private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
+
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (invocation.queueParameters?.type !== 'sendPushNotification') {
             throw new Error('Bad invocation')
@@ -196,7 +207,9 @@ export class PushNotificationService {
         // Business metrics are emitted once, at the terminal outcome below, rather than per channel — a
         // rescheduled attempt must not re-count the same notification's skips or failures on every retry.
         const pushMetric = (metricName: 'push_sent' | 'push_skipped' | 'push_failed', count: number): void => {
-            if (count <= 0) {
+            // A test send from the editor's "Run test" must not land in the workflow's Metrics tab,
+            // matching what the email path already does.
+            if (count <= 0 || isTest) {
                 return
             }
             result.metrics.push({
@@ -320,7 +333,9 @@ export class PushNotificationService {
         // Only a delivered notification is captured, matching email: an asset is a snapshot of what a
         // recipient received, and a skip has no recipient. Skips stay visible as `push_skipped` plus the
         // per-channel run log explaining why.
-        if (this.messageAssetsService && successCount > 0) {
+        // Skipped for a test send for the same reason the metrics are: the Assets tab should show
+        // what real recipients were sent, not what an editor preview produced.
+        if (this.messageAssetsService && successCount > 0 && !isTest) {
             // Best-effort: the notification is already delivered by this point, so a capture failure
             // must not fail the invocation. Throwing here would send the whole batch back for a retry
             // and deliver every notification in it a second time. Losing an Assets row is the cheaper
@@ -328,7 +343,7 @@ export class PushNotificationService {
             try {
                 const assetRow = this.messageAssetsService.buildRowForPush(invocation, params, [...deliveredPlatforms])
                 if (assetRow) {
-                    result.emailAssets.push(assetRow)
+                    result.messageAssets.push(assetRow)
                 }
             } catch (err) {
                 addLog('warn', 'The notification was delivered but could not be captured for the Assets tab.')
@@ -556,11 +571,16 @@ export class PushNotificationService {
         const keyFingerprint = createHash('sha256').update(`${teamId}:${keyId}:${signingKey}`).digest('hex')
         const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyFingerprint}`
 
-        const cached = await this.redis?.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
+        const cached = await this.valkey.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
             client.get(cacheKey)
         )
         if (cached) {
             return cached
+        }
+
+        const local = this.apnsJwtLocalCache.get(cacheKey)
+        if (local && local.expiresAtMs > Date.now()) {
+            return local.jwt
         }
 
         const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId })).toString('base64url')
@@ -572,10 +592,33 @@ export class PushNotificationService {
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
         const jwt = `${signingInput}.${signature}`
 
-        await this.redis?.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
+        this.rememberApnsJwtLocally(cacheKey, jwt)
+        await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
             client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
         )
         return jwt
+    }
+
+    private rememberApnsJwtLocally(cacheKey: string, jwt: string): void {
+        const nowMs = Date.now()
+        this.apnsJwtLocalCache.set(cacheKey, { jwt, expiresAtMs: nowMs + APNS_JWT_TTL_SECONDS * 1000 })
+
+        if (this.apnsJwtLocalCache.size <= APNS_JWT_LOCAL_CACHE_MAX) {
+            return
+        }
+        for (const [key, entry] of this.apnsJwtLocalCache) {
+            if (entry.expiresAtMs <= nowMs) {
+                this.apnsJwtLocalCache.delete(key)
+            }
+        }
+        // Map iterates in insertion order, so this drops the least recently minted. Safe because Valkey
+        // is the real cache — a dropped entry only costs a signature during an outage.
+        for (const key of this.apnsJwtLocalCache.keys()) {
+            if (this.apnsJwtLocalCache.size <= APNS_JWT_LOCAL_CACHE_MAX) {
+                break
+            }
+            this.apnsJwtLocalCache.delete(key)
+        }
     }
 
     private buildApnsPayload(payload: PushNotificationPayloadType): Record<string, unknown> {

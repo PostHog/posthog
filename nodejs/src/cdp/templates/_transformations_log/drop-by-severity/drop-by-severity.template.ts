@@ -6,7 +6,8 @@ export const template: HogFunctionTemplate = {
     type: 'transformation_log',
     id: 'template-log-transformation-drop-by-severity',
     name: 'Drop logs by severity',
-    description: 'Drop noisy log records at the configured severity levels (for example debug and trace).',
+    description:
+        'Drop noisy log records at the configured severity levels (for example debug and trace). Dropped records still count toward ingestion billing.',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     code_language: 'hog',

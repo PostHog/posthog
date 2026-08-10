@@ -29,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    REPORT_ENDPOINTS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -72,7 +74,7 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
 
-Your organization is the first part of your Gladly URL — for `myorg.gladly.com` enter `myorg`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Data comes from Gladly's scheduled export jobs, which retain files for 14 days — history older than that requires asking Gladly support to regenerate exports.""",
+Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversation and contact timestamps tables come from Gladly's reports instead and reach back 90 days on their first sync.""",
             iconPath="/static/services/gladly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gladly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -116,7 +118,16 @@ Your organization is the first part of your Gladly URL — for `myorg.gladly.com
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Report windows are re-read on resume and behind the watermark, so
+        # appending would duplicate rows (merge_only). The event-grain report
+        # tables are high-volume, so they start opt-in (should_sync_default).
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=REPORT_ENDPOINTS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,
@@ -125,15 +136,7 @@ Your organization is the first part of your Gladly URL — for `myorg.gladly.com
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        try:
-            if validate_gladly_credentials(config.organization, config.agent_email, config.api_token):
-                return True, None
-        except ValueError as e:
-            # A malformed organization is a distinct, actionable error — surface it
-            # instead of the generic credentials message.
-            return False, str(e)
-
-        return False, "Invalid Gladly credentials"
+        return validate_gladly_credentials(config.organization, config.agent_email, config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GladlyResumeConfig]:
         return ResumableSourceManager[GladlyResumeConfig](inputs, GladlyResumeConfig)

@@ -52,6 +52,12 @@ REPLAY_VISION_PROVIDER_CALL = Histogram(
     buckets=_PROVIDER_CALL_BUCKETS,
 )
 
+REPLAY_VISION_MISSION_PASSES = Counter(
+    "replay_vision_mission_passes_total",
+    "Full mission passes sent to the provider; rate against observations shows how hard the retry layers multiply",
+    ["model", "path"],
+)
+
 REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS = Counter(
     "replay_vision_quota_exhausted_skips_total",
     "Observations skipped because the org's monthly credit quota was exhausted",
@@ -62,6 +68,12 @@ REPLAY_VISION_CREDITS_CONSUMED = Counter(
     "replay_vision_credits_consumed_total",
     "Credits billed onto usage receipts at observation success",
     ["scanner_type", "model"],
+)
+
+REPLAY_VISION_BACKFILL_TICK_OUTCOMES = Counter(
+    "replay_vision_backfill_tick_outcomes_total",
+    "Backfill tick outcomes: dispatched, throttled, paused on quota, skipped, or completed",
+    ["outcome"],
 )
 
 REPLAY_VISION_SWEEP_OUTCOMES = Counter(
@@ -148,6 +160,12 @@ def record_provider_call(provider: str, model: str, scanner_type: str, outcome: 
     _otel.record_histogram_twin(REPLAY_VISION_PROVIDER_CALL, seconds, labels)
 
 
+def record_mission_pass(model: str, path: str) -> None:
+    labels = {"model": model, "path": path}
+    REPLAY_VISION_MISSION_PASSES.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_MISSION_PASSES, 1, labels)
+
+
 def record_quota_exhausted_skip(scanner_type: str) -> None:
     REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS.labels(scanner_type=scanner_type).inc()
     _otel.record_counter_twin(REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS, 1, {"scanner_type": scanner_type})
@@ -165,6 +183,11 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
     if candidates > 0:
         REPLAY_VISION_SWEEP_CANDIDATES.inc(candidates)
         _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATES, candidates, {})
+
+
+def record_backfill_tick_outcome(outcome: str) -> None:
+    REPLAY_VISION_BACKFILL_TICK_OUTCOMES.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_BACKFILL_TICK_OUTCOMES, 1, {"outcome": outcome})
 
 
 def record_observation_e2e(scanner_type: str, seconds: float) -> None:

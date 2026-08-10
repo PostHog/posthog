@@ -102,6 +102,14 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     signal_report_id = models.UUIDField(null=True, blank=True)
     # Which trigger created this report ("label" / "inbox" / "manual" / "ui"); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
+    # Reviewer-model experiment assignment, drawn once at creation and sticky for the report's life
+    # (see `REVIEW_EXPERIMENT_ARMS`). Adapter/model/effort/permission-mode persist as one bundle
+    # because a model without its adapter can't be routed. NULL on pre-experiment rows; reads
+    # resolve through `resolve_review_arm`, which falls back to the REVIEW_* pins.
+    review_runtime_adapter = models.CharField(max_length=32, null=True, blank=True)
+    review_model = models.CharField(max_length=128, null=True, blank=True)
+    review_reasoning_effort = models.CharField(max_length=32, null=True, blank=True)
+    review_initial_permission_mode = models.CharField(max_length=32, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

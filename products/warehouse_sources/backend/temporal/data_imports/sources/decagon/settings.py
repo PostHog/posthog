@@ -1,6 +1,27 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# How a list endpoint is walked:
+# - "cursor": a `cursor` request param fed from a next-page response field.
+# - "page":   `page`/`page_size` request params, terminating on the response's total.
+# - "offset": `limit`/`offset` request params, terminating on the response's total.
+# - "single": one request returns the whole list, no pagination params.
+PaginationMode = Literal["cursor", "page", "offset", "single"]
+
+# Format of the value an endpoint's `incremental_param` takes. Decagon is not internally
+# consistent across endpoints: the exports take epoch seconds, and /admin_log/get types
+# its bounds loosely. Confirm per endpoint rather than generalizing.
+IncrementalParamFormat = Literal["epoch_seconds", "iso8601"]
+
+# Decagon's export reference names the conversations next-page response field three
+# different ways: `next_page_cursor` in the parameter prose, `next_cursor` in the official
+# example code, and `next_page_updated_after` in the example response. Production
+# responses carry no usable `next_page_cursor` (reading only that name made the walk stop
+# after one page), so accept every documented name. All of them feed the same `cursor`
+# request param.
+CONVERSATIONS_NEXT_CURSOR_KEYS = ("next_page_cursor", "next_cursor", "next_page_updated_after")
 
 
 @dataclass
@@ -10,27 +31,116 @@ class DecagonEndpointConfig:
     # Top-level key in the JSON response that holds the list of rows
     # (e.g. `{"conversations": [...]}` -> `"conversations"`).
     data_key: str
-    primary_keys: list[str]
+    # None for streams with no documented unique id: they sync append-only, because a
+    # guessed composite key that turned out non-unique would silently merge distinct rows.
+    primary_keys: Optional[list[str]]
     incremental_fields: list[IncrementalField]
-    # Stable datetime field used for partitioning. Must never change for a row
-    # (so `created_at`, never `updated_at`).
-    partition_key: str
+    pagination: PaginationMode
+    # "cursor" mode: response fields that may carry the next-page cursor, tried in order.
+    next_cursor_keys: Optional[tuple[str, ...]] = None
+    # "cursor" mode: response field signalling whether more pages exist. When set, a falsy
+    # value ends the walk even if a cursor is present. None means the null cursor alone
+    # ends the walk.
+    has_more_key: Optional[str] = None
+    # "page"/"offset" modes: rows requested per page. None sends no size param and leaves
+    # the server default, in which case only an empty page ends the walk.
+    page_size: Optional[int] = None
+    # "page"/"offset" modes: response field carrying the total row count.
+    total_key: Optional[str] = None
+    # Stable datetime field used for partitioning, or None for tables with no timestamp.
+    # Must never change for a row (so `created_at`, never `updated_at`).
+    partition_key: Optional[str] = None
+    # Server-side query param that lower-bounds the incremental field, and the format its
+    # value takes. None means the endpoint has no server-side filter, so no incremental
+    # sync should be advertised for it.
+    incremental_param: Optional[str] = None
+    incremental_param_format: IncrementalParamFormat = "epoch_seconds"
+    # Param selecting which timestamp the bounds apply to (/conversation/export only).
+    timestamp_filter_param: Optional[str] = None
+    # Static query params always sent.
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # Order rows arrive in when the endpoint documents one. "desc" is also the safe
+    # declaration for endpoints whose order is undocumented: the pipeline then defers the
+    # incremental watermark to the end of a successful run instead of checkpointing
+    # mid-run, so a wrong guess cannot make a resumed sync skip rows.
+    sort_mode: Literal["asc", "desc"] = "asc"
+    # Whether the append sync type is offered alongside incremental. Streams whose rows
+    # mutate in place must leave this False: appends would accumulate one copy per
+    # mutation, and only a merge keeps the table at one row per primary key.
+    supports_append: bool = False
+    # Whether the table is selected by default on a new source. False for tables that
+    # fan out row counts or sync data a team should opt into deliberately.
+    should_sync_default: bool = True
 
 
-# Decagon's syncable surface is a single stream: /conversation/export returns
-# conversations with their messages, CSAT ratings, tags, and metadata, paginated
-# with a `cursor` request param and a `next_page_cursor` response field (null once
-# exhausted, up to 100 conversations per page). There is no server-side timestamp
-# filter, so the stream is full refresh only — the export cursor is an opaque
-# stream position, not a durable watermark our incremental machinery can use.
+# Decagon's per-endpoint contracts differ enough that everything rides this catalog: four
+# pagination styles, per-endpoint primary keys and partitioning, and incremental filters
+# whose param names and value formats vary by endpoint.
 DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
+    # /conversation/export returns conversations with their messages, CSAT ratings, tags,
+    # and metadata, up to 100 per page. It accepts min_timestamp/max_timestamp filters
+    # (epoch seconds), with `timestamp_filter` selecting the field they bound: created_at
+    # (the default), updated_at, or last_message_time. Rows always carry `updated_at`
+    # (ISO 8601), so the stream syncs incrementally by filtering on updated_at and merging
+    # on conversation_id. A conversation re-enters the export whenever it receives new
+    # messages, which is why the vendor recommends upserting on conversation_id rather
+    # than appending.
     "conversations": DecagonEndpointConfig(
         name="conversations",
         path="/conversation/export",
         data_key="conversations",
         primary_keys=["conversation_id"],
-        incremental_fields=[],
+        incremental_fields=[
+            {
+                "label": "updated_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "updated_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        pagination="cursor",
+        next_cursor_keys=CONVERSATIONS_NEXT_CURSOR_KEYS,
         partition_key="created_at",
+        incremental_param="min_timestamp",
+        incremental_param_format="epoch_seconds",
+        timestamp_filter_param="timestamp_filter",
+        # The export documents `order` with an asc default, walking oldest to newest.
+        sort_mode="asc",
+        # A conversation row mutates in place whenever new messages arrive.
+        supports_append=False,
+    ),
+    # /agent_assist/actions/export records every Agent Assist action a human support
+    # agent performed. It pages on next_cursor/has_more, which is a different contract
+    # from the conversations export. Events document no unique id, so the stream syncs
+    # append-only (windowed server-side on min_timestamp over created_at) rather than
+    # merging on a guessed composite key that could silently merge distinct actions.
+    # include_details adds a `detail` object (carrying detail.conversation_id, the join
+    # key to conversations) only when detail export is enabled for the team, so nothing
+    # may depend on it being present.
+    "agent_assist_actions": DecagonEndpointConfig(
+        name="agent_assist_actions",
+        path="/agent_assist/actions/export",
+        data_key="events",
+        primary_keys=None,
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        pagination="cursor",
+        next_cursor_keys=("next_cursor",),
+        has_more_key="has_more",
+        partition_key="created_at",
+        incremental_param="min_timestamp",
+        incremental_param_format="epoch_seconds",
+        extra_params={"include_details": "true"},
+        # This export documents no ordering, so desc is the safe declaration (see the
+        # field comment).
+        sort_mode="desc",
+        supports_append=True,
     ),
 }
 

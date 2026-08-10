@@ -32,7 +32,7 @@ type NotebookNodeCustomerJourneyAttributes = {
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourneyAttributes>): JSX.Element | null => {
     const isJourneysEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_JOURNEYS')
     const { expanded, notebookLogic } = useValues(notebookNodeLogic)
-    const { setMenuItems, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { setMenuItems, setTitlePlaceholder, setSettingsDisabledReason } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const logicKey = getLogicKey({ personId, groupKey, tabId })
 
@@ -45,6 +45,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
             setTitlePlaceholder(`Customer journey - ${activeJourney.name}`)
         }
     }, [setTitlePlaceholder, activeJourney])
+
+    // The settings panel only selects between journeys, so it has nothing to offer until one exists
+    useEffect(() => {
+        setSettingsDisabledReason(
+            !journeysLoading && journeyOptions.length === 0 ? 'Create a journey to configure this panel' : null
+        )
+    }, [setSettingsDisabledReason, journeysLoading, journeyOptions.length])
 
     useOnMountEffect(() => {
         const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.CustomerJourney)
