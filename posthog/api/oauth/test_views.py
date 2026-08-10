@@ -771,7 +771,10 @@ class TestOAuthAPI(APIBaseTest):
         # sends assertions) must be able to complete a PKCE exchange rather than being
         # locked out of every code and refresh grant.
         app, grant, _ = self._create_private_key_jwt_app_and_grant()
-        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+        with (
+            patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture,
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale") as mock_refresh,
+        ):
             response = self.post(
                 "/oauth/token/",
                 {
@@ -789,6 +792,9 @@ class TestOAuthAPI(APIBaseTest):
         # The stamp is what tells "partner still on none" apart from "partner switched to
         # assertions" in analytics, which is the signal for retiring the fallback.
         self.assertEqual(issued[0].kwargs["properties"]["client_auth_method"], "none")
+        # Fallback exchanges are the only requests a client living on `none` sends, so
+        # they must keep the CIMD document fresh the same way the assertion path does.
+        mock_refresh.assert_called_once_with(app.cimd_metadata_url)
 
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_non_cimd_confidential_client_rejected_without_assertion(self):
@@ -825,6 +831,47 @@ class TestOAuthAPI(APIBaseTest):
         ):
             response = self._post_assertion_exchange(app, grant, forged_assertion)
 
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
+    @parameterized.expand(
+        [
+            ("type_omitted", {}),
+            ("type_wrong", {"client_assertion_type": "urn:ietf:params:oauth:grant-type:jwt-bearer"}),
+        ]
+    )
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_assertion_with_bad_type_is_rejected_not_downgraded(self, _name, type_fields):
+        # A request carrying `client_assertion` with a missing or wrong assertion type must
+        # fail closed, not ride the credential-less fallback: keying the fallback on
+        # successful assertion resolution instead of raw field presence would let it
+        # through unverified while stamping the funnel as assertion adoption.
+        app, grant, _ = self._create_private_key_jwt_app_and_grant()
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "https://partner.example.com/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+                "client_assertion": "not-a-resolvable-assertion",
+                **type_fields,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_credentialless_cimd_private_key_jwt_client_cannot_revoke(self):
+        # The validator is shared with /oauth/revoke/, which carries no grant_type, so the
+        # fallback's grant-type gate is what keeps revocation on the declared method.
+        app, _, _ = self._create_private_key_jwt_app_and_grant()
+        response = self.post(
+            "/oauth/revoke/",
+            {
+                "client_id": app.client_id,
+                "token": "any-token-value",
+            },
+        )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
     @freeze_time("2025-01-01 00:00:00")

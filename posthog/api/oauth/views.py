@@ -407,11 +407,14 @@ class OAuthValidator(OAuth2Validator):
 
     def client_authentication_required(self, request, *args, **kwargs):
         """Route assertions to verification, and let credential-less CIMD private_key_jwt
-        clients fall back to public PKCE semantics.
+        clients fall back to public PKCE semantics on code and refresh exchanges.
 
-        A presented assertion always requires authentication, so it is verified rather than
-        ignored: without that, an invalid assertion for a client the library considers
-        public would silently downgrade into a successful bare-public exchange.
+        Keyed on the raw ``client_assertion`` field, not on whether it resolves: any
+        presented assertion, including one whose ``client_assertion_type`` is missing or
+        wrong, requires authentication and so gets verified rather than ignored. Without
+        that, an invalid assertion would silently downgrade into a successful bare-public
+        exchange, and the ``client_auth_method`` funnel stamp (also keyed on the raw
+        field) would count unverified traffic as assertion adoption.
 
         The credential-less fallback exists because a CIMD client's auth method is
         partner-declared metadata we re-read hourly, and registration marks a
@@ -419,30 +422,53 @@ class OAuthValidator(OAuth2Validator):
         partner whose runtime still authenticates with ``none`` (because it never re-reads
         our server metadata to learn we accept assertions) from every code and refresh
         exchange, in place and with no operator involved on either side. PKCE remains the
-        enforced baseline for the fallback, exactly as for any public client. Scoped to
-        this standard token endpoint: the agentic provisioning endpoints keep requiring the
-        declared method, and partners there demonstrably send assertions.
+        enforced baseline for the fallback, exactly as for any public client. The
+        grant-type gate in ``_credentialless_cimd_private_key_jwt_client`` keeps the
+        fallback off revocation, which shares this validator; the agentic provisioning
+        endpoints keep requiring the declared method, and partners there demonstrably
+        send assertions.
         """
-        if self._resolve_request_assertion(request) is not None:
+        if getattr(request, "client_assertion", None):
             return True
-        if self._is_credentialless_cimd_private_key_jwt_client(request):
+        if self._credentialless_cimd_private_key_jwt_client(request) is not None:
             return False
         return super().client_authentication_required(request, *args, **kwargs)
 
     def authenticate_client_id(self, request_client_id, request, *args, **kwargs):
         """The library rejects any confidential client here; permit the credential-less
-        CIMD private_key_jwt shape that client_authentication_required routed this way."""
+        CIMD private_key_jwt shape that client_authentication_required routed this way.
+
+        This is the point a fallback exchange is accepted, so the stale-metadata refresh
+        rides on it just as it does on the assertion path: without the enqueue, a client
+        living on credential-less refresh grants would keep stale scopes and config
+        forever."""
         if super().authenticate_client_id(request_client_id, request, *args, **kwargs):
             return True
-        return self._is_credentialless_cimd_private_key_jwt_client(request)
+        app = self._credentialless_cimd_private_key_jwt_client(request)
+        if app is None:
+            return False
+        if app.cimd_metadata_url:
+            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, app.client_id)
+        return True
 
-    def _is_credentialless_cimd_private_key_jwt_client(self, request) -> bool:
+    def _credentialless_cimd_private_key_jwt_client(self, request) -> OAuthApplication | None:
+        """The shape the public-PKCE fallback accepts: a code or refresh exchange for a
+        CIMD private_key_jwt client presenting no credential of any kind. Any presented
+        credential (assertion, secret, Basic auth) disqualifies the request so it
+        authenticates or fails, and the grant-type gate excludes requests without a token
+        grant, which is how revocation stays on the declared method."""
+        if getattr(request, "grant_type", None) not in ("authorization_code", "refresh_token"):
+            return None
+        if getattr(request, "client_assertion", None):
+            return None
         if self._extract_basic_auth(request):
-            return False
+            return None
         if getattr(request, "client_secret", None):
-            return False
+            return None
         app = self._load_application(getattr(request, "client_id", None) or "", request)
-        return bool(app and app.is_cimd_client and app.uses_private_key_jwt_auth)
+        if app is not None and app.is_cimd_client and app.uses_private_key_jwt_auth:
+            return app
+        return None
 
     def authenticate_client(self, request, *args, **kwargs):
         """Authenticate a confidential client, adding ``private_key_jwt`` (RFC 7523).
@@ -455,6 +481,22 @@ class OAuthValidator(OAuth2Validator):
         if self._authenticate_client_assertion(request):
             return True
         return super().authenticate_client(request, *args, **kwargs)
+
+    @staticmethod
+    def _enqueue_cimd_metadata_refresh(cimd_metadata_url: str, client_id: str) -> None:
+        """Token and refresh exchanges never pass through validate_client_id, which is
+        where a CIMD document is normally re-read, so a client living on refresh grants
+        alone would otherwise keep a stale auth method or key source forever.
+        Best-effort: a broker outage must not fail an otherwise valid exchange."""
+        try:
+            enqueue_cimd_refresh_if_stale(cimd_metadata_url)
+        except Exception as e:
+            logger.warning(
+                "oauth_cimd_refresh_enqueue_error",
+                client_id=client_id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
 
     @staticmethod
     def _resolve_request_assertion(request) -> tuple[str, str] | None:
@@ -475,19 +517,7 @@ class OAuthValidator(OAuth2Validator):
             return False
 
         if app.is_cimd_client and app.cimd_metadata_url:
-            # Token and refresh exchanges never pass through validate_client_id, which is
-            # where a CIMD document is normally re-read, so a client living on refresh
-            # grants alone would otherwise keep a stale auth method or key source forever.
-            # Best-effort: a broker outage must not fail an otherwise valid exchange.
-            try:
-                enqueue_cimd_refresh_if_stale(app.cimd_metadata_url)
-            except Exception as e:
-                logger.warning(
-                    "oauth_cimd_refresh_enqueue_error",
-                    client_id=client_id,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
+            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, client_id)
 
         try:
             verify_client_assertion(
