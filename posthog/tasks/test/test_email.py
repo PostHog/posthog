@@ -2451,6 +2451,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 },
                 False,
             ),
+            (
+                "master_off_wins",
+                {"materialized_view_sync_failed": False, "materialized_view_sync_failed_daily": True},
+                False,
+            ),
         ]
     )
     def test_send_matview_failure_digest_respects_daily_preference(
