@@ -20,7 +20,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_enabled
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -61,6 +61,10 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
 
     # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
     return _owner_only_billing_enabled(user, organization) is False
+
+
+def is_token_auth_request(request: Request) -> bool:
+    return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
 
 
 class HasBillingAccess(permissions.BasePermission):
@@ -160,6 +164,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Billing is not supported for this license type")
 
         org = self._get_org()
+        if is_token_auth_request(request):
+            if not org or not isinstance(request.user, User) or not user_has_billing_access(request.user, org):
+                raise PermissionDenied("You do not have access to Billing for this organization.")
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
