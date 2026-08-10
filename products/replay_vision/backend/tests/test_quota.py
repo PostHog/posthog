@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.date_util import start_of_month
 from posthog.models import Organization, Team
 
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -341,6 +342,26 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
         budget = compute_scanner_budget(self.scanner)
         assert budget.credits_used == 30
         assert budget.settled_credits == 15
+
+    def test_an_observation_settling_between_the_budget_reads_never_vanishes(self) -> None:
+        # Reservations are read before receipts, so a settlement between the reads is seen by both
+        # (over-counted once, failing toward capped) instead of by neither (an admission past the cap).
+        observation = self._make_observation(status=ObservationStatus.RUNNING)
+        real_in_flight = quota._scanner_in_flight_credits
+
+        def in_flight_then_settle(*args, **kwargs):
+            reserved = real_in_flight(*args, **kwargs)
+            ReplayObservation.objects.filter(pk=observation.pk).update(
+                status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()
+            )
+            observation.refresh_from_db()
+            self._make_receipt(observation)
+            return reserved
+
+        with patch.object(quota, "_scanner_in_flight_credits", side_effect=in_flight_then_settle):
+            budget = compute_scanner_budget(self.scanner)
+
+        assert budget.credits_used >= 15
 
 
 class TestScannerBudgetBlocked(SimpleTestCase):

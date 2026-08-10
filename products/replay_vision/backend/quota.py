@@ -208,8 +208,7 @@ def compute_scanner_budgets(
     Pass `period` to bill against a window the caller already resolved, so an org snapshot and the
     scanner budgets taken alongside it cannot straddle a period boundary.
     """
-    # noqa comment below: prompt_evaluation pulls in the temporal package, whose activities import
-    # this module. Deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
+    # Deferred: breaks the quota -> prompt_evaluation -> temporal -> quota import cycle.
     from products.replay_vision.backend.prompt_evaluation import (  # noqa: PLC0415
         in_flight_evaluation_credits_by_scanner,
     )
@@ -218,6 +217,12 @@ def compute_scanner_budgets(
         return {}
     if period is None:
         period = current_period_bounds(organization_id)
+    # Reservations are read BEFORE the receipt ledger: an observation settling between the two reads
+    # is then counted by both (a transient over-count that fails toward capped), never by neither.
+    in_flight = _scanner_in_flight_credits(organization_id, scanner_ids, period)
+    # Evaluations write receipts directly, never observation rows, so a running test would otherwise
+    # drain the cap invisibly. Not period-filtered: a live run charges whichever period it settles in.
+    in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, scanner_ids)
     settled = {
         row["scanner_id"]: row["total_credits"] or 0
         for row in ReplayObservationUsage.objects.filter(
@@ -229,13 +234,7 @@ def compute_scanner_budgets(
         .values("scanner_id")
         .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
     }
-    in_flight = _scanner_in_flight_credits(organization_id, scanner_ids, period)
-    # Evaluations write receipts directly and never create observation rows, so without this a running
-    # test would drain a scanner's cap invisibly to every gate that reads this budget. Not period-filtered:
-    # a run that is still alive will charge whichever period it settles in, as the org snapshot treats it.
-    in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, scanner_ids)
-    # Read the limits here rather than taking them as a parameter: a caller that forgot to pass them
-    # would get credit_limit=None, which reads as "uncapped" and would silently disable enforcement.
+    # Limits are read here, not passed in: a caller that forgot them would silently disable enforcement.
     # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
     scanner_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
         "id", "credit_limit", "model"
@@ -249,8 +248,7 @@ def compute_scanner_budgets(
         result[scanner_id] = ScannerBudget(
             credit_limit=config[0] if config else None,
             credits_used=settled_credits + reserved,
-            # An id outside this org, or a scanner deleted mid-read, has no model to price. Don't call
-            # the price table with an empty string: it would log an unknown-model warning per call.
+            # A scanner outside this org or deleted mid-read has no model; pricing "" would log a warning.
             credits_per_observation=observation_credits_for_model(config[1]) if config else 0,
             settled_credits=settled_credits,
         )
