@@ -3365,6 +3365,15 @@ def invalidate_github_repository_caches_for_installation(installation_id: str | 
     ).update(repository_cache_updated_at=None)
 
 
+def github_account_type(owner_type: str | None) -> str | None:
+    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
+    if owner_type == "Organization":
+        return "organization"
+    if owner_type == "User":
+        return "personal"
+    return None
+
+
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
 
@@ -3430,6 +3439,27 @@ class GitHubIntegration(GitHubIntegrationBase):
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        # Every other integration reports this from the API serializer's create(). GitHub is linked
+        # through its own App installation callback instead, which skips that path, so report it here
+        # to keep the kind comparable with the rest.
+        if created and created_by is not None:
+            from posthog.event_usage import (
+                report_user_action,  # noqa: PLC0415 — posthog.event_usage imports posthog.models
+            )
+
+            owner_type = config["account"]["type"]
+            report_user_action(
+                created_by,
+                "integration created",
+                {
+                    "integration_kind": "github",
+                    "is_overwrite": False,
+                    "repo_owner_type": owner_type,
+                    "account_type": github_account_type(owner_type),
+                },
+                team=integration.team,
+            )
 
         invalidate_github_repository_caches_for_installation(installation_id)
 

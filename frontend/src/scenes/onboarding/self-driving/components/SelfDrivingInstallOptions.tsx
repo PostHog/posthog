@@ -3,15 +3,20 @@ import { useActions } from 'kea'
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from 'scenes/onboarding/shared/wizard-sync/WizardInstallOptions'
 
+import { SelfDrivingGitHubConnect } from './SelfDrivingGitHubConnect'
+
+const CONNECTS_GITHUB = 'Connects your GitHub, so agents can open pull requests'
+
 /** What the self-driving run wires up, so the command isn't a leap of faith. */
 const WIZARD_SETS_UP = [
-    'Connects your GitHub, so agents can open pull requests',
+    CONNECTS_GITHUB,
     'Picks the signal sources and scouts worth watching',
     'Sends findings to your inbox as they land',
 ]
@@ -23,6 +28,8 @@ const WIZARD_SETS_UP = [
 export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
     const { reportSelfDrivingOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
+    // Read on both arms so the flag call itself is the experiment's exposure.
+    const gitHubPromptEnabled = useFeatureFlag('ONBOARDING_SELF_DRIVING_GITHUB_PROMPT', 'test')
 
     // Self-hosted: the wizard CLI only targets cloud + dev, so the command block renders nothing.
     // Show a real, actionable fallback instead of an empty step.
@@ -45,6 +52,7 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
             <p className="text-sm text-muted text-center m-0">
                 Run this in your project. It sets everything up and hands back an inbox that's already working.
             </p>
+            {gitHubPromptEnabled && <SelfDrivingGitHubConnect />}
             <WizardInstallOptions
                 hideHog
                 offerCloudRun={false}
@@ -60,10 +68,13 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
             />
             <CheckList
                 size="xs"
-                items={WIZARD_SETS_UP.map((line) => ({
-                    icon: <IconCheckCircle />,
-                    content: <span className="text-muted">{line}</span>,
-                }))}
+                // The prompt above already covers GitHub, so listing it again reads as a second ask.
+                items={WIZARD_SETS_UP.filter((line) => !gitHubPromptEnabled || line !== CONNECTS_GITHUB).map(
+                    (line) => ({
+                        icon: <IconCheckCircle />,
+                        content: <span className="text-muted">{line}</span>,
+                    })
+                )}
             />
         </div>
     )

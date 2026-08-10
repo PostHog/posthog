@@ -89,6 +89,7 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
+    github_account_type as _github_account_type,
 )
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
@@ -135,15 +136,6 @@ def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
     if error_code in SLACK_AUTH_FAILURE_CODES:
         raise SlackIntegrationInactiveError() from error
     raise error
-
-
-def _github_account_type(owner_type: str | None) -> str | None:
-    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
-    if owner_type == "Organization":
-        return "organization"
-    if owner_type == "User":
-        return "personal"
-    return None
 
 
 def validate_github_repository_name(repo: str) -> str:

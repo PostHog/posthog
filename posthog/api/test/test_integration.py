@@ -39,6 +39,7 @@ from posthog.models.integration import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     EmailIntegration,
+    GitHubInstallationAccess,
     GitHubIntegration,
     GitHubIntegrationError,
     GitHubUserAuthorization,
@@ -2077,6 +2078,45 @@ class TestGithubAccountTypeHelper:
         from posthog.api.integration import _github_account_type
 
         assert _github_account_type(owner_type) == expected
+
+
+class TestGitHubIntegrationCreatedReporting:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "reporting@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("posthog.event_usage.report_user_action")
+    @patch("posthog.models.integration.GitHubIntegration.fetch_installation_access")
+    def test_reports_integration_created_once_per_installation(self, mock_fetch, mock_report):
+        mock_fetch.return_value = GitHubInstallationAccess(
+            installation_id="12345",
+            installation_info={"account": {"type": "Organization", "login": "acme"}},
+            access_token="ghs_token",
+            token_expires_at=(timezone.now() + timedelta(hours=1)).isoformat(),
+            repository_selection="selected",
+        )
+
+        GitHubIntegration.integration_from_installation_id("12345", self.team.id, self.user)
+
+        assert mock_report.call_count == 1
+        args, kwargs = mock_report.call_args
+        assert args[1] == "integration created"
+        assert args[2] == {
+            "integration_kind": "github",
+            "is_overwrite": False,
+            "repo_owner_type": "Organization",
+            "account_type": "organization",
+        }
+        assert kwargs["team"] == self.team
+
+        # Token refreshes and repeat installs re-run this, and must not read as new connections.
+        GitHubIntegration.integration_from_installation_id("12345", self.team.id, self.user)
+
+        assert mock_report.call_count == 1
 
 
 class TestGitHubIntegrationStateValidation:

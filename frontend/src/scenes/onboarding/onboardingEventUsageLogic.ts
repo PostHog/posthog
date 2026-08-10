@@ -86,6 +86,12 @@ export interface onboardingEventUsageLogicActions {
     reportSelfDrivingOnboardingCompleted: (productKey: string) => {
         productKey: string
     }
+    reportSelfDrivingOnboardingGitHubAccessRequested: () => {
+        value: true
+    }
+    reportSelfDrivingOnboardingGitHubConnectClicked: () => {
+        value: true
+    }
     reportSelfDrivingOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => {
         mode: 'cloud' | 'local'
     }
@@ -177,6 +183,12 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
         reportSelfDrivingOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportSelfDrivingOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => ({ mode }),
         reportSelfDrivingOnboardingPlanSelected: (plan: 'free' | 'pay_as_you_go') => ({ plan }),
+        // GitHub prompt on the install step. Exposure rides on the flag read (`$feature_flag_called`),
+        // so these two only need to cover what the user does with the prompt. The connect click leaves
+        // the app for GitHub, so its outcome is the server-side `integration created` event, not a
+        // follow-up here.
+        reportSelfDrivingOnboardingGitHubConnectClicked: true,
+        reportSelfDrivingOnboardingGitHubAccessRequested: true,
         // Cloud-run funnel events mirror the backend `task_run_created` / `task_run_completed`
         // lifecycle events (products/tasks/backend/models.py) and reuse their property names.
         reportSelfDrivingOnboardingCloudRunQueued: (props: { taskId: string; runId: string; repository: string }) =>
@@ -258,6 +270,18 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
         reportSelfDrivingOnboardingPlanSelected: ({ plan }) => {
             posthog.capture('onboarding plan selected', {
                 plan,
+                ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
+            })
+        },
+        reportSelfDrivingOnboardingGitHubConnectClicked: () => {
+            posthog.capture('onboarding github connect clicked', {
+                ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
+            })
+        },
+        // No reason text: it is free-form and often names people or internal systems, and the
+        // backend already carries its length on `integration access requested`.
+        reportSelfDrivingOnboardingGitHubAccessRequested: () => {
+            posthog.capture('onboarding github access requested', {
                 ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
             })
         },
