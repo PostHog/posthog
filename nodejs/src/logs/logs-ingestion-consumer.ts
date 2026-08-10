@@ -1101,7 +1101,7 @@ export class LogsIngestionConsumer {
                     const token = headers.token
 
                     if (!token) {
-                        logger.error('missing_token')
+                        logger.warn('missing_token')
                         logMessageDroppedCounter.inc({ reason: 'missing_token', team_id: 'unknown' })
                         recordLogMessageDropped('missing_token', 'unknown')
                         return
@@ -1123,7 +1123,11 @@ export class LogsIngestionConsumer {
                     }
 
                     if (!team) {
-                        logger.error('team_not_found', { token_with_no_team: token })
+                        // A well-formed but unknown or rotated token is a client-input problem, not a
+                        // service fault. capture-logs accepts any well-formed token shape and defers team
+                        // resolution to here because it has no Postgres access, so this fires on every
+                        // dropped message for a bad token. Already tracked via the metrics below.
+                        logger.warn('team_not_found', { token_with_no_team: token })
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return
