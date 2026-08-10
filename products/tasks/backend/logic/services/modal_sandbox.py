@@ -1682,6 +1682,14 @@ class ModalSandbox(SandboxBase):
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
 
+    def read_cpu_usage_usec(self) -> int | None:
+        cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+        for line in cpu_stat.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "usage_usec":
+                return int(value)
+        return None
+
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING
 
