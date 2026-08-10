@@ -517,6 +517,30 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(account.name, "Renamed")
         self.assertEqual(account.properties.sfdc_id, "001xx")
 
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, status.HTTP_403_FORBIDDEN),
+            ("admin", OrganizationMembership.Level.ADMIN, status.HTTP_200_OK),
+        ]
+    )
+    def test_matching_update_requires_project_admin(
+        self, _name: str, membership_level: OrganizationMembership.Level, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save(update_fields=["level"])
+        account = self._create_account()
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"properties": {"known_emails": ["jane@acme.com"]}},
+            format="json",
+        )
+
+        self.assertEqual(expected_status, response.status_code, response.json())
+        account.refresh_from_db()
+        expected_emails = ["jane@acme.com"] if expected_status == status.HTTP_200_OK else []
+        self.assertEqual(expected_emails, account.properties.known_emails)
+
     def test_delete(self):
         account = self._create_account()
         account_id = account.id
