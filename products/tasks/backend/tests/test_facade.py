@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -294,6 +294,64 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(dto.run_status, run.status)
         self.assertEqual(run.state["systemPrompt"], {"type": "preset"})
         mock_workflow.assert_called_once()
+
+    def test_stale_in_progress_cloud_runs_are_scoped_to_cloud_and_age(self):
+        task = self._make_task()
+        fresh = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        stale = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        stale_local = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.LOCAL
+        )
+        stale_queued = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        stale_interactive = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"mode": "interactive"}
+        )
+        stale_background = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"mode": "background"}
+        )
+        past = django_timezone.now() - timedelta(hours=8)
+        TaskRun.objects.filter(
+            pk__in=[stale.pk, stale_local.pk, stale_queued.pk, stale_interactive.pk, stale_background.pk]
+        ).update(updated_at=past)
+
+        ids = facade.get_stale_in_progress_cloud_task_run_ids(timedelta(hours=4), timedelta(hours=13), 100)
+        self.assertIn(stale.id, ids)
+        self.assertNotIn(fresh.id, ids)
+        # A local run idles under the desktop agent, and a QUEUED run belongs to the other sweep.
+        self.assertNotIn(stale_local.id, ids)
+        self.assertNotIn(stale_queued.id, ids)
+        # Interactive sessions are uncapped and quiet by design, so the cap window says nothing
+        # about them; an explicit background mode is swept just like the default (absent) one.
+        self.assertNotIn(stale_interactive.id, ids)
+        self.assertIn(stale_background.id, ids)
+
+    def test_stale_in_progress_sweeps_interactive_runs_on_the_wider_window(self):
+        # Interactive runs are only exempt while the Temporal execution timeout can still be holding
+        # a live workflow. Past that ceiling nothing is left to terminalize the row, so the wider
+        # window must pick them up rather than leaving them IN_PROGRESS forever.
+        task = self._make_task()
+        interactive = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"mode": "interactive"}
+        )
+        background = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"mode": "background"}
+        )
+        past = django_timezone.now() - timedelta(hours=14)
+        TaskRun.objects.filter(pk__in=[interactive.pk, background.pk]).update(updated_at=past)
+
+        ids = facade.get_stale_in_progress_cloud_task_run_ids(timedelta(hours=4), timedelta(hours=13), 100)
+        self.assertIn(interactive.id, ids)
+        self.assertIn(background.id, ids)
+
+    @override_settings(TASKS_MAX_RUN_DURATION_SECONDS=20 * 60 * 60)
+    def test_execution_timeout_cutoff_stays_above_a_cap_raised_past_the_floor(self):
+        # The ceiling only exists to catch a workflow that can no longer terminalize itself. A cap
+        # raised past a fixed ceiling would invert that: the server would close every run before the
+        # in-workflow cap ever fired, making the reap path the normal one.
+        from products.tasks.backend.temporal.constants import resolve_process_task_execution_timeout
+
+        self.assertEqual(resolve_process_task_execution_timeout(), timedelta(hours=21))
+        self.assertEqual(facade.stale_in_progress_uncapped_cutoff(timedelta(hours=1)), timedelta(hours=22))
 
     def test_stale_queued_and_fail(self):
         task = self._make_task()

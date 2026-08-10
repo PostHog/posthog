@@ -97,6 +97,16 @@ STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "Errors raised while marking an idle local TaskRun COMPLETED in the stale-queued cleanup sweep",
 )
 
+STALE_IN_PROGRESS_TASK_RUN_SWEPT_COUNTER = Counter(
+    "posthog_task_run_stale_in_progress_swept_total",
+    "Cloud TaskRuns marked FAILED by the stale in-progress cleanup sweep",
+)
+
+STALE_IN_PROGRESS_TASK_RUN_ERRORS_COUNTER = Counter(
+    "posthog_task_run_stale_in_progress_errors_total",
+    "Errors raised while marking a TaskRun FAILED in the stale in-progress cleanup sweep",
+)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -262,6 +272,63 @@ def kill_stale_queued_task_runs() -> None:
         prewarmed_candidates=len(prewarmed_ids),
         prewarmed_swept=prewarmed_swept,
         prewarmed_errors=prewarmed_errors,
+        batch_size=BATCH_SIZE,
+        saturated=saturated,
+    )
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def kill_stale_in_progress_task_runs() -> None:
+    """Terminalize cloud TaskRuns stuck IN_PROGRESS with no workflow left to finish them.
+
+    The QUEUED sweeps only cover runs that never started. Once a run reaches IN_PROGRESS its
+    ``process-task`` workflow owns the terminal write, so a lost worker, an expired workflow
+    execution, or a corrupted history leaves the row IN_PROGRESS with nothing to move it — it is
+    counted as running forever and blocks every check that looks for a live run.
+
+    Autonomous runs bound their own lifetime with ``TASKS_MAX_RUN_DURATION_SECONDS``, so a row
+    untouched for longer than that cap plus a grace hour provably has no workflow behind it. Keying
+    on the setting (rather than a second hardcoded window) keeps the two bounds from drifting apart:
+    raising the cap automatically pushes this sweep out with it.
+
+    Interactive sessions are uncapped and stay quiet for as long as their human does, so that window
+    says nothing about them. They get the wider one: the Temporal execution timeout, which is the
+    only bound they have and which the server enforces whether or not the workflow can still write.
+    A session closed at that ceiling would otherwise sit IN_PROGRESS with no writer left at all.
+
+    ``claim_and_fail_stale_run`` is a compare-and-set on ``QUEUED``/``IN_PROGRESS``, so a workflow
+    that wakes up and terminalizes between selection and update wins and the sweep skips the row.
+    """
+    from products.tasks.backend.facade import api as tasks_facade
+
+    BATCH_SIZE = 500
+    GRACE = datetime.timedelta(hours=1)
+    STALE_AFTER = tasks_facade.stale_in_progress_cutoff(GRACE)
+    UNCAPPED_STALE_AFTER = tasks_facade.stale_in_progress_uncapped_cutoff(GRACE)
+    REASON = "Run was stuck in IN_PROGRESS with no live workflow and was killed by the cleanup job."
+
+    # Janitor sweep is intentionally cross-team — it runs without a team context.
+    stale_ids = tasks_facade.get_stale_in_progress_cloud_task_run_ids(STALE_AFTER, UNCAPPED_STALE_AFTER, BATCH_SIZE)
+    swept = errors = 0
+    for run_id in stale_ids:
+        try:
+            if tasks_facade.claim_and_fail_stale_run(run_id, REASON, error_type="stale_in_progress_cleanup"):
+                swept += 1
+                STALE_IN_PROGRESS_TASK_RUN_SWEPT_COUNTER.inc()
+        except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
+            errors += 1
+            STALE_IN_PROGRESS_TASK_RUN_ERRORS_COUNTER.inc()
+            capture_exception(exc)
+
+    saturated = len(stale_ids) >= BATCH_SIZE
+    log = logger.warning if saturated else logger.info
+    log(
+        "kill_stale_in_progress_task_runs.sweep_done",
+        candidates=len(stale_ids),
+        swept=swept,
+        errors=errors,
+        stale_after_seconds=STALE_AFTER.total_seconds(),
+        uncapped_stale_after_seconds=UNCAPPED_STALE_AFTER.total_seconds(),
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )

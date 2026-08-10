@@ -50,6 +50,7 @@ from posthog.tasks.tasks import (
     delete_expired_exported_assets,
     find_flags_with_enriched_analytics,
     ingestion_lag,
+    kill_stale_in_progress_task_runs,
     kill_stale_queued_task_runs,
     pg_plugin_server_query_timing,
     pg_table_cache_hit_rate,
@@ -271,6 +272,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="0"),
         kill_stale_queued_task_runs.s(),
         name="kill stale queued task runs",
+    )
+
+    # Stale IN_PROGRESS task run cleanup - hourly, offset from the QUEUED sweep above
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        kill_stale_in_progress_task_runs.s(),
+        name="kill stale in-progress task runs",
     )
 
     # Re-dispatch orphaned QUEUED task runs whose on_commit dispatch was lost - every 2 minutes

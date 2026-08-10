@@ -176,6 +176,7 @@ __all__ = [
     "get_sandbox_custom_image",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
+    "get_stale_in_progress_cloud_task_run_ids",
     "get_stale_prewarmed_queued_task_run_ids",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
@@ -228,6 +229,8 @@ __all__ = [
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
+    "stale_in_progress_cutoff",
+    "stale_in_progress_uncapped_cutoff",
     "start_task_run",
     "task_accessible_for_run_view",
     "task_exists",
@@ -939,6 +942,75 @@ def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -
             state__prewarmed=True,
             updated_at__lt=now - older_than,
         )
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def stale_in_progress_cutoff(grace: timedelta) -> timedelta:
+    """How long a capped IN_PROGRESS cloud run may sit untouched before it provably has no owner.
+
+    Keyed on ``TASKS_MAX_RUN_DURATION_SECONDS`` so the sweep window and the in-workflow cap cannot
+    drift apart: raising the cap pushes the sweep out with it. A cap of 0 or less disables the
+    in-workflow bound, leaving the Temporal execution timeout as the only bound on a run, so that
+    is the fallback rather than reaping everything older than ``grace``.
+    """
+    from ..temporal.constants import resolve_process_task_execution_timeout
+
+    cap_seconds = settings.TASKS_MAX_RUN_DURATION_SECONDS
+    base = timedelta(seconds=cap_seconds) if cap_seconds > 0 else resolve_process_task_execution_timeout()
+    return base + grace
+
+
+def stale_in_progress_uncapped_cutoff(grace: timedelta) -> timedelta:
+    """How long an IN_PROGRESS run exempt from the in-workflow cap may sit untouched.
+
+    Interactive sessions have no wall-clock cap, so the only bound left on them is the Temporal
+    execution timeout stamped on the workflow when it starts. A row untouched for longer than that
+    ceiling still bounds the workflow: the run row is written by the workflow itself when it takes
+    the run IN_PROGRESS, so the workflow started no later than the last write, and a row quiet for
+    longer than the ceiling therefore belongs to an execution Temporal has already closed.
+    """
+    from ..temporal.constants import resolve_process_task_execution_timeout
+
+    return resolve_process_task_execution_timeout() + grace
+
+
+def get_stale_in_progress_cloud_task_run_ids(
+    older_than: timedelta, uncapped_older_than: timedelta, limit: int
+) -> list[UUID]:
+    """Ids of cloud runs stuck IN_PROGRESS with no workflow left to terminalize them.
+
+    Two tiers, because the two kinds of run are bounded by different things:
+
+    - Capped (autonomous) runs are owned by a ``process-task`` workflow that bounds its own lifetime
+      with ``TASKS_MAX_RUN_DURATION_SECONDS``, so a row untouched past that cap has no workflow left
+      (worker lost, execution timed out, history corrupted). ``older_than`` must stay above the cap
+      so a healthy long run is never reaped mid-flight.
+    - Interactive runs are exempt from that cap (a human may hold a session open for hours) and the
+      live path writes S3 and Temporal rather than the run row, so a quiet ``updated_at`` says
+      nothing at cap range. Their only remaining bound is the Temporal execution timeout, so they
+      are swept at ``uncapped_older_than``, which must stay above it. Without this tier a session
+      the server closes at the ceiling would sit IN_PROGRESS with nothing left to write it.
+
+    Local runs are excluded outright: they sit IN_PROGRESS under the desktop agent, which reports
+    state on its own cadence and carries no Temporal execution behind it, so silence there is not
+    evidence of a dead owner at any window.
+
+    Intentionally cross-team — the janitor sweep runs without a team context.
+    """
+    now = django_timezone.now()
+    # `mode` defaults to background when absent, but a plain `exclude` on a JSON key compares against
+    # NULL and would drop those rows too, so the absent case is spelled out.
+    interactive = Q(state__mode="interactive")
+    capped = (Q(state__mode__isnull=True) | ~interactive) & Q(updated_at__lt=now - older_than)
+    uncapped = interactive & Q(updated_at__lt=now - uncapped_older_than)
+    return list(
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        .filter(capped | uncapped)
         .order_by("updated_at")
         .values_list("id", flat=True)[:limit]
     )

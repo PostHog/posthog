@@ -28,6 +28,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
+    resolve_process_task_execution_timeout,
 )
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
@@ -248,6 +249,7 @@ async def execute_task_processing_workflow_async(
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             task_queue=settings.TASKS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=3),
+            execution_timeout=resolve_process_task_execution_timeout(),
         )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
@@ -340,6 +342,7 @@ def execute_task_processing_workflow(
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 task_queue=settings.TASKS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=3),
+                execution_timeout=resolve_process_task_execution_timeout(),
             )
         )
 
@@ -480,6 +483,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 task_queue=settings.TASKS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=3),
+                execution_timeout=resolve_process_task_execution_timeout(),
             )
         )
     except WorkflowAlreadyStartedError:
@@ -512,6 +516,7 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=3),
+            execution_timeout=resolve_process_task_execution_timeout(),
         )
     )
 

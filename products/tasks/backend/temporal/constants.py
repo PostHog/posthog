@@ -82,6 +82,33 @@ def resolve_max_run_duration() -> timedelta | None:
     return timedelta(seconds=seconds) if seconds > 0 else None
 
 
+# Floor for the server-side ceiling below. Sized for the runs the in-workflow cap does not bound at
+# all (interactive sessions a human holds open), so lowering the cap never drags the ceiling down
+# onto them.
+PROCESS_TASK_EXECUTION_TIMEOUT_FLOOR = timedelta(hours=12)
+
+# Gap kept between the in-workflow cap and the server-side ceiling, so the cap always fires first.
+PROCESS_TASK_EXECUTION_TIMEOUT_HEADROOM = timedelta(hours=1)
+
+
+def resolve_process_task_execution_timeout() -> timedelta:
+    """Server-side ceiling on a whole `process-task` execution chain, continue-as-new included.
+
+    Set on every start_workflow call. The in-workflow cap is the bound that terminalizes a run
+    properly (it writes the terminal status); this only stops an execution that lost the ability to
+    do so from living forever in Temporal, and a workflow killed here leaves its run row behind for
+    the stale in-progress sweep to finish.
+
+    Derived from the cap rather than fixed so the two cannot invert: a deployment that raises
+    `TASKS_MAX_RUN_DURATION_SECONDS` past the floor would otherwise have the ceiling preempt the cap
+    on every run, turning the proper terminalization path into the reaped one.
+    """
+    cap = resolve_max_run_duration()
+    if cap is None:
+        return PROCESS_TASK_EXECUTION_TIMEOUT_FLOOR
+    return max(PROCESS_TASK_EXECUTION_TIMEOUT_FLOOR, cap + PROCESS_TASK_EXECUTION_TIMEOUT_HEADROOM)
+
+
 WARM_IDLE_TIMEOUT = timedelta(minutes=10)
 
 # CI follow-up cadence after the agent has been idle.
