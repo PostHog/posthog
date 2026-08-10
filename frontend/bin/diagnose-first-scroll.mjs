@@ -1,7 +1,7 @@
 // Diagnostic driver for the SQL editor "initial scroll delay". Not part of any suite —
 // throwaway harness, run against a local Storybook (pnpm storybook) on :6006.
 //
-//   node .diagnose-first-scroll.mjs --lines 900 --arm baseline
+//   node frontend/bin/diagnose-first-scroll.mjs --lines 900 --arm baseline
 //
 // Arms: baseline | no-outline | no-sticky | no-folding | no-wrap | stub-hpos | stub-vpos | no-border
 import { chromium } from 'playwright'

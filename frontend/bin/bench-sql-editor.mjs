@@ -3,12 +3,11 @@
 // without regressing the scroll path that PR #78998 fixed.
 //
 // Needs a local Storybook on :6006 (pnpm storybook).
-//   node .bench-sql-editor.mjs --lines 900
+//   node frontend/bin/bench-sql-editor.mjs --lines 900
 //
 // Reports, per phase, `blockedMs` (sum of each frame gap over the 16.7ms budget) and `maxGapMs`
 // (the longest single stall — the number a user actually feels as a freeze).
 import { readFileSync } from 'node:fs'
-
 import { chromium } from 'playwright'
 
 const args = Object.fromEntries(
