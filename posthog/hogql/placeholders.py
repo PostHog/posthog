@@ -35,6 +35,10 @@ class FindPlaceholders(TraversingVisitor):
                 self.has_filters = True
             else:
                 self.placeholder_fields.append(chain)
+        elif isinstance(node.expr, ast.Call) and node.expr.name == "filters":
+            # The column-bound form {filters(expr AS key, ...)} is resolved by replace_filters;
+            # classifying it as a generic expression placeholder would send it to the Hog VM instead.
+            self.has_filters = True
         else:
             self.placeholder_expressions.append(node.expr)
 

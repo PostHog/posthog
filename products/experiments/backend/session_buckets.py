@@ -45,8 +45,6 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Optional
 
-from django.db import models
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.schema import EventsNode
@@ -57,7 +55,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models import EventProperty
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -65,13 +62,8 @@ from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    DEFAULT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT,
-    build_exposure_event_conditions,
-    get_exposure_event_and_property,
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
-    resolve_default_exposure_event,
 )
 from products.experiments.backend.metric_events import (
     MetricEventSource,
@@ -83,6 +75,7 @@ from products.experiments.backend.metric_events import (
     resolve_metric_events,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
 
 logger = logging.getLogger(__name__)
 
@@ -263,40 +256,34 @@ def get_experiment_session_bucket(
 
     requested = _resolve_requested_metrics(experiment, metric_uuids)
     # The same rollout resolution the analysis queries apply, so the bucket population is counted
-    # on the event the experiment's results actually read.
-    default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
-    exposure_event, _ = get_exposure_event_and_property(
-        experiment.feature_flag.key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
-    )
-
-    # One EventProperty read covers both linkability decisions — whether the exposure event can
-    # match sessions at all, and which metrics can. The verdict must be the endpoint's own:
-    # callers other than the tab (the API, MCP tools) have no reason to know the lookup exists,
-    # and an empty bucket that's really an unlinkable event would read as "no sessions did this".
-    # An action-based exposure has no single event name to look up, so it fails open, the same
-    # posture action metric sources get.
-    # Collected per source, not per metric: `_source_event_names` is all-or-nothing, so a funnel
-    # with an action step among its named ones would contribute none of its event names and the
-    # boundary check below would pass on a name the lookup never asked about.
-    lookup_names: set[str] = {exposure_event} if exposure_event is not None else set()
+    # on the event the experiment's results actually read. The linkability verdict must be the
+    # endpoint's own: callers other than the tab (the API, MCP tools) have no reason to know the
+    # lookup exists, and an empty bucket that's really an unlinkable event would read as "no
+    # sessions did this".
+    #
+    # Event names collected per source, not per metric: `_source_event_names` is all-or-nothing, so
+    # a funnel with an action step among its named ones would contribute none of its event names and
+    # the boundary check below would pass on a name the lookup never asked about.
+    lookup_names: set[str] = set()
     for metric in requested:
         lookup_names |= _concrete_event_names(metric)
-    never_linked = _never_session_linked_events(team, lookup_names)
-    # Both default exposure events mean "this user was enrolled via the flag", which the stamped
-    # flag property implies too, so either can take the fallback.
-    use_exposure_fallback = (
-        exposure_event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT) and exposure_event in never_linked
-    )
-    if exposure_event in never_linked and not use_exposure_fallback:
-        # Only the default events have a stand-in. Custom criteria assert that something specific
-        # happened, which the stamped flag property doesn't imply, so falling back would answer
-        # over "the flag was active in this session" — a wider population than the criteria name.
+    exposure = resolve_session_exposure(team, experiment, event_names=frozenset(lookup_names))
+    if exposure.is_unmatchable:
         raise SessionBucketUnavailable(CUSTOM_EXPOSURE_UNLINKABLE_REASON)
 
-    considered, excluded = _partition_metrics(requested, bucket, never_linked)
+    considered, excluded = _partition_metrics(requested, bucket, exposure.never_linked)
 
     cache_key = _cache_key(
-        team, user, experiment, bucket, considered, variant, window_start, window_end, limit, default_exposure_event
+        team,
+        user,
+        experiment,
+        bucket,
+        considered,
+        variant,
+        window_start,
+        window_end,
+        limit,
+        exposure.default_exposure_event,
     )
     cached = get_safe_cache(cache_key)
     if cached is not None:
@@ -312,8 +299,7 @@ def get_experiment_session_bucket(
         window_start=window_start,
         window_end=window_end,
         limit=limit,
-        use_exposure_fallback=use_exposure_fallback,
-        default_exposure_event=default_exposure_event,
+        exposure=exposure,
     )
     result = SessionBucketScan(
         candidate_session_ids=candidate_session_ids,
@@ -326,7 +312,7 @@ def get_experiment_session_bucket(
         date_from=window_start,
         date_to=window_end,
         filter_test_accounts=filter_test_accounts,
-        used_exposure_fallback=use_exposure_fallback,
+        used_exposure_fallback=exposure.used_fallback,
     )
     safe_cache_set(cache_key, result, timeout=SESSION_BUCKET_CACHE_TTL)
     return result
@@ -383,7 +369,7 @@ def _resolve_requested_metrics(experiment: Experiment, metric_uuids: list[str]) 
 
 
 def _partition_metrics(
-    requested: list[MetricEventSource], bucket: SessionBucket, never_linked: set[str]
+    requested: list[MetricEventSource], bucket: SessionBucket, never_linked: frozenset[str]
 ) -> tuple[list[MetricEventSource], list[ExcludedBucketMetric]]:
     """Split the requested metrics into the ones the bucket is computed over and the ones that
     can't be matched to a recording at all, with the reason.
@@ -430,7 +416,7 @@ def _partition_metrics(
     return considered, excluded
 
 
-def _exclusion_reason(metric: MetricEventSource, never_linked: set[str]) -> Optional[str]:
+def _exclusion_reason(metric: MetricEventSource, never_linked: frozenset[str]) -> Optional[str]:
     if not metric.session_linkable:
         return DATA_WAREHOUSE_EXCLUSION_REASON
     if any(
@@ -469,24 +455,6 @@ def _source_event_names(metric: MetricEventSource) -> Optional[set[str]]:
     return names
 
 
-def _never_session_linked_events(team: Team, event_names: set[str]) -> set[str]:
-    """Event names never ingested with a `$session_id` property — only ever captured
-    server-side, so no recordings filter on them can match. The same `EventProperty` fact the
-    taxonomy `seen_together` endpoint serves the tab, read directly so the verdict doesn't
-    depend on the caller knowing to check."""
-    if not event_names:
-        return set()
-    seen = (
-        EventProperty.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(effective_project_id=team.project_id, event__in=sorted(event_names), property="$session_id")
-        .values_list("event", flat=True)
-        .distinct()
-    )
-    return event_names - set(seen)
-
-
 def _metric_condition(metric: MetricEventSource, team: Team) -> ast.Expr:
     """Match expression for "any of this metric's events" — the OR over its sources, built on the
     same matcher the analysis uses, so what counts as this metric's event can't diverge."""
@@ -505,7 +473,7 @@ def _funnel_completion_step(metric: MetricEventSource) -> MetricSource:
     return steps[-1]
 
 
-def _funnel_completion_reason(metric: MetricEventSource, never_linked: set[str]) -> Optional[str]:
+def _funnel_completion_reason(metric: MetricEventSource, never_linked: frozenset[str]) -> Optional[str]:
     """Why drop-off can't be asked of this funnel, or None when it can.
 
     The whole-metric check in `_exclusion_reason` is too coarse here. It clears a funnel as long
@@ -549,41 +517,10 @@ def _query_bucket_sessions(
     window_start: datetime,
     window_end: datetime,
     limit: int,
-    use_exposure_fallback: bool,
-    default_exposure_event: str,
+    exposure: SessionExposure,
 ) -> tuple[list[str], bool]:
-    flag_key = experiment.feature_flag.key
-    _event, variant_property = get_exposure_event_and_property(
-        flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
-    )
-    if use_exposure_fallback:
-        variant_property = f"$feature/{flag_key}"
-
     def exposure_condition() -> ast.Expr:
-        # The exposure criteria resolved through the shared helpers — the single seam that keeps
-        # this surface in sync with the analysis and with the player's session context. Rebuilt
-        # per use site: the HogQL resolver annotates ast nodes in place, so one instance can't
-        # appear in both the WHERE and the HAVING.
-        variant_condition = ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", variant_property])]),
-            right=ast.Constant(value=variant_keys),
-        )
-        if use_exposure_fallback:
-            # The default exposure event has only ever been captured server-side, so it can't
-            # match any session. posthog-js stamps `$feature/<flag_key>` on every client event
-            # captured after flags load, so the stamped property stands in — the same fallback
-            # the tab's own list uses. It means "the flag was active in this session", not "the
-            # enrollment moment was captured": no event-name condition, and the variant is the
-            # flag's value on each event rather than the exposure response.
-            return variant_condition
-        conditions = [
-            *build_exposure_event_conditions(
-                experiment.exposure_criteria, team, flag_key, default_exposure_event=default_exposure_event
-            ),
-            variant_condition,
-        ]
-        return ast.And(exprs=conditions) if len(conditions) > 1 else conditions[0]
+        return exposure.condition(variant_keys)
 
     def metric_conditions() -> list[ast.Expr]:
         return [_metric_condition(metric, team) for metric in considered]

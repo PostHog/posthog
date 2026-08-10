@@ -1415,6 +1415,17 @@ export interface TaskRunArtifactMetadataApi {
     schema_version: number
 }
 
+/**
+ * * `agent` - agent
+ * * `user` - user
+ */
+export type UploadedByEnumApi = (typeof UploadedByEnumApi)[keyof typeof UploadedByEnumApi]
+
+export const UploadedByEnumApi = {
+    Agent: 'agent',
+    User: 'user',
+} as const
+
 export interface TaskRunArtifactResponseApi {
     /** Stable identifier for the artifact within this run */
     id?: string
@@ -1434,9 +1445,16 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
+    /** Whether the artifact version was uploaded by the task agent or an interactive user.
+     *
+     * * `agent` - agent
+     * * `user` - user */
+    uploaded_by?: UploadedByEnumApi
+    /** User id for an interactive user upload. Absent for agent uploads and legacy entries. */
+    uploaded_by_user_id?: number
     /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
     dismissed_at?: string
-    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
     url?: string
 }
 
@@ -1510,6 +1528,13 @@ export interface TaskRunDetailDTOApi {
     completed_at?: string | null
 }
 
+export interface SlackThreadReferenceDTOApi {
+    url: string
+    channel: string
+    /** @nullable */
+    created_at?: string | null
+}
+
 /**
  * @nullable
  */
@@ -1562,6 +1587,7 @@ export interface TaskDetailDTOApi {
     ci_prompt: string | null
     /** @nullable */
     channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
 }
 
 export interface PaginatedTaskDetailDTOListApi {
@@ -3959,18 +3985,28 @@ export interface PaginatedTaskSummaryDTOListApi {
  * Request body for warming a full idling Run while composing a Code-app cloud task.
  *
  * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
- * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
- * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
- * it to the caller's team before use.
+ * interactive Run that boots and starts the agent, optionally cloning and checking out a repository,
+ * then idles awaiting the first message. `github_integration` is a plain integration PK (an integer);
+ * the view re-scopes it to the caller's team before use.
  */
 export interface WarmTaskRequestApi {
     /**
-     * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+     * Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
      * @maxLength 255
+     * @nullable
      */
-    repository: string
-    /** Primary key of the team's GitHub integration to clone with. */
-    github_integration: number
+    repository?: string | null
+    /**
+     * GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.
+     * @maxItems 3
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
+     * Primary key of the team's GitHub integration to clone with when a repository is selected.
+     * @nullable
+     */
+    github_integration?: number | null
     /**
      * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
      * @maxLength 255

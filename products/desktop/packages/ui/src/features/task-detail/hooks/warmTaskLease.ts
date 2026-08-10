@@ -4,7 +4,8 @@ export interface WarmTaskLease {
 }
 
 export interface WarmTaskLeaseKeyParts {
-  repository: string;
+  repository?: string | null;
+  repositories?: string[];
   branch?: string | null;
   runtimeAdapter?: string | null;
   model?: string | null;
@@ -15,7 +16,9 @@ export interface WarmTaskLeaseKeyParts {
 
 export function buildWarmTaskLeaseKey(parts: WarmTaskLeaseKeyParts): string {
   return [
-    parts.repository,
+    (parts.repositories ?? (parts.repository ? [parts.repository] : [])).join(
+      ",",
+    ),
     parts.branch ?? "",
     parts.runtimeAdapter ?? "",
     parts.model ?? "",
