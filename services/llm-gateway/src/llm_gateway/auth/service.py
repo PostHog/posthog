@@ -15,6 +15,10 @@ from llm_gateway.metrics.prometheus import AUTH_CACHE_HITS, AUTH_CACHE_MISSES, A
 BEARER_PATTERN = re.compile(r"^Bearer\s+(\S+)$", re.IGNORECASE)
 PROJECT_SCOPE_HEADER = "x-posthog-project-id"
 MAX_PROJECT_ID = 2_147_483_647
+# Denials expire fast so access granted moments after a failed attempt becomes
+# usable within a minute, while the short window still absorbs repeated denied
+# requests. Allows keep the full OAuth auth TTL.
+PROJECT_SCOPE_DENIAL_TTL_SECONDS = 60
 
 
 class InvalidProjectScopeError(Exception):
@@ -118,10 +122,11 @@ class AuthService:
         """Rebind the user to the selected project when live org membership and
         the token's scoped teams/organizations allow it.
 
-        Decisions (allow and deny) are cached per token-and-project for the
-        OAuth auth TTL, so this adds no per-request database query on the
-        steady-state path, and a membership or scope revocation propagates
-        within the same window as a token revocation.
+        Allows are cached per token-and-project for the OAuth auth TTL, so the
+        steady-state path adds no per-request database query and a membership
+        revocation propagates within the same window as a token revocation.
+        Denials are cached for PROJECT_SCOPE_DENIAL_TTL_SECONDS so newly
+        granted access becomes usable within a minute.
         """
         token_hash = next(auth.hash_token(token) for auth in self._authenticators if auth.matches(token))
         cache_key = f"{token_hash}:project:{project_id}"
@@ -133,8 +138,6 @@ class AuthService:
                 raise UnauthorizedProjectScopeError
             return cached
         AUTH_CACHE_MISSES.labels(auth_type="oauth_project_scope").inc()
-
-        ttl = get_settings().auth_cache_ttl_oauth
 
         async with acquire_connection(pool) as conn:
             project = await conn.fetchrow(
@@ -156,11 +159,11 @@ class AuthService:
             and str(project["organization_id"]) not in scoped_organizations
         )
         if denied:
-            self._cache.set(cache_key, None, ttl=ttl)
+            self._cache.set(cache_key, None, ttl=PROJECT_SCOPE_DENIAL_TTL_SECONDS)
             raise UnauthorizedProjectScopeError
 
         rebound = replace(user, team_id=project_id)
-        self._cache.set(cache_key, rebound, ttl=ttl)
+        self._cache.set(cache_key, rebound, ttl=get_settings().auth_cache_ttl_oauth)
         return rebound
 
 

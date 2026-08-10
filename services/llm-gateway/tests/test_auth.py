@@ -1,6 +1,6 @@
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import Request
@@ -11,6 +11,7 @@ from llm_gateway.auth.authenticators import (
 )
 from llm_gateway.auth.cache import AuthCache, reset_auth_cache
 from llm_gateway.auth.service import (
+    PROJECT_SCOPE_DENIAL_TTL_SECONDS,
     AuthService,
     InvalidProjectScopeError,
     UnauthorizedProjectScopeError,
@@ -335,15 +336,24 @@ class TestAuthService:
                     "scoped_organizations": None,
                 },
                 None,
+                {"id": 999, "organization_id": "org-2"},
             ]
         )
 
-        with pytest.raises(UnauthorizedProjectScopeError):
-            await auth_service.authenticate_request(request, mock_pool)
-        with pytest.raises(UnauthorizedProjectScopeError):
-            await auth_service.authenticate_request(request, mock_pool)
+        clock = {"now": 1000.0}
+        with patch("llm_gateway.auth.cache.time.monotonic", side_effect=lambda: clock["now"]):
+            with pytest.raises(UnauthorizedProjectScopeError):
+                await auth_service.authenticate_request(request, mock_pool)
+            with pytest.raises(UnauthorizedProjectScopeError):
+                await auth_service.authenticate_request(request, mock_pool)
+            assert conn.fetchrow.await_count == 2
 
-        assert conn.fetchrow.await_count == 2
+            clock["now"] += PROJECT_SCOPE_DENIAL_TTL_SECONDS + 1
+            granted = await auth_service.authenticate_request(request, mock_pool)
+
+        assert granted is not None
+        assert granted.team_id == 999
+        assert conn.fetchrow.await_count == 3
 
 
 class TestPersonalApiKeyAuthenticator:
