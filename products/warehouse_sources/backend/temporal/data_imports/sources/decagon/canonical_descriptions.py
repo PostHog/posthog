@@ -21,4 +21,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "metadata": "Custom metadata attached to the conversation (e.g. user attributes).",
         },
     },
+    "agent_assist_actions": {
+        "description": (
+            "An Agent Assist action performed by a human support agent, one row per action. "
+            "An append-only event stream used to measure agent adoption of AI assist features."
+        ),
+        "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
+        "columns": {
+            "created_at": "Timestamp at which the action was performed.",
+            "agent_name": "Name of the human support agent who performed the action.",
+            "action_name": "Name of the Agent Assist action that was performed.",
+            "ticket_id": "Identifier of the support ticket the action relates to.",
+            "detail": (
+                "Additional detail about the action, including the id of the conversation it "
+                "relates to. Present only when detail export is enabled for the team."
+            ),
+        },
+    },
 }
