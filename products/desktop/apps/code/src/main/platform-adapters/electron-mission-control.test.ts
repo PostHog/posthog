@@ -129,6 +129,63 @@ describe("MissionControlService", () => {
     expect(sampleSpy).toHaveBeenCalledTimes(3);
   });
 
+  it("arms once even when show and restore both fire", () => {
+    // The window wires both events to arm(); a second interval would double
+    // every FFI call.
+    const { impl } = fakeSampler();
+    const sampleSpy = vi.spyOn(impl, "sample");
+    sampler.create.mockReturnValue(impl);
+    const service = new MissionControlService();
+
+    service.arm();
+    service.arm();
+    vi.advanceTimersByTime(250);
+
+    expect(sampleSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("only counts consecutive failures toward giving up", () => {
+    const { state, impl } = fakeSampler();
+    sampler.create.mockReturnValue(impl);
+    const service = new MissionControlService();
+
+    service.arm();
+    state.error = new Error("flake");
+    vi.advanceTimersByTime(500);
+    state.error = null;
+    vi.advanceTimersByTime(250);
+    state.error = new Error("flake");
+    vi.advanceTimersByTime(500);
+
+    // Four failures total but never three in a row, so detection still runs.
+    state.error = null;
+    state.windows = [MISSION_CONTROL_BACKING];
+    vi.advanceTimersByTime(250);
+    expect(service.getState().active).toBe(true);
+  });
+
+  it("retries the window list on a fresh arm after a runtime give-up", () => {
+    const { state, impl } = fakeSampler();
+    sampler.create.mockReturnValue(impl);
+    const service = new MissionControlService();
+
+    service.arm();
+    state.error = new Error("CoreGraphics went away");
+    vi.advanceTimersByTime(250 * 3);
+
+    // Given up: nothing polls even though Mission Control is now detectable.
+    state.error = null;
+    state.windows = [MISSION_CONTROL_BACKING];
+    vi.advanceTimersByTime(1000);
+    expect(service.getState().active).toBe(false);
+
+    service.arm();
+    vi.advanceTimersByTime(250);
+
+    expect(sampler.create).toHaveBeenCalledTimes(2);
+    expect(service.getState().active).toBe(true);
+  });
+
   it("never touches the window list off macOS", () => {
     pretendPlatform("linux");
     const service = new MissionControlService();
@@ -149,6 +206,12 @@ describe("MissionControlService", () => {
 
     expect(sampler.create).toHaveBeenCalledTimes(1);
     expect(service.getState().active).toBe(false);
+
+    // Unlike a runtime give-up, a failed resolve is final: re-arming must not
+    // retry the bind on every window show.
+    service.disarm();
+    service.arm();
+    expect(sampler.create).toHaveBeenCalledTimes(1);
   });
 
   it("survives a window list that fails to bind", () => {

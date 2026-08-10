@@ -148,7 +148,11 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
       this.consecutiveErrors += 1;
       if (this.consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         log.warn("Giving up on Mission Control detection", { error });
+        // Runtime failures can be transient, so the next arm() re-resolves the
+        // sampler; only a failed bind stays off for the rest of the run.
         this.sampler = null;
+        this.resolved = false;
+        this.consecutiveErrors = 0;
         this.disarm();
       }
       return;
