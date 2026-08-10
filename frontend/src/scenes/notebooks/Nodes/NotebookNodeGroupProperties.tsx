@@ -9,14 +9,17 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { PropertyDefinitionType } from '~/types'
 
-import { NotebookNodeType } from '../types'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { Properties } from './components/Properties'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = (): JSX.Element | null => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupPropertiesAttributes>): JSX.Element | null => {
+    const { groupKey, groupTypeIndex } = attributes
+
     const { expanded } = useValues(notebookNodeLogic)
 
-    const { groupData, groupDataLoading } = useValues(groupLogic)
+    const logic = groupLogic({ groupKey, groupTypeIndex })
+    const { groupData, groupDataLoading } = useValues(logic)
     const { pinnedGroupProperties } = useValues(userPreferencesLogic)
     const { pinGroupProperty, unpinGroupProperty } = useActions(userPreferencesLogic)
 
@@ -42,6 +45,11 @@ const Component = (): JSX.Element | null => {
     )
 }
 
+type NotebookNodeGroupPropertiesAttributes = {
+    groupKey: string
+    groupTypeIndex: number
+}
+
 export const NotebookNodeGroupProperties = createPostHogWidgetNode({
     nodeType: NotebookNodeType.GroupProperties,
     titlePlaceholder: 'Properties',
@@ -49,5 +57,8 @@ export const NotebookNodeGroupProperties = createPostHogWidgetNode({
     resizeable: false,
     expandable: true,
     startExpanded: true,
-    attributes: {},
+    attributes: {
+        groupKey: {},
+        groupTypeIndex: {},
+    },
 })

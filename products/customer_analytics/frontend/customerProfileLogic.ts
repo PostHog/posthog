@@ -646,6 +646,8 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                 attrs: {
                     ...node.attrs,
                     nodeId,
+                    groupKey,
+                    groupTypeIndex,
                 },
             }
         case NotebookNodeType.Query:
