@@ -179,6 +179,136 @@ class AccountRef:
     external_id: str | None
 
 
+class AccountTableField(str, Enum):
+    NAME = "name"
+    EXTERNAL_ID = "external_id"
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    STRIPE_CUSTOMER_ID = "stripe_customer_id"
+    HUBSPOT_DEAL_ID = "hubspot_deal_id"
+    BILLING_ID = "billing_id"
+    SFDC_ID = "sfdc_id"
+    ZENDESK_ID = "zendesk_id"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableColumnSelection:
+    account_fields: frozenset[AccountTableField] = frozenset()
+    include_tags: bool = False
+    include_note_count: bool = False
+    relationship_definition_ids: frozenset[UUID] = frozenset()
+    custom_property_definition_ids: frozenset[UUID] = frozenset()
+    custom_property_history_windows: dict[UUID, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableSearchFilter:
+    query: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableTagsFilter:
+    tag_names: tuple[str, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedToFilter:
+    user_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableUnassignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAccountIdFilter:
+    account_id: UUID
+
+
+class AccountTableCustomPropertyOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    CONTAINS = "icontains"
+    DOES_NOT_CONTAIN = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    DATE_EXACT = "is_date_exact"
+    DATE_BEFORE = "is_date_before"
+    DATE_AFTER = "is_date_after"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyFilter:
+    definition_id: UUID
+    operator: AccountTableCustomPropertyOperator
+    values: tuple[float | bool | str, ...] = ()
+
+
+AccountTableFilter = (
+    AccountTableSearchFilter
+    | AccountTableTagsFilter
+    | AccountTableAssignedToFilter
+    | AccountTableUnassignedFilter
+    | AccountTableAccountIdFilter
+    | AccountTableCustomPropertyFilter
+)
+
+
+class AccountTableSortKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    TAGS = "tags"
+    NOTE_COUNT = "note_count"
+    RELATIONSHIP = "relationship"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+class AccountTableSortDirection(str, Enum):
+    ASCENDING = "asc"
+    DESCENDING = "desc"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableSort:
+    kind: AccountTableSortKind
+    direction: AccountTableSortDirection
+    account_field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyHistoryPoint:
+    timestamp: datetime
+    value: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableRow:
+    id: UUID
+    name: str
+    external_id: str | None
+    account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
+    tags: list[str] | None = None
+    note_count: int | None = None
+    relationships: dict[UUID, list[int]] = field(default_factory=dict)
+    custom_properties: dict[UUID, float | bool | str | None] = field(default_factory=dict)
+    custom_property_history: dict[UUID, list[AccountTableCustomPropertyHistoryPoint]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTablePage:
+    rows: list[AccountTableRow]
+    has_more: bool
+    limit: int
+    offset: int
+
+
 @dataclass(frozen=True)
 class AccountNote:
     """An internal note (notebook) attached to an account."""
