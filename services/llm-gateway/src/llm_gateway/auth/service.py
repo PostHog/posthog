@@ -8,6 +8,7 @@ from fastapi import Request
 from llm_gateway.auth.authenticators import Authenticator, OAuthAccessTokenAuthenticator, PersonalApiKeyAuthenticator
 from llm_gateway.auth.cache import AuthCache, get_auth_cache
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import acquire_connection
 from llm_gateway.metrics.prometheus import AUTH_CACHE_HITS, AUTH_CACHE_MISSES, AUTH_INVALID
 
@@ -109,6 +110,32 @@ class AuthService:
         if project_id <= 0 or project_id > MAX_PROJECT_ID:
             raise InvalidProjectScopeError
 
+        return await self._resolve_project_scope(user, project_id, token, pool)
+
+    async def _resolve_project_scope(
+        self, user: AuthenticatedUser, project_id: int, token: str, pool: asyncpg.Pool
+    ) -> AuthenticatedUser:
+        """Rebind the user to the selected project when live org membership and
+        the token's scoped teams/organizations allow it.
+
+        Decisions (allow and deny) are cached per token-and-project for the
+        OAuth auth TTL, so this adds no per-request database query on the
+        steady-state path, and a membership or scope revocation propagates
+        within the same window as a token revocation.
+        """
+        token_hash = next(auth.hash_token(token) for auth in self._authenticators if auth.matches(token))
+        cache_key = f"{token_hash}:project:{project_id}"
+
+        hit, cached = self._cache.get(cache_key)
+        if hit:
+            AUTH_CACHE_HITS.labels(auth_type="oauth_project_scope").inc()
+            if cached is None:
+                raise UnauthorizedProjectScopeError
+            return cached
+        AUTH_CACHE_MISSES.labels(auth_type="oauth_project_scope").inc()
+
+        ttl = get_settings().auth_cache_ttl_oauth
+
         async with acquire_connection(pool) as conn:
             project = await conn.fetchrow(
                 """
@@ -121,19 +148,20 @@ class AuthService:
                 user.user_id,
             )
 
-        if project is None:
-            raise UnauthorizedProjectScopeError
-
         scoped_teams = user.scoped_teams or []
         scoped_organizations = user.scoped_organizations or []
-        if (
+        denied = project is None or (
             (scoped_teams or scoped_organizations)
             and project_id not in scoped_teams
             and str(project["organization_id"]) not in scoped_organizations
-        ):
+        )
+        if denied:
+            self._cache.set(cache_key, None, ttl=ttl)
             raise UnauthorizedProjectScopeError
 
-        return replace(user, team_id=project_id)
+        rebound = replace(user, team_id=project_id)
+        self._cache.set(cache_key, rebound, ttl=ttl)
+        return rebound
 
 
 @lru_cache

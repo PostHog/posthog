@@ -271,6 +271,80 @@ class TestAuthService:
         with pytest.raises(InvalidProjectScopeError):
             await auth_service.authenticate_request(request, mock_pool)
 
+    @pytest.mark.asyncio
+    async def test_oauth_project_scope_decision_is_cached_per_project(
+        self, auth_service: AuthService, mock_pool: MagicMock
+    ) -> None:
+        def request_for(project_id: str) -> MagicMock:
+            request = MagicMock(spec=Request)
+            request.headers = {
+                "authorization": "Bearer pha_valid_token",
+                "x-posthog-project-id": project_id,
+            }
+            return request
+
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                {
+                    "id": 1,
+                    "user_id": 123,
+                    "scope": "llm_gateway:read",
+                    "expires": datetime.now(UTC) + timedelta(hours=1),
+                    "current_team_id": 456,
+                    "application_id": 789,
+                    "distinct_id": "test-distinct-id",
+                    "is_staff": False,
+                    "scoped_teams": None,
+                    "scoped_organizations": None,
+                },
+                {"id": 789, "organization_id": "org-2"},
+                {"id": 790, "organization_id": "org-2"},
+            ]
+        )
+
+        first = await auth_service.authenticate_request(request_for("789"), mock_pool)
+        repeat = await auth_service.authenticate_request(request_for("789"), mock_pool)
+        other_project = await auth_service.authenticate_request(request_for("790"), mock_pool)
+
+        assert first is not None and first.team_id == 789
+        assert repeat is not None and repeat.team_id == 789
+        assert other_project is not None and other_project.team_id == 790
+        assert conn.fetchrow.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_oauth_project_scope_denial_is_cached(self, auth_service: AuthService, mock_pool: MagicMock) -> None:
+        request = MagicMock(spec=Request)
+        request.headers = {
+            "authorization": "Bearer pha_valid_token",
+            "x-posthog-project-id": "999",
+        }
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                {
+                    "id": 1,
+                    "user_id": 123,
+                    "scope": "llm_gateway:read",
+                    "expires": datetime.now(UTC) + timedelta(hours=1),
+                    "current_team_id": 456,
+                    "application_id": 789,
+                    "distinct_id": "test-distinct-id",
+                    "is_staff": False,
+                    "scoped_teams": None,
+                    "scoped_organizations": None,
+                },
+                None,
+            ]
+        )
+
+        with pytest.raises(UnauthorizedProjectScopeError):
+            await auth_service.authenticate_request(request, mock_pool)
+        with pytest.raises(UnauthorizedProjectScopeError):
+            await auth_service.authenticate_request(request, mock_pool)
+
+        assert conn.fetchrow.await_count == 2
+
 
 class TestPersonalApiKeyAuthenticator:
     @pytest.fixture
