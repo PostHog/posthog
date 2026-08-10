@@ -78,7 +78,9 @@ class TestDirectConnectionValidation(APIBaseTest):
                 self.user,
             )
 
-        assert str(ctx.exception.detail["query"]) == DIRECT_CONNECTION_UNSUPPORTED
+        detail = ctx.exception.detail
+        assert isinstance(detail, dict)
+        assert str(detail["query"]) == DIRECT_CONNECTION_UNSUPPORTED
 
     def test_the_synced_copy_of_the_same_table_still_validates(self):
         self._dual_mode_source()
