@@ -43,7 +43,9 @@ export function useBlockedTaskIds(): ReadonlySet<string> {
 export function useBlockedSessionCount(): (
   channelId: string | undefined,
 ) => number {
-  const { data: tasks } = useTasks();
+  // Everyone's, for the reason `useUnreadSessionCount` gives: the space is
+  // shared and its rows carry no author filter.
+  const { data: tasks } = useTasks({ showAllUsers: true });
   const blocked = useBlockedTaskIds();
   const archivedTaskIds = useArchivedTaskIds();
   const counts = useMemo(() => {
