@@ -1101,10 +1101,12 @@ class LazyComputationExecutor:
                                 )
                                 if empty_expires_at is not None:
                                     new_job.expires_at = min(new_job.expires_at, empty_expires_at)
-                            self._finalize_job(new_job, ["status", "computed_at", "expires_at"])
+                            persisted = self._finalize_job(new_job, ["status", "computed_at", "expires_at"])
                             publish_job_completion(new_job.id, "ready")
+                            # `abandoned` is the row vanishing mid-insert: no terminal status was
+                            # reached, so counting it as ready would overstate completions.
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
-                                outcome="ready_empty" if wrote_nothing else "ready",
+                                outcome=("ready_empty" if wrote_nothing else "ready") if persisted else "abandoned",
                                 table=str(query_info.table),
                             ).inc()
                             jobs_created += 1
@@ -1119,16 +1121,18 @@ class LazyComputationExecutor:
                                 insert_duration_ms=round(insert_elapsed * 1000),
                                 rows_written=rows_written,
                                 expires_at=str(new_job.expires_at),
+                                persisted=persisted,
                             )
                         except Exception as e:
                             insert_elapsed = time.monotonic() - insert_start
                             memory_exceeded = memory_exceeded or is_memory_limit_error(e)
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
-                            self._finalize_job(new_job, ["status", "error"])
+                            persisted = self._finalize_job(new_job, ["status", "error"])
                             publish_job_completion(new_job.id, "failed")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
-                                outcome="failed", table=str(query_info.table)
+                                outcome="failed" if persisted else "abandoned",
+                                table=str(query_info.table),
                             ).inc()
                             jobs_created += 1
                             logger.warning(

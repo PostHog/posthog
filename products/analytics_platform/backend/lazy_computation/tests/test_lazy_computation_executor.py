@@ -514,43 +514,6 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         assert ch_results[1][4] == 1  # Jan 2: user2
         assert ch_results[2][4] == 1  # Jan 3: user3
 
-    def test_a_job_deleted_mid_insert_is_not_resurrected_by_the_success_path(self):
-        query_info = QueryInfo(
-            query=self._make_computation_query(), table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
-        )
-
-        def delete_the_job_mid_insert(team, job):
-            PreaggregationJob.objects.filter(id=job.id).delete()
-
-        LazyComputationExecutor().execute(
-            team=self.team,
-            query_info=query_info,
-            start=datetime(2024, 1, 1, tzinfo=UTC),
-            end=datetime(2024, 1, 2, tzinfo=UTC),
-            run_insert=delete_the_job_mid_insert,
-        )
-
-        assert PreaggregationJob.objects.filter(team=self.team).count() == 0
-
-    def test_a_job_deleted_mid_insert_is_not_resurrected_by_the_failure_path(self):
-        query_info = QueryInfo(
-            query=self._make_computation_query(), table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
-        )
-
-        def delete_the_job_then_fail(team, job):
-            PreaggregationJob.objects.filter(id=job.id).delete()
-            raise ValueError("insert blew up after the row was gone")
-
-        LazyComputationExecutor().execute(
-            team=self.team,
-            query_info=query_info,
-            start=datetime(2024, 1, 1, tzinfo=UTC),
-            end=datetime(2024, 1, 2, tzinfo=UTC),
-            run_insert=delete_the_job_then_fail,
-        )
-
-        assert PreaggregationJob.objects.filter(team=self.team).count() == 0
-
     def test_reuses_existing_job(self):
         self._create_pageview_events()
 
@@ -2822,6 +2785,69 @@ class TestJobLifecycleCounters(BaseTest):
             )
             == 1.0
         )
+
+    def test_finalize_job_does_not_recreate_a_row_that_is_gone(self):
+        """`save()` here UPDATEs and falls back to an INSERT, bringing the row back with the
+        status and expiry this executor was about to write. The filtered UPDATE must not."""
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="a" * 64,
+            time_range_start=datetime(2024, 4, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 4, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        PreaggregationJob.objects.filter(id=job.id).delete()
+        job.status = PreaggregationJob.Status.READY
+        job.computed_at = django_timezone.now()
+
+        wrote = LazyComputationExecutor()._finalize_job(job, ["status", "computed_at", "expires_at"])
+
+        assert wrote is False
+        assert not PreaggregationJob.objects.filter(id=job.id).exists()
+
+    def test_finalize_job_writes_when_the_row_is_still_pending(self):
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="b" * 64,
+            time_range_start=datetime(2024, 4, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 4, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        job.status = PreaggregationJob.Status.READY
+        job.computed_at = django_timezone.now()
+
+        wrote = LazyComputationExecutor()._finalize_job(job, ["status", "computed_at", "expires_at"])
+
+        assert wrote is True
+        job.refresh_from_db()
+        assert job.status == PreaggregationJob.Status.READY
+
+    def test_a_job_deleted_mid_insert_counts_as_abandoned_not_ready(self):
+        """The counter is documented as jobs that reached a terminal status. A row deleted
+        while its insert was in flight reached none, so it must not land on `ready`."""
+        deleted: list = []
+
+        def delete_the_first_job_mid_insert(team, job):
+            if not deleted:
+                deleted.append(job.id)
+                PreaggregationJob.objects.filter(id=job.id).delete()
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.LAZY_COMPUTATION_JOBS_FINISHED_TOTAL"
+        ) as counter:
+            LazyComputationExecutor().execute(
+                team=self.team,
+                query_info=self._query_info(),
+                start=datetime(2024, 4, 1, tzinfo=UTC),
+                end=datetime(2024, 4, 2, tzinfo=UTC),
+                run_insert=delete_the_first_job_mid_insert,
+            )
+
+        outcomes = [call.kwargs["outcome"] for call in counter.labels.call_args_list]
+        assert outcomes[0] == "abandoned"
+        assert "ready" in outcomes[1:]
 
     def test_partial_hit_increments_created_partial_hit(self):
         """When the requested range partially overlaps a pre-existing READY job,
