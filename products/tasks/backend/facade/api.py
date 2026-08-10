@@ -406,6 +406,93 @@ class _LatestRunUnset:
 _LATEST_RUN_UNSET = _LatestRunUnset()
 
 
+def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadReferenceDTO]:
+    references: list[contracts.SlackThreadReferenceDTO] = []
+    for item in (task.state or {}).get("slack_thread_references", []):
+        if not isinstance(item, dict):
+            continue
+        channel = item.get("channel")
+        thread_ts = item.get("thread_ts")
+        if not isinstance(channel, str) or not isinstance(thread_ts, str):
+            continue
+        references.append(
+            contracts.SlackThreadReferenceDTO(
+                url=f"https://slack.com/archives/{channel}/p{thread_ts.replace('.', '')}",
+                channel=channel,
+                created_at=item.get("created_at") if isinstance(item.get("created_at"), str) else None,
+            )
+        )
+    return references
+
+
+def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -> contracts.TaskSlackUnfurlDTO | None:
+    task = (
+        _visible_task_qs(team_id, user_id)
+        .filter(id=task_id, internal=False)
+        .only("id", "title", "created_by_id")
+        .first()
+    )
+    if task is None:
+        return None
+    latest_run = task.runs.order_by("-created_at").only("status").first()
+    return contracts.TaskSlackUnfurlDTO(
+        id=task.id,
+        title=task.title,
+        created_by_id=task.created_by_id,
+        latest_run_status=latest_run.get_status_display() if latest_run else None,
+    )
+
+
+def attach_slack_thread_reference(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    slack_workspace_id: str,
+    channel: str,
+    thread_ts: str,
+    shared_by_slack_user_id: str,
+) -> None:
+    reference = {
+        "slack_workspace_id": slack_workspace_id,
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "shared_by_slack_user_id": shared_by_slack_user_id,
+        "created_at": django_timezone.now().isoformat(),
+    }
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
+        state = dict(task.state or {})
+        references = list(state.get("slack_thread_references") or [])
+        if any(
+            item.get("slack_workspace_id") == slack_workspace_id
+            and item.get("channel") == channel
+            and item.get("thread_ts") == thread_ts
+            for item in references
+            if isinstance(item, dict)
+        ):
+            return
+        references.append(reference)
+        # Keep a rolling window to bound task state and API response size.
+        state["slack_thread_references"] = references[-30:]
+        task.state = state
+        task.save(update_fields=["state", "updated_at"])
+
+
+def has_slack_thread_reference(
+    *, task_id: str | UUID, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str
+) -> bool:
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    if task is None:
+        return False
+    return any(
+        item.get("slack_workspace_id") == slack_workspace_id
+        and item.get("channel") == channel
+        and item.get("thread_ts") == thread_ts
+        for item in (task.state or {}).get("slack_thread_references", [])
+        if isinstance(item, dict)
+    )
+
+
 def _task_detail_to_dto(
     task: Task,
     *,
@@ -447,6 +534,7 @@ def _task_detail_to_dto(
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
+        slack_thread_references=_task_slack_thread_references(task),
     )
 
 
@@ -6000,6 +6088,24 @@ def list_channel_instruction_versions(
         .order_by("-version", "-created_at", "-id")[:200]
     )
     return [_instructions_to_dto(row) for row in versions]
+
+
+def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("origin_product").first()
+    if task is None:
+        return False
+    if task.origin_product != Task.OriginProduct.LOOP:
+        return True
+
+    run_state = (
+        TaskRun.objects.filter(task_id=task.id, team_id=team_id)
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
+    outputs = context_target.get("outputs") or {}
+    return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
 
 
 def publish_channel_instructions(
