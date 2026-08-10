@@ -51,6 +51,8 @@ export function FeatureFlagsUsageTab(): JSX.Element {
     const [dateFrom, setDateFrom] = useState<string | null>(DEFAULT_DATE_FROM)
     const [dateTo, setDateTo] = useState<string | null>(null)
 
+    const requestsChartKey = `feature-flags-usage-requests-by-flag-${dateFrom ?? 'all'}-${dateTo ?? 'now'}`
+
     return (
         <div className="deprecated-space-y-4">
             <LemonBanner type="info">
@@ -108,8 +110,18 @@ export function FeatureFlagsUsageTab(): JSX.Element {
                     {BREAKDOWN_LIMIT} flags shown.{' '}
                     <Link to="https://posthog.com/docs/feature-flags/local-evaluation">Local evaluation docs</Link>
                 </p>
+                {/*
+                 * Two things make the date filter reach this chart. `readOnly` keeps the node in props
+                 * rather than `Query`'s local state, so the normalized copy `dataVisualizationLogic`
+                 * writes back through `setQuery` can't overwrite the incoming `filters.dateRange`; it
+                 * also matches the intent, since this chart is fixed rather than an editable SQL insight.
+                 * The date-derived React key then remounts on a range change, which both forces a refetch
+                 * and is what lets `uniqueKey` change at all, as `DataVisualization` freezes it in state.
+                 */}
                 <Query
-                    uniqueKey="feature-flags-usage-requests-by-flag"
+                    key={requestsChartKey}
+                    readOnly
+                    uniqueKey={requestsChartKey}
                     query={{
                         kind: NodeKind.DataVisualizationNode,
                         source: {
