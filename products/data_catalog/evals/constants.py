@@ -10,6 +10,13 @@ from __future__ import annotations
 # The catalog table every scorer greps agent SQL for.
 METRICS_CATALOG_MARKER = "information_schema.metrics"
 
+METRIC_CREATE_TOOL = "data-catalog-metric-create"
+METRIC_UPDATE_TOOL = "data-catalog-metric-update"
+
+# Deliberately tighter than the server cap (validation.MAX_DESCRIPTION_LENGTH = 1000): the eval
+# catches verbosity the hard cap would still admit.
+EVAL_DESCRIPTION_CHAR_LIMIT = 500
+
 TOP_CUSTOMERS_METRIC_NAME = "top_customers_mrr_by_business_model"
 TOP_CUSTOMERS_METRIC_DISPLAY_NAME = "Top B2C customers by revenue"
 TOP_CUSTOMERS_METRIC_DESCRIPTION = (
@@ -56,6 +63,12 @@ CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
         "LIMIT 10"
     ),
 }
+
+# Scout-bypass arm: the prescriptive "validated query" a scout-style prompt ships verbatim.
+# Reuses the current-snapshot definition on purpose: it computes the measure the approved
+# last-full-calendar-month metric owns with materially different time semantics, so following
+# it verbatim is both a catalog bypass and a silently wrong number.
+SCOUT_PRESCRIBED_SNAPSHOT_SQL = CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION["query"]
 
 FAILING_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
     "kind": "HogQLQuery",

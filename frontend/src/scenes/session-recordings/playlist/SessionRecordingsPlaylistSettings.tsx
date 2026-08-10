@@ -12,6 +12,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { urls } from 'scenes/urls'
 
@@ -201,12 +202,21 @@ function SortedBy({
 }
 
 function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
-    const { selectedRecordingsIds, isDeleteSelectedRecordingsDialogOpen, deleteConfirmationText } =
-        useValues(sessionRecordingsPlaylistLogic)
+    const {
+        selectedRecordingsIds,
+        isDeleteSelectedRecordingsDialogOpen,
+        deleteConfirmationText,
+        isDeletingSelectedRecordings,
+    } = useValues(sessionRecordingsPlaylistLogic)
     const { setIsDeleteSelectedRecordingsDialogOpen, setDeleteConfirmationText, handleDeleteSelectedRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
+    const isConfirmationValid = matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
+
     const handleClose = (): void => {
+        if (isDeletingSelectedRecordings) {
+            return
+        }
         setIsDeleteSelectedRecordingsDialogOpen(false)
         setDeleteConfirmationText('')
     }
@@ -232,24 +242,32 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
                         onChange={setDeleteConfirmationText}
                         placeholder={DELETE_CONFIRMATION_TEXT}
                         className="w-full"
+                        disabled={isDeletingSelectedRecordings}
                         autoFocus
                     />
+                    {deleteConfirmationText.length > 0 && !isConfirmationValid && (
+                        <p className="text-danger text-sm mb-0">
+                            That doesn't match. Please type "{DELETE_CONFIRMATION_TEXT}" to confirm.
+                        </p>
+                    )}
                 </div>
                 <div className="bg-warning-highlight border border-warning rounded p-2 text-sm">
                     This action cannot be undone. Deleting recordings doesn't affect your billing.
                 </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
-                <LemonButton type="secondary" onClick={handleClose}>
+                <LemonButton
+                    type="secondary"
+                    onClick={handleClose}
+                    disabledReason={isDeletingSelectedRecordings ? 'Deleting...' : undefined}
+                >
                     Cancel
                 </LemonButton>
                 <LemonButton
                     type="primary"
-                    disabledReason={
-                        deleteConfirmationText !== DELETE_CONFIRMATION_TEXT
-                            ? 'Please type the correct confirmation text'
-                            : undefined
-                    }
+                    status="danger"
+                    loading={isDeletingSelectedRecordings}
+                    disabledReason={!isConfirmationValid ? 'Please type the correct confirmation text' : undefined}
                     onClick={() => handleDeleteSelectedRecordings(shortId)}
                 >
                     Delete

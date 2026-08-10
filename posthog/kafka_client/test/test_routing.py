@@ -22,7 +22,6 @@ from posthog.kafka_client.routing import (
 )
 from posthog.kafka_client.topics import (
     KAFKA_APP_METRICS2,
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
     KAFKA_DEAD_LETTER_QUEUE,
     KAFKA_DWH_CDP_RAW_TABLE,
     KAFKA_EVENTS_JSON,
@@ -116,12 +115,12 @@ class CurrentTopicRoutingTest(TestCase):
         self.assertEqual(mapping.get(KAFKA_APP_METRICS2), KafkaClusterProfile.INGESTION)
 
     def test_env_overrides_add_new_topic(self):
-        with override_settings(
-            KAFKA_TOPIC_ROUTING_OVERRIDES=f"{KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES}=cyclotron"
-        ):
+        # KAFKA_DEAD_LETTER_QUEUE is deliberately absent from the defaults, so this covers
+        # adding a brand-new routing key rather than overriding an existing one.
+        with override_settings(KAFKA_TOPIC_ROUTING_OVERRIDES=f"{KAFKA_DEAD_LETTER_QUEUE}=cyclotron"):
             mapping = current_topic_routing()
         self.assertEqual(
-            mapping.get(KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES),
+            mapping.get(KAFKA_DEAD_LETTER_QUEUE),
             KafkaClusterProfile.CYCLOTRON,
         )
         # Defaults still present.

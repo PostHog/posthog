@@ -4,7 +4,7 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_kafka::kafka_producer::create_kafka_producer;
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
 use envconfig::Envconfig;
 use k8s_awareness::{K8sAwareness, PodInfo};
@@ -12,6 +12,8 @@ use kube::Client;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
+use personhog_common::metrics::{WARM_LATENCY_BUCKETS_MS, WRITE_PATH_LATENCY_BUCKETS_MS};
+use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -54,6 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("failed to install rustls ring CryptoProvider");
 
     let config = Config::init_from_env().expect("Invalid configuration");
+    config
+        .validate_lease_timescales()
+        .expect("Invalid lease configuration");
     config
         .validate_fencing_timescales()
         .expect("Invalid fencing configuration");
@@ -118,15 +123,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ComponentOptions::new().with_shutdown_phase(1),
     );
 
+    let authority_metrics_handle = manager.register(
+        "authority-metrics",
+        ComponentOptions::new().is_observability(true),
+    );
+
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
     let monitor_guard = manager.monitor_background();
 
     // Metrics/health HTTP server. The router is built here rather than
-    // inside the task because `setup_metrics_routes` is what installs the
-    // process-wide recorder: anything preregistered before it lands in a
-    // no-op recorder and never becomes a series.
+    // inside the task because `setup_metrics_routes_with_overrides` is
+    // what installs the process-wide recorder: anything preregistered
+    // before it lands in a no-op recorder and never becomes a series.
     let metrics_port = config.metrics_port;
     let health_router = Router::new()
         .route(
@@ -137,8 +147,85 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         )
         .route("/_liveness", get(move || async move { liveness.check() }));
-    let metrics_router = setup_metrics_routes(health_router);
+    // The write path and warms are tuned in single-digit milliseconds;
+    // the default ladder's 10 → 50 ms step blurs exactly the spans the
+    // fencing and warm work steers by, and pins interpolated quantiles
+    // to bucket edges. Overridden per metric so seconds-scale histograms
+    // keep the cheap default ladder.
+    let metrics_router = setup_metrics_routes_with_overrides(
+        health_router,
+        &[
+            (
+                Matcher::Full("personhog_leader_kafka_produce_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_send_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_ack_wait_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_window_wait_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_commit_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_init_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_person_lock_wait_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("grpc_server_request_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_warm_duration_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_coordination_partition_warm_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_warm_span_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
+        ],
+    );
     preregister_metrics();
+    // The refusals the gate can emit: rare by design, and a burst is
+    // exactly what a deploy-window scrape would otherwise miss.
+    for reason in ["surrendered", "stale"] {
+        counter!(
+            "personhog_leader_authority_lapsed_rejections_total",
+            "reason" => reason
+        )
+        .increment(0);
+        for phase in ["warm", "resume"] {
+            counter!(
+                "personhog_leader_authority_lapsed_acquires_total",
+                "phase" => phase,
+                "reason" => reason
+            )
+            .increment(0);
+        }
+    }
+    for phase in ["warm", "resume"] {
+        counter!(
+            "personhog_leader_authority_lapsed_mid_acquire_total",
+            "phase" => phase
+        )
+        .increment(0);
+    }
     counter!("personhog_leader_unresolved_versions_total").increment(0);
     counter!("personhog_leader_unresolved_versions_spilled_total").increment(0);
     gauge!("personhog_leader_unresolved_versions").set(0.0);
@@ -210,6 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(num_partitions, "loaded partition count from etcd");
 
     let locks = Arc::new(DashMap::new());
+    let fences: personhog_leader::fence::FenceMap = Arc::new(DashMap::new());
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(config.dirty_index_max_entries));
     // One per pod, shared by the service that raises floors and the
@@ -233,6 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
+    let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
         // directly, so an operator debugging a fenced-write timeout has
@@ -273,6 +362,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // One clock for the process: the coordination session claims and
+    // surrenders it, the data plane reads it per request.
+    let authority = Arc::new(AuthorityClock::unclaimed());
+    // Publish the live headroom whether or not the gate is armed: the
+    // question before enabling it is how close this fleet routinely runs
+    // to the margin, and that has to be answerable from a deployment
+    // that is not yet enforcing anything.
+    //
+    // This says nothing about a process-wide stall — a task that cannot
+    // run cannot report that it cannot run, which is the same limitation
+    // the clock exists to route around, and why enforcement reads the
+    // stamp inline on the request path instead of trusting a publisher.
+    // What it does show is a keepalive falling behind while the rest of
+    // the process is healthy, and the steady-state distance from the
+    // margin.
+    {
+        let authority = Arc::clone(&authority);
+        let handle = authority_metrics_handle;
+        tokio::spawn(async move {
+            let _guard = handle.process_scope();
+            let mut shutdown = std::pin::pin!(handle.shutdown_signal());
+            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown => break,
+                    _ = tick.tick() => {}
+                }
+                // Before the first grant there is no claim to measure
+                // against: age would read as process uptime and margin as
+                // zero, which any threshold would treat as a permanent
+                // emergency.
+                if !authority.is_claimed() {
+                    continue;
+                }
+                gauge!("personhog_leader_authority_valid").set(if authority.is_valid() {
+                    1.0
+                } else {
+                    0.0
+                });
+                gauge!("personhog_leader_authority_age_ms")
+                    .set(authority.since_confirmed().as_secs_f64() * 1000.0);
+                gauge!("personhog_leader_authority_margin_ms")
+                    .set(authority.margin().as_secs_f64() * 1000.0);
+            }
+        });
+    }
+
+    let gated_authority = if config.lease_gated_authority {
+        tracing::info!(
+            "lease-gated authority enabled: reads and fence acquisition require a \
+                        confirmed lease renewal within the keepalive margin"
+        );
+        Some(Arc::clone(&authority))
+    } else {
+        None
+    };
+
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer.clone(),
@@ -288,9 +434,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.properties_trim_target,
         ),
         warnings.clone(),
+        Arc::clone(&fences),
         fenced.clone(),
+        gated_authority.clone(),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fence_capacity(config.fence_map_max_entries);
 
     let warm_pools = Arc::new(WarmClientPools::new(
         &config.kafka,
@@ -320,8 +469,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_backoff: Duration::from_millis(config.warm_retry_max_backoff_ms),
             },
         },
+        Arc::clone(&fences),
+        fence_scan_pool,
+        num_partitions,
         Arc::clone(&warm_pools),
-        fenced,
+        fenced.clone(),
+        gated_authority.clone(),
         Arc::clone(&emitted_versions),
     );
     let advertise_address =
@@ -383,21 +536,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // cold pool would make every burst's first operations pay the client
     // setup the pool exists to amortize. Sized from the pod's actual
     // configured warm concurrency — the bound the semaphore enforces —
-    // so the pool and the concurrency limit cannot drift apart; the
-    // offsets pool also serves the dirty-index prune tick. Best-effort:
-    // a failure only defers the cost.
+    // so the pool and the concurrency limit cannot drift apart.
+    // Committed-offset queries run one per concurrent warm, so the
+    // offsets pool needs the same depth; it also serves the dirty-index
+    // prune tick.
+    //
+    // Awaited before the pod registers for partitions: a deploy burst
+    // hands this pod partitions immediately, and a warm that finds the
+    // pool empty builds its clients cold inside the handoff — seconds of
+    // connection setup on the path the pool exists to keep off. The
+    // deadline keeps a broker outage from wedging boot; past it,
+    // registration proceeds and the remaining slots are built cold, so
+    // this stays best-effort.
     {
-        let pools = Arc::clone(&warm_pools);
         let warm_slots = pod_config.warm_concurrency;
-        tokio::spawn(async move {
-            // Committed-offset queries run one per concurrent warm, so
-            // the offsets pool needs the same depth as the warm slots.
-            pools.offsets.warm_up(warm_slots).await;
-            pools.warming.warm_up(warm_slots).await;
-        });
+        let warm_up = async {
+            tokio::join!(
+                warm_pools.offsets.warm_up(warm_slots),
+                warm_pools.warming.warm_up(warm_slots),
+            );
+        };
+        if timeout(POOL_WARM_UP_DEADLINE, warm_up).await.is_err() {
+            tracing::warn!(
+                deadline_secs = POOL_WARM_UP_DEADLINE.as_secs(),
+                "consumer pool warm-up hit its deadline; continuing with a partially cold pool"
+            );
+        }
     }
 
-    let pod = PodHandle::new(store, pod_config, Arc::new(handler), k8s_awareness);
+    let pod = PodHandle::new(
+        store,
+        pod_config,
+        Arc::new(handler),
+        k8s_awareness,
+        Arc::clone(&authority),
+    );
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
@@ -580,6 +753,11 @@ async fn run_dirty_index_prune_loop(
 /// tight against an unresponsive one, which must not delay serving.
 const K8S_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Upper bound on the pre-registration consumer-pool warm-up. Generous
+/// against MSK connection setup (~1–2s per client, run concurrently),
+/// tight enough that a broker outage delays boot rather than blocking it.
+const POOL_WARM_UP_DEADLINE: Duration = Duration::from_secs(10);
+
 /// Build a K8s awareness client and discover this pod's owning controller
 /// and generation. The awareness handle is returned alongside so the pod
 /// can also classify its own departure at drain time.
@@ -617,5 +795,12 @@ fn preregister_metrics() {
         .increment(0);
     for stage in ["committed_offset", "fetch_watermarks"] {
         counter!("personhog_leader_warm_retries_total", "stage" => stage).increment(0);
+    }
+    // A broker blip is short enough to fall entirely between two
+    // scrapes, and these fire only during one. The codes seen in dev are
+    // preregistered so that burst is not swallowed; anything else stays
+    // lazy, as elsewhere for dynamic labels.
+    for code in ["BrokerTransportFailure", "AllBrokersDown"] {
+        counter!("personhog_leader_warm_transient_errors_total", "code" => code).increment(0);
     }
 }
