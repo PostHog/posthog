@@ -128,7 +128,17 @@ WHERE event = 'survey sent'
 GROUP BY variant
 ```
 
-For per-variant content, swap `count()` for `distinct_id` in the same query (dropping `GROUP BY`), then match those ids against the `distinct_id` column of `surveys-responses-list` rows.
+For per-variant content, get the ids per variant with this query, then match them against the `distinct_id` column of `surveys-responses-list` rows:
+
+```sql
+SELECT DISTINCT
+    properties['$feature/<flag_key>'] AS variant,
+    distinct_id
+FROM events
+WHERE event = 'survey sent'
+  AND properties.$survey_id = '<survey_id>'
+  AND timestamp >= '<survey start_date>'
+```
 
 Two caveats when presenting the split: it means "the flag was active when they answered", not "enrolled in this variant" (same semantics as Case B in [[scanning-experiments-with-replay-vision]] — fine for a qualitative read, not the analysis population); and respondents are a self-selected few percent, so the split generates hypotheses — when it disagrees with the experiment's metrics, the metrics win and the survey explains.
 
