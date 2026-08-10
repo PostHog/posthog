@@ -32,6 +32,13 @@ const ALL_DEFINITIONS_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all
 interface ToolSourceConfig {
     constName: string
     yamlPath: string
+    /**
+     * Tools registered directly in services/mcp/src/tools (no `enabled:` entry in the YAML), which
+     * YAML-derived membership would silently omit. Resolution still requires each name to exist in
+     * tool-definitions-all.json, so a renamed or removed tool fails the build instead of shrinking
+     * the catalog.
+     */
+    extraTools?: string[]
 }
 
 interface SkillSourceConfig {
@@ -51,7 +58,17 @@ const CONFIGS: SceneContextConfig[] = [
     {
         output: 'products/workflows/frontend/agentContext.generated.ts',
         tools: [
-            { constName: 'WORKFLOWS_MCP_TOOLS', yamlPath: 'products/workflows/mcp/tools.yaml' },
+            {
+                constName: 'WORKFLOWS_MCP_TOOLS',
+                yamlPath: 'products/workflows/mcp/tools.yaml',
+                extraTools: [
+                    'workflows-enable',
+                    'workflows-archive',
+                    'workflows-blast-radius',
+                    'workflows-run-batch',
+                    'workflows-schedule-create',
+                ],
+            },
             { constName: 'EMAIL_TEMPLATE_MCP_TOOLS', yamlPath: 'products/workflows/mcp/email_templates.yaml' },
         ],
         skills: [
@@ -94,14 +111,15 @@ function splitFrontmatter(markdown: string): FrontmatterResult {
     }
 }
 
-function renderToolConst(constName: string, yamlPath: string, definitions: Record<string, ToolDefinition>): string {
-    const names = enabledToolNames(yamlPath)
+function renderToolConst(config: ToolSourceConfig, definitions: Record<string, ToolDefinition>): string {
+    const { constName, yamlPath } = config
+    const names = [...enabledToolNames(yamlPath), ...(config.extraTools ?? [])]
     const entries = names.map((name) => {
         const definition = definitions[name]
         if (!definition?.description) {
             throw new Error(
-                `tool "${name}" is enabled in ${yamlPath} but has no description in tool-definitions-all.json — ` +
-                    'run `hogli build:openapi-mcp-tools` first'
+                `tool "${name}" is enabled in ${yamlPath} (or listed in extraTools) but has no description in ` +
+                    'tool-definitions-all.json — run `hogli build:openapi-mcp-tools` first'
             )
         }
         return (
@@ -160,7 +178,7 @@ function main(): void {
     for (const config of CONFIGS) {
         const sections = [
             HEADER,
-            ...config.tools.map((tool) => renderToolConst(tool.constName, tool.yamlPath, definitions)),
+            ...config.tools.map((tool) => renderToolConst(tool, definitions)),
             ...config.skills.map((skill) => renderSkillConst(skill)),
         ]
         const output = sections.join('\n')
