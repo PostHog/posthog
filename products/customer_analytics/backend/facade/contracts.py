@@ -179,6 +179,55 @@ class AccountRef:
     external_id: str | None
 
 
+class AccountTableField(str, Enum):
+    NAME = "name"
+    EXTERNAL_ID = "external_id"
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    STRIPE_CUSTOMER_ID = "stripe_customer_id"
+    HUBSPOT_DEAL_ID = "hubspot_deal_id"
+    BILLING_ID = "billing_id"
+    SFDC_ID = "sfdc_id"
+    ZENDESK_ID = "zendesk_id"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableColumnSelection:
+    account_fields: frozenset[AccountTableField] = frozenset()
+    include_tags: bool = False
+    include_note_count: bool = False
+    relationship_definition_ids: frozenset[UUID] = frozenset()
+    custom_property_definition_ids: frozenset[UUID] = frozenset()
+    custom_property_history_windows: dict[UUID, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyHistoryPoint:
+    timestamp: datetime
+    value: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableRow:
+    id: UUID
+    name: str
+    external_id: str | None
+    account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
+    tags: list[str] | None = None
+    note_count: int | None = None
+    relationships: dict[UUID, list[int]] = field(default_factory=dict)
+    custom_properties: dict[UUID, float | bool | str | None] = field(default_factory=dict)
+    custom_property_history: dict[UUID, list[AccountTableCustomPropertyHistoryPoint]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTablePage:
+    rows: list[AccountTableRow]
+    has_more: bool
+    limit: int
+    offset: int
+
+
 @dataclass(frozen=True)
 class AccountNote:
     """An internal note (notebook) attached to an account."""

@@ -26,7 +26,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
+from django.db.models import CharField, Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 
 import structlog
@@ -91,6 +91,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertySyncRun,
+    CustomPropertyValue,
     DisplayType,
     EventStream,
     EventStreamMember,
@@ -103,15 +104,16 @@ from products.customer_analytics.backend.models.account import (
     RETIRED_ROLE_KEYS,
     AccountProperties as _ModelAccountProperties,
 )
+from products.customer_analytics.backend.models.custom_property_definition import NUMERIC_DISPLAY_TYPES
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
 )
 
-# ResourceNotebook stays a direct import for the account-list Prefetch only — prefetching the
-# account -> ResourceNotebook -> notebook relation can't cross a data facade. All account-notebook
-# CRUD goes through `notebooks` (the facade). Tracked by the notebooks legacy-leak interface block.
+# ResourceNotebook stays a direct import for account-list reads because the account relation cannot
+# cross a data facade. All account-notebook CRUD goes through `notebooks` (the facade). Tracked by
+# the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
 from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
 
@@ -2060,6 +2062,183 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         created_by=account.created_by_id,
         updated_at=account.updated_at,
     )
+
+
+class InvalidAccountTableColumn(ValueError):
+    pass
+
+
+def _account_table_field_values(
+    account: Account, fields: frozenset[contracts.AccountTableField]
+) -> dict[contracts.AccountTableField, str | None]:
+    properties = account.properties
+    values: dict[contracts.AccountTableField, str | None] = {}
+    for field in sorted(fields, key=lambda account_field: account_field.value):
+        match field:
+            case contracts.AccountTableField.NAME:
+                values[field] = account.name
+            case contracts.AccountTableField.EXTERNAL_ID:
+                values[field] = account.external_id
+            case contracts.AccountTableField.CREATED_AT:
+                values[field] = account.created_at.isoformat() if account.created_at else None
+            case contracts.AccountTableField.UPDATED_AT:
+                values[field] = account.updated_at.isoformat() if account.updated_at else None
+            case contracts.AccountTableField.STRIPE_CUSTOMER_ID:
+                values[field] = properties.stripe_customer_id
+            case contracts.AccountTableField.HUBSPOT_DEAL_ID:
+                values[field] = properties.hubspot_deal_id
+            case contracts.AccountTableField.BILLING_ID:
+                values[field] = properties.billing_id
+            case contracts.AccountTableField.SFDC_ID:
+                values[field] = properties.sfdc_id
+            case contracts.AccountTableField.ZENDESK_ID:
+                values[field] = properties.zendesk_id
+            case _:
+                raise ValueError(f"Unsupported account table field: {field}")
+    return values
+
+
+def _validate_account_table_definitions(*, team_id: int, selection: contracts.AccountTableColumnSelection) -> None:
+    relationship_ids = selection.relationship_definition_ids
+    if relationship_ids:
+        valid_relationship_ids = set(
+            AccountRelationshipDefinition.objects.for_team(team_id)
+            .filter(id__in=relationship_ids)
+            .values_list("id", flat=True)
+        )
+        invalid_relationship_ids = relationship_ids - valid_relationship_ids
+        if invalid_relationship_ids:
+            invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_relationship_ids))
+            raise InvalidAccountTableColumn(f"Unknown relationship definitions: {invalid_ids}")
+
+    custom_property_ids = selection.custom_property_definition_ids | frozenset(
+        selection.custom_property_history_windows
+    )
+    if not custom_property_ids:
+        return
+
+    custom_property_display_types = dict(
+        CustomPropertyDefinition.objects.for_team(team_id)
+        .filter(id__in=custom_property_ids, target_type=TargetType.ACCOUNT)
+        .values_list("id", "display_type")
+    )
+    invalid_custom_property_ids = custom_property_ids - set(custom_property_display_types)
+    if invalid_custom_property_ids:
+        invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_custom_property_ids))
+        raise InvalidAccountTableColumn(f"Unknown account custom property definitions: {invalid_ids}")
+
+    non_numeric_history_ids = {
+        definition_id
+        for definition_id in selection.custom_property_history_windows
+        if custom_property_display_types[definition_id] not in NUMERIC_DISPLAY_TYPES
+    }
+    if non_numeric_history_ids:
+        invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in non_numeric_history_ids))
+        raise InvalidAccountTableColumn(f"Custom property history requires numeric definitions: {invalid_ids}")
+
+
+def query_accounts_table(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    selection: contracts.AccountTableColumnSelection,
+    offset: int,
+    limit: int,
+) -> contracts.AccountTablePage:
+    _validate_account_table_definitions(team_id=team_id, selection=selection)
+
+    queryset = _accounts_queryset(team_id, user_access_control).order_by("-created_at", "-id")
+    fetched_accounts = list(queryset[offset : offset + limit + 1])
+    has_more = len(fetched_accounts) > limit
+    accounts = fetched_accounts[:limit]
+    account_ids = [account.id for account in accounts]
+
+    tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
+    if selection.include_tags:
+        for account_id, tag_name in (
+            TaggedItem.objects.filter(account_id__in=account_ids)
+            .order_by("tag__name")
+            .values_list("account_id", "tag__name")
+        ):
+            tags_by_account[account_id].append(tag_name)
+
+    note_counts_by_account: dict[UUID, int] = dict.fromkeys(account_ids, 0)
+    if selection.include_note_count:
+        for result in (
+            ResourceNotebook.objects.filter(account_id__in=account_ids).values("account_id").annotate(count=Count("id"))
+        ):
+            note_counts_by_account[result["account_id"]] = result["count"]
+
+    relationship_ids = selection.relationship_definition_ids
+    sorted_relationship_ids = sorted(relationship_ids, key=lambda definition_id: definition_id.hex)
+    relationships_by_account: dict[UUID, dict[UUID, list[int]]] = {
+        account_id: {definition_id: [] for definition_id in sorted_relationship_ids} for account_id in account_ids
+    }
+    if relationship_ids:
+        for account_id, definition_id, user_id in (
+            AccountRelationship.objects.for_team(team_id)
+            .filter(
+                account_id__in=account_ids,
+                definition_id__in=relationship_ids,
+                ended_at__isnull=True,
+                user_id__isnull=False,
+            )
+            .order_by("user_id")
+            .values_list("account_id", "definition_id", "user_id")
+        ):
+            relationships_by_account[account_id][definition_id].append(user_id)
+
+    custom_property_ids = selection.custom_property_definition_ids
+    sorted_custom_property_ids = sorted(custom_property_ids, key=lambda definition_id: definition_id.hex)
+    custom_properties_by_account: dict[UUID, dict[UUID, float | bool | str | None]] = {
+        account_id: dict.fromkeys(sorted_custom_property_ids) for account_id in account_ids
+    }
+    if custom_property_ids:
+        for value in CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id__in=account_ids,
+            definition_id__in=custom_property_ids,
+            is_deleted=False,
+        ):
+            custom_properties_by_account[value.account_id][value.definition_id] = _scalar_value(value)
+
+    history_windows = selection.custom_property_history_windows
+    custom_property_history_by_account: dict[
+        UUID, dict[UUID, list[contracts.AccountTableCustomPropertyHistoryPoint]]
+    ] = {account_id: {definition_id: [] for definition_id in history_windows} for account_id in account_ids}
+    if history_windows:
+        now = timezone.now()
+        history_filter = Q()
+        for definition_id, window_days in history_windows.items():
+            history_filter |= Q(definition_id=definition_id, created_at__gte=now - timedelta(days=window_days))
+            history_filter |= Q(definition_id=definition_id, is_deleted=False)
+        for value in (
+            CustomPropertyValue.objects.for_team(team_id)
+            .filter(history_filter, account_id__in=account_ids, value_num__isnull=False)
+            .order_by("created_at", "id")
+        ):
+            assert value.value_num is not None
+            custom_property_history_by_account[value.account_id][value.definition_id].append(
+                contracts.AccountTableCustomPropertyHistoryPoint(
+                    timestamp=value.created_at,
+                    value=value.value_num,
+                )
+            )
+
+    rows = [
+        contracts.AccountTableRow(
+            id=account.id,
+            name=account.name,
+            external_id=account.external_id,
+            account_fields=_account_table_field_values(account, selection.account_fields),
+            tags=tags_by_account[account.id] if selection.include_tags else None,
+            note_count=note_counts_by_account[account.id] if selection.include_note_count else None,
+            relationships=relationships_by_account[account.id],
+            custom_properties=custom_properties_by_account[account.id],
+            custom_property_history=custom_property_history_by_account[account.id],
+        )
+        for account in accounts
+    ]
+    return contracts.AccountTablePage(rows=rows, has_more=has_more, limit=limit, offset=offset)
 
 
 def list_accounts_for_view(
