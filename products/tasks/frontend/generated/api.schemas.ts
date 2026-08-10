@@ -1593,6 +1593,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
  * * `repo_detection` - Wizard Repository Detection
+ * * `detection_based_run` - Wizard Detection-Based Cloud Run
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1616,6 +1617,7 @@ export const OriginProductEnumApi = {
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     RepoDetection: 'repo_detection',
+    DetectionBasedRun: 'detection_based_run',
 } as const
 
 /**
@@ -1655,7 +1657,8 @@ export interface TaskCreateApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `repo_detection` - Wizard Repository Detection */
+     * * `repo_detection` - Wizard Repository Detection
+     * * `detection_based_run` - Wizard Detection-Based Cloud Run */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1799,7 +1802,8 @@ export interface TaskWriteApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `repo_detection` - Wizard Repository Detection */
+     * * `repo_detection` - Wizard Repository Detection
+     * * `detection_based_run` - Wizard Detection-Based Cloud Run */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1928,7 +1932,8 @@ export interface PatchedTaskWriteApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `repo_detection` - Wizard Repository Detection */
+     * * `repo_detection` - Wizard Repository Detection
+     * * `detection_based_run` - Wizard Detection-Based Cloud Run */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

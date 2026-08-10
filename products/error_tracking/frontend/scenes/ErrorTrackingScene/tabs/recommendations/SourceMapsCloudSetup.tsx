@@ -127,12 +127,16 @@ function StepHeader({ title, description }: { title: string; description: string
 }
 
 function ProjectStep(): JSX.Element {
-    const { isScanRunning, selectedDetection, detectionsLoading, isStartingDetection } =
+    const { isScanRunning, selectedDetection, detectionsLoading, isStartingDetection, detectionBasedRun } =
         useValues(sourceMapsCloudSetupLogic)
     const { setStep, startDetection } = useActions(sourceMapsCloudSetupLogic)
 
     const report = !isScanRunning ? selectedDetection?.report : null
     const error = !isScanRunning ? selectedDetection?.error : null
+
+    if (detectionBasedRun) {
+        return <DetectionBasedRunStep />
+    }
 
     return (
         <>
@@ -215,6 +219,97 @@ function ProjectStep(): JSX.Element {
     )
 }
 
+/** The project step's body while a detection-based cloud run exists: progress, then the PR (or the failure). */
+function DetectionBasedRunStep(): JSX.Element {
+    const { detectionBasedRun, detectionBasedRunDetail, detectionBasedRunPrUrl, isDetectionBasedRunLive } =
+        useValues(sourceMapsCloudSetupLogic)
+    const { setStep, dismissDetectionBasedRun } = useActions(sourceMapsCloudSetupLogic)
+
+    const projectLabel = detectionBasedRun?.path === '.' ? 'the repository root' : (detectionBasedRun?.path ?? '')
+    const status = detectionBasedRunDetail?.status ?? null
+
+    let body: JSX.Element
+    if (isDetectionBasedRunLive) {
+        body = (
+            <>
+                <StepHeader
+                    title="Setting up source maps"
+                    description={`The agent is setting up ${projectLabel} and will open a pull request.`}
+                />
+                <div className="flex flex-col items-center gap-2 py-4">
+                    <span className="text-sm text-secondary">
+                        This usually takes a few minutes. You can close this window and check back later.
+                    </span>
+                    <LoadingBar loadId={detectionBasedRun?.runId} wrapperClassName="my-0 max-w-full" />
+                </div>
+            </>
+        )
+    } else if (status === 'completed') {
+        body = (
+            <>
+                <StepHeader title="Pull request ready" description="The agent finished setting up source maps." />
+                <div className="flex flex-col gap-2">
+                    {detectionBasedRunPrUrl ? (
+                        <div>
+                            <LemonButton
+                                type="primary"
+                                to={detectionBasedRunPrUrl}
+                                targetBlank
+                                sideIcon={<IconExternal />}
+                            >
+                                View pull request
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        <span className="text-sm text-muted">
+                            Look for a new pull request from PostHog in your repository.
+                        </span>
+                    )}
+                    <div>
+                        <LemonButton type="secondary" size="small" onClick={dismissDetectionBasedRun}>
+                            Set up another project
+                        </LemonButton>
+                    </div>
+                </div>
+            </>
+        )
+    } else {
+        body = (
+            <>
+                <StepHeader
+                    title={status === 'cancelled' ? 'Setup run cancelled' : 'Setup run failed'}
+                    description={
+                        status === 'cancelled'
+                            ? 'The run was cancelled before it finished. Pick the project again to retry.'
+                            : 'The agent could not finish this setup run. Pick the project again to retry.'
+                    }
+                />
+                <div className="flex flex-col gap-2">
+                    {detectionBasedRunDetail?.error_message ? (
+                        <div className="text-sm text-danger break-words">{detectionBasedRunDetail.error_message}</div>
+                    ) : null}
+                    <div>
+                        <LemonButton type="secondary" size="small" onClick={dismissDetectionBasedRun}>
+                            Back to projects
+                        </LemonButton>
+                    </div>
+                </div>
+            </>
+        )
+    }
+
+    return (
+        <>
+            {body}
+            <div className="pt-1">
+                <LemonButton type="secondary" icon={<IconChevronLeft />} onClick={() => setStep('intro')}>
+                    Back
+                </LemonButton>
+            </div>
+        </>
+    )
+}
+
 function ScanProgress(): JSX.Element {
     const { selectedDetection, scanStepIndex } = useValues(sourceMapsCloudSetupLogic)
 
@@ -248,15 +343,22 @@ function frameworkLabel(project: DetectedProject): string {
 }
 
 function ProjectOption({ project }: { project: DetectedProject }): JSX.Element {
-    const disabledReason = !project.instrumentable
-        ? project.reason || "The agent can't set this project up automatically."
-        : undefined
+    const { startingDetectionBasedRunPath } = useValues(sourceMapsCloudSetupLogic)
+    const { startDetectionBasedRun } = useActions(sourceMapsCloudSetupLogic)
+
+    const disabledReason =
+        !project.instrumentable || !project.variant
+            ? project.reason || "The agent can't set this project up automatically."
+            : undefined
+    const isStartingThis = startingDetectionBasedRunPath === project.path
+    // One in-flight trigger at a time: every option locks while any request is pending.
+    const disabled = !!disabledReason || startingDetectionBasedRunPath !== null
 
     const option = (
-        // Intentionally inert: the cloud wizard run that a click will start ships separately.
         <button
             type="button"
-            aria-disabled={!!disabledReason}
+            aria-disabled={disabled}
+            onClick={disabled ? undefined : () => startDetectionBasedRun(project)}
             className={cn(
                 'group flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors border-b border-primary last:border-b-0',
                 disabledReason ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-fill-button-tertiary-hover'
@@ -271,6 +373,8 @@ function ProjectOption({ project }: { project: DetectedProject }): JSX.Element {
             </div>
             {disabledReason ? (
                 <span className="text-xs text-muted shrink-0">Needs manual setup</span>
+            ) : isStartingThis ? (
+                <Spinner className="shrink-0" />
             ) : (
                 <IconChevronRight className="shrink-0 text-muted transition-colors group-hover:text-primary" />
             )}

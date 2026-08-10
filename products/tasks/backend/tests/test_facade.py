@@ -13,13 +13,18 @@ from parameterized import parameterized
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
+from products.tasks.backend.constants import WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS
 from products.tasks.backend.facade import (
     api as facade,
     contracts,
     warm as warm_facade,
 )
 from products.tasks.backend.models import Channel, SandboxCustomImage, SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
+from products.tasks.backend.prompts import (
+    WIZARD_HEAD_BRANCH_PLACEHOLDER,
+    build_source_maps_pr_agent_prompt,
+    build_wizard_pr_agent_prompt,
+)
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -785,6 +790,58 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("model"), "claude-sonnet-5")
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_detection_based_run_wires_the_program_and_pr_agent(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_wizard_detection_based_cloud_run(
+            team=self.team,
+            user_id=self.user.id,
+            repository="acme-co/web",
+            kind="error-tracking-source-maps",
+            selected_path="apps/web",
+            selected_variant="nextjs",
+        )
+        run = TaskRun.objects.get(task_id=created.task_id)
+        # wizard_config selects the program in run_wizard and carries the selection the headless
+        # wizard needs; losing either key aborts the run at its non-interactive picker.
+        self.assertEqual(
+            run.state.get("wizard_config"),
+            {"kind": "error-tracking-source-maps", "selected_path": "apps/web", "selected_variant": "nextjs"},
+        )
+        head_branch = run.state.get("wizard_head_branch")
+        assert head_branch is not None
+        # Own prefix, matched by the PR webhook's wizard leg (find_task_run) like onboarding's.
+        self.assertRegex(head_branch, r"^posthog/source-maps-[0-9a-f]{6}$")
+        self.assertEqual(run.state.get("pending_user_message"), build_source_maps_pr_agent_prompt(head_branch))
+        self.assertNotIn(WIZARD_HEAD_BRANCH_PLACEHOLDER, run.state["pending_user_message"])
+        # Same unbilled-gateway posture as the onboarding cloud run (see its model-pin test).
+        self.assertEqual(run.state.get("model"), "claude-sonnet-5")
+        self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
+        task = Task.objects.get(id=created.task_id)
+        # The origin keeps these runs off the onboarding cloud-run quota window and surfaces.
+        self.assertEqual(task.origin_product, Task.OriginProduct.WIZARD_DETECTION_BASED_CLOUD_RUN)
+
+    def test_create_detection_based_run_rejects_unknown_kind(self):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self.assertRaises(ValueError):
+            facade.create_wizard_detection_based_cloud_run(
+                team=self.team,
+                user_id=self.user.id,
+                repository="acme-co/web",
+                kind="no-such-kind",
+                selected_path=".",
+                selected_variant="nextjs",
+            )
+
+    def test_detection_based_run_registries_stay_in_sync(self):
+        # The command side (constants.WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS) and the creation side
+        # (the facade's spec map) are two halves of one registry; a kind present in only
+        # one fails at runtime in the other.
+        self.assertEqual(
+            facade.supported_wizard_detection_based_cloud_run_kinds(),
+            frozenset(WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS),
+        )
+
 
 class TestRecentWizardCloudRunTimes(TestCase):
     organization: ClassVar[Organization]
@@ -843,6 +900,8 @@ class TestRecentWizardCloudRunTimes(TestCase):
             ("run_without_wizard_config", {"state": {}}, 0),
             # Detection scans stamp wizard_config too; origin alone keeps them off the cloud-run window.
             ("detection_run", {"origin_product": Task.OriginProduct.WIZARD_REPOSITORY_DETECTION}, 0),
+            # Detection-based cloud runs likewise: they consume their own daily budget, not onboarding's.
+            ("detection_based_cloud_run", {"origin_product": Task.OriginProduct.WIZARD_DETECTION_BASED_CLOUD_RUN}, 0),
         ]
     )
     def test_counts_only_quota_consuming_runs(self, _name, run_kwargs, expected_count):
@@ -863,6 +922,81 @@ class TestRecentWizardCloudRunTimes(TestCase):
         times = facade.recent_wizard_cloud_run_times(self.user.id, since)
         self.assertEqual(len(times), 2)
         self.assertEqual(times, sorted(times))
+
+
+class TestHasLiveWizardDetectionBasedCloudRun(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    other_team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Integration Gate Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Integration Gate Team")
+        cls.other_team = Team.objects.create(organization=cls.organization, name="Other Integration Gate Team")
+        cls.user = User.objects.create(email="detection-run-gate@test.com", distinct_id="detection-run-gate-distinct")
+
+    def _make_run(
+        self,
+        *,
+        status=TaskRun.Status.IN_PROGRESS,
+        selected_path="apps/web",
+        repository="acme/app",
+        team=None,
+    ) -> TaskRun:
+        task = Task.objects.create(
+            team=team or self.team,
+            title="Set up source map uploads",
+            description="wizard",
+            origin_product=Task.OriginProduct.WIZARD_DETECTION_BASED_CLOUD_RUN,
+            created_by=self.user,
+            repository=repository,
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=team or self.team,
+            status=status,
+            environment=TaskRun.Environment.CLOUD,
+            state={
+                "wizard_config": {
+                    "kind": "error-tracking-source-maps",
+                    "selected_path": selected_path,
+                    "selected_variant": "nextjs",
+                }
+            },
+        )
+
+    def _is_live(self, *, repository="acme/app", selected_path="apps/web", team_id=None) -> bool:
+        return facade.has_live_wizard_detection_based_cloud_run(
+            team_id or self.team.id,
+            repository=repository,
+            kind="error-tracking-source-maps",
+            selected_path=selected_path,
+        )
+
+    # The JSON-path filters are easy to typo silently: matching nothing would let double
+    # triggers boot two sandboxes, matching everything would 409 forever.
+    @parameterized.expand(
+        [
+            ("queued", TaskRun.Status.QUEUED, True),
+            ("in_progress", TaskRun.Status.IN_PROGRESS, True),
+            ("completed", TaskRun.Status.COMPLETED, False),
+            ("failed", TaskRun.Status.FAILED, False),
+            ("cancelled", TaskRun.Status.CANCELLED, False),
+        ]
+    )
+    def test_only_live_statuses_occupy_the_slot(self, _name, status, expected):
+        self._make_run(status=status)
+        self.assertIs(self._is_live(), expected)
+
+    def test_scoped_to_path_and_team_with_case_insensitive_repository(self):
+        self._make_run(selected_path="apps/web")
+        # A different project of the same repository may run concurrently.
+        self.assertFalse(self._is_live(selected_path="apps/api"))
+        # Task repositories keep caller-supplied case; the gate must still match.
+        self.assertTrue(self._is_live(repository="Acme/App"))
+        self.assertFalse(self._is_live(team_id=self.other_team.id))
 
 
 class TestSelfDrivingQuotaFacadeGates(TestCase):

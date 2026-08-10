@@ -18,7 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import hashlib
 import logging
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -47,6 +47,7 @@ from products.tasks.backend.constants import (
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
+    WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS,
     WIZARD_REPOSITORY_DETECTION_PROGRAMS,
     is_blocked_sandbox_env_key,
 )
@@ -85,7 +86,12 @@ from products.tasks.backend.models import (
     TaskThreadMessageMention,
 )
 from products.tasks.backend.pr_urls import merge_pr_output
-from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.prompts import (
+    build_source_maps_pr_agent_prompt,
+    build_wizard_pr_agent_prompt,
+    generate_source_maps_head_branch,
+    generate_wizard_head_branch,
+)
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -1101,6 +1107,97 @@ def create_wizard_repository_detection_run(
     return created
 
 
+@dataclass(frozen=True, kw_only=True)
+class _WizardDetectionBasedCloudRunSpec:
+    """Per-kind pieces of a detection-based cloud run the shared creation path can't derive:
+    what the task is called, the PR agent prompt, and the head-branch family the webhook
+    binds on."""
+
+    title: str
+    build_prompt: Callable[[str], str]
+    generate_head_branch: Callable[[], str]
+
+
+# Keyed by the same kind strings as WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS (the command side
+# of the same registry, in constants.py); a facade test keeps the two key sets in sync.
+_WIZARD_DETECTION_BASED_CLOUD_RUN_SPECS: dict[str, _WizardDetectionBasedCloudRunSpec] = {
+    "error-tracking-source-maps": _WizardDetectionBasedCloudRunSpec(
+        title="Set up source map uploads",
+        build_prompt=build_source_maps_pr_agent_prompt,
+        generate_head_branch=generate_source_maps_head_branch,
+    ),
+}
+
+
+def supported_wizard_detection_based_cloud_run_kinds() -> frozenset[str]:
+    """Kinds ``create_wizard_detection_based_cloud_run`` accepts, exposed so callers can
+    reject an unknown kind before charging the user's quota for it."""
+    return frozenset(_WIZARD_DETECTION_BASED_CLOUD_RUN_SPECS)
+
+
+def create_wizard_detection_based_cloud_run(
+    *,
+    team,
+    user_id: int,
+    repository: str,
+    kind: str,
+    selected_path: str,
+    selected_variant: str,
+) -> contracts.CreatedTaskDTO:
+    """Create + run a cloud wizard task for a project picked from a detection report.
+
+    Same pipeline as ``create_wizard_cloud_run`` (headless wizard pre-step, then the PR agent
+    that commits, opens the PR, and keeps it green), with ``wizard_config`` selecting the
+    program (``kind``) and the project to instrument (``selected_path`` / ``selected_variant``,
+    verbatim from the stored detection report the caller validated against). The runtime
+    posture (model pin, ai_stage, read-only MCP scopes) is shared with the onboarding cloud
+    run: the same agent job, billed to the same unbilled gateway product.
+    """
+    spec = _WIZARD_DETECTION_BASED_CLOUD_RUN_SPECS.get(kind)
+    if spec is None or kind not in WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS:
+        raise ValueError(f"Unknown detection-based run kind: {kind}")
+    head_branch = spec.generate_head_branch()
+    prompt = spec.build_prompt(head_branch)
+    return create_and_run_task(
+        team=team,
+        title=spec.title,
+        description=prompt,
+        origin_product=Task.OriginProduct.WIZARD_DETECTION_BASED_CLOUD_RUN,
+        user_id=user_id,
+        repository=repository,
+        create_pr=True,
+        mode="background",
+        wizard_config={"kind": kind, "selected_path": selected_path, "selected_variant": selected_variant},
+        wizard_head_branch=head_branch,
+        posthog_mcp_scopes="read_only",
+        runtime_adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER,
+        model=WIZARD_CLOUD_RUN_MODEL,
+        ai_stage=WIZARD_CLOUD_RUN_AI_STAGE,
+        # The agent server boots idle; this is the message that actually kicks it off once ready
+        # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
+        pending_user_message=prompt,
+    )
+
+
+def has_live_wizard_detection_based_cloud_run(team_id: int, *, repository: str, kind: str, selected_path: str) -> bool:
+    """True while a detection-based cloud run for this (repository, kind, path) is still live.
+
+    Backs the trigger endpoint's concurrency gate: two live runs for the same project would
+    boot two sandboxes and race two PRs for the same change. Different paths of the same
+    repository may run concurrently — each instruments its own project on its own branch.
+    ``iexact`` because task repositories are stored in caller-supplied case.
+    """
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        task__repository__iexact=repository,
+        task__origin_product=Task.OriginProduct.WIZARD_DETECTION_BASED_CLOUD_RUN,
+        task__deleted=False,
+        state__wizard_config__kind=kind,
+        state__wizard_config__selected_path=selected_path,
+        status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+    ).exists()
+
+
 def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetime]:
     """Creation times of a user's recent wizard cloud runs that still count against their quota.
 
@@ -1114,8 +1211,9 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
     like the run's ``environment`` are deliberately NOT filtered — a run PATCHed from cloud to
     local must keep consuming quota, or flipping it would launder sandbox boots out of the limits.
 
-    Detection runs stamp ``wizard_config`` too, so they are excluded by origin; their own
-    daily attempt reservation in the detection view bounds them instead.
+    Detection scans and detection-based cloud runs stamp ``wizard_config`` too, so they are
+    excluded by origin; their own daily attempt reservations in their trigger views bound
+    them instead.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
     wizard on projects in different teams. Returns only timestamps, no run data.
@@ -1127,7 +1225,12 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
             created_at__gte=since,
         )
         .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
-        .exclude(task__origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION)
+        .exclude(
+            task__origin_product__in=[
+                Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
+                Task.OriginProduct.WIZARD_DETECTION_BASED_CLOUD_RUN,
+            ]
+        )
         .order_by("created_at")
         .values_list("created_at", flat=True)
     )

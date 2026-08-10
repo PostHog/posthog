@@ -45493,6 +45493,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `repo_detection` - Wizard Repository Detection
+     * * `detection_based_run` - Wizard Detection-Based Cloud Run
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -45517,6 +45518,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       RepoDetection: 'repo_detection',
+      DetectionBasedRun: 'detection_based_run',
     } as const;
 
     /**
@@ -58438,7 +58440,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `repo_detection` - Wizard Repository Detection */
+       * * `repo_detection` - Wizard Repository Detection
+       * * `detection_based_run` - Wizard Detection-Based Cloud Run */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -73793,7 +73796,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `repo_detection` - Wizard Repository Detection */
+       * * `repo_detection` - Wizard Repository Detection
+       * * `detection_based_run` - Wizard Detection-Based Cloud Run */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -74899,7 +74903,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `repo_detection` - Wizard Repository Detection */
+       * * `repo_detection` - Wizard Repository Detection
+       * * `detection_based_run` - Wizard Detection-Based Cloud Run */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

@@ -67,6 +67,11 @@ WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 # outcome, and a user scanning several repositories must not exhaust their onboarding budget.
 WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP = 30
 
+# Detection-based cloud runs boot a sandbox AND an agent (like onboarding cloud runs, unlike
+# detection scans), so they get the cloud run's tighter ceiling — on their own counter, separate
+# from the other budgets.
+WIZARD_DETECTION_BASED_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
+
 # A run in one of these states still occupies its (repository, kind) scan slot; a failed,
 # cancelled, or completed run frees it.
 _LIVE_TASK_RUN_STATUSES = (
@@ -78,12 +83,20 @@ _LIVE_TASK_RUN_STATUSES = (
 # Backstop for a trigger that crashes between taking its lock and the finally that releases it;
 # comfortably above a trigger request's worst-case latency.
 WIZARD_REPOSITORY_DETECTION_TRIGGER_LOCK_SECONDS = 30
+WIZARD_DETECTION_BASED_CLOUD_RUN_TRIGGER_LOCK_SECONDS = 30
 
 ERROR_DETECTION_SCAN_ALREADY_RUNNING = "A scan for this repository is already running. Wait for it to finish."
+ERROR_DETECTION_BASED_CLOUD_RUN_ALREADY_RUNNING = (
+    "A setup run for this project is already running. Wait for it to finish."
+)
 
 
 def _detection_trigger_lock_key(team_id: int, repository: str, kind: str) -> str:
     return f"wizard_repository_detection_trigger_lock:{team_id}:{repository}:{kind}"
+
+
+def _detection_based_cloud_run_trigger_lock_key(team_id: int, repository: str, kind: str, selected_path: str) -> str:
+    return f"wizard_detection_based_cloud_run_trigger_lock:{team_id}:{repository}:{kind}:{selected_path}"
 
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
@@ -204,6 +217,59 @@ class SetupWizardRepositoryDetectionSerializer(serializers.Serializer):
         if len(parts) != 2 or not all(parts):
             raise serializers.ValidationError("Repository must be in 'owner/repo' format.")
         return repository
+
+
+class SetupWizardDetectionBasedCloudRunSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        help_text="ID of the PostHog project to integrate into. The authenticated user must have access to it."
+    )
+    repository = serializers.CharField(
+        help_text=(
+            "GitHub repository the detection report was for, as 'owner/repo' (e.g. 'posthog/posthog-js'). "
+            "The team must have a connected GitHub integration with access to it."
+        )
+    )
+    # CharField, not ChoiceField: the supported set lives in the tasks facade, and a ChoiceField
+    # here would mint a collision-prone KindEnum in the OpenAPI schema.
+    kind = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Detection kind whose program the run executes, e.g. 'error-tracking-source-maps'. Must "
+            "match the kind of a completed detection report for the repository."
+        ),
+    )
+    selected_path = serializers.CharField(
+        max_length=512,
+        help_text=(
+            "Path of the detected project to instrument, relative to the repository root ('.' for the "
+            "root). Must match an instrumentable project in the stored detection report; the report "
+            "also supplies the project's framework variant."
+        ),
+    )
+
+    def validate_kind(self, value: str) -> str:
+        # Rejected here so an unknown kind never charges the daily attempt budget.
+        if value not in tasks_facade.supported_wizard_detection_based_cloud_run_kinds():
+            raise serializers.ValidationError(f"Unknown detection-based run kind: {value}")
+        return value
+
+    def validate_repository(self, value: str) -> str:
+        repository = value.strip()
+        parts = repository.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise serializers.ValidationError("Repository must be in 'owner/repo' format.")
+        return repository
+
+
+class SetupWizardDetectionBasedCloudRunResponseSerializer(serializers.Serializer):
+    task_id = serializers.CharField(
+        help_text=(
+            "ID of the created detection-based cloud run task. Poll the tasks API for its status "
+            "and the resulting pull request URL."
+        )
+    )
+    run_id = serializers.CharField(help_text="ID of the task's run.")
+    status = serializers.CharField(help_text="Initial status of the run (e.g. 'queued').")
 
 
 class SetupWizardRepositoryDetectionStatusSerializer(serializers.Serializer):
@@ -621,6 +687,20 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.Throttled(detail="You've reached today's limit for repository scans. Try again tomorrow.")
 
     @staticmethod
+    def _reserve_wizard_detection_based_cloud_run_attempt(user_id: int) -> None:
+        """Detection-based counterpart of ``_reserve_cloud_run_attempt``, on its own counter and cap."""
+        window = int(time.time()) // 86400
+        key = f"wizard_detection_based_cloud_run_attempts:{user_id}:{window}"
+        cache.add(key, 0, timeout=86400)
+        try:
+            count = cache.incr(key)
+        except ValueError:
+            # The key expired between add and incr; this request is the window's first.
+            count = 1
+        if count > WIZARD_DETECTION_BASED_CLOUD_RUN_DAILY_ATTEMPT_CAP:
+            raise exceptions.Throttled(detail="You've reached today's limit for setup runs. Try again tomorrow.")
+
+    @staticmethod
     def _resolve_visible_project(request: Request, project_id: int) -> Project:
         visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
         try:
@@ -746,6 +826,120 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 except Exception as e:
                     capture_exception(e)
 
+            return Response(
+                {
+                    "task_id": str(result.task_id),
+                    "run_id": str(latest_run.id) if latest_run else "",
+                    "status": latest_run.status if latest_run else "queued",
+                }
+            )
+        finally:
+            cache.delete(lock_key)
+
+    @staticmethod
+    def _resolve_detected_project_variant(team_id: int, repository: str, kind: str, selected_path: str) -> str:
+        """The variant of the detected project at ``selected_path``, from the stored detection report.
+
+        Resolved server-side rather than accepted from the client, so an integration run can only
+        target what a scan actually found, with the variant the scan assigned to it.
+        """
+        detection = wizard_facade.get_wizard_repository_detection(team_id, repository, kind)
+        report = detection.report if detection is not None else None
+        projects = report.get("projects") if isinstance(report, dict) else None
+        entry = None
+        if isinstance(projects, list):
+            entry = next(
+                (project for project in projects if isinstance(project, dict) and project.get("path") == selected_path),
+                None,
+            )
+        if entry is None:
+            raise serializers.ValidationError(
+                {"selected_path": ["No detection report covers this project. Run a scan and pick a detected project."]}
+            )
+        if not entry.get("instrumentable"):
+            raise serializers.ValidationError(
+                {"selected_path": ["The scan marked this project as needing manual setup."]}
+            )
+        variant = entry.get("variant")
+        if not isinstance(variant, str) or not variant:
+            raise serializers.ValidationError(
+                {"selected_path": ["The detection report is missing this project's variant. Run a new scan."]}
+            )
+        return variant
+
+    @extend_schema(
+        request=SetupWizardDetectionBasedCloudRunSerializer,
+        responses={
+            200: SetupWizardDetectionBasedCloudRunResponseSerializer,
+            409: OpenApiResponse(description="A detection-based cloud run for this project is already running."),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="detection_based_cloud_run",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+    )
+    def detection_based_cloud_run(self, request: Request) -> Response:
+        """Run the setup wizard in the cloud for a project picked from a detection report.
+
+        The detection-based variant of ``cloud_run``: provisions a task-run sandbox that clones
+        the repository and runs the wizard program the kind selects headlessly against the chosen
+        project, then hands off to the task agent to commit the changes, open a pull request, and
+        keep it green. The selection must match an instrumentable project in the stored detection
+        report for (repository, kind), which also supplies the project's variant — the client
+        never chooses it. Bounded by a daily per-user attempt cap, separate from the other wizard
+        budgets. One live run per (repository, kind, path) at a time: a trigger while one is
+        still running returns 409.
+        """
+        if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
+            raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
+
+        serializer = SetupWizardDetectionBasedCloudRunSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        project = self._resolve_visible_project(request, serializer.validated_data["project_id"])
+        team_id = project.passthrough_team.pk
+        repository = serializer.validated_data["repository"]
+        kind = serializer.validated_data["kind"]
+        selected_path = serializer.validated_data["selected_path"]
+
+        selected_variant = self._resolve_detected_project_variant(team_id, repository, kind, selected_path)
+
+        # cache.add is atomic, so the first of two simultaneous triggers wins the key and the
+        # loser 409s instead of both passing the live-run check below and double-booting sandboxes.
+        lock_key = _detection_based_cloud_run_trigger_lock_key(team_id, repository, kind, selected_path)
+        if not cache.add(lock_key, "1", timeout=WIZARD_DETECTION_BASED_CLOUD_RUN_TRIGGER_LOCK_SECONDS):
+            return Response(
+                {"detail": ERROR_DETECTION_BASED_CLOUD_RUN_ALREADY_RUNNING}, status=status.HTTP_409_CONFLICT
+            )
+        try:
+            # One live run per (repository, kind, path): two would boot two sandboxes and race two
+            # pull requests for the same project. Checked before the attempt reservation so a
+            # rejected trigger never charges the daily budget.
+            if tasks_facade.has_live_wizard_detection_based_cloud_run(
+                team_id, repository=repository, kind=kind, selected_path=selected_path
+            ):
+                return Response(
+                    {"detail": ERROR_DETECTION_BASED_CLOUD_RUN_ALREADY_RUNNING}, status=status.HTTP_409_CONFLICT
+                )
+
+            self._reserve_wizard_detection_based_cloud_run_attempt(cast(User, request.user).id)
+
+            try:
+                result = tasks_facade.create_wizard_detection_based_cloud_run(
+                    team=project.passthrough_team,
+                    user_id=cast(User, request.user).id,
+                    repository=repository,
+                    kind=kind,
+                    selected_path=selected_path,
+                    selected_variant=selected_variant,
+                )
+            except ValueError as e:
+                # e.g. no GitHub integration with access to the repository.
+                raise exceptions.ValidationError(str(e))
+
+            latest_run = result.latest_run
             return Response(
                 {
                     "task_id": str(result.task_id),

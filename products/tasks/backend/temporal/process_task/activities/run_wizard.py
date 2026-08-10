@@ -1,6 +1,7 @@
 import shlex
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from django.conf import settings
 
@@ -9,6 +10,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 from posthog.utils import get_instance_region
 
+from products.tasks.backend.constants import WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 
@@ -64,18 +66,59 @@ def _format_wizard_output(result: ExecutionResult) -> str:
     return "\n".join(sections) + "\n"
 
 
-def _build_wizard_command(repo_path: str, project_id: int) -> str:
+def _detection_based_program_args(wizard_config: dict[str, Any]) -> list[str] | None:
+    """CLI args for the program ``wizard_config`` selects, or None for the default.
+
+    A kind-less config (onboarding cloud runs stamp ``{}``) keeps the default setup program.
+    A config with a ``kind`` marks a detection-based cloud run: the subcommand resolves through
+    WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS and the project selection stamped at run creation
+    is forwarded, so the headless run needs no interactive picker. An unknown kind fails the run
+    rather than silently running the onboarding program against a repository that asked for
+    something else.
+    """
+    kind = wizard_config.get("kind")
+    if not kind:
+        return None
+    program = WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS.get(kind)
+    if program is None:
+        raise ValueError(f"Unknown detection-based run kind: {kind}")
+    args = list(program)
+    for state_key, flag in (("selected_path", "--selected-path"), ("selected_variant", "--selected-variant")):
+        value = wizard_config.get(state_key)
+        if value:
+            args.append(f"{flag} {shlex.quote(str(value))}")
+    return args
+
+
+def _build_wizard_command(repo_path: str, project_id: int, wizard_config: dict[str, Any] | None = None) -> str:
     # The wizard reads its access token from the POSTHOG_WIZARD_API_KEY env var injected into the
     # sandbox (see provision_sandbox), so the token never appears on the command line.
     # --headless-DONOTUSE-EXPERIMENTAL runs the published wizard non-interactively.
-    parts = [
-        f"cd {shlex.quote(repo_path)} &&",
-        # Wrap in `timeout` so an over-budget run exits WIZARD_TIMEOUT_EXIT_CODE (124) we can
-        # detect, with partial output preserved. -k 30 escalates to SIGKILL 30s after SIGTERM.
-        f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS}",
-        f"npx --yes {WIZARD_PACKAGE}",
-        "--headless-DONOTUSE-EXPERIMENTAL",
-        "--install-dir .",
+    program_args = _detection_based_program_args(wizard_config or {})
+    if program_args is None:
+        parts = [
+            f"cd {shlex.quote(repo_path)} &&",
+            # Wrap in `timeout` so an over-budget run exits WIZARD_TIMEOUT_EXIT_CODE (124) we can
+            # detect, with partial output preserved. -k 30 escalates to SIGKILL 30s after SIGTERM.
+            f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS}",
+            f"npx --yes {WIZARD_PACKAGE}",
+            "--headless-DONOTUSE-EXPERIMENTAL",
+            "--install-dir .",
+        ]
+    else:
+        parts = [
+            # npx must not run inside the checkout: a committed .npmrc could redirect the @posthog
+            # scope to an attacker registry, swapping the wizard for a package that runs with the
+            # sandbox's tokens (same mitigation as the detection command). Run from a fresh
+            # directory and hand the checkout over via --install-dir.
+            "mkdir -p /tmp/wizard-detection-based-run && cd /tmp/wizard-detection-based-run &&",
+            f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS}",
+            f"npx --yes {WIZARD_PACKAGE}",
+            *program_args,
+            "--headless-DONOTUSE-EXPERIMENTAL",
+            f"--install-dir {shlex.quote(repo_path)}",
+        ]
+    parts += [
         f"--region {shlex.quote(_wizard_region())}",
         f"--project-id {shlex.quote(str(project_id))}",
     ]
@@ -97,10 +140,13 @@ def _build_wizard_command(repo_path: str, project_id: int) -> str:
 def run_wizard(input: RunWizardInput) -> None:
     """Run the PostHog setup wizard in the sandbox before the agent starts.
 
-    The wizard performs the real PostHog integration (modifies source, installs deps, writes
-    posthog-setup-report.md), leaving the changes uncommitted in the working tree. The downstream
-    agent then only has to commit them, open a PR, and keep it green. A non-zero exit fails the run
-    rather than handing a half-integrated tree to the agent.
+    The wizard performs the real integration work for the program the run's wizard_config selects
+    (default: the onboarding setup program; a ``kind`` marks a detection-based cloud run and picks
+    its program, e.g. the source-maps upload setup), modifying source, installing deps, and
+    writing its hand-off report.
+    The changes stay uncommitted in the working tree; the downstream agent then only has to commit
+    them, open a PR, and keep it green. A non-zero exit fails the run rather than handing a
+    half-integrated tree to the agent.
     """
     ctx = input.context
 
@@ -114,7 +160,7 @@ def run_wizard(input: RunWizardInput) -> None:
 
         emit_agent_log(ctx.run_id, "info", "Running the PostHog setup wizard")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
-        command = _build_wizard_command(repo_path, ctx.team_id)
+        command = _build_wizard_command(repo_path, ctx.team_id, ctx.wizard_config)
 
         result = sandbox.execute(command, timeout_seconds=_SANDBOX_EXEC_TIMEOUT_SECONDS)
 

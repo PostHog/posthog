@@ -20,7 +20,12 @@ from products.tasks.backend.facade.api import post_pr_created_thread_update, sig
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
-from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
+from products.tasks.backend.prompts import SOURCE_MAPS_HEAD_BRANCH_PREFIX, WIZARD_HEAD_BRANCH_PREFIX
+
+# Head-branch prefixes stamped by the wizard run families (onboarding setup, and the source-maps
+# detection-based cloud run). The wizard leg of find_task_run only fires for branches carrying
+# one of these.
+_WIZARD_HEAD_BRANCH_PREFIXES = (WIZARD_HEAD_BRANCH_PREFIX, SOURCE_MAPS_HEAD_BRANCH_PREFIX)
 
 logger = structlog.get_logger(__name__)
 
@@ -92,7 +97,7 @@ def find_task_run(
         # The prefix check keeps this leg off the hot path for ordinary PR webhooks, and
         # terminal runs are excluded so a reopened branch can't fire events on a dead run
         # (post-merge events for bound runs resolve via the pr_url leg above).
-        if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
+        if branch.startswith(_WIZARD_HEAD_BRANCH_PREFIXES):
             task_run = (
                 TaskRun.objects.filter(
                     _run_repository_filter(repository),

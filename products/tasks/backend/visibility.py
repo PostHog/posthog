@@ -19,11 +19,14 @@ from products.tasks.backend.models import Channel, Task
 # - HOGDESK: support-desk Code threads. The task is pinned to the support ticket via a
 #   shared ticket tag, so any agent opening the ticket resumes the same thread — it must
 #   be viewable by the whole team, not just the agent who started it.
+# - WIZARD_DETECTION_BASED_CLOUD_RUN: same reasoning as ONBOARDING — the run sets up the team's
+#   shared repository, so the whole team should see it, not just whoever clicked the trigger.
 TEAM_VISIBLE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.SIGNAL_REPORT,
     Task.OriginProduct.SIGNALS_SCOUT,
     Task.OriginProduct.ONBOARDING,
     Task.OriginProduct.HOGDESK,
+    Task.OriginProduct.WIZARD_DETECTION_BASED_CLOUD_RUN,
 ]
 
 # Origin products whose tasks are team-readable but stay creator-driven, like

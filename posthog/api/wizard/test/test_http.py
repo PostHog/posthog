@@ -12,9 +12,15 @@ from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT, _detection_trigger_lock_key
+from posthog.api.wizard.http import (
+    SETUP_WIZARD_CACHE_PREFIX,
+    SETUP_WIZARD_CACHE_TIMEOUT,
+    _detection_based_cloud_run_trigger_lock_key,
+    _detection_trigger_lock_key,
+)
 from posthog.cloud_utils import get_api_host
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.scoping import team_scope
@@ -776,6 +782,199 @@ class SetupWizardCloudRunTests(APIBaseTest):
 
         response = self.client.get(self.LIST_URL, {"project_id": self.team.id})
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    DETECTION_BASED_CLOUD_RUN_URL = "/api/wizard/detection_based_cloud_run"
+
+    def _detection_based_run_body(self, **overrides) -> dict:
+        body = {
+            "project_id": self.team.id,
+            "repository": "acme/app",
+            "kind": self.KIND,
+            "selected_path": "apps/web",
+        }
+        body.update(overrides)
+        return body
+
+    def _store_detection_report(self, projects: list[dict] | None = None) -> None:
+        if projects is None:
+            projects = [{"path": "apps/web", "framework": "nextjs", "variant": "nextjs", "instrumentable": True}]
+        with team_scope(self.team.id):
+            wizard_facade.upsert_wizard_repository_detection(
+                UpsertWizardRepositoryDetectionInput(
+                    team_id=self.team.id,
+                    repository="acme/app",
+                    kind=self.KIND,
+                    report={"repo_type": "monorepo", "projects": projects},
+                    error=None,
+                    task_run_id=None,
+                )
+            )
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
+    def test_detection_based_run_returns_404_when_feature_not_configured(self):
+        response = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_detection_based_cloud_run")
+    def test_detection_based_run_creates_run_with_the_reports_variant(self, mock_create):
+        # The variant must come from the stored report, never the request — the client cannot
+        # make a run target something a scan did not find.
+        self._store_detection_report()
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        response = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"task_id": "task-uuid", "run_id": "run-uuid", "status": "queued"}
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["repository"] == "acme/app"
+        assert kwargs["kind"] == self.KIND
+        assert kwargs["selected_path"] == "apps/web"
+        assert kwargs["selected_variant"] == "nextjs"
+        assert kwargs["user_id"] == self.user.id
+        assert kwargs["team"].id == self.team.id
+
+    @parameterized.expand(
+        [
+            ("no_report_stored", None),
+            (
+                "path_not_in_report",
+                [{"path": "apps/api", "framework": "node", "variant": "node", "instrumentable": True}],
+            ),
+            (
+                "not_instrumentable",
+                [{"path": "apps/web", "framework": "nextjs", "variant": "nextjs", "instrumentable": False}],
+            ),
+            ("variant_missing", [{"path": "apps/web", "framework": "nextjs", "variant": None, "instrumentable": True}]),
+        ]
+    )
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_detection_based_cloud_run")
+    def test_detection_based_run_rejects_selection_the_report_does_not_back(self, _name, projects, mock_create):
+        # The stored report is the only source of what may run; anything else must never
+        # reach run creation.
+        if projects is not None:
+            self._store_detection_report(projects)
+
+        response = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.WIZARD_DETECTION_BASED_CLOUD_RUN_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_detection_based_cloud_run")
+    def test_detection_based_run_rejects_invalid_input_without_consuming_the_daily_budget(self, mock_create):
+        # Kind and selection validation run before the attempt reservation; rejects must not
+        # burn the day's budget.
+        self._store_detection_report()
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        unknown_kind = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(kind="no-such-kind"), format="json"
+        )
+        assert unknown_kind.status_code == status.HTTP_400_BAD_REQUEST
+
+        unknown_path = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL,
+            data=self._detection_based_run_body(selected_path="apps/api"),
+            format="json",
+        )
+        assert unknown_path.status_code == status.HTTP_400_BAD_REQUEST
+
+        accepted = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+        assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
+    @patch("posthog.api.wizard.http.WIZARD_DETECTION_BASED_CLOUD_RUN_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_detection_based_cloud_run")
+    def test_detection_based_run_attempt_cap_is_the_only_thing_bounding_sandbox_boots(self, mock_create):
+        # No DB-counted throttles on detection-based runs: this reservation alone bounds boots.
+        self._store_detection_report()
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        first = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        second = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_create.call_count == 1
+
+    @patch("posthog.api.wizard.http.WIZARD_DETECTION_BASED_CLOUD_RUN_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_detection_based_cloud_run")
+    def test_detection_based_run_rejects_concurrent_run_without_consuming_the_daily_budget(self, mock_create):
+        self._store_detection_report()
+        live_run = self._detection_based_run(self.team)
+
+        rejected = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+        assert rejected.status_code == status.HTTP_409_CONFLICT
+        mock_create.assert_not_called()
+
+        # A terminal run frees the (repository, kind, path) slot, and the 409 above must not
+        # have charged the cap of 1.
+        apps.get_model("tasks", "TaskRun").objects.filter(id=live_run.id).update(status="completed")
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+        accepted = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+        assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_detection_based_cloud_run")
+    def test_detection_based_run_rejects_trigger_while_another_holds_the_lock(self, mock_create):
+        # Guards the cache.add mutex that closes the both-pass-the-check race between two
+        # simultaneous triggers.
+        self._store_detection_report()
+        lock_key = _detection_based_cloud_run_trigger_lock_key(self.team.id, "acme/app", self.KIND, "apps/web")
+        assert cache.add(lock_key, "1", timeout=30)
+        try:
+            response = self.client.post(
+                self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+            )
+        finally:
+            cache.delete(lock_key)
+        assert response.status_code == status.HTTP_409_CONFLICT
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_detection_based_cloud_run")
+    def test_detection_based_run_rejects_project_without_access(self, mock_create):
+        # Guards the wiring of the shared project-visibility helper, not its logic.
+        other_org = Organization.objects.create(name="Other Detection Run Org")
+        other_user = User.objects.create_and_join(other_org, "other-detection-run@example.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.post(
+            self.DETECTION_BASED_CLOUD_RUN_URL, data=self._detection_based_run_body(), format="json"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_create.assert_not_called()
+
+    def _detection_based_run(self, team: Team) -> "TaskRun":
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=team,
+            created_by=self.user,
+            title="Set up source map uploads",
+            description="wizard",
+            origin_product="detection_based_run",
+            repository="acme/app",
+        )
+        return apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=team,
+            status="in_progress",
+            environment="cloud",
+            state={"wizard_config": {"kind": self.KIND, "selected_path": "apps/web", "selected_variant": "nextjs"}},
+        )
 
     def _detection_run(self, team: Team) -> "TaskRun":
         # apps.get_model keeps the tasks product's models out of this module's import graph

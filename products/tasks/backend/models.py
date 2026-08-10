@@ -185,6 +185,11 @@ class Task(DeletedMetaFields, models.Model):
         # Wizard detection scans: no agent, no PR, driven by their own workflow with a quota
         # separate from the cloud wizard's. Stored value kept short because the column is varchar(20).
         WIZARD_REPOSITORY_DETECTION = "repo_detection", "Wizard Repository Detection"
+        # Detection-based cloud wizard runs: the full pipeline (wizard pre-step + PR agent), but
+        # instrumenting a project picked from a detection report, triggered from a product's UI
+        # rather than the onboarding flow. Own origin so onboarding quotas and surfaces skip them.
+        # Stored value kept short because the column is varchar(20).
+        WIZARD_DETECTION_BASED_CLOUD_RUN = "detection_based_run", "Wizard Detection-Based Cloud Run"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

@@ -33,6 +33,54 @@ class TestBuildWizardCommand(SimpleTestCase):
         assert "--install-dir ." in command
         assert "--project-id 123" in command
 
+    def test_detection_based_run_kind_selects_the_program_and_forwards_the_selection(self) -> None:
+        # A run whose wizard_config carries a kind must run that program with the stored
+        # selection: falling back to the default command would run the onboarding setup
+        # program against a repository that asked for source maps.
+        command = _build_wizard_command(
+            "/tmp/workspace/repos/acme/app",
+            123,
+            {"kind": "error-tracking-source-maps", "selected_path": "apps/web", "selected_variant": "nextjs"},
+        )
+
+        assert "upload-source-maps" in command
+        assert "--selected-path apps/web" in command
+        assert "--selected-variant nextjs" in command
+        assert "--headless-DONOTUSE-EXPERIMENTAL" in command
+        assert "--api-key" not in command
+        # npx must not run inside the checkout (a committed .npmrc could redirect the @posthog
+        # scope); the checkout is handed over via --install-dir instead.
+        assert "cd /tmp/wizard-detection-based-run" in command
+        assert "--install-dir /tmp/workspace/repos/acme/app" in command
+        assert "cd /tmp/workspace/repos/acme/app" not in command
+
+    @parameterized.expand([(None,), ({},)])
+    def test_kindless_config_keeps_the_onboarding_command(self, wizard_config: dict | None) -> None:
+        # Onboarding cloud runs stamp wizard_config={} — the program branch must never change
+        # their command, in-flight runs during a deploy included.
+        assert _build_wizard_command("/tmp/workspace/repos/a/b", 1, wizard_config) == _build_wizard_command(
+            "/tmp/workspace/repos/a/b", 1
+        )
+
+    def test_unknown_detection_based_kind_fails_instead_of_running_the_default_program(self) -> None:
+        with self.assertRaises(ValueError):
+            _build_wizard_command("/tmp/workspace/repos/a/b", 1, {"kind": "no-such-kind"})
+
+    def test_selection_values_are_shell_quoted(self) -> None:
+        # The selection comes from a stored detection report the wizard wrote; it still must
+        # never reach the sandbox shell unquoted.
+        command = _build_wizard_command(
+            "/tmp/workspace/repos/a/b",
+            1,
+            {
+                "kind": "error-tracking-source-maps",
+                "selected_path": "apps/we b; rm -rf /",
+                "selected_variant": "nextjs",
+            },
+        )
+
+        assert "--selected-path 'apps/we b; rm -rf /'" in command
+
     @parameterized.expand([(True,), (False,)])
     def test_base_url_pins_local_instance_only_in_debug(self, debug: bool) -> None:
         # Local dev pins --base-url to the sandbox-reachable POSTHOG_API_URL so the wizard hits the

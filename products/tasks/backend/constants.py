@@ -12,6 +12,15 @@ WIZARD_REPOSITORY_DETECTION_PROGRAMS: dict[str, list[str]] = {
     "error-tracking-source-maps": ["upload-source-maps", "--detect-only"],
 }
 
+# Programs a detection-based cloud wizard run executes headlessly, keyed by the same kind strings
+# as the detection registry: a detection scan finds a repository's candidate projects, and the
+# detection-based run is the follow-up that instruments the one the user picked and hands the
+# changes to the PR agent. The selection flags (--selected-path / --selected-variant) are appended
+# by the command builder from the run's wizard_config, so entries here hold only the subcommand.
+WIZARD_DETECTION_BASED_CLOUD_RUN_PROGRAMS: dict[str, list[str]] = {
+    "error-tracking-source-maps": ["upload-source-maps"],
+}
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"

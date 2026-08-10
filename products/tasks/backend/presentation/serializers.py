@@ -657,6 +657,9 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.ONBOARDING,
             # Server-set only: created by create_wizard_repository_detection_run behind its own daily cap.
             tasks_facade.TaskOriginProduct.WIZARD_REPOSITORY_DETECTION,
+            # Server-set only, same unbilled-gateway concern as ONBOARDING: created by
+            # create_wizard_detection_based_cloud_run behind its own daily cap.
+            tasks_facade.TaskOriginProduct.WIZARD_DETECTION_BASED_CLOUD_RUN,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
