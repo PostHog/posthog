@@ -839,24 +839,22 @@ function QuickActionsMenu() {
   // result out, since the log panel captures nothing from before developer mode
   // was switched on.
   const [probing, setProbing] = useState(false);
-  const probeMissionControl = () => {
+  const probeMissionControl = async () => {
     setProbing(true);
-    void trpcClient.dev.probeMissionControl
-      .mutate({ durationMs: MISSION_CONTROL_PROBE_MS })
-      .then((probe) =>
-        navigator.clipboard.writeText(JSON.stringify(probe, null, 2)),
-      )
-      .then(
-        () =>
-          void trpcClient.dev.triggerToast.mutate({
-            variant: "info",
-            message: "Window list copied to the clipboard",
-          }),
-      )
-      .catch((error: unknown) =>
-        log.warn("Mission Control probe failed", error),
-      )
-      .finally(() => setProbing(false));
+    try {
+      const probe = await trpcClient.dev.probeMissionControl.mutate({
+        durationMs: MISSION_CONTROL_PROBE_MS,
+      });
+      await navigator.clipboard.writeText(JSON.stringify(probe, null, 2));
+      await trpcClient.dev.triggerToast.mutate({
+        variant: "info",
+        message: "Window list copied to the clipboard",
+      });
+    } catch (error) {
+      log.warn("Mission Control probe failed", error);
+    } finally {
+      setProbing(false);
+    }
   };
 
   const setOffline = (next: boolean) =>
@@ -986,7 +984,10 @@ function QuickActionsMenu() {
             />
             {missionControlForced ? "Hide overlay" : "Force overlay on"}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={probeMissionControl} disabled={probing}>
+          <DropdownMenuItem
+            onClick={() => void probeMissionControl()}
+            disabled={probing}
+          >
             <ScrollText
               size={12}
               className={`mr-2 ${probing ? "text-(--accent-11)" : "text-(--gray-9)"}`}

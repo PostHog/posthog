@@ -262,10 +262,6 @@ export function createWindow(): void {
       webviewTag: true,
       enableBlinkFeatures: "GetDisplayMedia",
       partition: "persist:main",
-      // Mission Control renders a live surface of the window, and the branded
-      // overlay it triggers only reaches that surface if Chromium keeps
-      // producing frames while it believes the window is occluded.
-      backgroundThrottling: false,
       additionalArguments: [
         APP_WINDOW_ARG,
         ...(isDev ? ["--posthog-code-dev"] : []),
