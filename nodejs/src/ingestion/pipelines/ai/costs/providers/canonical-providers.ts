@@ -1,10 +1,11 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-07 10:20:33 UTC
+// Generated at: 2026-08-10 20:12:08 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'ai21-fp8'
     | 'aion-labs'
+    | 'akashml-bf16'
     | 'akashml-fp8'
     | 'alibaba'
     | 'alibaba-fast'
@@ -93,9 +94,7 @@ export type CanonicalProvider =
     | 'inceptron-int4'
     | 'io-net-fp16'
     | 'io-net-fp8'
-    | 'ionstream-bf16'
     | 'ionstream-fp4'
-    | 'ionstream-fp8'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -149,6 +148,7 @@ export type CanonicalProvider =
     | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp8'
+    | 'sail-research-fp4'
     | 'sail-research-fp8'
     | 'sail-research-int4'
     | 'sakana'
