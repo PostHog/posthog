@@ -292,7 +292,19 @@ async def test_should_run_with_both_hog_function_and_flow(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_run_posthog_database_connection_failure_stays_retryable(team):
+@pytest.mark.parametrize(
+    "error_cls,message",
+    [
+        (DjangoOperationalError, "[Errno -2] Name or service not known"),
+        # Fd exhaustion opening the connection's selector surfaces as a bare OSError, unwrapped by
+        # Django, rather than a DjangoOperationalError — same transient condition, different
+        # exception type depending on which connect step runs out of file descriptors first.
+        (OSError, "[Errno 24] Too many open files"),
+    ],
+)
+async def test_should_run_posthog_database_connection_failure_stays_retryable(
+    error_cls: type[Exception], message: str, team
+):
     # `should_run` queries PostHog's own database (HogFunction/HogFlow), not the
     # source being synced. A transient connection failure there (e.g. a DNS blip resolving our
     # host) surfaces the same "Name or service not known" wording a customer's misconfigured
@@ -313,7 +325,7 @@ async def test_should_run_posthog_database_connection_failure_stays_retryable(te
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.HogFunction.objects"
     ) as mock_hog_function_objects:
-        mock_hog_function_objects.filter.side_effect = DjangoOperationalError("[Errno -2] Name or service not known")
+        mock_hog_function_objects.filter.side_effect = error_cls(message)
         with pytest.raises(PostHogInternalDatabaseError) as exc_info:
             await producer.should_run()
 
