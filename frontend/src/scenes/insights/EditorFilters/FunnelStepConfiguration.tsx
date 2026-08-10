@@ -27,7 +27,7 @@ export function FunnelStepConfiguration({ insightProps }: EditorFilterProps): JS
                 </div>
             )}
             {aggregatesByExpression && (
-                <LemonBanner type="warning" className="text-sm">
+                <LemonBanner type="warning">
                     This funnel aggregates by a custom SQL expression. PostHog drops any event that does not have this
                     value. A step whose events lack it then converts at 0%. Make sure every step's events carry this
                     value, or aggregate by unique users instead.
