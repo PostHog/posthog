@@ -219,7 +219,7 @@ tools:
             and creation/modification metadata. Use this when you need the raw content or the current version number —
             required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a
             markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use
-            notebooks-get instead."
+            notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled)."
         feature_flag: revamped-py-notebooks
         feature_flag_behavior: disable
     notebooks-run-cell:
