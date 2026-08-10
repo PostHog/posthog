@@ -437,6 +437,7 @@ from .fly_io.source import FlyIoSource
 from .formbricks.source import FormbricksSource
 from .fortnox.source import FortnoxSource
 from .fourthwall.source import FourthwallSource
+from .framer.source import FramerSource
 from .fred.source import FredSource
 from .freeagent.source import FreeAgentSource
 from .freightview.source import FreightviewSource
@@ -580,6 +581,7 @@ from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
 from .imf_data.source import ImfDataSource
 from .impact.source import ImpactSource
+from .impact_partner.source import ImpactPartnerSource
 from .imperva.source import ImpervaSource
 from .incident_io.source import IncidentIoSource
 from .infisical.source import InfisicalSource
@@ -756,6 +758,7 @@ from .mono.source import MonoSource
 from .monte_carlo.source import MonteCarloSource
 from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
+from .motion.source import MotionSource
 from .moxie.source import MoxieSource
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource

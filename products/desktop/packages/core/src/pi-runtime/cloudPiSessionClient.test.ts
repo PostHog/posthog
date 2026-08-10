@@ -173,6 +173,37 @@ describe("CloudPiSessionClient", () => {
     expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
   });
 
+  it("uses the readiness snapshot when opening an already-running session", async () => {
+    const cloud = createCloudTaskClient();
+    vi.mocked(cloud.client.sendCommand).mockResolvedValue({
+      success: true,
+      result: {
+        type: "response",
+        command: "get_state",
+        success: true,
+        data: { isStreaming: false },
+      },
+    });
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    session.onConversationEvent(vi.fn(), vi.fn());
+
+    const state = session.client.getState();
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "in_progress",
+      newEntries: [{ type: "pi_run_started" }],
+      totalEntryCount: 1,
+    });
+
+    await expect(state).resolves.toMatchObject({ isStreaming: false });
+    expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
+  });
+
   it("does not fail while a sandbox takes longer than 30 seconds to boot", async () => {
     vi.useFakeTimers();
     try {
@@ -210,7 +241,7 @@ describe("CloudPiSessionClient", () => {
     }
   });
 
-  it("waits for a fresh start when a queued resume snapshot contains an old start", async () => {
+  it("waits for a fresh start when a resume snapshot's sandbox has stopped", async () => {
     const cloud = createCloudTaskClient();
     vi.mocked(cloud.client.sendCommand).mockResolvedValue({
       success: true,
@@ -229,11 +260,13 @@ describe("CloudPiSessionClient", () => {
       taskId: "task-1",
       runId: "run-1",
       kind: "snapshot",
-      status: "queued",
+      status: "in_progress",
+      sandboxAlive: false,
       newEntries: [{ type: "pi_run_started" }],
       totalEntryCount: 1,
     });
 
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(cloud.client.sendCommand).not.toHaveBeenCalled();
 
     cloud.sendUpdate({
@@ -242,6 +275,35 @@ describe("CloudPiSessionClient", () => {
       kind: "logs",
       newEntries: [{ type: "pi_run_started" }],
       totalEntryCount: 2,
+    });
+
+    await expect(state).resolves.toMatchObject({ isStreaming: false });
+    expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
+  });
+
+  it("becomes ready from a live snapshot when the fetched status was stale", async () => {
+    const cloud = createCloudTaskClient();
+    vi.mocked(cloud.client.sendCommand).mockResolvedValue({
+      success: true,
+      result: {
+        type: "response",
+        command: "get_state",
+        success: true,
+        data: { isStreaming: false },
+      },
+    });
+    const session = new CloudPiSessionClient(cloud.client, context("queued"));
+    session.onConversationEvent(vi.fn(), vi.fn());
+
+    const state = session.client.getState();
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "in_progress",
+      sandboxAlive: true,
+      newEntries: [{ type: "pi_run_started" }],
+      totalEntryCount: 1,
     });
 
     await expect(state).resolves.toMatchObject({ isStreaming: false });

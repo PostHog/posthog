@@ -8,8 +8,8 @@ import {
     CyclotronJobInvocationHogFunction,
     HogFunctionMasking,
 } from '../../types'
+import { dualRead } from '../../utils/dual-store'
 import { execHog } from '../../utils/hog-exec'
-import { mirrorCompare } from '../../utils/mirror-call'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
@@ -109,7 +109,7 @@ function getTtl(invocation: CyclotronJobInvocation, maskingConfig: HogFunctionMa
 export class HogMaskerService {
     constructor(
         private redis: RedisV2,
-        private redisMirror: RedisV2 | null = null
+        private redisMirror: RedisV2
     ) {}
 
     public async filterByMasking<T extends CyclotronJobInvocation>(
@@ -170,15 +170,15 @@ export class HogMaskerService {
         }
 
         const maskContexts = Object.values(masks)
-        const result = await mirrorCompare(
+        const result = await dualRead(
             'hog-masker.filterByMasking',
             () => this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline),
-            () => this.redisMirror?.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline),
-            (primary, mirror) =>
+            () => this.redisMirror.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline),
+            (primary, secondary) =>
                 maskContexts.every(
                     (masker, index) =>
                         allowedExecutionsForResult(primary, index, masker) ===
-                        allowedExecutionsForResult(mirror, index, masker)
+                        allowedExecutionsForResult(secondary, index, masker)
                 )
         )
 

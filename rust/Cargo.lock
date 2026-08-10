@@ -1931,34 +1931,13 @@ dependencies = [
 
 [[package]]
 name = "brotli"
-version = "7.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc97b8f16f944bba54f0433f07e30be199b6dc2bd25937444bbad560bcea29bd"
-dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
- "brotli-decompressor 4.0.3",
-]
-
-[[package]]
-name = "brotli"
 version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4bd8b9603c7aa97359dbd97ecf258968c95f3adddd6db2f7e7a5bef101c84560"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
- "brotli-decompressor 5.0.0",
-]
-
-[[package]]
-name = "brotli-decompressor"
-version = "4.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a334ef7c9e23abf0ce748e8cd309037da93e606ad52eb372e4ce327a0dcfbdfd"
-dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
+ "brotli-decompressor",
 ]
 
 [[package]]
@@ -2156,7 +2135,7 @@ dependencies = [
  "axum-client-ip",
  "axum-test-helper",
  "base64 0.22.1",
- "brotli 8.0.2",
+ "brotli",
  "bytes",
  "capture",
  "chrono",
@@ -3000,7 +2979,7 @@ version = "0.4.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb7b51a7d9c967fc26773061ba86150f19c50c0d65c887cb1fbe295fd16619b7"
 dependencies = [
- "brotli 8.0.2",
+ "brotli",
  "compression-core",
  "flate2",
  "memchr",
@@ -3789,7 +3768,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -8281,7 +8260,7 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "base64 0.22.1",
- "brotli 8.0.2",
+ "brotli",
  "bytes",
  "chrono",
  "flate2",
@@ -8663,6 +8642,7 @@ dependencies = [
  "personhog-proto",
  "rand 0.8.5",
  "rdkafka",
+ "rustls 0.23.37",
  "serde_json",
  "sqlx",
  "tokio",
@@ -9011,12 +8991,12 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.21.0"
+version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5dc5d94870b23655fceae57574d6741475b114be5a018b25d22dd2aa076fbe13"
+checksum = "b7c7fd093837f946cda3065af9161713b14c7efec39582bdb35f86d20e83348d"
 dependencies = [
  "backtrace",
- "brotli 7.0.0",
+ "brotli",
  "chrono",
  "derive_builder",
  "findshlibs",

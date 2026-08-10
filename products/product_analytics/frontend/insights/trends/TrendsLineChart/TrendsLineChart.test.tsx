@@ -584,6 +584,22 @@ describe('TrendsLineChart', () => {
             expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
         })
 
+        it('renders the chart when the first series is empty but a later one has data', async () => {
+            // Regresses the bug this PR fixes: the old check only looked at
+            // indexedResults[0], so a leading empty series blanked the whole chart even when a
+            // later series (here, ActiveSeries) had real counts.
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByLabelText(/chart with/i)).toBeInTheDocument()
+            })
+            expect(screen.queryByTestId('insight-empty-state')).not.toBeInTheDocument()
+        })
+
         it('uses context.emptyStateHeading override when provided', async () => {
             renderInsight({
                 query: buildTrendsQuery({
