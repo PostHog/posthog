@@ -76,6 +76,7 @@ Add it when any of these hold:
 ## Common pitfalls
 
 - Vendor version labels are opaque: `"2026-02-25.clover"`, `"v21.0"`, `"2022-06-28"`. Copy them exactly; never normalize, sort, or parse.
+- A source's per-endpoint URL versions (a hardcoded `/v2/...`, `/v3/...` in the endpoint config) are independent of the framework's source-level version label. A source may already call the vendor's newest per-resource routes while still carrying the `UNVERSIONED_API_VERSION` default — so a version-add can be correct as declaration-only even when the vendor's own version numbers look far apart. Diff what the source actually requests, not the vendor's headline version.
 - A version bump often changes **webhook payloads** too — if the source is a `WebhookSource`, check whether webhook-created clients (created at source-setup time, not sync time) also need the version and whether existing webhook subscriptions must be updated.
 - Credential-validation paths (`validate_credentials`, permission probes) run at creation time with no row pin; they may use the default/legacy version. Changing them is optional per version bump — verify the vendor accepts the validation calls under the new version before switching them.
 - A passing credential probe is not evidence sync works — the probe hits one endpoint, `get_rows` hits the rest; when they diverge per version, the probe passes while every table 404s.
