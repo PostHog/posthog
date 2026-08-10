@@ -155,3 +155,12 @@ class TestCanonicalDescriptions:
         for entry in descriptions.values():
             assert entry.get("description")
             assert "date" in entry.get("columns", {})
+
+    @pytest.mark.parametrize("endpoint", list(PLAUSIBLE_ENDPOINTS))
+    def test_columns_match_the_columns_the_report_actually_returns(self, endpoint):
+        # A report's columns are its dimensions plus the metrics it requests, so a description
+        # listing anything else advertises a column the synced table won't have.
+        config = PLAUSIBLE_ENDPOINTS[endpoint]
+        described = PlausibleSource().get_canonical_descriptions()[endpoint]["columns"]
+
+        assert set(described) == {*config.column_names, *config.metrics}

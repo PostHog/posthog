@@ -1,6 +1,7 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import EVENT_SCOPED_METRICS
 
 _DOCS_URL = "https://plausible.io/docs/stats-api"
 
@@ -14,6 +15,10 @@ _STANDARD_METRIC_COLUMNS = {
     "visit_duration": "Average visit duration in seconds.",
     "events": "Number of events (pageviews plus custom events).",
 }
+
+# Entry and exit page reports break down by a session-only dimension, so they omit the
+# event-scoped metrics Plausible refuses to return alongside one.
+_SESSION_METRIC_COLUMNS = {k: v for k, v in _STANDARD_METRIC_COLUMNS.items() if k not in EVENT_SCOPED_METRICS}
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "timeseries": {
@@ -64,12 +69,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "entry_pages": {
         "description": "Daily traffic metrics broken down by the first page of each visit.",
         "docs_url": _DOCS_URL,
-        "columns": {**_STANDARD_METRIC_COLUMNS, "entry_page": "The first page path visited in a session."},
+        "columns": {**_SESSION_METRIC_COLUMNS, "entry_page": "The first page path visited in a session."},
     },
     "exit_pages": {
         "description": "Daily traffic metrics broken down by the last page of each visit.",
         "docs_url": _DOCS_URL,
-        "columns": {**_STANDARD_METRIC_COLUMNS, "exit_page": "The last page path visited in a session."},
+        "columns": {**_SESSION_METRIC_COLUMNS, "exit_page": "The last page path visited in a session."},
     },
     "countries": {
         "description": "Daily traffic metrics broken down by visitor country.",

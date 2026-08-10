@@ -13,6 +13,18 @@ DEFAULT_BACKFILL_DAYS = 365
 # endpoints because they aren't valid for the generic breakdowns.
 DEFAULT_METRICS = ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration", "events"]
 
+# Plausible resolves each metric and dimension against either its events table or its sessions
+# table, and rejects a query that pairs an event-scoped metric with a session-only dimension
+# ("Event metric(s) ... cannot be queried along with session dimension(s) ...", HTTP 400).
+EVENT_SCOPED_METRICS = frozenset({"pageviews", "events"})
+
+# The only dimensions Plausible keeps solely on the sessions table. Every other `visit:*` dimension
+# is denormalized onto events, which is why they pair with the full metric set.
+SESSION_ONLY_DIMENSIONS = frozenset({"visit:entry_page", "visit:exit_page"})
+
+# The generic set minus the event-scoped metrics, for reports broken down by a session-only dimension.
+SESSION_SCOPED_METRICS = [m for m in DEFAULT_METRICS if m not in EVENT_SCOPED_METRICS]
+
 # The day bucket every report is grouped by — must be the first dimension so `order_by` can sort
 # on it and the pipeline can slide the date window incrementally.
 TIME_DIMENSION = "time:day"
@@ -76,8 +88,17 @@ PLAUSIBLE_ENDPOINTS: dict[str, PlausibleEndpointConfig] = {
     "utm_terms": PlausibleEndpointConfig(name="utm_terms", breakdown_dimensions=["visit:utm_term"]),
     "utm_contents": PlausibleEndpointConfig(name="utm_contents", breakdown_dimensions=["visit:utm_content"]),
     "pages": PlausibleEndpointConfig(name="pages", breakdown_dimensions=["event:page"]),
-    "entry_pages": PlausibleEndpointConfig(name="entry_pages", breakdown_dimensions=["visit:entry_page"]),
-    "exit_pages": PlausibleEndpointConfig(name="exit_pages", breakdown_dimensions=["visit:exit_page"]),
+    # Entry/exit pages break down by a session-only dimension, so they carry the reduced metric set.
+    "entry_pages": PlausibleEndpointConfig(
+        name="entry_pages",
+        breakdown_dimensions=["visit:entry_page"],
+        metrics=list(SESSION_SCOPED_METRICS),
+    ),
+    "exit_pages": PlausibleEndpointConfig(
+        name="exit_pages",
+        breakdown_dimensions=["visit:exit_page"],
+        metrics=list(SESSION_SCOPED_METRICS),
+    ),
     "countries": PlausibleEndpointConfig(name="countries", breakdown_dimensions=["visit:country"]),
     "regions": PlausibleEndpointConfig(name="regions", breakdown_dimensions=["visit:region"]),
     "cities": PlausibleEndpointConfig(name="cities", breakdown_dimensions=["visit:city"]),

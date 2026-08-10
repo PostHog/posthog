@@ -20,8 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     ENDPOINTS,
+    EVENT_SCOPED_METRICS,
     PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
+    SESSION_ONLY_DIMENSIONS,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible"
@@ -269,6 +271,52 @@ class TestGetRows:
 
         with pytest.raises(Exception, match="400"):
             _rows(_source(endpoint="timeseries"))
+
+
+class TestMetricDimensionScoping:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_no_report_pairs_event_metrics_with_a_session_only_dimension(self, endpoint):
+        config = PLAUSIBLE_ENDPOINTS[endpoint]
+        conflicting_metrics = EVENT_SCOPED_METRICS.intersection(config.metrics)
+        session_only_dimensions = SESSION_ONLY_DIMENSIONS.intersection(config.dimensions)
+
+        assert not (conflicting_metrics and session_only_dimensions), (
+            f"Plausible rejects {sorted(conflicting_metrics)} broken down by {sorted(session_only_dimensions)}"
+        )
+
+    @pytest.mark.parametrize(
+        "endpoint, dimension, column",
+        [
+            ("entry_pages", "visit:entry_page", "entry_page"),
+            ("exit_pages", "visit:exit_page", "exit_page"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_reports_request_session_metrics_only(self, MockSession, endpoint, dimension, column):
+        session = MockSession.return_value
+        bodies = _wire(
+            session,
+            [
+                _response(
+                    {"results": [_result(["2024-01-01", "/pricing"], [10, 12, 0.5, 60])], "meta": {"total_rows": 1}}
+                )
+            ],
+        )
+
+        rows = _rows(_source(endpoint=endpoint))
+
+        assert bodies[0]["dimensions"] == ["time:day", dimension]
+        assert bodies[0]["metrics"] == ["visitors", "visits", "bounce_rate", "visit_duration"]
+        assert rows == [
+            {
+                "date": "2024-01-01",
+                column: "/pricing",
+                "visitors": 10,
+                "visits": 12,
+                "bounce_rate": 0.5,
+                "visit_duration": 60,
+            }
+        ]
 
 
 class TestPlausibleSourceResponse:
