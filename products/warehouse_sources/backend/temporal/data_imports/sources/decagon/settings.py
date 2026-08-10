@@ -109,6 +109,39 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
         # A conversation row mutates in place whenever new messages arrive.
         supports_append=False,
     ),
+    # /agent_assist/actions/export records every Agent Assist action a human support
+    # agent performed. It pages on next_cursor/has_more, which is a different contract
+    # from the conversations export. Events document no unique id, so the stream syncs
+    # append-only (windowed server-side on min_timestamp over created_at) rather than
+    # merging on a guessed composite key that could silently merge distinct actions.
+    # include_details adds a `detail` object (carrying detail.conversation_id, the join
+    # key to conversations) only when detail export is enabled for the team, so nothing
+    # may depend on it being present.
+    "agent_assist_actions": DecagonEndpointConfig(
+        name="agent_assist_actions",
+        path="/agent_assist/actions/export",
+        data_key="events",
+        primary_keys=None,
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        pagination="cursor",
+        next_cursor_keys=("next_cursor",),
+        has_more_key="has_more",
+        partition_key="created_at",
+        incremental_param="min_timestamp",
+        incremental_param_format="epoch_seconds",
+        extra_params={"include_details": "true"},
+        # This export documents no ordering, so desc is the safe declaration (see the
+        # field comment).
+        sort_mode="desc",
+        supports_append=True,
+    ),
 }
 
 ENDPOINTS = tuple(DECAGON_ENDPOINTS.keys())

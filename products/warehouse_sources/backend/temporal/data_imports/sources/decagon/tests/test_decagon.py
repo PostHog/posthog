@@ -451,6 +451,56 @@ class TestPaginationModes:
         assert sent_params == [{"start": "2026-01-15T12:00:05+00:00"}]
 
 
+class TestAgentAssistActions:
+    def test_walk_sends_details_flag_and_window_and_pages_on_has_more(self) -> None:
+        manager = _fresh_manager()
+        watermark = datetime(2026, 1, 15, 12, 0, 5, tzinfo=UTC)
+        epoch = str(int(watermark.timestamp()))
+        responses = [
+            _make_response(
+                {
+                    "events": [{"agent_name": "a", "action_name": "x", "ticket_id": "t1"}],
+                    "has_more": True,
+                    "next_cursor": "cur-1",
+                }
+            ),
+            _make_response(
+                {
+                    "events": [{"agent_name": "b", "action_name": "y", "ticket_id": "t2"}],
+                    "has_more": False,
+                    "next_cursor": None,
+                }
+            ),
+        ]
+        sent_params, batches = _drive_rows(
+            manager,
+            responses,
+            endpoint="agent_assist_actions",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+            incremental_field="created_at",
+        )
+
+        assert sent_params == [
+            {"include_details": "true", "min_timestamp": epoch},
+            {"include_details": "true", "min_timestamp": epoch, "cursor": "cur-1"},
+        ]
+        assert [len(b) for b in batches] == [1, 1]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [DecagonResumeConfig(cursor="cur-1", min_timestamp=int(epoch))]
+
+    def test_source_response_is_a_keyless_append_stream(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="agent_assist_actions",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys is None
+        assert response.partition_keys == ["created_at"]
+        assert response.sort_mode == "desc"
+
+
 class TestToEpochSeconds:
     # The pipeline hands the DateTime watermark back as a datetime, a date, or an epoch
     # number depending on how it round-tripped through storage; the request boundary must
