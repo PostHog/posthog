@@ -83,6 +83,19 @@ class TestNorthpassLMSSource:
         assert schemas["people"].detected_primary_keys == ["id"]
         assert schemas["course_enrollments"].detected_primary_keys == ["course_id", "id"]
         assert schemas["learning_path_enrollments"].detected_primary_keys == ["learning_path_id", "id"]
+        assert schemas["quiz_attempts"].detected_primary_keys == ["id"]
+        assert schemas["quiz_attempt_answers"].detected_primary_keys == ["quiz_attempt_id", "id"]
+
+    def test_quiz_tables_are_off_by_default(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        # Both quiz tables depend on the sent-webhooks log (subscription required, three-month
+        # retention) and the answers table fans out one request per attempt, so connecting the
+        # source must not silently enable them.
+        assert schemas["quiz_attempts"].should_sync_default is False
+        assert schemas["quiz_attempt_answers"].should_sync_default is False
+        # A representative default table stays on.
+        assert schemas["courses"].should_sync_default is True
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["courses"])
