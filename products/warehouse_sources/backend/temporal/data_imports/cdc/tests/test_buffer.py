@@ -225,6 +225,8 @@ class TestCDCBufferWriter:
 
         removed = writer.cleanup_superseded_files(team_id=1, schema_id="abc", restart_seq=300)
 
+        # A cached listing that misses a fresh file silently skips its supersede-delete.
+        assert writer._s3.ls.call_args.kwargs["refresh"] is True
         assert removed == 2
         removed_keys = [c.args[0] for c in writer._s3.rm.call_args_list]
         assert removed_keys == keys[1:3]

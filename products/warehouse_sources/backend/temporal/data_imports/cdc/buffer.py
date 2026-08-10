@@ -218,7 +218,9 @@ class CDCBufferWriter:
         """
         prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
         try:
-            keys = self._s3.ls(prefix, detail=False)
+            # refresh: the fsspec instance cache can serve a stale listing in a
+            # long-lived worker; a missed entry here silently skips a supersede-delete.
+            keys = self._s3.ls(prefix, detail=False, refresh=True)
         except FileNotFoundError:
             return 0
 

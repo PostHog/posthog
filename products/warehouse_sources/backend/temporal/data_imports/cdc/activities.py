@@ -1848,6 +1848,14 @@ def cleanup_orphan_slots_activity() -> None:
                         source_log.exception("failed_to_cleanup_deleted_source_slot")
                         metrics.get_sweeper_source_errors_metric().add(1)
                         sources_errored += 1
+
+                # Shadow-buffer prefixes: destroy() defers all external reaping to this
+                # sweep, so without this the raw change files outlive the source until
+                # a lifecycle rule exists. Idempotent — a purged prefix is a no-op.
+                for schema_id in ExternalDataSchema.objects.filter(
+                    source=source, sync_type=ExternalDataSchema.SyncType.CDC
+                ).values_list("id", flat=True):
+                    purge_buffer_prefix(source.team_id, str(schema_id), source_log)
                 continue
 
             # 2. Active sources — check WAL lag
