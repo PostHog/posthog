@@ -551,6 +551,24 @@ jobs:
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
 
+            - name: Resolve Rust capture container image tag
+              # Run the ghcr probe in the background so its network round-trip overlaps
+              # the pnpm/uv install steps below instead of blocking the stack boot. The
+              # resolved tag lands in a file that "Start Docker services" reads.
+              run: |
+                  (
+                    if [ -n "${{ github.event.pull_request.number }}" ]; then
+                      TAG="pr-${{ github.event.pull_request.number }}"
+                    else
+                      TAG="${{ github.sha }}"
+                    fi
+                    if docker manifest inspect "ghcr.io/posthog/posthog/capture:${TAG}" > /dev/null 2>&1; then
+                      echo "$TAG"
+                    else
+                      echo "master"
+                    fi
+                  ) > /tmp/capture-image-tag &
+
             - name: Add service hostnames to /etc/hosts
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
@@ -691,27 +709,22 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Resolve Rust capture container image tag
-              id: capture-image
-              run: |
-                  if [ -n "${{ github.event.pull_request.number }}" ]; then
-                    TAG="pr-${{ github.event.pull_request.number }}"
-                  else
-                    TAG="${{ github.sha }}"
-                  fi
-                  if docker manifest inspect "ghcr.io/posthog/posthog/capture:${TAG}" > /dev/null 2>&1; then
-                    echo "capture image found: ${TAG}"
-                    echo "POSTHOG_CAPTURE_TAG=${TAG}" >> "$GITHUB_ENV"
-                  else
-                    echo "capture image not found for ${TAG}, using master"
-                    echo "POSTHOG_CAPTURE_TAG=master" >> "$GITHUB_ENV"
-                  fi
-
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: capture,temporal
-              run: bin/ci-wait-for-docker launch --down
+              run: |
+                  # Read the tag resolved by the backgrounded probe above. It started
+                  # before the install steps, so the file is ready by now; wait briefly in
+                  # case the probe is still in flight, and fall back to master otherwise.
+                  for _ in $(seq 1 15); do [ -s /tmp/capture-image-tag ] && break; sleep 1; done
+                  TAG="$(cat /tmp/capture-image-tag 2>/dev/null || true)"
+                  [ -n "$TAG" ] || TAG="master"
+                  # Persist to $GITHUB_ENV so the capture-ai container (same image) reuses it.
+                  echo "POSTHOG_CAPTURE_TAG=$TAG" >> "$GITHUB_ENV"
+                  export POSTHOG_CAPTURE_TAG="$TAG"
+                  echo "Using capture image tag: $TAG"
+                  bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               env:
@@ -849,6 +862,24 @@ jobs:
                     echo "POSTHOG_NODE_TAG=master" >> "$GITHUB_ENV"
                   fi
 
+            - name: Select AI observability containers
+              # capture-ai and ingestion-ai back only the AI observability specs. A full
+              # run always needs them; a selective run needs them only when it picked an
+              # AI observability spec, so skip booting and waiting on two containers
+              # otherwise. Empty select-specs outputs (full-run events) fall through to
+              # launching them.
+              env:
+                  SELECT_MODE: ${{ needs.select-specs.outputs.mode }}
+                  SELECT_SPECS: ${{ needs.select-specs.outputs.spec_files }}
+              run: |
+                  if [[ "$SELECT_MODE" == "selected" && -n "$SELECT_SPECS" ]] \
+                      && ! grep -qE '(^| )products/(ai_observability|posthog_ai)/frontend/e2e/' <<<"$SELECT_SPECS"; then
+                      echo "AI_SERVICES=" >> "$GITHUB_ENV"
+                      echo "No AI observability spec selected — skipping capture-ai and ingestion-ai"
+                  else
+                      echo "AI_SERVICES=capture-ai ingestion-ai" >> "$GITHUB_ENV"
+                  fi
+
             - name: Start PostHog web, Celery worker, Temporal worker & ingestion
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
@@ -865,7 +896,8 @@ jobs:
                   # ingestion-traces: traces ingestion (ingestion-traces mode)
                   # capture-ai: AI event capture (/i/v0/ai/batch/, CAPTURE_MODE=events)
                   # ingestion-ai: AI event ingestion incl. multimodal blob offload (INGESTION_PIPELINE=ai)
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai ingestion-ai
+                  # $AI_SERVICES holds "capture-ai ingestion-ai" or is empty (see the step above).
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces $AI_SERVICES
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -883,7 +915,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai ingestion-ai
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces $AI_SERVICES
 
             - name: Clean snapshot directory
               run: find playwright/__snapshots__ -name '*.png' -delete 2>/dev/null || true
