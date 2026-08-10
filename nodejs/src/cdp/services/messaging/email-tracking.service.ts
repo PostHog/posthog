@@ -54,9 +54,10 @@ const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
     }
     // An HTML parser keeps only the first of two same-named attributes, so emitting a second
     // `ses:tags` would silently discard whichever set loses. Merge into the author's existing
-    // comma-separated value instead so both their tags and ours reach SES.
+    // value instead so both their tags and ours reach SES. SES separates pairs with `;` and
+    // allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one malformed tag.
     const value = existing[1] ?? existing[2] ?? existing[3] ?? ''
-    return openingTag.replace(SES_TAGS_ATTR_REGEX, () => `ses:tags="${value ? `${value},` : ''}${tag}"`)
+    return openingTag.replace(SES_TAGS_ATTR_REGEX, () => `ses:tags="${value ? `${value};` : ''}${tag}"`)
 }
 
 const trackingEventsCounter = new Counter({

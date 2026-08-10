@@ -147,7 +147,7 @@ describe('EmailTrackingService', () => {
 
             it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {
                 const out = sesTrack('<body><a href="https://example.com" ses:tags="campaign:spring">x</a></body>')
-                expect(out).toContain('ses:tags="campaign:spring,phl:0"')
+                expect(out).toContain('ses:tags="campaign:spring;phl:0"')
             })
 
             it('keeps anchor positions stable when an earlier link opts out', () => {
