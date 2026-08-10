@@ -110,8 +110,29 @@ const DJANGO_MAX_SHARDS = 50
 const TURBO_EXEC_OPTS = { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 50 * 1024 * 1024 }
 const TURBO_BIN = './node_modules/.bin/turbo'
 
+// These are read-only affectedness/dry-run queries, so re-running one is safe. A transient git or
+// Turbo blip (a stray index.lock, a daemon that dropped a connection) otherwise fails the whole job,
+// and the rerun that then passes reads as a flake. Retry the transient case a couple of times; a
+// deterministic failure still fails, only a few seconds later.
+const TURBO_RETRIES = 2
+const TURBO_RETRY_DELAY_MS = 2000
+
+function sleepSync(ms) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
 function runTurbo(args) {
-    return execFileSync(TURBO_BIN, args, TURBO_EXEC_OPTS)
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return execFileSync(TURBO_BIN, args, TURBO_EXEC_OPTS)
+        } catch (e) {
+            if (attempt >= TURBO_RETRIES) {
+                throw e
+            }
+            console.error(`turbo ${args.join(' ')} failed (attempt ${attempt + 1}), retrying: ${e.message}`)
+            sleepSync(TURBO_RETRY_DELAY_MS)
+        }
+    }
 }
 
 function parseTurboTasks(raw) {

@@ -16,6 +16,16 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 # NO_OP_RUN_MAX_SECONDS.
 NO_OP_JOB_MAX_SECONDS = 10
 
+# A failed attempt only counts as a verdict when the job actually ran a step (j.ran_step). When a
+# deterministic check fails, ci-backend.yml calls `gh run cancel` on the whole run; that terminates
+# in-flight jobs out of band, and GitHub records some of them as `failure` with no step records
+# rather than `cancelled`. The rerun then passes, so a terminated bystander mimics the fail-then-pass
+# shape of a flake without a flake. Requiring an executed step keeps the cancellation artifact out,
+# the same way "cancelled runs decide nothing" gates the other detectors (SPEC §6). A genuine flake
+# runs its test steps, so this never drops one; an infra failure before any step (which a rerun, not
+# test isolation, fixes) is intentionally out of scope.
+_REAL_FAILURE = "j.conclusion IN ('failure', 'timed_out') AND j.ran_step"
+
 # These jobs commit an artifact, then exit 1 so the merge waits for review. The rerun passes because
 # the commit already landed, and they run too long for NO_OP_JOB_MAX_SECONDS to drop them.
 # Repo-qualified because job names are free text. This hides a real flake in either job too.
@@ -34,9 +44,9 @@ _SELECT = """
         j.name AS job_name,
         j.run_id,
         j.head_sha,
-        minIf(j.run_attempt, j.conclusion IN ('failure', 'timed_out')) AS failed_attempt,
+        minIf(j.run_attempt, __REAL_FAILURE__) AS failed_attempt,
         maxIf(j.run_attempt, j.conclusion = 'success') AS passed_attempt,
-        maxIf(j.duration_seconds, j.conclusion IN ('failure', 'timed_out')) AS failed_duration_seconds
+        maxIf(j.duration_seconds, __REAL_FAILURE__) AS failed_duration_seconds
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id
     -- created_at_raw is the unparsed string the scan can prune on; the parsed j.created_at filter
@@ -77,9 +87,9 @@ def query_workflow_flakiness(
     if jobs_source is None:
         return []
     response = curated.run(
-        _SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
-            "__RUNS_SOURCE__", curated.run_source(started_floor=True)
-        ),
+        _SELECT.replace("__JOBS_SOURCE__", jobs_source)
+        .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        .replace("__REAL_FAILURE__", _REAL_FAILURE),
         query_type="engineering_analytics.workflow_flakiness",
         workload=workload,
         placeholders={

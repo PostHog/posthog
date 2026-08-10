@@ -33,6 +33,11 @@ def build_query(table_name: str) -> str:
             status,
             conclusion,
             labels,
+            -- Whether the job recorded any step. An out-of-band kill (a run-level cancel) leaves the
+            -- steps array empty, which the flaky detector uses to tell a real verdict from a
+            -- terminated bystander. A boolean keeps the raw (possibly large) steps JSON out of the
+            -- output that cost and history consumers scan.
+            JSONLength(steps) > 0 AS ran_step,
             runner_name,
             created_at,
             created_at_raw,
@@ -53,6 +58,7 @@ def build_query(table_name: str) -> str:
                 status,
                 conclusion,
                 ifNull(labels, '[]') AS labels,
+                ifNull(steps, '[]') AS steps,
                 ifNull(runner_name, '') AS runner_name,
                 -- HogQL maps parseDateTimeBestEffort to the OrNull variant, so an empty/queued '' lands
                 -- as NULL with no explicit nullIf — same as the runs builder.

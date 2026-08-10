@@ -134,6 +134,7 @@ def _job_row(
     *,
     run_attempt: int,
     duration_seconds: int = 60,
+    steps: str = '[{"name": "Run tests", "status": "completed", "conclusion": "failure", "number": 1}]',
 ) -> dict[str, Any]:
     started_s = _ts(started)
     return {
@@ -152,7 +153,8 @@ def _job_row(
         "created_at": started_s,
         "started_at": started_s,
         "completed_at": _ts(started + timedelta(seconds=duration_seconds)),
-        "steps": "[]",
+        # A real job records the steps it ran; a job killed out of band by a run-level cancel does not.
+        "steps": steps,
     }
 
 
@@ -623,6 +625,24 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["run_id"] == 1
         assert findings[0].source_id.endswith(":flaky")
         _assert_emittable(findings[0])
+
+    def test_flaky_check_ignores_out_of_band_cancel_recorded_as_failure(self) -> None:
+        # When a deterministic check fails, ci-backend.yml cancels the whole run; GitHub records some
+        # in-flight bystanders as `failure` with no step records, and the rerun passes. That
+        # fail-then-pass shape mimics a flake, so without the step guard the cancel artifact reports
+        # as flaky. A genuine flake beside it (with steps) must still report.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [_run_row(1, "CI", "shaX", "success", now - timedelta(hours=19), 60, run_attempt=2)]
+        jobs = [
+            _job_row(
+                100, 1, "cancelled-bystander", "shaX", "failure", now - timedelta(hours=20), run_attempt=1, steps="[]"
+            ),
+            _job_row(101, 1, "cancelled-bystander", "shaX", "success", now - timedelta(hours=19), run_attempt=2),
+            _job_row(102, 1, "real-flake", "shaX", "failure", now - timedelta(hours=20), run_attempt=1),
+            _job_row(103, 1, "real-flake", "shaX", "success", now - timedelta(hours=19), run_attempt=2),
+        ]
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
+        assert {f.extra["job_name"] for f in findings} == {"real-flake"}
 
     def test_flaky_source_ids_are_collision_free_and_bounded(self) -> None:
         # (workflow='build', job='test:linux') and (workflow='build:test', job='linux') would share
