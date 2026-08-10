@@ -995,6 +995,27 @@ class TaskSession(TeamScopedRootMixin, UUIDModel):
             )
 
 
+class TaskActivityEvent(models.TextChoices):
+    """The vocabulary of server-emitted task events rendered on the activity timeline.
+
+    Each value is a stable ``TaskThreadMessage.event`` key. Mirrored in
+    ``products/desktop/packages/core/src/canvas/activityEvents.ts``; a test asserts the two
+    lists match, and clients ignore keys they don't know, so the backend can emit a new
+    event before any client renders it.
+    """
+
+    RUN_STARTED = "run_started", "Run started"
+    RUN_FAILED = "run_failed", "Run failed"
+    AWAITING_INPUT = "awaiting_input", "Awaiting input"
+    ARTIFACT_CREATED = "artifact_created", "Artifact created"
+    ARTIFACT_REVISED = "artifact_revised", "Artifact revised"
+    CANVAS_CREATED = "canvas_created", "Canvas created"
+    PR_CREATED = "pr_created", "Pull request created"
+    PR_MERGED = "pr_merged", "Pull request merged"
+    PR_CLOSED = "pr_closed", "Pull request closed"
+    MESSAGE_FORWARDED = "message_forwarded", "Message forwarded to agent"
+
+
 class TaskThreadMessage(TeamScopedRootMixin):
     """One message in a task's thread — the side conversation channel members have
     around a task. Human messages never reach the agent unless the task author
@@ -1023,6 +1044,11 @@ class TaskThreadMessage(TeamScopedRootMixin):
     # Stable event key + structured payload for non-human rows (empty for human
     # messages); `content` stays the rendered text so older clients degrade cleanly.
     event = models.CharField(max_length=64, blank=True, default="")
+    # Identity of the real-world thing an event row announces (a run id, a PR url, a head
+    # SHA), empty for everything else. Paired with the partial unique index below, it is what
+    # makes emission idempotent: a redelivered webhook or a retried Temporal activity writes
+    # the same key and loses the race instead of duplicating the row.
+    event_key = models.CharField(max_length=255, blank=True, default="", db_default="")
     payload = models.JSONField(default=dict, blank=True)
     content = models.TextField()
     forwarded_to_agent_at = models.DateTimeField(null=True, blank=True)
@@ -1038,6 +1064,13 @@ class TaskThreadMessage(TeamScopedRootMixin):
         db_table = "posthog_task_thread_message"
         indexes = [
             models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "event", "event_key"],
+                condition=~models.Q(event_key=""),
+                name="task_thread_msg_event_key_uniq",
+            )
         ]
 
     def __str__(self):
