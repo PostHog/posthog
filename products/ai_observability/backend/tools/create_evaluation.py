@@ -233,8 +233,10 @@ class CreateEvaluationTool(MaxTool):
     def _resolve_model_configuration(self, args: CreateEvaluationArgs) -> LLMModelConfiguration:
         """Pick the judge's provider and model, falling back to the team's active provider key so the
         user doesn't have to name a model to get an evaluation saved."""
-        provider = args.provider
-        model = args.model
+        # Widened from the args' Literal: a provider taken from the team's active key is any
+        # LLMProvider, not only the three a judge can be configured with directly.
+        provider: str | None = args.provider
+        model: str | None = args.model
 
         if provider is None:
             active_key = self._active_provider_key()
