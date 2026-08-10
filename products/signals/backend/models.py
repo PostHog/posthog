@@ -148,6 +148,17 @@ class SignalTeamConfig(UUIDModel):
         verbose_name = "Signal team config"
         verbose_name_plural = "Signal team configs"
 
+    def base_branch_for(self, repository: str | None) -> str | None:
+        """Configured base branch for ``repository`` ("organization/repository"), if any.
+
+        Keys are stored lowercased by the serializer, so the lookup lowercases to match.
+        Every path that opens a self-driving pull request resolves through here, so that
+        auto-start and the inbox "Create PR" button cannot disagree on the branch.
+        """
+        if not repository or not isinstance(self.autostart_base_branches, dict):
+            return None
+        return self.autostart_base_branches.get(repository.lower()) or None
+
 
 register_team_extension_signal(SignalTeamConfig, logger=logger)
 
