@@ -318,13 +318,11 @@ class OrganizationAdmin(admin.ModelAdmin):
     def ai_training_opt_in_history_display(self, organization: Organization):
         if not organization.pk:
             return "-"
-        request = getattr(self, "_current_request", None)
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/organization/ai_training_opt_in_history.html",
                 {"history": get_ai_training_opt_in_history(organization)},
-                request=request,
             )
         )
 
