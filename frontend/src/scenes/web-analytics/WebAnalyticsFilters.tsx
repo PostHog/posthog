@@ -40,6 +40,7 @@ import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types
 import { INITIAL_DATE_FROM, INITIAL_DATE_TO, ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
+import { TableRowLimitSelector } from './TableRowLimitSelector'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
@@ -88,6 +89,7 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                         <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                         <WebAnalyticsDomainSelector />
                         <TableSortingIndicator />
+                        <TableRowLimitSelector />
                     </>
                 }
             />
@@ -144,6 +146,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
                             <WebConversionGoal />
                             <TableSortingIndicator />
+                            <TableRowLimitSelector />
 
                             <WebVitalsPercentileToggle />
                             <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />

@@ -4,7 +4,12 @@ import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'
-import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID, WebAnalyticsTile } from './common'
+import {
+    TileId,
+    WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    WEB_ANALYTICS_MODAL_MIN_ROW_LIMIT,
+    WebAnalyticsTile,
+} from './common'
 import type { SectionTile } from './common'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { pageReportsLogic } from './pageReportsLogic'
@@ -25,6 +30,7 @@ export interface WebAnalyticsModalQuery {
 export interface webAnalyticsModalLogicValues {
     botAnalyticsTiles: WebAnalyticsTile[] // botAnalyticsLogic
     pageReportsTiles: SectionTile[] // pageReportsLogic
+    tablesRowLimit: number // webAnalyticsLogic
     webAnalyticsTiles: WebAnalyticsTile[] // webAnalyticsLogic
     combinedTiles: WebAnalyticsTile[]
     getNewInsightUrl: (tileId: TileId, tabId?: string | undefined) => string | undefined
@@ -60,7 +66,8 @@ export interface webAnalyticsModalLogicMeta {
             modalTileAndTab: {
                 tabId?: string
                 tileId: TileId
-            } | null
+            } | null,
+            tablesRowLimit: number
         ) => WebAnalyticsModalQuery | null
         getNewInsightUrl: (
             combinedTiles: WebAnalyticsTile[]
@@ -85,7 +92,7 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
     connect(() => ({
         values: [
             webAnalyticsLogic,
-            ['tiles as webAnalyticsTiles'],
+            ['tiles as webAnalyticsTiles', 'tablesRowLimit'],
             pageReportsLogic,
             ['tiles as pageReportsTiles'],
             botAnalyticsLogic,
@@ -132,10 +139,11 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
         ],
 
         modal: [
-            (s) => [s.combinedTiles, s.modalTileAndTab],
+            (s) => [s.combinedTiles, s.modalTileAndTab, s.tablesRowLimit],
             (
                 tiles: WebAnalyticsTile[],
-                modalTileAndTab: { tileId: TileId; tabId?: string } | null
+                modalTileAndTab: { tileId: TileId; tabId?: string } | null,
+                tablesRowLimit: number
             ): WebAnalyticsModalQuery | null => {
                 if (!modalTileAndTab) {
                     return null
@@ -159,7 +167,7 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
                             ...query,
                             source: {
                                 ...query.source,
-                                limit: 50,
+                                limit: Math.max(tablesRowLimit, WEB_ANALYTICS_MODAL_MIN_ROW_LIMIT),
                             },
                         }
                     }

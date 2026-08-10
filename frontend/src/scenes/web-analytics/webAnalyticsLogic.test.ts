@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
@@ -440,5 +441,42 @@ describe('webAnalyticsLogic URL restoration', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.searchParams[key]).toBe(expected)
+    })
+
+    describe('table row limit', () => {
+        // Collect the `limit` from every stats-table query the tiles build, so we assert the setting
+        // reaches all of them rather than one incidental tile.
+        const statsTableLimits = (): (number | undefined)[] => {
+            const limits: (number | undefined)[] = []
+            const readQuery = (query: any): void => {
+                if (query?.kind === NodeKind.DataTableNode && query.source?.kind === NodeKind.WebStatsTableQuery) {
+                    limits.push(query.source.limit)
+                }
+            }
+            for (const tile of logic.values.tiles) {
+                if (tile.kind === 'tabs') {
+                    tile.tabs.forEach((tab) => readQuery(tab.query))
+                } else if (tile.kind === 'query') {
+                    readQuery(tile.query)
+                }
+            }
+            return limits
+        }
+
+        it('defaults every stats table to 10 rows', () => {
+            const limits = statsTableLimits()
+            expect(limits.length).toBeGreaterThan(0)
+            expect(limits.every((limit) => limit === 10)).toBe(true)
+        })
+
+        it('applies the selected row limit to every stats table', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTablesRowLimit(100)
+            }).toMatchValues({ tablesRowLimit: 100 })
+
+            const limits = statsTableLimits()
+            expect(limits.length).toBeGreaterThan(0)
+            expect(limits.every((limit) => limit === 100)).toBe(true)
+        })
     })
 })

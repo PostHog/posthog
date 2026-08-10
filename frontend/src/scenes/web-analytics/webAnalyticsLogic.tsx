@@ -113,6 +113,7 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+    WEB_ANALYTICS_DEFAULT_TABLE_ROW_LIMIT,
     WebAnalyticsTile,
     WebVitalsPercentile,
     eventPropertiesToPathClean,
@@ -191,6 +192,7 @@ export interface webAnalyticsLogicValues {
         dateFilter: DateFilterState
         replayFilters: RecordingUniversalFilters
         tablesOrderBy: WebAnalyticsOrderBy | null
+        tablesRowLimit: number
         webAnalyticsFilters: WebAnalyticsPropertyFilters
         webVitalsPercentile: WebVitalsPercentile
         webVitalsTab: WebVitalsMetric
@@ -232,6 +234,7 @@ export interface webAnalyticsLogicValues {
     sourceTab: string
     surveyModalPath: string | null
     tablesOrderBy: WebAnalyticsOrderBy | null
+    tablesRowLimit: number
     tabs: {
         activeHoursTab: string
         deviceTab: string
@@ -479,6 +482,9 @@ export interface webAnalyticsLogicActions {
         direction: WebAnalyticsOrderByDirection
         orderBy: WebAnalyticsOrderByFields
     }
+    setTablesRowLimit: (limit: number) => {
+        limit: number
+    }
     setTileVisibility: (
         tileId: TileId,
         visible: boolean
@@ -598,6 +604,7 @@ export interface webAnalyticsLogicMeta {
             webVitalsTab: WebVitalsMetric,
             webVitalsPercentile: WebVitalsPercentile,
             tablesOrderBy: WebAnalyticsOrderBy | null,
+            tablesRowLimit: number,
             conversionGoal: WebAnalyticsConversionGoal | null
         ) => {
             compareFilter: CompareFilter
@@ -605,6 +612,7 @@ export interface webAnalyticsLogicMeta {
             dateFilter: DateFilterState
             replayFilters: RecordingUniversalFilters
             tablesOrderBy: WebAnalyticsOrderBy | null
+            tablesRowLimit: number
             webAnalyticsFilters: WebAnalyticsPropertyFilters
             webVitalsPercentile: WebVitalsPercentile
             webVitalsTab: WebVitalsMetric
@@ -662,6 +670,7 @@ export interface webAnalyticsLogicMeta {
                 dateFilter: DateFilterState
                 replayFilters: RecordingUniversalFilters
                 tablesOrderBy: WebAnalyticsOrderBy | null
+                tablesRowLimit: number
                 webAnalyticsFilters: WebAnalyticsPropertyFilters
                 webVitalsPercentile: WebVitalsPercentile
                 webVitalsTab: WebVitalsMetric
@@ -764,6 +773,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             orderBy,
             direction,
         }),
+        setTablesRowLimit: (limit: number) => ({ limit }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
@@ -934,6 +944,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     // Reset the order by when the conversion goal changes because most of the columns are different
                     setConversionGoal: () => null,
+                },
+            ],
+            tablesRowLimit: [
+                WEB_ANALYTICS_DEFAULT_TABLE_ROW_LIMIT as number,
+                persistConfig,
+                {
+                    setTablesRowLimit: (_, { limit }) => limit,
                 },
             ],
             dateFilter: [
@@ -1433,6 +1450,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.webVitalsTab,
                 s.webVitalsPercentile,
                 s.tablesOrderBy,
+                s.tablesRowLimit,
                 s.conversionGoal,
             ],
             (
@@ -1443,6 +1461,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webVitalsTab: WebVitalsMetric,
                 webVitalsPercentile: WebVitalsPercentile,
                 tablesOrderBy: WebAnalyticsOrderBy | null,
+                tablesRowLimit: number,
                 conversionGoal: WebAnalyticsConversionGoal | null
             ) => ({
                 webAnalyticsFilters,
@@ -1452,6 +1471,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webVitalsTab,
                 webVitalsPercentile,
                 tablesOrderBy,
+                tablesRowLimit,
                 conversionGoal,
             }),
         ],
@@ -1631,6 +1651,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     webVitalsPercentile,
                     webVitalsTab,
                     tablesOrderBy,
+                    tablesRowLimit,
                 },
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isGreaterThanMd: boolean,
@@ -1830,7 +1851,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 breakdownBy: breakdownBy,
                                 dateRange,
                                 compareFilter,
-                                limit: 10,
+                                limit: tablesRowLimit,
                                 filterTestAccounts,
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
@@ -2975,7 +2996,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       filterTestAccounts,
                                       properties: webAnalyticsFilters,
                                       compareFilter,
-                                      limit: 10,
+                                      limit: tablesRowLimit,
                                       doPathCleaning: isPathCleaningEnabled,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                       // The backend frustration lazy precompute gate decides whether
