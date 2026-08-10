@@ -385,8 +385,8 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         return await api.dataWarehouseSavedQueryFolders.list()
                     } catch (error) {
                         // A transient fetch failure (offline, tab closed mid-request, blocked call) throws a
-                        // TypeError. It's noise, not a defect — apiStatusLogic already shows a connection
-                        // banner — so keep the current folders. Other error types still throw so real bugs surface.
+                        // TypeError. It's noise, not a defect, since apiStatusLogic already shows a connection
+                        // banner, so keep the current folders. Other error types still throw so real bugs surface.
                         if (error instanceof TypeError) {
                             return values.dataWarehouseSavedQueryFolders
                         }
