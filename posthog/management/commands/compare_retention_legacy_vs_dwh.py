@@ -45,6 +45,12 @@ Examples:
     python manage.py compare_retention_legacy_vs_dwh --all \\
         --progress-path s3://retention_compare/perf_run.jsonl --resume
 
+    # Perf pass over a representative sample: up to 10 insights per query-shape family, spread
+    # across teams. Deterministic selection, so re-running with --resume continues the same set.
+    python manage.py compare_retention_legacy_vs_dwh --sample-per-shape 10 --perf-iterations 3 \\
+        --query-log-table query_log_archive --no-flush-query-log --query-log-wait 90 \\
+        --progress-path s3://retention_compare/perf_run.jsonl
+
 (For a correctness-only sweep over everything, the concurrent ``compare_retention_correctness``
 command with ``--state-file`` is much faster — this command is the one that also measures perf.)
 """
@@ -70,6 +76,7 @@ from typing import Any, Optional, TextIO, Union
 from unittest.mock import patch
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import QuerySet
 
 from posthog.schema import HogQLQueryModifiers, RetentionResult
 
@@ -451,6 +458,76 @@ def shape_fingerprint(source: dict[str, Any]) -> str:
         parts.append("test_accounts")
 
     return " ".join(parts)
+
+
+_FAMILY_VOLATILE_PREFIXES = ("intervals=", "range=")
+_FAMILY_PARAMETERIZED_PREFIXES = ("minocc=", "brackets=", "sampling=", "groups=")
+_FAMILY_CONTEXT_TOKENS = frozenset({"filters", "test_accounts"})
+
+
+def shape_family(source: dict[str, Any]) -> str:
+    """Coarsened shape_fingerprint keeping only the tokens that select a builder code path.
+
+    Two insights share a family exactly when both variants build structurally the same SQL for
+    them: retention type, entity sameness/types, period (the timezone pin branches on hour/day
+    vs week/month), breakdown kind, aggregation, and the presence — not the value — of
+    minimum-occurrences, brackets, sampling, and group aggregation. Window size, date range,
+    and property filters change cost, not shape, so they are dropped.
+    """
+    tokens: list[str] = []
+    for token in shape_fingerprint(source).split(" "):
+        if token.startswith(_FAMILY_VOLATILE_PREFIXES) or token in _FAMILY_CONTEXT_TOKENS:
+            continue
+        for prefix in _FAMILY_PARAMETERIZED_PREFIXES:
+            if token.startswith(prefix):
+                token = prefix[:-1]
+                break
+        tokens.append(token)
+    return " ".join(tokens)
+
+
+@dataclasses.dataclass(frozen=True)
+class SampleCandidate:
+    insight_id: int
+    team_id: int
+    family: str
+
+
+def stratified_sample(
+    candidates: Sequence[SampleCandidate], per_family: int
+) -> tuple[list[int], list[tuple[str, int, int]]]:
+    """Pick up to per_family insight ids per shape family, spread across teams.
+
+    Deterministic — no randomness — so a resumed run re-derives the identical selection and
+    skips the finished ids instead of drawing replacements. Candidates must arrive newest-first
+    (id descending): within a family, teams rotate in order of their newest insight and each team
+    contributes newest-first, so one prolific team cannot fill a family's quota by itself.
+    Returns (selected ids in candidate order, census rows (family, candidates, selected) sorted
+    by candidate count descending).
+    """
+    by_family: dict[str, dict[int, list[int]]] = {}
+    for candidate in candidates:
+        by_family.setdefault(candidate.family, {}).setdefault(candidate.team_id, []).append(candidate.insight_id)
+
+    selected: set[int] = set()
+    census: list[tuple[str, int, int]] = []
+    for family, teams in by_family.items():
+        total = sum(len(ids) for ids in teams.values())
+        team_queues = list(teams.values())
+        taken = 0
+        while taken < per_family and team_queues:
+            still_have: list[list[int]] = []
+            for queue in team_queues:
+                if taken < per_family:
+                    selected.add(queue.pop(0))
+                    taken += 1
+                if queue:
+                    still_have.append(queue)
+            team_queues = still_have
+        census.append((family, total, taken))
+
+    census.sort(key=lambda row: (-row[1], row[0]))
+    return [candidate.insight_id for candidate in candidates if candidate.insight_id in selected], census
 
 
 def _clickhouse_seconds(timings: Optional[Sequence[Any]]) -> float:
@@ -1732,6 +1809,16 @@ class Command(BaseCommand):
         parser.add_argument("--all", action="store_true", help="Process every matching insight (ignores --limit)")
         parser.add_argument("--sample", type=int, default=None, help="Randomly sample N insights instead of by date")
         parser.add_argument(
+            "--sample-per-shape",
+            type=int,
+            default=None,
+            metavar="N",
+            help="Stratified sample: up to N insights per query-shape family (retention type, period, breakdown "
+            "kind, aggregation, brackets, …), spread across teams. Unlike --sample this weights the rare families "
+            "where the two builders' SQL actually differs, and the selection is deterministic so --resume "
+            "continues the same set. Ignores --limit.",
+        )
+        parser.add_argument(
             "--progress-path",
             type=str,
             default=None,
@@ -1805,6 +1892,8 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         if options["all"] and options["sample"]:
             raise CommandError("--all and --sample are mutually exclusive")
+        if options["sample_per_shape"] and (options["all"] or options["sample"]):
+            raise CommandError("--sample-per-shape is its own selection mode — drop --all/--sample")
         loaded = self._load_progress(options)
         insights = self._select_insights(options, exclude_ids={f.insight_id for f in loaded})
         if not insights and not loaded:
@@ -1890,6 +1979,8 @@ class Command(BaseCommand):
             queryset = queryset.filter(id__in=options["insight_id"])
         if options["short_id"]:
             queryset = queryset.filter(short_id__in=options["short_id"])
+        if options["sample_per_shape"]:
+            return self._select_stratified(queryset, options["sample_per_shape"], exclude_ids or set())
         if exclude_ids:
             queryset = queryset.exclude(id__in=exclude_ids)
         queryset = queryset.select_related("team")
@@ -1900,6 +1991,45 @@ class Command(BaseCommand):
         if options["all"]:
             return list(queryset)
         return list(queryset[: options["limit"]])
+
+    def _select_stratified(
+        self, queryset: "QuerySet[Insight]", per_family: int, exclude_ids: set[int]
+    ) -> list[Insight]:
+        """Deterministic shape-stratified sample.
+
+        The full candidate set is scanned and sampled BEFORE excluding already-finished ids, so a
+        resumed run re-derives the same selection and skips the done part rather than drawing
+        replacements — the sample stays the sample across interruptions.
+        """
+        candidates: list[SampleCandidate] = []
+        rows = queryset.order_by("-id").values_list("id", "team_id", "query").iterator(chunk_size=1000)
+        for insight_id, team_id, query in rows:
+            source = query.get("source") if isinstance(query, dict) else None
+            if not isinstance(source, dict):
+                continue
+            # The toggle cannot affect these two shapes, so sampling them buys only SKIPPED findings:
+            # 24h rolling windows use a different builder, and a data-warehouse entity always routes
+            # to the new path.
+            retention_filter = source.get("retentionFilter")
+            if isinstance(retention_filter, dict):
+                if retention_filter.get("timeWindowMode") == ROLLING_24H_WINDOW_MODE:
+                    continue
+                entities = (retention_filter.get("targetEntity"), retention_filter.get("returningEntity"))
+                if any(isinstance(e, dict) and e.get("type") == DATA_WAREHOUSE_ENTITY_TYPE for e in entities):
+                    continue
+            candidates.append(SampleCandidate(insight_id=insight_id, team_id=team_id, family=shape_family(source)))
+
+        selected_ids, census = stratified_sample(candidates, per_family)
+        self.stdout.write(
+            f"Shape census: {len(candidates)} candidate insight(s) in {len(census)} famil(ies), "
+            f"{len(selected_ids)} selected (≤{per_family} per family):"
+        )
+        for family, total, taken in census:
+            self.stdout.write(f"  {taken:>4} of {total:<7} {family}")
+
+        remaining = [insight_id for insight_id in selected_ids if insight_id not in exclude_ids]
+        by_id = {insight.id: insight for insight in Insight.objects.filter(id__in=remaining).select_related("team")}
+        return [by_id[insight_id] for insight_id in remaining if insight_id in by_id]
 
     def _process_insight(self, insight: Insight, run_id: str, options: dict[str, Any]) -> InsightFinding:
         base_url = options["base_url"].rstrip("/")

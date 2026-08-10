@@ -18,6 +18,7 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     InsightFinding,
     ObjectStorageLineSink,
     ResourceStats,
+    SampleCandidate,
     _cell_is_trailing,
     _clickhouse_seconds,
     _frozen_date_range,
@@ -34,7 +35,9 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     parse_query_log_rows,
     referenced_ids,
     save_progress_findings,
+    shape_family,
     shape_fingerprint,
+    stratified_sample,
     summarize_samples,
 )
 
@@ -215,6 +218,74 @@ class TestShapeFingerprint(TestCase):
     )
     def test_fingerprint(self, _name, source, expected):
         self.assertEqual(shape_fingerprint(source), expected)
+
+
+class TestShapeFamily(TestCase):
+    # The family key decides what the stratified perf sample covers: keeping a volatile token
+    # (range/intervals) shatters families into near-singletons and the sample balloons, while
+    # dropping a structural one (breakdown, aggregation, period) merges exactly the shapes whose
+    # SQL differs between the builders — they'd silently fall out of the sample.
+    @parameterized.expand(
+        [
+            (
+                "volatile_dropped_parameterized_normalized",
+                {
+                    "kind": "RetentionQuery",
+                    "dateRange": {"date_from": "-7d"},
+                    "retentionFilter": {
+                        "period": "Week",
+                        "totalIntervals": 4,
+                        "aggregationType": "avg",
+                        "aggregationProperty": "revenue",
+                        "aggregationPropertyType": "person",
+                        "minimumOccurrences": 3,
+                        "retentionCustomBrackets": [1, 2],
+                    },
+                    "samplingFactor": 0.1,
+                    "aggregation_group_type_index": 2,
+                    "properties": {"type": "AND", "values": [{"key": "x"}]},
+                    "filterTestAccounts": True,
+                },
+                "recurring entities=same(events) period=Week agg=avg(person) minocc brackets sampling groups",
+            ),
+            (
+                "structural_tokens_kept",
+                {
+                    "kind": "RetentionQuery",
+                    "dateRange": {"date_from": "2025-01-01", "date_to": "now"},
+                    "retentionFilter": {"retentionType": "retention_first_time", "totalIntervals": 11},
+                    "breakdownFilter": {"breakdowns": [{"type": "person", "property": "plan"}]},
+                },
+                "first_time entities=same(events) period=Day bd=person",
+            ),
+        ]
+    )
+    def test_family(self, _name, source, expected):
+        self.assertEqual(shape_family(source), expected)
+
+
+class TestStratifiedSample(TestCase):
+    # The team rotation is what stops one prolific team from filling a family's quota (the sample
+    # would then measure a single dataset), and input-order determinism is the --resume contract —
+    # a re-run must re-derive the same set or resumption draws replacements and the sample drifts.
+    def test_rotates_teams_before_taking_a_teams_second_insight(self):
+        candidates = [
+            SampleCandidate(100, 1, "A"),
+            SampleCandidate(95, 2, "A"),
+            SampleCandidate(90, 1, "A"),
+            SampleCandidate(80, 1, "A"),
+            SampleCandidate(70, 3, "A"),
+            SampleCandidate(60, 1, "B"),
+        ]
+        selected, census = stratified_sample(candidates, per_family=3)
+        self.assertEqual(selected, [100, 95, 70, 60])
+        self.assertEqual(census, [("A", 5, 3), ("B", 1, 1)])
+
+    def test_single_team_family_capped_newest_first(self):
+        candidates = [SampleCandidate(insight_id, 7, "A") for insight_id in (50, 40, 30)]
+        selected, census = stratified_sample(candidates, per_family=2)
+        self.assertEqual(selected, [50, 40])
+        self.assertEqual(census, [("A", 3, 2)])
 
 
 class TestAttributeVariantErrors(TestCase):
