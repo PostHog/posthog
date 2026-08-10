@@ -758,7 +758,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({
                     filters: {
-                        ...getDefaultFilters(undefined, undefined, { filter_group: filterGroup }),
+                        ...getDefaultFilters(undefined, undefined, { duration: [] }),
                         filter_group: filterGroup,
                     },
                 })
