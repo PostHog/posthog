@@ -133,8 +133,10 @@ def _build_headline(current: Optional[bool], changes: list[OptInChange]) -> str:
     if current is True:
         return "Currently opted in"
 
+    # "No recorded opt-in" rather than "Never opted in": an opt-out written outside the ORM, or a
+    # dropped activity-log write, would leave no row to find.
     was_opted_in = any(c.after is True or c.before is True for c in changes)
-    headline = "Currently opted out, was opted in previously" if was_opted_in else "Never opted in"
+    headline = "Currently opted out, was opted in previously" if was_opted_in else "No recorded opt-in"
     # The column is nullable, and null reads as opted out everywhere else. Say so rather than let
     # support assume someone set it to false.
     return f"{headline} (value is null)" if current is None else headline

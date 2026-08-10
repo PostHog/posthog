@@ -50,8 +50,8 @@ class TestAITrainingOptInHistory(APIBaseTest):
 
     @parameterized.expand(
         [
-            (False, "Never opted in"),
-            (None, "Never opted in (value is null)"),
+            (False, "No recorded opt-in"),
+            (None, "No recorded opt-in (value is null)"),
             (True, "Currently opted in"),
         ]
     )
