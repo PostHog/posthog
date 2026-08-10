@@ -1,6 +1,7 @@
 import json
 from collections import Counter
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any, cast
 
 from django.db import connection
@@ -65,6 +66,26 @@ class _ActionStepPropertiesField(serializers.ListField):
     pass
 
 
+@lru_cache(maxsize=2048)
+def _compile_selector(selector_str: str) -> tuple[str | None, str | None]:
+    # Returns (regex, warning) for a selector. Cached because the selector_regex and
+    # selector_warning fields both need it for every serialized action step.
+    try:
+        selector = Selector(selector_str, escape_slashes=False)
+    except Exception:
+        return None, "This selector could not be read, so it will not match any events. Check that it is valid CSS."
+    warning = None
+    if selector.has_unsupported_syntax():
+        warning = (
+            "This selector will not match any events. Try simplifying it, or match on the element tag, id, or class."
+        )
+    return build_selector_regex(selector), warning
+
+
+def _selector_str(obj) -> str | None:
+    return obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
+
+
 class ActionStepJSONSerializer(serializers.Serializer):
     event = serializers.CharField(
         required=False,
@@ -83,7 +104,12 @@ class ActionStepJSONSerializer(serializers.Serializer):
         allow_null=True,
         help_text="CSS selector to match the target element (e.g. 'div > button.cta').",
     )
-    selector_regex = serializers.SerializerMethodField()
+    selector_regex = serializers.SerializerMethodField(
+        help_text="Compiled regex the selector matches against the event elements chain. Null when no selector is set."
+    )
+    selector_warning = serializers.SerializerMethodField(
+        help_text="Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent."
+    )
     tag_name = serializers.CharField(
         required=False,
         allow_null=True,
@@ -127,14 +153,12 @@ class ActionStepJSONSerializer(serializers.Serializer):
     )
 
     def get_selector_regex(self, obj) -> str | None:
-        selector_str = obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
-        if not selector_str:
-            return None
-        try:
-            selector = Selector(selector_str, escape_slashes=False)
-            return build_selector_regex(selector)
-        except Exception:
-            return None
+        selector_str = _selector_str(obj)
+        return _compile_selector(selector_str)[0] if selector_str else None
+
+    def get_selector_warning(self, obj) -> str | None:
+        selector_str = _selector_str(obj)
+        return _compile_selector(selector_str)[1] if selector_str else None
 
 
 class ActionSerializer(

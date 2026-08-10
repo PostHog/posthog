@@ -11,7 +11,10 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.models.team import Team
 
-SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
+SELECTOR_ATTRIBUTE_REGEX = r"\[\s*([^\]\s=]+)\s*=\s*(['\"])(.*?)\2\s*\]"
+# A real element tag in the chain is alphanumeric. Anything else left in a parsed
+# tag name is unsupported CSS the parser could not peel off.
+VALID_TAG_NAME_REGEX = re.compile(r"[a-zA-Z][a-zA-Z0-9-]*")
 
 
 LAST_UPDATED_TEAM_ACTION: dict[int, datetime.datetime] = {}
@@ -30,15 +33,19 @@ class SelectorPart:
         self.data: dict[str, Union[str, list]] = {}
         self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
 
-        result = re.search(SELECTOR_ATTRIBUTE_REGEX, tag)
-        if result and "[id=" in tag:
-            self.data["attr_id"] = result[3]
-            self.ch_attributes["attr_id"] = result[3]
-            tag = result[1]
-        if result and "[" in tag:
-            self.data[f"attributes__attr__{result[2]}"] = result[3]
-            self.ch_attributes[result[2]] = result[3]
-            tag = result[1]
+        attribute_matches = list(re.finditer(SELECTOR_ATTRIBUTE_REGEX, tag))
+        if attribute_matches:
+            for match in attribute_matches:
+                key = match.group(1)
+                value = match.group(3)
+                if key == "id":
+                    self.data["attr_id"] = value
+                    self.ch_attributes["attr_id"] = value
+                else:
+                    self.data[f"attributes__attr__{key}"] = value
+                    self.ch_attributes[key] = value
+            # The tag, classes and id are whatever precedes the first attribute selector.
+            tag = tag[: attribute_matches[0].start()]
         if "nth-child(" in tag:
             parts = tag.split(":nth-child(")
             self.data["nth_child"] = parts[1].replace(")", "")
@@ -126,6 +133,16 @@ class Selector:
                 part.append(char)
 
         yield "".join(part)
+
+    def has_unsupported_syntax(self) -> bool:
+        # A part keeps unsupported CSS (a pseudo-class, an unsupported combinator, ...)
+        # as its tag name, so the compiled regex looks for a tag no real element has and
+        # matches nothing.
+        for part in self.parts:
+            tag = part.data.get("tag_name")
+            if isinstance(tag, str) and not VALID_TAG_NAME_REGEX.fullmatch(tag):
+                return True
+        return False
 
 
 class Event(models.Model):

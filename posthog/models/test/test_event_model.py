@@ -490,6 +490,76 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0].uuid, event1_uuid)
 
+        def test_filter_with_class_and_attribute_selector(self):
+            # A class combined with an attribute used to compile to a regex that matched
+            # nothing, because the class was captured as the tag name.
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            matching_uuid = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attr_class=["btn"], attributes={"attr__ng-disabled": "true"})],
+            )
+            _create_event(  # same attribute but no class, must not match
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attributes={"attr__ng-disabled": "true"})],
+            )
+            action = Action.objects.create(
+                team=self.team, steps_json=[{"event": "$autocapture", "selector": '.btn[ng-disabled="true"]'}]
+            )
+            self.assertActionEventsMatch(action, [matching_uuid])
+
+        def test_filter_with_compound_attribute_selector(self):
+            # Two attribute selectors in one part used to be parsed as one nonsense attribute.
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            matching_uuid = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attributes={"attr__type": "button", "attr__ng-click": "save()"})],
+            )
+            _create_event(  # only one of the two attributes, must not match
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attributes={"attr__type": "button"})],
+            )
+            action = Action.objects.create(
+                team=self.team,
+                steps_json=[{"event": "$autocapture", "selector": '[type="button"][ng-click="save()"]'}],
+            )
+            self.assertActionEventsMatch(action, [matching_uuid])
+
+        def test_filter_with_descendant_selector(self):
+            # A descendant combinator (a space) must match through intermediate elements,
+            # not require the ancestor to be the direct parent.
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            matching_uuid = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="button", attr_class=["btn"], nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="form", nth_child=0, nth_of_type=0),
+                ],
+            )
+            _create_event(  # button.btn present but no form ancestor, must not match
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="button", attr_class=["btn"], nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                ],
+            )
+            action = Action.objects.create(
+                team=self.team, steps_json=[{"event": "$autocapture", "selector": "form button.btn"}]
+            )
+            self.assertActionEventsMatch(action, [matching_uuid])
+
         def test_filter_events_by_url(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
             action1 = Action.objects.create(
@@ -760,6 +830,21 @@ class TestSelectors(BaseTest):
         )
         self.assertEqual(selector1.parts[1].direct_descendant, True)
         self.assertEqual(selector1.parts[1].unique_order, 0)
+
+    def test_class_before_attribute(self):
+        # A class that precedes an attribute selector must not be captured as the tag name
+        selector1 = Selector('.btn[ng-disabled="true"]')
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"attr_class__contains": ["btn"], "attributes__attr__ng-disabled": "true"},
+        )
+
+    def test_multiple_attributes(self):
+        selector1 = Selector('[type="button"][ng-click="save()"]')
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"attributes__attr__type": "button", "attributes__attr__ng-click": "save()"},
+        )
 
     def test_nth_child(self):
         selector1 = Selector("div > span:nth-child(3)")

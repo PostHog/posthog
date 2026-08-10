@@ -933,7 +933,11 @@ def process_ok_values(ok_values: Any, operator: OperatorType) -> list[str]:
 
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
-    for tag in selector.parts:
+    for index, tag in enumerate(selector.parts):
+        if index > 0 and not tag.direct_descendant:
+            # A descendant combinator (a space) matches through any number of
+            # intermediate elements, so allow anything before this ancestor part.
+            regex += r".*"
         if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str) and tag.data["tag_name"] != "*":
             # The elements in the elements_chain are separated by the semicolon
             regex += re.escape(tag.data["tag_name"])
@@ -943,7 +947,7 @@ def build_selector_regex(selector: Selector) -> str:
             regex += r".*?"
             for key, value in sorted(tag.ch_attributes.items()):
                 regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
-        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\),]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\)\{\}\',]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
             regex += r".*"
     if regex:
