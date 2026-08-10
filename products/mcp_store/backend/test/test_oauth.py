@@ -15,11 +15,13 @@ from products.mcp_store.backend.oauth import (
     OAuthTokenExchangeError,
     SSRFBlockedError,
     TokenRefreshError,
+    TokenRefreshRejectedError,
     _resolve_issuer,
     _validate_endpoints_bound_to_issuer,
     discover_oauth_metadata,
     exchange_oauth_token,
     oauth_resource,
+    refresh_installation_token,
     refresh_oauth_token,
     register_dcr_client,
     requested_oauth_grant_types,
@@ -186,10 +188,21 @@ class TestRefreshOauthToken(SimpleTestCase):
         assert call_kwargs["allow_redirects"] is False
         assert call_kwargs["data"]["resource"] == "https://mcp.example.com/"
 
-    def test_http_error_raises_token_refresh_error(self):
+    @parameterized.expand(
+        [
+            # A 4xx is the provider judging the grant, which no retry recovers from.
+            ("bad_request", 400, True),
+            ("unauthorized", 401, True),
+            ("server_error", 500, False),
+            ("bad_gateway", 502, False),
+        ]
+    )
+    def test_http_error_separates_a_rejected_grant_from_a_transient_failure(
+        self, _name: str, status_code: int, expect_rejected: bool
+    ):
         mock_resp = MagicMock()
-        mock_resp.status_code = 401
-        mock_resp.raise_for_status.side_effect = requests.HTTPError("401 Unauthorized", response=mock_resp)
+        mock_resp.status_code = status_code
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(str(status_code), response=mock_resp)
 
         with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp):
             with self.assertRaises(TokenRefreshError) as ctx:
@@ -198,7 +211,8 @@ class TestRefreshOauthToken(SimpleTestCase):
                     refresh_token="bad-refresh",
                     client_id="my-client",
                 )
-            self.assertIn("Token refresh request failed", str(ctx.exception))
+
+        assert isinstance(ctx.exception, TokenRefreshRejectedError) is expect_rejected
 
     def test_missing_access_token_raises_token_refresh_error(self):
         mock_resp = MagicMock()
@@ -1384,3 +1398,102 @@ class TestExchangeOauthToken(BaseTest):
                 is_https=lambda url: url.startswith("https://"),
             )
             assert result["access_token"] == "abc"
+
+
+class TestRefreshInstallationToken(BaseTest):
+    def _make_installation(self, **kwargs) -> MCPServerInstallation:
+        template = MCPServerTemplate.objects.create(
+            name="Refreshable",
+            url="https://mcp.refreshable.example.com/mcp",
+            auth_type="oauth",
+            oauth_metadata={"token_endpoint": "https://auth.refreshable.example.com/token"},
+            oauth_credentials={"client_id": "client", "client_secret": "secret"},
+            created_by=self.user,
+        )
+        defaults: dict = {
+            "team": self.team,
+            "user": self.user,
+            "template": template,
+            "url": template.url,
+            "auth_type": "oauth",
+            "sensitive_configuration": {"access_token": "tok", "refresh_token": "refresh"},
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The fixture token endpoint is not a resolvable host; the SSRF guard is not
+        # what these tests are about.
+        patcher = patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _rejecting_post(status_code: int) -> MagicMock:
+        response = MagicMock()
+        response.status_code = status_code
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code}", response=response)
+        return response
+
+    @parameterized.expand([("bad_request", 400), ("unauthorized", 401), ("forbidden", 403)])
+    def test_provider_rejecting_the_grant_flags_reauth(self, _name: str, status_code: int) -> None:
+        # Until the installation is flagged, it keeps looking connected in the UI and every
+        # agent run keeps mounting a server whose every call 401s.
+        installation = self._make_installation()
+
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._rejecting_post(status_code)):
+            with self.assertRaises(TokenRefreshRejectedError):
+                refresh_installation_token(installation)
+
+        installation.refresh_from_db()
+        # EncryptedJSONField stringifies scalars, so every reader of the flag tests truthiness.
+        assert installation.sensitive_configuration["needs_reauth"]
+
+    @parameterized.expand(
+        [
+            ("server_error", requests.HTTPError("500", response=None)),
+            ("connection_error", requests.ConnectionError("connection reset")),
+            ("timeout", requests.Timeout("timed out")),
+        ]
+    )
+    def test_transient_failure_leaves_the_connection_alone(self, _name: str, error: Exception) -> None:
+        # Reauth is a manual step for the user, so a network blip must not demand one.
+        installation = self._make_installation()
+        response = MagicMock()
+        response.status_code = 500
+        response.raise_for_status.side_effect = error
+
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=response):
+            with self.assertRaises(TokenRefreshError) as ctx:
+                refresh_installation_token(installation)
+
+        assert not isinstance(ctx.exception, TokenRefreshRejectedError)
+        installation.refresh_from_db()
+        assert "needs_reauth" not in installation.sensitive_configuration
+
+    def test_missing_refresh_token_flags_reauth(self) -> None:
+        # No refresh token means no refresh will ever succeed; only a new authorization can.
+        installation = self._make_installation(sensitive_configuration={"access_token": "tok"})
+
+        with self.assertRaises(TokenRefreshRejectedError):
+            refresh_installation_token(installation)
+
+        installation.refresh_from_db()
+        assert installation.sensitive_configuration["needs_reauth"]
+
+    def test_successful_refresh_clears_a_stale_reauth_flag(self) -> None:
+        installation = self._make_installation(
+            sensitive_configuration={"access_token": "tok", "refresh_token": "refresh", "needs_reauth": True},
+        )
+        response = MagicMock()
+        response.status_code = 200
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {"access_token": "fresh", "expires_in": 3600}
+
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=response):
+            refresh_installation_token(installation)
+
+        installation.refresh_from_db()
+        assert "needs_reauth" not in installation.sensitive_configuration
+        assert installation.sensitive_configuration["access_token"] == "fresh"

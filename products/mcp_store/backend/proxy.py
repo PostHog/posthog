@@ -17,7 +17,7 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
-from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
 from .policy import GatewayCaller, PolicyContext
 
 logger = structlog.get_logger(__name__)
@@ -180,6 +180,15 @@ def validate_installation_auth(
             )
         try:
             ensure_valid_token(installation)
+        except TokenRefreshRejectedError:
+            # refresh_installation_token already flagged the installation; say so rather than
+            # leaving the caller to read a permanent failure as a retryable one.
+            logger.warning("OAuth token refresh rejected", installation_id=str(installation.id))
+            return False, HttpResponse(
+                '{"error": "Installation needs re-authentication"}',
+                content_type="application/json",
+                status=401,
+            )
         except TokenRefreshError:
             logger.warning("OAuth token refresh failed", installation_id=str(installation.id))
             return False, HttpResponse(

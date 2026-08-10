@@ -399,6 +399,14 @@ class TokenRefreshError(Exception):
     pass
 
 
+class TokenRefreshRejectedError(TokenRefreshError):
+    """The provider refused the grant, or there is nothing to refresh with.
+
+    Separate from its transient parent because only this one is worth making the user
+    reconnect over: retrying it never succeeds.
+    """
+
+
 def _credential_auth_method(credentials: dict, auth_method_key: str, client_secret: str | None) -> str:
     method = credentials.get(auth_method_key)
     if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
@@ -537,6 +545,10 @@ def refresh_oauth_token(
             token_url=token_url,
             status_code=failed_status_code,
         )
+        # A 4xx is the provider judging the grant itself (invalid_grant, a revoked or
+        # rotated client). Anything else is the network or the provider being down.
+        if failed_status_code is not None and 400 <= failed_status_code < 500:
+            raise TokenRefreshRejectedError("Token refresh rejected by the provider")
         raise TokenRefreshError("Token refresh request failed")
 
     token_data = resp.json()
@@ -547,12 +559,29 @@ def refresh_oauth_token(
     return token_data
 
 
+def _flag_needs_reauth(installation: MCPServerInstallation) -> None:
+    """Record that only a new authorization can revive this credential.
+
+    Everything that mounts or proxies an installation reads this flag, so it takes the
+    connection out of agent runs and surfaces a reconnect prompt instead of leaving
+    every call to 401 behind a UI that still reads as connected.
+    """
+    sensitive = dict(installation.sensitive_configuration or {})
+    if sensitive.get("needs_reauth"):
+        return
+    sensitive["needs_reauth"] = True
+    installation.sensitive_configuration = sensitive
+    installation.save(update_fields=["sensitive_configuration", "updated_at"])
+    logger.warning("Flagged MCP installation as needing reauthorization", installation_id=str(installation.id))
+
+
 def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     sensitive = installation.sensitive_configuration or {}
     refresh_token_value = sensitive.get("refresh_token")
     if not refresh_token_value:
         logger.warning("No refresh token available for installation", installation_id=str(installation.id))
-        raise TokenRefreshError("No refresh token available")
+        _flag_needs_reauth(installation)
+        raise TokenRefreshRejectedError("No refresh token available")
 
     try:
         ctx = resolve_installation_oauth_context(installation)
@@ -563,17 +592,23 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     if not token_url:
         raise TokenRefreshError("Missing OAuth metadata for token refresh")
 
-    token_data = refresh_oauth_token(
-        token_url=token_url,
-        refresh_token=refresh_token_value,
-        client_id=ctx.client_id,
-        client_secret=ctx.client_secret,
-        token_endpoint_auth_method=ctx.token_endpoint_auth_method,
-        resource=oauth_resource(ctx.metadata),
-    )
+    try:
+        token_data = refresh_oauth_token(
+            token_url=token_url,
+            refresh_token=refresh_token_value,
+            client_id=ctx.client_id,
+            client_secret=ctx.client_secret,
+            token_endpoint_auth_method=ctx.token_endpoint_auth_method,
+            resource=oauth_resource(ctx.metadata),
+        )
+    except TokenRefreshRejectedError:
+        _flag_needs_reauth(installation)
+        raise
 
-    # Preserve non-token keys (needs_reauth, dcr_client_id, dcr_client_secret, etc.) across refresh.
+    # Preserve non-token keys (dcr_client_id, dcr_client_secret, etc.) across refresh. A
+    # working token clears any earlier rejection.
     updated: dict = dict(sensitive)
+    updated.pop("needs_reauth", None)
     updated["access_token"] = token_data["access_token"]
     updated["token_retrieved_at"] = int(time.time())
     updated["refresh_token"] = token_data.get("refresh_token", refresh_token_value)
