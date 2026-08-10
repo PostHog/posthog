@@ -152,16 +152,25 @@ def _project_awaiting_input_activity(task_run: TaskRun) -> None:
     for the same reason ``_enqueue`` is — this sits on the agent's turn-end path and must
     never fail it.
     """
+    # Two independent surfaces, so two guards: a feed projection that fails must not take the
+    # timeline row with it, and each failure needs its own log line to be diagnosable.
     try:
         from products.tasks.backend.facade.api import (  # noqa: PLC0415 - keeps the facade off the push import path
-            post_awaiting_input_event,
             project_awaiting_input_activity,
         )
 
         project_awaiting_input_activity(task_run)
-        post_awaiting_input_event(task_run)
     except Exception:
         logger.warning("push_dispatcher.activity_projection_failed", run_id=str(task_run.id), exc_info=True)
+
+    try:
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 - keeps the facade off the push import path
+            post_awaiting_input_event,
+        )
+
+        post_awaiting_input_event(task_run)
+    except Exception:
+        logger.warning("push_dispatcher.awaiting_input_event_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _project_completed_activity(task_run: TaskRun) -> None:

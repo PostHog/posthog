@@ -6821,6 +6821,16 @@ def _project_task_event_notifications(message: TaskThreadMessage) -> None:
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
 
 
+def _markdown_safe_label(label: str) -> str:
+    """``label`` with the characters that could break out of a markdown token removed.
+
+    Names reach a rendered ``content`` string that older clients show as markdown, and they
+    come from outside — an artifact name or a canvas name can carry brackets, newlines, or a
+    whole link.
+    """
+    return re.sub(r"[\[\]\n]", " ", label).strip()
+
+
 def _agent_thread_updates_enabled(creator: User | None) -> bool:
     """Fail closed: no creator to key the flag on, or a flag-service error, means no post."""
     if creator is None:
@@ -6859,8 +6869,7 @@ def post_canvas_created_thread_update(
             return
         if not _agent_thread_updates_enabled(task.created_by):
             return
-        # Brackets and newlines in the name would break the [label](url) token.
-        name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+        name = _markdown_safe_label(canvas_name) or "Canvas"
         content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
         emit_task_event(
             task,
@@ -7024,7 +7033,10 @@ def post_run_failed_event(run: TaskRun, error: str | None) -> None:
         task = _emittable_task(run.task_id, run.team_id, event=TaskActivityEvent.RUN_FAILED)
         if task is None:
             return
-        summary = (error or "").strip().splitlines()[0][:_EVENT_ERROR_SUMMARY_LIMIT] if error else ""
+        # Split before indexing: a whitespace-only error is truthy but has no lines, and the
+        # IndexError would be swallowed here, losing the row for a run that really did fail.
+        summary_lines = (error or "").strip().splitlines()
+        summary = summary_lines[0][:_EVENT_ERROR_SUMMARY_LIMIT] if summary_lines else ""
         emit_task_event(
             task,
             event=TaskActivityEvent.RUN_FAILED,
@@ -7075,10 +7087,13 @@ def post_artifact_event(artifact: TaskArtifact, *, revised: bool, run_id: str | 
         if task is None:
             return
         version = int(artifact.current_version or 1)
+        # Artifact names come from outside, and content is rendered as markdown by older
+        # clients — the canvas announcement neutralizes the same characters for the same reason.
+        safe_name = _markdown_safe_label(artifact.name)
         emit_task_event(
             task,
             event=event,
-            content=f"{artifact.name} v{version}" if revised else artifact.name,
+            content=f"{safe_name} v{version}" if revised else safe_name,
             payload={
                 "artifact_id": str(artifact.id),
                 "name": artifact.name,

@@ -12,6 +12,7 @@ from products.tasks.backend.facade.api import (
     emit_task_event,
     list_mentions,
     list_thread_messages,
+    post_artifact_event,
     post_canvas_created_thread_update,
     post_pr_created_thread_update,
     set_task_run_output,
@@ -21,6 +22,7 @@ from products.tasks.backend.models import (
     Channel,
     Task,
     TaskActivity,
+    TaskArtifact,
     TaskRun,
     TaskThreadMessage,
     TaskThreadMessageMention,
@@ -493,6 +495,38 @@ class TestLifecycleEvents(TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].payload["error_summary"], "Command failed: pnpm build")
         self.assertNotIn("abc123", events[0].content)
+
+    @parameterized.expand([("whitespace_only", "   \n\n  "), ("empty", "")])
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_a_blank_error_still_records_the_failure(self, _name, error, _flag) -> None:
+        # A whitespace-only error is truthy but has no lines. Indexing it raised inside the
+        # best-effort emitter, so a run that really failed got no row at all.
+        run = self.task.create_run()
+        run.mark_failed(error)
+
+        events = self._events("run_failed")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].payload["error_summary"], "")
+        self.assertEqual(events[0].content, "Run failed")
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_artifact_names_cannot_smuggle_markdown_into_the_row(self, _flag) -> None:
+        # Names come from outside and content is rendered as markdown by older clients.
+        run = self.task.create_run()
+        artifact = TaskArtifact.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            task_run=run,
+            name="report](https://evil.example) [x\n![t](https://evil.example/p.png)",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            adapter=TaskArtifact.Adapter.DOCUMENT_CONNECTOR,
+        )
+
+        post_artifact_event(artifact, revised=False)
+
+        content = self._events("artifact_created")[0].content
+        for character in ("[", "]", "\n"):
+            self.assertNotIn(character, content)
 
     @parameterized.expand([("flag_off", False), ("flag_on", True)])
     @patch(_FLAG_TARGET)
