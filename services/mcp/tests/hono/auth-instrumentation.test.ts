@@ -79,33 +79,42 @@ describe('MCP auth instrumentation', () => {
         expect(failure.missingScope).toBe('query:read')
     })
 
-    it('captures $mcp_auth_failed for a rejected credential, keyed on the token hash', () => {
+    it('captures mcp_auth_failed for a rejected credential, keyed on the token hash', () => {
         const response = handleCatchError(new Error(`boom ${ErrorCode.INVALID_API_KEY}`), makeProps())
 
         expect(response.status).toBe(401)
         expect(mockCapture).toHaveBeenCalledTimes(1)
         const call = mockCapture.mock.calls[0]![0]
-        expect(call.event).toBe('$mcp_auth_failed')
+        expect(call.event).toBe('mcp_auth_failed')
         expect(call.distinctId).toBe('token-hash')
         expect(call.properties).toMatchObject({
-            $mcp_auth_failure_reason: 'invalid_api_key',
+            reason: 'invalid_api_key',
+            response_status: 401,
             $mcp_auth_method: 'oauth',
             $mcp_client_name: 'claude-ai',
-            $mcp_error_status: 401,
-            $mcp_is_error: true,
             mcp_vendor_client: 'ClaudeAI',
         })
-        expect(call.properties.$mcp_missing_scope).toBeUndefined()
+        expect(call.properties.missing_scope).toBeUndefined()
     })
 
     it('records the missing scope on a permission denial', () => {
         handleCatchError(permissionError('insight:read'), makeProps())
 
         expect(mockCapture.mock.calls[0]![0].properties).toMatchObject({
-            $mcp_auth_failure_reason: 'insufficient_scope',
-            $mcp_missing_scope: 'insight:read',
-            $mcp_error_status: 403,
+            reason: 'insufficient_scope',
+            missing_scope: 'insight:read',
+            response_status: 403,
         })
+    })
+
+    it('leaves the tool-call failure vocabulary alone', () => {
+        // `$mcp_is_error` and `$mcp_error_status` mean "a tool call failed against the
+        // PostHog API"; setting them here would fold auth refusals into tool error rates.
+        handleCatchError(permissionError('insight:read'), makeProps())
+
+        const properties = mockCapture.mock.calls[0]![0].properties
+        expect(properties.$mcp_is_error).toBeUndefined()
+        expect(properties.$mcp_error_status).toBeUndefined()
     })
 
     it('never sends the bearer token itself', () => {
