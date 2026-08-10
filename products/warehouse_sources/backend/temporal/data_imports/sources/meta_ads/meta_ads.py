@@ -38,6 +38,13 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
+# Graph API versions this source can sync against, as opaque vendor labels copied verbatim
+# from Meta's changelog — never parsed or ordered. The resolved source pin is threaded into
+# every request URL's `{API_VERSION}` segment by `meta_ads_source`.
+# https://developers.facebook.com/docs/graph-api/changelog
+META_ADS_API_VERSION_V25 = "v25.0"
+META_ADS_API_VERSION_V26 = "v26.0"
+
 # Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
 # reject a `time_range` whose start is beyond ~37 months from today with error code
 # 3018 ("The start date of the time range cannot be beyond 37 months from the current
@@ -469,17 +476,21 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
 
     Permanent auth/permission failures raise a clean, user-actionable message
     that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
-    fast instead of burning retries. A momentary backend blip (see
-    ``_is_transient_error``) that has already exhausted its in-process retries is
-    tagged so ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering
-    failure out of error tracking once Temporal retries the activity, excluding
-    anything the shrink ladders can still act on, which ends at
-    ``_raise_shrink_exhausted_error`` instead. The raw response is appended for
-    debugging.
+    fast instead of burning retries. Throttling (see ``_is_rate_limit_error``) and
+    a momentary backend blip (see ``_is_transient_error``) that has already
+    exhausted its in-process retries are both tagged so
+    ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering failure out
+    of error tracking once Temporal retries the activity, excluding anything the
+    shrink ladders can still act on, which ends at ``_raise_shrink_exhausted_error``
+    instead. The raw response is appended for debugging.
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
         raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    if _is_rate_limit_error(response):
+        raise Exception(
+            f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
+        )
     if _is_transient_error(response) and not _should_shrink_request(response):
         raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
@@ -856,17 +867,45 @@ def _make_paginated_api_request(
         yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
 
+def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
+    """Attribution settings to add to an Insights request, only when the source configures them.
+
+    Omitted entirely when unset, so existing connections keep Meta's default attribution and
+    produce byte-for-byte the same request as before. When set, they let a user reconcile
+    PostHog's spend and conversion numbers with what Ads Manager shows.
+
+    - ``action_attribution_windows``: a comma-separated list in config (e.g. ``7d_click,1d_view``),
+      sent JSON-encoded the way Meta's Graph API accepts a list parameter.
+    - ``use_unified_attribution_setting``: a string flag (``"true"``/``"false"``) sent verbatim;
+      any other value (including the "use Meta's default" empty option) leaves it unset.
+    """
+    params: dict[str, str] = {}
+
+    windows_raw = getattr(config, "action_attribution_windows", None)
+    if windows_raw:
+        windows = [window.strip() for window in windows_raw.split(",") if window.strip()]
+        if windows:
+            params["action_attribution_windows"] = json.dumps(windows)
+
+    use_unified = getattr(config, "use_unified_attribution_setting", None)
+    if use_unified in ("true", "false"):
+        params["use_unified_attribution_setting"] = use_unified
+
+    return params
+
+
 def meta_ads_source(
     resource_name: str,
     config: MetaAdsSourceConfig,
     team_id: int,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
-    """A data warehouse Meta Ads source."""
+    """A data warehouse Meta Ads source. ``api_version`` is the source instance's resolved pin."""
     name = NamingConvention.normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
@@ -913,9 +952,7 @@ def meta_ads_source(
                 "until": today.strftime("%Y-%m-%d"),
             }
 
-        formatted_url = schema.url.format(
-            API_VERSION=MetaAdsIntegration.api_version, account_id=_clean_account_id(config.account_id)
-        )
+        formatted_url = schema.url.format(API_VERSION=api_version, account_id=_clean_account_id(config.account_id))
 
         if schema.single_object:
             yield from _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token)
@@ -926,6 +963,10 @@ def meta_ads_source(
             "limit": PAGE_LIMIT_FALLBACK_SIZES[0],
             **schema.extra_params,
         }
+        # Attribution settings apply only to Insights (stats) tables; entity endpoints (campaigns,
+        # ads, ...) don't take them and Meta would reject the extra params.
+        if schema.is_stats:
+            params.update(_attribution_params(config))
 
         yield from _make_paginated_api_request(
             formatted_url, params, access_token, time_range, resumable_source_manager
