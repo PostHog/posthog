@@ -644,7 +644,7 @@ EOF
 )"
 \`\`\`
 
-When creating new branches, prefix them with \`posthog-code/\` (e.g. \`posthog-code/fix-login-redirect\`).
+When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
 
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
