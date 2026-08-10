@@ -16,4 +16,65 @@ service PersonHogLeader {
 
   // Strong consistency read: returns the latest person state from the leader's cache.
   rpc GetPerson(personhog.types.v1.GetPersonRequest) returns (personhog.types.v1.GetPersonResponse);
+
+  // Internal, saga-runner only. Freeze a person for a lifecycle operation:
+  // under the per-person lock, record the fence in the leader's in-memory
+  // fence map and seal the newest cached state, returning it in the same
+  // response — no gap for a write to sneak into. The fence's durable
+  // record is NOT this map: it is the saga's mark row, committed before
+  // this RPC is ever called; a leader taking partition ownership rebuilds
+  // its map from the live marks before accepting writes. Fencing produces
+  // nothing to the changelog and does not advance the version — the
+  // sealed version is the person's current one. While fenced, writes fail
+  // FAILED_PRECONDITION with an `x-person-fenced` metadata key carrying
+  // the op type; reads are unaffected. Re-fencing with the same op_id
+  // re-seals with fresh state (what makes the saga's seal step safe to
+  // repeat); a different op_id is rejected — at most one lifecycle op
+  // holds a person. The fence never lapses on a timer: only ReleaseFence
+  // (or the op being observed finished) clears it.
+  rpc FencePerson(personhog.types.v1.FencePersonRequest) returns (personhog.types.v1.FencePersonResponse);
+
+  // The closing half of FencePerson. `committed` (the person was
+  // destroyed): verify the op against its live mark row — the request
+  // alone is never sufficient to destroy a person; a release whose op
+  // holds no live mark is refused FAILED_PRECONDITION (fail closed) —
+  // then produce the death document to the changelog — is_deleted =
+  // true, version = max(sealed_version, current) + 1 (sealed + 1 per the
+  // RFC; the max is defense in depth until broker producer fencing lands)
+  // — then evict the cache entry and drop the fence. `aborted`: drop the
+  // fence, keep the entry, produce nothing; the person resumes normal
+  // life. Idempotent — the request carries everything needed to re-derive
+  // the death document, so a restarted leader produces it
+  // deterministically; duplicates are absorbed downstream by version, and
+  // a mark already settled as deleted absorbs the retry without a second
+  // record.
+  rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+
+  // Internal, saga-runner only. The merge saga's document write: fold the
+  // sealed source snapshots into the target person's document under the
+  // owner's per-person lock, produce the folded document to the
+  // changelog, and return it. Properties fold target-wins: the target
+  // keeps every key it has, snapshots fill still-absent keys in ordinal
+  // order (sorted by the fold itself, so precedence is deterministic
+  // across re-drives), then the merge event's $set overrides and
+  // $set_once fills.
+  // Scalars fold as created_at = min(target, sources),
+  // is_identified = true, and last_seen_at = max(target, sources); the
+  // version is max(target, max sealed) + 1 — at or above every sealed
+  // source's death document, which derives from the same sealed + 1
+  // (equal when the highest sealed version dominates; the streams are
+  // per-person, so the relation is a convention, not a collision guard).
+  // Safe under at-least-once delivery: re-applying the same fold on
+  // unchanged target state changes no content and only bumps the version.
+  // (The standard re-appliable-merge residual applies — see the request's
+  // op_id comment.) The op must hold the target as its live mark in the
+  // lifecycle database or the fold is refused FAILED_PRECONDITION —
+  // fail closed, mirroring ReleaseFence; the check is read-time, so it
+  // closes late re-drives from a settled op, not a fold already in
+  // flight when the op settles. A target fenced by a
+  // different lifecycle op rejects FAILED_PRECONDITION (the merge target
+  // is marked, never fenced, so this only fires on a ghost fence — the
+  // retry goes through once the healer clears it); a destroyed target
+  // answers NOT_FOUND.
+  rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
 }

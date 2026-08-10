@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   openExternalUrl: vi.fn(),
   getCloudAttachmentPreviewUrl: vi.fn(),
   commentsError: false,
+  sessionEvents: [] as unknown[],
+  taskRunsRefreshKeys: [] as number[],
 }));
 
 vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
@@ -33,8 +35,19 @@ vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => mocks.openExternalUrl(url),
 }));
 
+vi.mock("@posthog/ui/features/auth/useMeQuery", () => ({
+  useMeQuery: () => ({ data: { id: 42, first_name: "Sam" } }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
-  useTaskRuns: () => ({ runs: mocks.runs, isLoading: false }),
+  useTaskRuns: (_taskId: string | undefined, refreshKey = 0) => {
+    mocks.taskRunsRefreshKeys.push(refreshKey);
+    return { runs: mocks.runs, isLoading: false };
+  },
+}));
+
+vi.mock("@posthog/ui/features/sessions/sessionStore", () => ({
+  useSessionSelector: (_taskId: string, select: (s: unknown) => unknown) =>
+    select({ events: mocks.sessionEvents }),
 }));
 vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
   usePanelLayoutStore: () => mocks.openArtifactTab,
@@ -121,6 +134,8 @@ function outputFile(
 describe("TaskArtifactsList", () => {
   beforeEach(() => {
     mocks.commentsError = false;
+    mocks.sessionEvents = [];
+    mocks.taskRunsRefreshKeys = [];
     mocks.runs = [run("run-1", { prNumber: 1 }), run("run-2", { prNumber: 2 })];
     mocks.openArtifactTab.mockReset();
     mocks.openExternalUrl.mockReset();
@@ -184,10 +199,10 @@ describe("TaskArtifactsList", () => {
 
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
-    const row = screen.getByText("report.md").closest("button");
+    const row = screen.getByText("report.md").closest("[data-artifact-card]");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("2")).toBeTruthy();
-    expect(within(row as HTMLElement).getByText("File · 17 KB")).toBeTruthy();
+    expect(within(row as HTMLElement).getByText("Agent · 17 KB")).toBeTruthy();
   });
 
   it("keeps artifacts visible when comment counts fail", () => {
@@ -199,7 +214,7 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getByText("report.md")).toBeInTheDocument();
-    expect(screen.getByText("File · 17 KB")).toBeInTheDocument();
+    expect(screen.getByText("Agent · 17 KB")).toBeInTheDocument();
   });
 
   // The threads themselves live in the Comments tab now, so the pane must not
@@ -302,7 +317,7 @@ describe("TaskArtifactsList", () => {
   });
 
   // Agents revise a deliverable and upload it again under the same name.
-  it("keeps only the newest upload of a repeatedly revised file", () => {
+  it("shows the newest upload with earlier versions behind a picker", () => {
     mocks.runs = [
       run("run-1", {
         artifacts: [
@@ -324,7 +339,69 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getAllByText("report.md")).toHaveLength(1);
-    expect(screen.getByText("File · 2 KB")).toBeInTheDocument();
+    expect(screen.getByText(/ · 2 KB$/)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Choose a version of report.md"),
+    ).toHaveTextContent("v2");
+
+    fireEvent.click(screen.getByLabelText("Choose a version of report.md"));
+    fireEvent.click(screen.getByText(/^v1 · Agent ·/));
+    fireEvent.click(screen.getByText("report.md"));
+
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "a",
+      name: "report.md",
+    });
+  });
+
+  it("names the current user on a version they edited", () => {
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          outputFile({
+            id: "a",
+            uploaded_at: "2026-07-27T08:00:00+00:00",
+            uploaded_by: "user",
+            uploaded_by_user_id: 42,
+          }),
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByText(/^Sam · /)).toBeInTheDocument();
+  });
+
+  it("defaults to the newest undismissed version", () => {
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          outputFile({
+            id: "a",
+            size: 1_000,
+            uploaded_at: "2026-07-27T08:00:00+00:00",
+          }),
+          outputFile({
+            id: "b",
+            size: 2_000,
+            uploaded_at: "2026-07-27T09:00:00+00:00",
+            dismissed_at: "2026-07-27T10:00:00+00:00",
+          }),
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByText(/ · 1 KB$/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("report.md"));
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "a",
+      name: "report.md",
+    });
   });
 
   // A file dismissed in the chat's Files box has to go from this pane too, but
@@ -365,6 +442,40 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.queryByText("report.md") !== null).toBe(visible);
+  });
+
+  // The runs query must re-key the moment an agent upload completes, so a
+  // fresh file doesn't wait out the 30-second poll before appearing.
+  it("refreshes the runs query when an artifact upload completes", () => {
+    mocks.sessionEvents = ["tool_call", "tool_call_update"].map(
+      (sessionUpdate, index) => ({
+        type: "acp_message",
+        ts: index,
+        message: {
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            update: {
+              sessionUpdate,
+              toolCallId: "c1",
+              ...(sessionUpdate === "tool_call_update"
+                ? { status: "completed" }
+                : {
+                    _meta: {
+                      posthog: {
+                        toolName: "mcp__posthog-code-tools__upload_artifact",
+                      },
+                    },
+                  }),
+            },
+          },
+        },
+      }),
+    );
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(mocks.taskRunsRefreshKeys.at(-1)).toBe(1);
   });
 
   it.each([

@@ -1,3 +1,5 @@
+from django.db.models import Q
+
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.decorators import action
@@ -96,7 +98,11 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         queryset = (
             self.get_queryset()
             .exclude(status=DataModelingJob.Status.RUNNING)
-            .filter(saved_query_id__isnull=False, workflow_id__startswith="materialize")
+            .filter(saved_query_id__isnull=False)
+            # a skip row is written by the DAG run itself, so it carries the execute-dag id rather
+            # than a materialize one. Matching only materialize hides the skip and leaves the last
+            # successful run standing as "last run" for as long as the upstream stays broken.
+            .filter(Q(workflow_id__startswith="materialize") | Q(workflow_id__startswith="execute-dag"))
             .order_by("saved_query_id", "-created_at")
             .distinct("saved_query_id")
         )
