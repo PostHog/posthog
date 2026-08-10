@@ -6,6 +6,7 @@ exercise the real orchestration + the real fan-out children without touching the
 
 import json
 import uuid
+from typing import ClassVar
 
 import pytest
 
@@ -55,6 +56,17 @@ from products.review_hog.backend.temporal.workflow import (
 )
 
 _REVIEW_URL = "https://github.com/o/r/pull/7#pullrequestreview-1"
+
+
+@temporalio.workflow.defn(name="resolve-pr")
+class StubResolvePRWorkflow:
+    # Module-level because temporalio rejects workflow classes defined inside a function
+    # ("Local classes unsupported"). `_run_full_review_pr_workflow` clears this list per run.
+    dispatches: ClassVar[list[tuple[int | None, int | None, str]]] = []
+
+    @temporalio.workflow.run
+    async def run(self, inputs: ResolvePRWorkflowInputs) -> None:
+        StubResolvePRWorkflow.dispatches.append((inputs.pr_number, inputs.acting_user_id, inputs.trigger_source))
 
 
 def _stage_kwargs() -> dict:
@@ -114,15 +126,9 @@ async def _run_full_review_pr_workflow(
     # the RESOLVED value, not the None workflow input) — guards each per-user selection seam.
     load_user_ids: list[int | None] = []
     # Each chained resolution dispatch, as (pr_number, acting_user_id, trigger_source) — recorded by
-    # a stub `resolve-pr` child. resolve_comments_setting feeds the acting-user snapshot;
-    # input_resolve_comments is the per-run override on the workflow input.
-    resolve_dispatches: list[tuple[int | None, int | None, str]] = []
-
-    @temporalio.workflow.defn(name="resolve-pr")
-    class StubResolvePRWorkflow:
-        @temporalio.workflow.run
-        async def run(self, inputs: ResolvePRWorkflowInputs) -> None:
-            resolve_dispatches.append((inputs.pr_number, inputs.acting_user_id, inputs.trigger_source))
+    # the module-level stub `resolve-pr` child. resolve_comments_setting feeds the acting-user
+    # snapshot; input_resolve_comments is the per-run override on the workflow input.
+    StubResolvePRWorkflow.dispatches.clear()
 
     @activity.defn(name="validate_github_integration_activity")
     async def validate_integration(input) -> None:
@@ -346,7 +352,7 @@ async def _run_full_review_pr_workflow(
         "thresholds": threshold_calls,
         "finalize_status": finalize_status_calls,
         "track_failed": track_failed_calls,
-        "resolve_dispatches": resolve_dispatches,
+        "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
     }
 
 

@@ -37,4 +37,4 @@
 
 ## Live GitHub state + CI (paste by hand)
 
-_(gh graphql thread table + `gh pr checks 72074`)_
+(gh graphql thread table + `gh pr checks 72074`)
