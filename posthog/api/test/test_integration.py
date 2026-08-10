@@ -20,6 +20,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
 
+from posthog.api.github_callback.personal_state import usable_personal_github_token
 from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.team_services import (
     GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
@@ -31,6 +32,7 @@ from posthog.api.github_callback.team_services import (
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -3154,6 +3156,20 @@ class TestGitHubTeamIntegrationComplete:
         codes = exc_info.value.get_codes()
         assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED in codes
 
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    def test_authorize_link_existing_proves_non_admin_access_with_personal_oauth_token(self, mock_verify):
+        # The proof must run on the user-to-server OAuth token, not the installation-scoped
+        # access_token: /user/installations/{id}/repositories authenticates as the user, and an
+        # installation token from a different installation would fail for a legitimate member.
+        member = User.objects.create_and_join(
+            self.organization, "member-linker@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        self._personal_github_integration(member)
+
+        authorize_link_existing_installation(user=member, team=self.team, source_installation_id="12345")
+
+        mock_verify.assert_called_once_with("12345", "gho_personal_token")
+
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
     def test_link_existing_auto_resolves_single_org_installation(self, mock_from_install):
         # The one-click "Link existing installation" UI sends no source_team_id / installation_id;
@@ -3281,6 +3297,17 @@ class TestGitHubTeamIntegrationComplete:
             sensitive_config={"access_token": f"ghs_{installation_id}"},
         )
 
+    def _personal_github_integration(self, user: User, github_login: str = "personaluser") -> UserIntegration:
+        # No expiry timestamps in config: `get_usable_user_access_token` then returns this token
+        # directly without a refresh network call, matching a freshly-linked personal integration.
+        return UserIntegration.objects.create(
+            user=user,
+            kind="github",
+            integration_id="55555",
+            config={"github_user": {"login": github_login, "id": 1}},
+            sensitive_config={"user_access_token": "gho_personal_token"},
+        )
+
     def test_link_existing_rejects_installation_from_inaccessible_source_project(self):
         # A user who admins the target project but is locked out of a private sibling must not be able
         # to discover or reuse that sibling's installation — target-team admin is not access to the
@@ -3304,6 +3331,29 @@ class TestGitHubTeamIntegrationComplete:
             )
         codes = exc_info.value.get_codes()
         assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION in codes
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    def test_link_existing_never_adopts_installation_linked_to_inaccessible_project(self, mock_verify):
+        # Personal GitHub access must not override the project access boundary: an installation
+        # linked to a private sibling isn't an orphan, so adoption must not even be attempted,
+        # however legitimate the caller's GitHub-side access to it is.
+        member = self._org_member_with_access_control()
+        self._personal_github_integration(member)
+        self._sibling_github_integration("Private Project", "777", private=True)
+
+        with pytest.raises(ValidationError) as exc_info:
+            link_existing_team_github_integration(
+                user=member,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="777",
+            )
+
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION in codes
+        mock_verify.assert_not_called()
+        assert not Integration.objects.filter(team=self.team, kind="github", integration_id="777").exists()
 
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
     def test_link_existing_links_installation_also_held_by_an_inaccessible_project(self, mock_from_install):
@@ -3449,6 +3499,260 @@ class TestGitHubTeamIntegrationComplete:
         assert "github_link_success" not in response["Location"]
         assert f"integration_id={team_integration.id}" in response["Location"]
         mock_refresh.assert_called_once()
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_adopts_orphan_installation_with_personal_github_proof(self, mock_from_install, mock_verify):
+        # No PostHog team anywhere has installation "424242" linked, so it's a true orphan: installed
+        # on GitHub but never round-tripped through PostHog's callback. Proving personal access to it
+        # must create the team integration instead of raising the old unconditional orphan error.
+        self._personal_github_integration(self.user)
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration(installation_id="424242")
+
+        result = link_existing_team_github_integration(
+            user=self.user,
+            organization=self.organization,
+            team_id=self.team.pk,
+            source_team_id=None,
+            installation_id_param="424242",
+        )
+
+        assert result is not None
+        assert mock_from_install.call_args.args[0] == "424242"
+        assert mock_from_install.call_args.args[1] == self.team.pk
+        mock_verify.assert_called_once_with("424242", "gho_personal_token")
+        integration = Integration.objects.get(team=self.team, kind="github", integration_id="424242")
+        assert integration.config["connecting_user_github_login"] == "personaluser"
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=False)
+    def test_link_existing_adoption_rejects_when_verification_fails(self, _mock_verify):
+        self._personal_github_integration(self.user)
+
+        with pytest.raises(ValidationError) as exc_info:
+            link_existing_team_github_integration(
+                user=self.user,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="424242",
+            )
+
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and "installation_access_denied" in codes
+        assert not Integration.objects.filter(kind="github", integration_id="424242").exists()
+
+    @patch(
+        "posthog.models.integration.GitHubIntegration.verify_user_installation_access",
+        side_effect=requests.RequestException("boom"),
+    )
+    def test_link_existing_adoption_rejects_when_verification_errors(self, _mock_verify):
+        self._personal_github_integration(self.user)
+
+        with pytest.raises(ValidationError):
+            link_existing_team_github_integration(
+                user=self.user,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="424242",
+            )
+
+        assert not Integration.objects.filter(kind="github", integration_id="424242").exists()
+
+    @parameterized.expand([("member",), ("admin",)])
+    def test_link_existing_adoption_requires_personal_github_regardless_of_admin(self, role):
+        # Adoption needs both gates: project admin (a new installation entering the org is a
+        # first-time connect, same bar as the setup callback) and personal GitHub proof (admin on
+        # the PostHog side proves nothing about GitHub). A member fails the admin gate outright;
+        # an admin without a personal link still fails the proof gate.
+        if role == "admin":
+            user = self.user
+            expected_code = GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED
+        else:
+            user = User.objects.create_and_join(
+                self.organization, "adoption-member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+            )
+            expected_code = "github_adoption_admin_required"
+        assert not UserIntegration.objects.filter(user=user, kind="github").exists()
+
+        with pytest.raises(ValidationError) as exc_info:
+            link_existing_team_github_integration(
+                user=user,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="424242",
+            )
+
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and expected_code in codes
+        assert not Integration.objects.filter(kind="github", integration_id="424242").exists()
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    def test_link_existing_adoption_refuses_member_even_with_valid_github_proof(self, mock_verify):
+        # Valid personal GitHub access must not let a plain member introduce a new installation to
+        # the org: unlike the create/update flows, adoption has no GitHub-side gate on who submits
+        # the installation id, so the project-admin requirement is what stands in for it.
+        member = User.objects.create_and_join(
+            self.organization, "proof-member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        self._personal_github_integration(member)
+
+        with pytest.raises(ValidationError) as exc_info:
+            link_existing_team_github_integration(
+                user=member,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="424242",
+            )
+
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and "github_adoption_admin_required" in codes
+        mock_verify.assert_not_called()
+        assert not Integration.objects.filter(kind="github", integration_id="424242").exists()
+
+    @patch("posthog.api.github_callback.personal_state.github_request")
+    def test_available_installations_includes_adoptable_and_dedupes_sibling(self, mock_request):
+        # The picker must offer both kinds of installation together: ones already linked to a
+        # sibling project (source_team_id set) and ones only visible via the user's personal GitHub
+        # link (source_team_id null). A personal installation that's already a sibling entry must
+        # not be listed twice.
+        sibling = self._sibling_github_integration("Acme Org", "111")
+        self._personal_github_integration(self.user)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "installations": [
+                {"id": 111, "account": {"login": "Acme Org", "type": "Organization"}},
+                {"id": 222, "account": {"login": "coderabbitai", "type": "Organization"}},
+            ]
+        }
+        mock_request.return_value = mock_response
+
+        installations = list_org_github_installations(
+            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
+        )
+
+        by_id = {installation["installation_id"]: installation for installation in installations}
+        assert set(by_id.keys()) == {"111", "222"}
+        assert by_id["111"]["source_team_id"] == sibling.team_id
+        assert by_id["222"]["source_team_id"] is None
+        assert by_id["222"]["account_name"] == "coderabbitai"
+        assert by_id["222"]["account_type"] == "Organization"
+
+    @pytest.mark.parametrize("fetch_error", [requests.RequestException("boom"), GitHubEgressBudgetExhausted()])
+    @patch("posthog.api.github_callback.personal_state.github_request")
+    def test_available_installations_degrades_to_sibling_only_when_personal_fetch_fails(
+        self, mock_request, fetch_error
+    ):
+        # A stale personal token, a GitHub outage, or our own exhausted egress budget must not
+        # break the sibling-only listing that already worked before adoption existed.
+        mock_request.side_effect = fetch_error
+        sibling = self._sibling_github_integration("Acme Org", "111")
+        self._personal_github_integration(self.user)
+
+        installations = list_org_github_installations(
+            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
+        )
+
+        assert [installation["installation_id"] for installation in installations] == ["111"]
+        assert installations[0]["source_team_id"] == sibling.team_id
+
+    @patch("posthog.api.github_callback.personal_state.UserGitHubIntegration.get_usable_user_access_token")
+    def test_usable_personal_github_token_falls_back_to_older_link(self, mock_get_token):
+        # The newest personal link can hold stale credentials while an older one still refreshes.
+        mock_get_token.side_effect = [requests.RequestException("stale"), "gho_older_token"]
+        self._personal_github_integration(self.user)
+        older = UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="66666",
+            config={"github_user": {"login": "personaluser", "id": 1}},
+            sensitive_config={"user_access_token": "gho_older_token"},
+        )
+        older.created_at = older.created_at - timedelta(days=30)
+        older.save(update_fields=["created_at"])
+
+        assert usable_personal_github_token(self.user) == "gho_older_token"
+        assert mock_get_token.call_count == 2
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    def test_link_existing_rejects_leading_zero_installation_id(self, mock_verify):
+        # "0111" would miss the string-equality check against the stored "111" and fall through to
+        # adoption of an installation a private sibling already holds, so it must fail validation.
+        member = self._org_member_with_access_control()
+        self._personal_github_integration(member)
+        self._sibling_github_integration("Private Project", "111", private=True)
+
+        with pytest.raises(ValidationError, match="Invalid installation_id"):
+            link_existing_team_github_integration(
+                user=member,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="0111",
+            )
+
+        mock_verify.assert_not_called()
+
+    @patch("posthog.api.github_callback.personal_state.github_request")
+    def test_available_installations_never_advertises_installation_linked_to_inaccessible_project(self, mock_request):
+        # Personal GitHub access to an installation must not surface a private sibling's install in
+        # the picker — that would advertise an adoption link_existing then has to refuse.
+        member = self._org_member_with_access_control()
+        self._personal_github_integration(member)
+        self._sibling_github_integration("Private Project", "777", private=True)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "installations": [{"id": 777, "account": {"login": "Private Org", "type": "Organization"}}]
+        }
+        mock_request.return_value = mock_response
+
+        installations = list_org_github_installations(
+            user=member, organization=self.organization, exclude_team_id=self.team.pk
+        )
+
+        assert installations == []
+
+    @patch("posthog.api.github_callback.personal_state.github_request", side_effect=requests.RequestException("boom"))
+    def test_available_installations_endpoint_still_reports_connected_when_fetch_fails(
+        self, _mock_request, client: HttpClient
+    ):
+        # Pins today's behavior on a transient GitHub failure: the personal link still reports
+        # connected while adoptable entries are silently absent, so the UI shows no hint. If this
+        # changes, it should be to surface the failed check, not to flip connected to false.
+        client.force_login(self.user)
+        self._personal_github_integration(self.user)
+        self._sibling_github_integration("Acme Org", "111")
+
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/github/available_installations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["personal_github_connected"] is True
+        assert [entry["installation_id"] for entry in payload["installations"]] == ["111"]
+
+    @pytest.mark.parametrize("connected", [True, False])
+    @patch("posthog.api.github_callback.personal_state.github_request")
+    def test_available_installations_endpoint_reports_personal_github_connected(
+        self, mock_request, connected, client: HttpClient
+    ):
+        # Wiring guard: the service-level tests above prove the merge/degrade logic; this proves the
+        # viewset actually surfaces `personal_github_connected` in the response.
+        client.force_login(self.user)
+        if connected:
+            self._personal_github_integration(self.user)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"installations": []}
+        mock_request.return_value = mock_response
+
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/github/available_installations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["personal_github_connected"] is connected
 
 
 class TestStripeIntegration:
