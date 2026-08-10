@@ -24825,7 +24825,8 @@
                 "WindsorAi",
                 "Wix",
                 "Sevalla",
-                "Motion"
+                "Motion",
+                "Framer"
             ],
             "type": "string"
         },
@@ -28470,6 +28471,7 @@
                 "github",
                 "gitlab",
                 "meta-ads",
+                "instagram",
                 "clickup",
                 "reddit-ads",
                 "databricks",
