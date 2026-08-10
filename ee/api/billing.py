@@ -606,6 +606,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
+
         billing_manager = self.get_billing_manager()
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
@@ -643,6 +644,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
         organization = self._get_org_required()
+
         billing_manager = self.get_billing_manager()
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
