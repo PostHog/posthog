@@ -376,6 +376,42 @@ class TestCommentActivityTimeline(CommentActivityTestCase):
 
         self.assertEqual({row.target.type for row in self._rows()}, {"task", "canvas", "artifact"})
 
+    def test_a_revived_old_thread_is_not_crowded_out_by_newer_threads(self):
+        # Selection has to order by activity, not by root creation date, or a years-old thread
+        # that just got a reply falls off the end of a list that claims to be newest-first.
+        old_root = self._comment(content="the old thread")
+        for index in range(3):
+            self._comment(content=f"newer thread {index}")
+        reply = self._comment(content="reviving it", source_comment=old_root, created_by=self.author)
+
+        rows = self._rows()
+
+        self.assertEqual(rows[0].id, old_root.id)
+        self.assertEqual(rows[0].last_activity_at, reply.created_at)
+
+    def test_participants_are_capped(self):
+        root = self._comment(created_by=self.peer)
+        extras = []
+        for index in range(6):
+            user = User.objects.create_user(email=f"extra{index}@example.com", first_name="X", password="password")
+            self.organization.members.add(user)
+            extras.append(user)
+            self._comment(content=f"reply {index}", source_comment=root, created_by=user)
+
+        row = self._rows()[0]
+
+        self.assertEqual(len(row.participants), 5)
+        self.assertEqual(row.participants[0].id, self.peer.id)
+
+    def test_a_long_reply_preview_says_it_was_cut(self):
+        root = self._comment()
+        self._comment(content="x" * 900, source_comment=root, created_by=self.author)
+
+        preview = self._rows()[0].latest_reply
+        assert preview is not None
+        self.assertTrue(preview.content_truncated)
+        self.assertLess(len(preview.content), 900)
+
     def test_a_task_the_user_cannot_see_returns_nothing(self):
         # A task in another team is invisible here, so the endpoint must not answer for it.
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

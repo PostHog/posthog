@@ -525,7 +525,9 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "than one per artifact."
         ),
     )
-    @action(detail=False, methods=["get"], url_path="comment_activity")
+    # Without required_scopes the scope check has no read action to match, and every personal
+    # API key, OAuth token and MCP caller gets a 403 while session auth sails through.
+    @action(detail=False, methods=["get"], url_path="comment_activity", required_scopes=["task:read"])
     def comment_activity(self, request, *args, **kwargs):
         page = tasks_facade.list_task_comment_activity(self._task_id(), self.team_id, self._user_id())
         if page is None:

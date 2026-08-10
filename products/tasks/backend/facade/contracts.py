@@ -346,6 +346,7 @@ class TaskCommentReplyPreviewDTO:
 
     author: "TaskUserBasicInfo | None"
     content: str
+    content_truncated: bool
     created_at: datetime
 
 

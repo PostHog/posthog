@@ -1231,6 +1231,9 @@ class TaskCommentActivity(TeamScopedRootMixin):
         ]
         indexes = [
             models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_activity_feed"),
+            # The task timeline asks "who was mentioned in these threads", which neither the
+            # feed index nor the FK columns (both db_index=False) support.
+            models.Index(fields=["team", "root_comment", "kind"], name="task_comment_activity_root"),
             models.Index(
                 fields=["team", "user"],
                 condition=models.Q(read_at__isnull=True),

@@ -3567,7 +3567,7 @@ class AgentProxyCallbackResponseSerializer(serializers.Serializer):
 
 
 class TaskCommentStateEventSerializer(serializers.Serializer):
-    state = serializers.CharField(help_text="Thread state the event set: 'resolved' or 'open'.")
+    state = serializers.ChoiceField(choices=["resolved", "open"], help_text="Thread state the event set.")
     author = TaskUserBasicInfoSerializer(allow_null=True, help_text="Who changed the thread's state.")
     created_at = serializers.DateTimeField(help_text="When the state changed.")
 
@@ -3575,6 +3575,7 @@ class TaskCommentStateEventSerializer(serializers.Serializer):
 class TaskCommentReplyPreviewSerializer(serializers.Serializer):
     author = TaskUserBasicInfoSerializer(allow_null=True, help_text="Who wrote the newest reply.")
     content = serializers.CharField(help_text="Bounded excerpt of the newest reply.")
+    content_truncated = serializers.BooleanField(help_text="Whether the reply body has more content.")
     created_at = serializers.DateTimeField(help_text="When the newest reply was written.")
 
 

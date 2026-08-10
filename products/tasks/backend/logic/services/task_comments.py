@@ -3,15 +3,24 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, F, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce, Greatest
 
 from posthog.models import Comment
+from posthog.models.user import User
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.logic.services.user_display import user_basic_info
 from products.tasks.backend.models import TaskArtifact, TaskCommentActivity, TaskRun, TaskThreadMessage
 
 COMMENT_STATES = frozenset({"open", "resolved"})
+# A reply someone wrote, as opposed to a resolve/reopen marker. Same rule list_comments
+# applies — one definition, so the timeline and the Comments tab can't disagree on a count.
+_CONVERSATIONAL_REPLY_Q = (
+    Q(item_context__isnull=True)
+    | ~Q(item_context__has_key="threadState")
+    | ~Q(item_context__threadState__in=COMMENT_STATES)
+)
 LEGACY_TASK_RUN_LIMIT = 100
 TASK_ARTIFACT_LIMIT = 500
 CANVAS_EVENT_LIMIT = 500
@@ -254,11 +263,7 @@ def list_comments(
             break
         root_ids = [root.id for root in roots]
         reply_qs = _comments(team_id, task_id).filter(source_comment_id__in=root_ids)
-        human_replies = reply_qs.filter(
-            Q(item_context__isnull=True)
-            | ~Q(item_context__has_key="threadState")
-            | ~Q(item_context__threadState__in=COMMENT_STATES)
-        )
+        human_replies = reply_qs.filter(_CONVERSATIONAL_REPLY_Q)
         reply_counts = dict(human_replies.values_list("source_comment_id").annotate(count=Count("id")))
         latest_states = {
             source_comment_id: item_context.get("threadState")
@@ -399,51 +404,68 @@ def retrieve_comment(
 # out per artifact, so it is bounded here instead of paginated by the caller.
 ACTIVITY_THREAD_LIMIT = 100
 ACTIVITY_CONTENT_BYTES = 512
+# Enough to name a thread's voices in a row; a crowded thread shows the first few.
+ACTIVITY_PARTICIPANT_LIMIT = 5
 
 
 def list_comment_activity(*, team_id: int, task_id: UUID) -> contracts.TaskCommentActivityPageDTO:
-    """Every comment thread on the task, collapsed one row per thread, newest activity first.
+    """The task's most recently active comment threads, collapsed one row per thread.
 
     One query set for the whole task: the Comments tab fans out per artifact and per PR,
     which the timeline must not inherit — it would turn one panel into N requests.
+
+    Nothing here loads reply bodies in bulk. Counts come from an aggregate, participants from
+    an author-id projection, and only the newest reply per thread is read in full, so a thread
+    with thousands of replies costs the same as one with three. Replies carry
+    caller-controlled content, so reading them all would let one long thread decide how much
+    memory a timeline load takes.
+
+    Selection orders by newest activity, not by root creation date, so a years-old thread that
+    just got a reply still appears.
 
     Mentions come from the notification rows the comment API already projects rather than
     from re-parsing comment bodies, so the timeline and the Activity feed can't disagree
     about who was mentioned.
     """
+    comments = _comments(team_id, task_id)
+    # A thread's activity is its own creation or the newest thing said under it, whichever is
+    # later — that has to drive selection too, or a recently revived thread falls off the end.
+    latest_child_at = Subquery(
+        comments.filter(source_comment_id=OuterRef("pk")).order_by("-created_at").values("created_at")[:1]
+    )
     roots = list(
-        _comments(team_id, task_id)
-        .filter(source_comment_id__isnull=True)
+        comments.filter(source_comment_id__isnull=True)
         .select_related("created_by")
-        .order_by("-created_at", "-id")[:ACTIVITY_THREAD_LIMIT]
+        .annotate(activity_at=Greatest(Coalesce(latest_child_at, F("created_at")), F("created_at")))
+        .order_by("-activity_at", "-id")[:ACTIVITY_THREAD_LIMIT]
     )
     if not roots:
         return contracts.TaskCommentActivityPageDTO(comments=[], next=None)
 
     root_ids = [root.id for root in roots]
-    replies = list(
-        _comments(team_id, task_id)
-        .filter(source_comment_id__in=root_ids)
-        .select_related("created_by")
-        .order_by("created_at", "id")
-    )
-    target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots)
-    mentioned_by_root = _mentioned_user_ids_by_root(team_id=team_id, roots=roots, replies=replies)
+    replies = comments.filter(source_comment_id__in=root_ids)
+    conversational = replies.filter(_CONVERSATIONAL_REPLY_Q)
 
-    conversational: dict[UUID, list[Comment]] = {root_id: [] for root_id in root_ids}
-    state_events: dict[UUID, Comment] = {}
-    for reply in replies:
-        if reply.source_comment_id is None:
-            continue
-        if _is_state_event(reply):
-            # Ordered ascending, so the last one wins.
-            state_events[reply.source_comment_id] = reply
-        else:
-            conversational.setdefault(reply.source_comment_id, []).append(reply)
+    reply_counts = dict(conversational.values_list("source_comment_id").annotate(count=Count("id")))
+    latest_replies = {
+        reply.source_comment_id: reply
+        for reply in conversational.select_related("created_by")
+        .order_by("source_comment_id", "-created_at", "-id")
+        .distinct("source_comment_id")
+    }
+    state_events = {
+        event.source_comment_id: event
+        for event in replies.filter(item_context__threadState__in=COMMENT_STATES)
+        .select_related("created_by")
+        .order_by("source_comment_id", "-created_at", "-id")
+        .distinct("source_comment_id")
+    }
+    participants_by_root = _participants_by_root(roots=roots, conversational=conversational)
+    target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots)
+    mentioned_by_root = _mentioned_user_ids_by_root(team_id=team_id, root_ids=root_ids)
 
     rows: list[contracts.TaskCommentActivityDTO] = []
     for root in roots:
-        thread_replies = conversational.get(root.id, [])
         state_event = state_events.get(root.id)
         latest_state = _item_context(state_event).get("threadState") if state_event else None
         content, content_next_offset = _content_chunk(root.content or "", limit=ACTIVITY_CONTENT_BYTES)
@@ -453,10 +475,12 @@ def list_comment_activity(*, team_id: int, task_id: UUID) -> contracts.TaskComme
             selected_text = _content_chunk(selected_text, limit=SELECTED_TEXT_BYTES)[0]
         else:
             selected_text = None
-        latest_reply = thread_replies[-1] if thread_replies else None
-        candidates = [reply.created_at for reply in thread_replies]
-        if state_event is not None:
-            candidates.append(state_event.created_at)
+        latest_reply = latest_replies.get(root.id)
+        reply_content, reply_next_offset = (
+            _content_chunk(latest_reply.content or "", limit=ACTIVITY_CONTENT_BYTES)
+            if latest_reply is not None
+            else ("", None)
+        )
         rows.append(
             contracts.TaskCommentActivityDTO(
                 id=root.id,
@@ -466,9 +490,9 @@ def list_comment_activity(*, team_id: int, task_id: UUID) -> contracts.TaskComme
                 selected_text=selected_text,
                 author=user_basic_info(root.created_by),
                 created_at=root.created_at,
-                last_activity_at=max([root.created_at, *candidates]),
-                reply_count=len(thread_replies),
-                participants=_participants(root, thread_replies),
+                last_activity_at=root.activity_at,
+                reply_count=reply_counts.get(root.id, 0),
+                participants=participants_by_root.get(root.id, []),
                 mentioned_user_ids=mentioned_by_root.get(root.id, []),
                 resolved=_resolved(root, latest_state),
                 state_event=(
@@ -483,7 +507,8 @@ def list_comment_activity(*, team_id: int, task_id: UUID) -> contracts.TaskComme
                 latest_reply=(
                     contracts.TaskCommentReplyPreviewDTO(
                         author=user_basic_info(latest_reply.created_by),
-                        content=_content_chunk(latest_reply.content or "", limit=ACTIVITY_CONTENT_BYTES)[0],
+                        content=reply_content,
+                        content_truncated=reply_next_offset is not None,
                         created_at=latest_reply.created_at,
                     )
                     if latest_reply is not None
@@ -492,35 +517,55 @@ def list_comment_activity(*, team_id: int, task_id: UUID) -> contracts.TaskComme
             )
         )
 
-    rows.sort(key=lambda row: (row.last_activity_at, row.id), reverse=True)
     return contracts.TaskCommentActivityPageDTO(comments=rows, next=None)
 
 
-def _participants(root: Comment, replies: Sequence[Comment]) -> list[contracts.TaskUserBasicInfo]:
-    """Everyone who spoke in the thread, root author first, deduplicated in speaking order."""
-    seen: set[int] = set()
-    participants: list[contracts.TaskUserBasicInfo] = []
-    for comment in [root, *replies]:
-        user = comment.created_by
-        if user is None or user.id in seen:
+def _participants_by_root(
+    *, roots: Sequence[Comment], conversational: QuerySet[Comment]
+) -> dict[UUID, list[contracts.TaskUserBasicInfo]]:
+    """Everyone who spoke in each thread, root author first, in speaking order.
+
+    Reads author ids and timestamps only — never reply bodies — then resolves the distinct
+    authors in one query, capped so a thread with a crowd in it can't grow the response
+    without limit.
+    """
+    speakers: dict[UUID, list[int]] = {}
+    seen: dict[UUID, set[int]] = {}
+    for root in roots:
+        author_id = root.created_by_id
+        speakers[root.id] = [author_id] if author_id is not None else []
+        seen[root.id] = {author_id} if author_id is not None else set()
+    for root_id, author_id in conversational.order_by("created_at", "id").values_list(
+        "source_comment_id", "created_by_id"
+    ):
+        if author_id is None or root_id not in seen or author_id in seen[root_id]:
             continue
-        seen.add(user.id)
-        info = user_basic_info(user)
-        if info is not None:
-            participants.append(info)
-    return participants
+        if len(speakers[root_id]) >= ACTIVITY_PARTICIPANT_LIMIT:
+            continue
+        seen[root_id].add(author_id)
+        speakers[root_id].append(author_id)
+
+    wanted = {author_id for ids in speakers.values() for author_id in ids}
+    users = {user.id: user_basic_info(user) for user in User.objects.filter(id__in=wanted)}
+    return {
+        root_id: [users[author_id] for author_id in ids if users.get(author_id) is not None]
+        for root_id, ids in speakers.items()
+    }
 
 
-def _mentioned_user_ids_by_root(
-    *, team_id: int, roots: Sequence[Comment], replies: Sequence[Comment]
-) -> dict[UUID, list[int]]:
-    comment_ids = [comment.id for comment in [*roots, *replies]]
-    if not comment_ids:
+def _mentioned_user_ids_by_root(*, team_id: int, root_ids: Sequence[UUID]) -> dict[UUID, list[int]]:
+    """Who was mentioned anywhere in each thread.
+
+    Filters on ``root_comment`` rather than every comment id: it is the column this groups by,
+    it keeps the id list to one per thread, and it is the column the index added alongside
+    this endpoint covers.
+    """
+    if not root_ids:
         return {}
     mentioned: dict[UUID, set[int]] = {}
     rows = (
         TaskCommentActivity.objects.for_team(team_id)
-        .filter(comment_id__in=comment_ids, kind=TaskCommentActivity.Kind.MENTION)
+        .filter(root_comment_id__in=root_ids, kind=TaskCommentActivity.Kind.MENTION)
         .values_list("root_comment_id", "user_id")
     )
     for root_comment_id, user_id in rows:

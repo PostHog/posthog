@@ -3651,9 +3651,24 @@ export interface TaskThreadMessageWriteApi {
     content: string
 }
 
+/**
+ * * `resolved` - resolved
+ * * `open` - open
+ */
+export type TaskCommentStateEventStateEnumApi =
+    (typeof TaskCommentStateEventStateEnumApi)[keyof typeof TaskCommentStateEventStateEnumApi]
+
+export const TaskCommentStateEventStateEnumApi = {
+    Resolved: 'resolved',
+    Open: 'open',
+} as const
+
 export interface TaskCommentStateEventApi {
-    /** Thread state the event set: 'resolved' or 'open'. */
-    state: string
+    /** Thread state the event set.
+     *
+     * * `resolved` - resolved
+     * * `open` - open */
+    state: TaskCommentStateEventStateEnumApi
     /** Who changed the thread's state. */
     author: TaskUserBasicInfoApi | null
     /** When the state changed. */
@@ -3665,6 +3680,8 @@ export interface TaskCommentReplyPreviewApi {
     author: TaskUserBasicInfoApi | null
     /** Bounded excerpt of the newest reply. */
     content: string
+    /** Whether the reply body has more content. */
+    content_truncated: boolean
     /** When the newest reply was written. */
     created_at: string
 }

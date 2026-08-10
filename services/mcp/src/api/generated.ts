@@ -74370,9 +74370,24 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `resolved` - resolved
+     * * `open` - open
+     */
+    export type TaskCommentStateEventStateEnum = typeof TaskCommentStateEventStateEnum[keyof typeof TaskCommentStateEventStateEnum];
+
+
+    export const TaskCommentStateEventStateEnum = {
+      Resolved: 'resolved',
+      Open: 'open',
+    } as const;
+
     export interface TaskCommentStateEvent {
-      /** Thread state the event set: 'resolved' or 'open'. */
-      state: string;
+      /** Thread state the event set.
+       *
+       * * `resolved` - resolved
+       * * `open` - open */
+      state: TaskCommentStateEventStateEnum;
       /** Who changed the thread's state. */
       author: TaskUserBasicInfo | null;
       /** When the state changed. */
@@ -74384,6 +74399,8 @@ export namespace Schemas {
       author: TaskUserBasicInfo | null;
       /** Bounded excerpt of the newest reply. */
       content: string;
+      /** Whether the reply body has more content. */
+      content_truncated: boolean;
       /** When the newest reply was written. */
       created_at: string;
     }

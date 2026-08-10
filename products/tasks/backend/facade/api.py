@@ -6209,6 +6209,15 @@ def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred:
     return True
 
 
+def _message_mentioned_user_ids(message: TaskThreadMessage) -> list[int]:
+    """Who a stored message mentions, from the rows indexed when it was written."""
+    return sorted(
+        TaskThreadMessageMention.objects.filter(team_id=message.team_id, message_id=message.id).values_list(
+            "mentioned_user_id", flat=True
+        )
+    )
+
+
 def _thread_message_to_dto(
     message: TaskThreadMessage, *, mentioned_user_ids: Sequence[int] = ()
 ) -> contracts.TaskThreadMessageDTO:
@@ -6284,8 +6293,9 @@ def create_thread_message(
     from products.tasks.backend.push_dispatcher import notify_task_thread_message  # noqa: PLC0415
 
     notify_task_thread_message(message, mentioned_user_ids)
-    # Fresh message: forwarded_by is None (no query) and author lazy-loads once.
-    return _thread_message_to_dto(message)
+    # Fresh message: forwarded_by is None (no query) and author lazy-loads once. The mentions
+    # were just resolved here, so the response carries them without another lookup.
+    return _thread_message_to_dto(message, mentioned_user_ids=mentioned_user_ids)
 
 
 def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:
@@ -6705,7 +6715,9 @@ def forward_thread_message(
         if message is None:
             return "not_found", None
         if message.forwarded_to_agent_at is not None:
-            return "already_forwarded", _thread_message_to_dto(message)
+            return "already_forwarded", _thread_message_to_dto(
+                message, mentioned_user_ids=_message_mentioned_user_ids(message)
+            )
         run = task.latest_run
         if run is None or run.status in (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
             return "no_run", None
@@ -6722,7 +6734,7 @@ def forward_thread_message(
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     post_message_forwarded_event(message, run)
-    return "ok", _thread_message_to_dto(message)
+    return "ok", _thread_message_to_dto(message, mentioned_user_ids=_message_mentioned_user_ids(message))
 
 
 # Threads are a Channels (project-bluebird) surface, so agent-authored thread
