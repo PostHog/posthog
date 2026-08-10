@@ -1733,6 +1733,64 @@ export class PostHogAPIClient {
     }
   }
 
+  /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
+  async listSlackUserIntegrations(): Promise<
+    {
+      slack_user_id: string;
+      slack_team_id: string;
+      slack_team_name: string | null;
+    }[]
+  > {
+    const urlPath = `/api/users/@me/integrations/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    url.searchParams.set("kind", "slack");
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      return [];
+    }
+    const data = (await response.json()) as {
+      results?: {
+        slack_user_id: string;
+        slack_team_id: string;
+        slack_team_name: string | null;
+      }[];
+    };
+    return data.results ?? [];
+  }
+
+  /**
+   * `POST .../integrations/slack/start`. Returns the Sign-in-with-Slack URL; Slack tells the
+   * callback which user authorized, so nobody types a Slack ID.
+   */
+  async startSlackUserIntegrationConnect(
+    teamId?: number,
+  ): Promise<{ install_url: string }> {
+    const id = teamId ?? (await this.getTeamId());
+    const urlPath = `/api/users/@me/integrations/slack/start/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ team_id: id }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to start Slack connect: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { install_url: string };
+  }
+
   /** Patch the user's server-side notification settings. Merged server-side, so pass only the keys you change. */
   async updateNotificationSettings(
     settings: Record<string, unknown>,
