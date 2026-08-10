@@ -35,11 +35,11 @@ vi.mock("electron", () => ({
 
 import { MissionControlService } from "./electron-mission-control";
 
-/** The full-display Dock window Mission Control puts up. */
+/** The full-display Dock window Mission Control puts up, below the Dock's level. */
 const MISSION_CONTROL_BACKING: CgWindow = {
   ownerName: "Dock",
   ownerPid: 300,
-  layer: 20,
+  layer: 18,
   bounds: { x: 0, y: 0, width: 2560, height: 1440 },
 };
 

@@ -14,19 +14,28 @@ const window = (partial: Partial<CgWindow>): CgWindow => ({
   ...partial,
 });
 
-// The two full-display Dock windows macOS 26 puts up for Mission Control,
-// captured with dev.probeMissionControl.
+/**
+ * The full-display Dock window Mission Control puts up, from a real
+ * dev.probeMissionControl recording. Layer 18: below the Dock's own level.
+ */
 const missionControlBacking = window({
+  ownerName: "Dock",
+  layer: 18,
+  bounds: { x: 0, y: 0, width: 2560, height: 1440 },
+});
+
+/**
+ * The Dock's own window, which also spans the whole display. In the same
+ * recording it was present for Mission Control, the Cmd-Tab switcher and both
+ * Dock hovers, so it identifies the Dock drawing, not Mission Control.
+ */
+const dockOwnWindow = window({
   ownerName: "Dock",
   layer: 20,
   bounds: { x: 0, y: 0, width: 2560, height: 1440 },
 });
-const missionControlBackdrop = window({
-  ...missionControlBacking,
-  layer: 18,
-});
 
-/** The Dock's own strip: present whether or not Mission Control is. */
+/** The visible Dock strip. */
 const dockStrip = window({
   ownerName: "Dock",
   layer: 20,
@@ -56,15 +65,28 @@ describe("detectMissionControl", () => {
       expected: false,
     },
     {
-      name: "the layer 20 backing window",
+      name: "Mission Control's layer 18 backing window",
       windows: [window({}), dockStrip, missionControlBacking],
       expected: true,
     },
     {
-      // Two independent windows carry the signal, so renumbering one layer does
-      // not silently switch detection off.
-      name: "the layer 18 backdrop alone",
-      windows: [window({}), dockStrip, missionControlBackdrop],
+      // Regression: hovering the Dock brings this window on screen, and it used
+      // to show the overlay. It is the Dock itself, at the Dock's own level.
+      name: "the Dock's own full-display window",
+      windows: [window({}), dockStrip, dockOwnWindow],
+      expected: false,
+    },
+    {
+      // Regression: the Cmd-Tab switcher brings the same window on screen.
+      name: "the app switcher, which raises that same Dock window",
+      windows: [dockOwnWindow],
+      expected: false,
+    },
+    {
+      // Mission Control raises both, so the Dock's own window must not mask the
+      // one that actually means something.
+      name: "both Dock windows together",
+      windows: [dockOwnWindow, missionControlBacking],
       expected: true,
     },
     {
@@ -90,7 +112,7 @@ describe("detectMissionControl", () => {
       name: "a full-display window owned by another app",
       windows: [
         window({
-          layer: 20,
+          layer: 18,
           bounds: { x: 0, y: 0, width: 2560, height: 1440 },
         }),
       ],
@@ -102,7 +124,7 @@ describe("detectMissionControl", () => {
       windows: [
         window({
           ownerName: "Dock",
-          layer: 20,
+          layer: 18,
           bounds: { x: 0, y: -1, width: 2560, height: 1441 },
         }),
       ],
@@ -120,7 +142,7 @@ describe("detectMissionControl", () => {
         [
           window({
             ownerName: "Dock",
-            layer: 20,
+            layer: 18,
             bounds: secondary,
           }),
         ],
