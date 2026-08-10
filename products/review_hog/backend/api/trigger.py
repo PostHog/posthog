@@ -18,8 +18,8 @@ from products.review_hog.backend.temporal.types import TRIGGER_LABEL
 
 logger = logging.getLogger(__name__)
 
-# v1 scope: ReviewHog only runs against the main PostHog monorepo. Matched case-insensitively.
-ALLOWED_REPOS = {"posthog/posthog"}
+# ReviewHog runs against the main PostHog monorepo and the website/docs repo. Matched case-insensitively.
+ALLOWED_REPOS = {"posthog/posthog", "posthog/posthog.com"}
 
 
 class ReviewHogTriggerRequestSerializer(serializers.Serializer):
