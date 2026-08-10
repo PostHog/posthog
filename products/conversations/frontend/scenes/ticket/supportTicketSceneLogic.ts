@@ -1263,7 +1263,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (!values.discussionsEnabled || !ticketId) {
                 return
             }
-            // findMounted, so a ticket whose thread was never opened pays for nothing.
+            // findMounted is a null guard, not an optimisation: the ticket page mounts this logic to
+            // render its discussion cards, so on a flagged team it is mounted for every open ticket
+            // whether or not that ticket has any discussion. Every such ticket therefore pays one
+            // indexed comment query per interval. That is deliberate — a teammate starting a
+            // discussion elsewhere should make the card appear here, which is the moment this whole
+            // surface exists for, and it cannot be detected without asking.
             commentsLogic.findMounted({ scope: ActivityScope.TICKET, item_id: ticketId })?.actions.refreshComments()
         },
         loadMessages: async () => {

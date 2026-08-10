@@ -1011,8 +1011,11 @@ describe('supportTicketSceneLogic discussion polling', () => {
         discussion.unmount()
     })
 
-    // findMounted: a ticket whose thread was never opened should not pay for a list request.
-    it('does nothing when the discussion thread was never opened', async () => {
+    // findMounted is only a null guard. In the app the ticket page mounts this logic to render its
+    // cards, so the poll does reach it on every open ticket; this covers the torn-down case only.
+    it('does not throw when the discussion logic is not mounted', async () => {
+        expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+
         logic.actions.pollDiscussionThread()
         await expectLogic(logic).toFinishAllListeners()
 

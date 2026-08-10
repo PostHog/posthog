@@ -556,7 +556,17 @@ export const commentsLogic = kea<commentsLogicType>([
                 // reveal. Callers that poll in the background use this so a refresh never takes the
                 // reader's place in the thread away from them. `loadComments` stays the one to call
                 // when the reader is arriving and does want to land on the latest.
-                refreshComments: async () => await fetchComments(props),
+                refreshComments: async () => {
+                    // Every handler here writes the same `comments` value and the last one to resolve
+                    // wins, so a background refresh must not land on top of a local write it started
+                    // before. Sending a comment while this request was in flight would otherwise make
+                    // it reappear from a snapshot taken before it existed — the sender watches their
+                    // own message vanish. Comparing the array identity catches that: any local write
+                    // replaces the array, so a changed reference means our snapshot is the stale one.
+                    const before = values.comments
+                    const results = await fetchComments(props)
+                    return values.comments === before ? results : values.comments
+                },
                 sendComposedContent: async ({ asTask }) => {
                     const existingComments = values.comments ?? []
 

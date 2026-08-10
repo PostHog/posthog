@@ -153,6 +153,42 @@ describe('commentsLogic', () => {
         }).toDispatchActions(['loadCommentsSuccess', sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
     })
 
+    // Every loader here writes the same `comments` value and the last to resolve wins. A poll started
+    // before a send would otherwise land afterwards carrying a snapshot without the new comment, and
+    // the sender would watch their own message disappear for a poll interval.
+    it('a refresh in flight does not clobber a comment sent while it was running', async () => {
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+
+        // A poll that hangs until we let it answer, with the pre-send snapshot.
+        let answerPoll: () => void = () => {}
+        const pollReached = new Promise<void>((resolve) => {
+            answerPoll = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': async () => {
+                    await pollReached
+                    return [200, { results: [makeComment('thread-1')] }]
+                },
+            },
+        })
+        logic.actions.refreshComments()
+
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        await expectLogic(logic, () => {
+            logic.actions.sendComposedContent(false)
+        }).toDispatchActions(['sendComposedContentSuccess'])
+        expect(logic.values.comments?.map((comment) => comment.id)).toContain('new-comment')
+
+        answerPoll()
+        await expectLogic(logic).toDispatchActions(['refreshCommentsSuccess'])
+
+        expect(logic.values.comments?.map((comment) => comment.id)).toContain('new-comment')
+    })
+
     it('clears reply mode when the reply target stops rendering after a reload', async () => {
         useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
         await expectLogic(logic, () => {
