@@ -171,14 +171,11 @@ describe('Error Display', () => {
         })
     })
 
-    it.each([
-        ['$exception_level', { $exception_level: 'warning' }, 'warning'],
-        ['$level only', { $level: 'info' }, undefined],
-        ['$exception_level ahead of $level', { $exception_level: 'fatal', $level: 'info' }, 'fatal'],
-        ['neither key', {}, undefined],
-    ])('getExceptionAttributes reads level from %s', (_name, properties, expectedLevel) => {
-        const result = getExceptionAttributes(properties)
-        expect(result.level).toEqual(expectedLevel)
+    // The tests above already cover a lone $level and no level key at all, which both resolve to
+    // undefined. This only pins that $exception_level is the key we read.
+    it('reads level from $exception_level', () => {
+        const result = getExceptionAttributes({ $exception_level: 'fatal', $level: 'info' })
+        expect(result.level).toEqual('fatal')
     })
 
     // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak
