@@ -378,11 +378,11 @@ async fn concurrent_creates_for_one_distinct_id_create_exactly_once() {
     ctx.cleanup().await.ok();
 }
 
-/// The uncommitted-winner window: a concurrent creator has inserted the
-/// deterministic-uuid person but not yet committed. Our insert must block in
-/// the speculative-insert wait, and after the winner commits, the separate
-/// winner-fetch statement must see the row in its fresh snapshot — a
-/// same-statement fetch would miss it and lose the person entirely.
+/// The uncommitted-winner window: a concurrent creator holds the person and
+/// its primary mapping, not yet committed. With no unique (team_id, uuid)
+/// index the person insert cannot block, so the racer blocks on the
+/// mapping's unique index, then undoes its duplicate row and resolves to
+/// the committed winner.
 #[tokio::test]
 async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     let ctx = TestContext::new().await;
@@ -403,17 +403,27 @@ async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     .fetch_one(&mut *held)
     .await
     .expect("insert uncommitted winner");
+    sqlx::query(
+        "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+         VALUES ($1, $2, $3, 0)",
+    )
+    .bind("held-key")
+    .bind(winner_id)
+    .bind(ctx.team_id as i32)
+    .execute(&mut *held)
+    .await
+    .expect("insert uncommitted mapping");
 
     let storage = ctx.storage.clone();
     let racing_stub = stub(&ctx, "held-key", &[]);
     let racer = tokio::spawn(async move { storage.create_person_stubs(&[racing_stub]).await });
 
-    // The racer's insert conflicts with the uncommitted row, so it must sit
-    // in the speculative-insert wait for as long as the transaction is open.
+    // The racer's mapping insert conflicts with the uncommitted mapping, so
+    // it must sit in the speculative-insert wait while the transaction is open.
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(
         !racer.is_finished(),
-        "create must block on the uncommitted winner's insert"
+        "create must block on the uncommitted winner's mapping insert"
     );
 
     held.commit().await.expect("commit winner");
@@ -427,7 +437,7 @@ async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     assert!(!created);
     assert_eq!(person.id, winner_id);
 
-    // The winner had no distinct id row; the racer attached it.
+    // The racer's duplicate person row was undone; the winner's mapping stands.
     assert_eq!(ctx.person_count().await, 1);
     let resolved = ctx
         .storage

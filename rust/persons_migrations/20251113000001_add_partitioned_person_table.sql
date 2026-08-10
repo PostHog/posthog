@@ -9,8 +9,13 @@ CREATE TABLE IF NOT EXISTS posthog_person_new (
 ALTER TABLE posthog_person_new
     ADD CONSTRAINT posthog_person_new_pkey PRIMARY KEY (team_id, id);
 
--- Create index on uuid - must include team_id for partitioning
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_person_new_uuid_idx ON posthog_person_new (team_id, uuid);
+-- Create index on uuid - must include team_id for partitioning.
+-- Deliberately not unique, matching the deployed persons databases (their
+-- cutovers built it as a plain btree): person uuid uniqueness is upheld by
+-- deriving uuids from distinct ids and serializing creates on the
+-- (team_id, distinct_id) unique constraint, never by a (team_id, uuid)
+-- arbiter — code must not ON CONFLICT against this index.
+CREATE INDEX IF NOT EXISTS posthog_person_new_uuid_idx ON posthog_person_new (team_id, uuid);
 
 -- Create 64 hash partitions
 DO $$

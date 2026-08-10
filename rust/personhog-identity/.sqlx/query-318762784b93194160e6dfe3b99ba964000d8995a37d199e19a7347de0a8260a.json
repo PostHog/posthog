@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH keys AS (\n            SELECT u.created_at, u.team_id, u.is_identified, u.uuid\n            FROM unnest($1::timestamptz[], $2::int[], $3::bool[], $4::uuid[])\n                AS u(created_at, team_id, is_identified, uuid)\n        ),\n        existing AS (\n            -- Per-key locked lookup, preferring a live row (blocks the create)\n            -- over the newest tombstone (revived below). LATERAL keeps FOR\n            -- UPDATE legal (DISTINCT ON forbids it) and locks in key order.\n            SELECT e.id, k.team_id, k.uuid, e.is_deleted\n            FROM keys k\n            CROSS JOIN LATERAL (\n                SELECT p.id, p.is_deleted\n                FROM posthog_person p\n                WHERE p.team_id = k.team_id AND p.uuid = k.uuid\n                ORDER BY p.is_deleted ASC, p.version DESC NULLS LAST\n                LIMIT 1\n                FOR UPDATE\n            ) e\n        ),\n        revived AS (\n            UPDATE posthog_person AS p SET\n                is_deleted = false,\n                version = COALESCE(p.version, 0) + 1,\n                properties = '{}'::jsonb,\n                properties_last_updated_at = '{}'::jsonb,\n                properties_last_operation = '{}'::jsonb,\n                created_at = k.created_at,\n                is_identified = k.is_identified,\n                last_seen_at = date_trunc('hour', k.created_at)\n            FROM existing e\n            JOIN keys k ON k.team_id = e.team_id AND k.uuid = e.uuid\n            WHERE p.team_id = e.team_id AND p.id = e.id AND e.is_deleted = true\n            RETURNING p.id, p.uuid, p.team_id, p.properties,\n                      p.properties_last_updated_at, p.properties_last_operation,\n                      p.created_at, p.version, p.is_identified, p.is_user_id,\n                      p.last_seen_at\n        ),\n        fresh AS (\n            INSERT INTO posthog_person\n                (created_at, properties, properties_last_updated_at, properties_last_operation,\n                 team_id, is_identified, uuid, version, last_seen_at)\n            SELECT k.created_at, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,\n                   k.team_id, k.is_identified, k.uuid, 0, date_trunc('hour', k.created_at)\n            FROM keys k\n            WHERE NOT EXISTS (\n                SELECT 1 FROM existing e WHERE e.team_id = k.team_id AND e.uuid = k.uuid\n            )\n            RETURNING id, uuid, team_id, properties,\n                      properties_last_updated_at, properties_last_operation,\n                      created_at, version, is_identified, is_user_id, last_seen_at\n        )\n        SELECT id as \"id!\", uuid as \"uuid!\", team_id::bigint as \"team_id!\",\n               properties::text as \"properties?\",\n               properties_last_updated_at::text as \"properties_last_updated_at?\",\n               properties_last_operation::text as \"properties_last_operation?\",\n               created_at as \"created_at!\", version, is_identified as \"is_identified!\",\n               CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n               last_seen_at\n        FROM (SELECT * FROM revived UNION ALL SELECT * FROM fresh) rows\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "properties?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "properties_last_updated_at?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "properties_last_operation?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_identified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_user_id",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TimestamptzArray",
+        "Int4Array",
+        "BoolArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "318762784b93194160e6dfe3b99ba964000d8995a37d199e19a7347de0a8260a"
+}

@@ -1,9 +1,9 @@
 //! The stub-creation transaction: one transaction, four steps, each a
 //! function below, called in order by [`create_person_stubs`]:
 //!
-//! 1. [`insert_or_revive_persons`] — multi-row person insert; a conflict
-//!    with a tombstoned row revives it, a conflict with a live row is left
-//!    for step 2.
+//! 1. [`insert_or_revive_persons`] — multi-row person insert; a locked
+//!    lookup per key revives a tombstoned row and leaves a live row for
+//!    step 2.
 //! 2. [`fetch_conflict_winners`] — fresh-snapshot fetch of the committed
 //!    rows behind live conflicts (concurrent winners).
 //! 3. [`insert_distinct_id_mappings`] — multi-row distinct id insert;
@@ -15,9 +15,10 @@
 //! - Every multi-row statement binds arrays sorted by its conflict key —
 //!   row locks are taken in array order, so concurrent batches touching the
 //!   same keys in different orders would otherwise deadlock — and deduped by
-//!   that key, because ON CONFLICT DO UPDATE raises "cannot affect row a
-//!   second time" on same-command duplicates (the cardinality check fires
-//!   before the WHERE qual).
+//!   that key: the person statement would insert one fresh row per
+//!   duplicate, and ON CONFLICT DO UPDATE (the mapping statement) raises
+//!   "cannot affect row a second time" on same-command duplicates (the
+//!   cardinality check fires before the WHERE qual).
 //! - Rows created in this transaction are invisible outside it until commit,
 //!   so step 5 can delete them without anything referencing them.
 //! - Revived tombstones predate the transaction and must survive an undo:
@@ -94,10 +95,15 @@ pub(super) async fn create_person_stubs(
 /// derive the same uuid, so exactly one insert wins per key; losers fetch
 /// the committed winner in a fresh statement snapshot (step 2).
 ///
-/// A conflict with a tombstoned row (same uuidv5 key, previously deleted) is
-/// a revival: flip is_deleted, bump the version above the tombstone so
+/// Finding a tombstoned row (same uuidv5 key, previously deleted) makes the
+/// create a revival: flip is_deleted, bump the version above the tombstone so
 /// ClickHouse collapses toward the new incarnation, and reset properties.
-/// Conflicts with live rows fail the WHERE qual and return nothing here.
+/// Live rows return nothing here and are fetched as winners in step 2.
+///
+/// There is no unique (team_id, uuid) index — the persons schema carries a
+/// plain btree — so the locked per-key lookup is the arbiter: a live row
+/// blocks, a tombstone revives, nothing inserts fresh. Same-key racers
+/// serialize on the (team_id, distinct_id) constraint in step 3 instead.
 ///
 /// A returned version of 0 means fresh insert, anything else means revival
 /// (xmax can't be read back from a partitioned table).
@@ -120,29 +126,66 @@ async fn insert_or_revive_persons(
 
     let inserted = sqlx::query!(
         r#"
-        INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version, last_seen_at)
-        SELECT u.created_at, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
-               u.team_id, u.is_identified, u.uuid, 0, date_trunc('hour', u.created_at)
-        FROM unnest($1::timestamptz[], $2::int[], $3::bool[], $4::uuid[])
-            AS u(created_at, team_id, is_identified, uuid)
-        ON CONFLICT (team_id, uuid) DO UPDATE SET
-            is_deleted = false,
-            version = COALESCE(posthog_person.version, 0) + 1,
-            properties = '{}'::jsonb,
-            properties_last_updated_at = '{}'::jsonb,
-            properties_last_operation = '{}'::jsonb,
-            created_at = EXCLUDED.created_at,
-            is_identified = EXCLUDED.is_identified,
-            last_seen_at = EXCLUDED.last_seen_at
-            WHERE posthog_person.is_deleted = true
-        RETURNING id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
-                  properties_last_updated_at::text as "properties_last_updated_at?",
-                  properties_last_operation::text as "properties_last_operation?",
-                  created_at, version, is_identified,
-                  CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
-                  last_seen_at
+        WITH keys AS (
+            SELECT u.created_at, u.team_id, u.is_identified, u.uuid
+            FROM unnest($1::timestamptz[], $2::int[], $3::bool[], $4::uuid[])
+                AS u(created_at, team_id, is_identified, uuid)
+        ),
+        existing AS (
+            -- Per-key locked lookup, preferring a live row (blocks the create)
+            -- over the newest tombstone (revived below). LATERAL keeps FOR
+            -- UPDATE legal (DISTINCT ON forbids it) and locks in key order.
+            SELECT e.id, k.team_id, k.uuid, e.is_deleted
+            FROM keys k
+            CROSS JOIN LATERAL (
+                SELECT p.id, p.is_deleted
+                FROM posthog_person p
+                WHERE p.team_id = k.team_id AND p.uuid = k.uuid
+                ORDER BY p.is_deleted ASC, p.version DESC NULLS LAST
+                LIMIT 1
+                FOR UPDATE
+            ) e
+        ),
+        revived AS (
+            UPDATE posthog_person AS p SET
+                is_deleted = false,
+                version = COALESCE(p.version, 0) + 1,
+                properties = '{}'::jsonb,
+                properties_last_updated_at = '{}'::jsonb,
+                properties_last_operation = '{}'::jsonb,
+                created_at = k.created_at,
+                is_identified = k.is_identified,
+                last_seen_at = date_trunc('hour', k.created_at)
+            FROM existing e
+            JOIN keys k ON k.team_id = e.team_id AND k.uuid = e.uuid
+            WHERE p.team_id = e.team_id AND p.id = e.id AND e.is_deleted = true
+            RETURNING p.id, p.uuid, p.team_id, p.properties,
+                      p.properties_last_updated_at, p.properties_last_operation,
+                      p.created_at, p.version, p.is_identified, p.is_user_id,
+                      p.last_seen_at
+        ),
+        fresh AS (
+            INSERT INTO posthog_person
+                (created_at, properties, properties_last_updated_at, properties_last_operation,
+                 team_id, is_identified, uuid, version, last_seen_at)
+            SELECT k.created_at, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+                   k.team_id, k.is_identified, k.uuid, 0, date_trunc('hour', k.created_at)
+            FROM keys k
+            WHERE NOT EXISTS (
+                SELECT 1 FROM existing e WHERE e.team_id = k.team_id AND e.uuid = k.uuid
+            )
+            RETURNING id, uuid, team_id, properties,
+                      properties_last_updated_at, properties_last_operation,
+                      created_at, version, is_identified, is_user_id, last_seen_at
+        )
+        SELECT id as "id!", uuid as "uuid!", team_id::bigint as "team_id!",
+               properties::text as "properties?",
+               properties_last_updated_at::text as "properties_last_updated_at?",
+               properties_last_operation::text as "properties_last_operation?",
+               created_at as "created_at!", version, is_identified as "is_identified!",
+               CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
+               last_seen_at
+        FROM (SELECT * FROM revived UNION ALL SELECT * FROM fresh) rows
         "#,
         &sorted_created_ats,
         &sorted_team_ids,
@@ -319,10 +362,10 @@ async fn insert_distinct_id_mappings(
 }
 
 /// Step 4: per-stub outcomes. A stub is Committed when its primary distinct
-/// id maps to its person; a stub whose primary mapping went elsewhere is a
-/// lost race, and if this transaction created its person, the rows are
-/// undone (created this transaction, so nothing can reference them) so the
-/// stub doesn't linger orphaned.
+/// id maps to its person. A stub that lost its primary mapping is undone,
+/// then still commits when the mapping owner carries the stub's derived
+/// uuid (the same-key racer that won); a different uuid is a merge scenario
+/// and stays a lost race.
 async fn resolve_stub_outcomes(
     tx: &mut Tx<'_>,
     stubs: &[PersonStub],
@@ -346,7 +389,15 @@ async fn resolve_stub_outcomes(
         }
         if resolved.created_by_us {
             undo_created_person(tx, stub.team_id, resolved, mapping).await?;
-            outcomes.push(StubOutcome::LostRace);
+            match fetch_mapping_owner(tx, stub.team_id, &stub.distinct_id).await? {
+                Some(person) if person.uuid == uuids[i] => {
+                    outcomes.push(StubOutcome::Committed {
+                        person,
+                        created: false,
+                    });
+                }
+                _ => outcomes.push(StubOutcome::LostRace),
+            }
             continue;
         }
         // The person pre-existed and its primary mapping wasn't inserted by
@@ -368,6 +419,36 @@ async fn resolve_stub_outcomes(
         }
     }
     Ok(outcomes)
+}
+
+/// The live person a distinct id currently maps to, if any. Runs in a fresh
+/// statement snapshot, so it sees a winner that committed after our mapping
+/// insert lost the speculative wait.
+async fn fetch_mapping_owner(
+    tx: &mut Tx<'_>,
+    team_id: i64,
+    distinct_id: &str,
+) -> StorageResult<Option<Person>> {
+    Ok(sqlx::query_as!(
+        Person,
+        r#"
+        SELECT p.id as "id!", p.uuid as "uuid!", p.team_id::bigint as "team_id!",
+               p.properties::text as "properties?",
+               p.properties_last_updated_at::text as "properties_last_updated_at?",
+               p.properties_last_operation::text as "properties_last_operation?",
+               p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
+               CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+               p.last_seen_at
+        FROM posthog_persondistinctid m
+        JOIN posthog_person p ON p.team_id = m.team_id AND p.id = m.person_id
+        WHERE m.team_id = $1 AND m.distinct_id = $2
+          AND m.is_deleted = false AND p.is_deleted = false
+        "#,
+        team_id as i32,
+        distinct_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?)
 }
 
 /// Undo one lost-race stub's rows: its distinct id mappings, then its person
