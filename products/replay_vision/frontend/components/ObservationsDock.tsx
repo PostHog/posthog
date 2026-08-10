@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { quotaUx } from '../utils/quotaProjection'
 import { ObservationDockCard } from './ObservationCard'
 
@@ -115,6 +116,9 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
     const { summarize } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+    // An inline scan mints a scanner, so the endpoint holds it to scanner-editor access. Without this the
+    // button looks available to a viewer and answers 403.
+    const accessDisabledReason = getReplayVisionEditDisabledReason()
 
     return (
         <LemonButton
@@ -123,7 +127,7 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             icon={<IconNotebook />}
             loading={summarizing}
             onClick={() => summarize()}
-            disabledReason={quotaDisabledReason}
+            disabledReason={accessDisabledReason ?? quotaDisabledReason}
             tooltip={quotaTooltip ?? 'Write a summary of what happened in this recording'}
             data-attr="vision-summarize-recording"
         >
