@@ -2126,6 +2126,16 @@ def _cap_to_field_length(field_name: str, value: str) -> str:
     return value[:max_length]
 
 
+def _enqueue_meeting_rematch(team_id: int, account_id: str) -> None:
+    try:
+        current_app.send_task(
+            "customer_analytics.rematch_account_meetings",
+            kwargs={"team_id": team_id, "account_id": account_id},
+        )
+    except Exception as error:
+        capture_exception(error)
+
+
 def update_account(
     account: Account,
     *,
@@ -2133,11 +2143,13 @@ def update_account(
     external_id: str | None | _Unset = _UNSET,
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
+    allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
     written; ``properties`` replaces the stored JSON wholesale. Product-internal — takes and
     returns the model, so it must not be called across the product boundary."""
     update_fields: list[str] = []
+    matching_expanded = False
     if not isinstance(name, _Unset):
         account.name = _cap_to_field_length("name", name)
         update_fields.append("name")
@@ -2145,13 +2157,25 @@ def update_account(
         account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
         update_fields.append("external_id")
     if not isinstance(properties, _Unset):
-        account._properties = _ModelAccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
+        previous_properties = account.properties
+        validated_properties = _ModelAccountProperties.from_input(properties)
+        known_emails_added = set(validated_properties.known_emails) - set(previous_properties.known_emails)
+        email_domains_added = set(validated_properties.email_domains) - set(previous_properties.email_domains)
+        matching_changed = set(validated_properties.known_emails) != set(previous_properties.known_emails) or set(
+            validated_properties.email_domains
+        ) != set(previous_properties.email_domains)
+        if matching_changed and not allow_matching_updates:
+            raise ResourceForbiddenError
+        matching_expanded = bool(known_emails_added or email_domains_added)
+        account._properties = validated_properties.model_dump(mode="json", exclude_unset=True)
         update_fields.append("_properties")
     if not isinstance(slack_summary_cadence, _Unset):
         account.slack_summary_cadence = slack_summary_cadence
         update_fields.append("slack_summary_cadence")
     if update_fields:
         account.save(update_fields=update_fields)
+    if matching_expanded:
+        transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
     return account
 
 
@@ -2231,6 +2255,7 @@ def update_account_for_view(
     organization_id,
     user: "User",
     was_impersonated: bool,
+    allow_matching_updates: bool = False,
 ) -> contracts.AccountView:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
@@ -2245,6 +2270,7 @@ def update_account_for_view(
         update_kwargs["properties"] = input.properties if input.properties is not None else {}
     if input.slack_summary_cadence_provided:
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
+    update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:
         with transaction.atomic():
