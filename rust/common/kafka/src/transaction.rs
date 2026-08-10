@@ -141,9 +141,19 @@ where
 }
 
 impl ConnectedTransactionalProducer<DefaultClientContext> {
-    /// The connection phase of [`TransactionalProducer::from_config_bounded`]:
-    /// create the client and ping the brokers, bounded by `timeout`, without
-    /// initializing transactions.
+    /// Create the client and ping the brokers, bounded by `timeout`,
+    /// without initializing transactions — a producer whose open
+    /// transactions the broker abandons after `broker_txn_timeout`,
+    /// rather than after librdkafka's default minute.
+    ///
+    /// The broker bound is a different quantity from `timeout`, which
+    /// bounds how long *this process* waits on a blocking call. It
+    /// matters to everyone else: until an abandoned transaction expires,
+    /// the partition's last-stable-offset does not advance and every
+    /// `read_committed` consumer stalls behind it. Only a caller that
+    /// also controls `message.timeout.ms` can set it, because librdkafka
+    /// requires `message.timeout.ms <= transaction.timeout.ms` and
+    /// refuses to build the producer at all otherwise.
     pub fn connect_bounded(
         config: &KafkaConfig,
         transactional_id: &str,
@@ -229,36 +239,6 @@ impl TransactionalProducer<DefaultClientContext> {
         timeout: Duration,
     ) -> Result<Self, KafkaError> {
         Self::with_context(config, transactional_id, timeout, DefaultClientContext)
-    }
-
-    /// A producer whose open transactions the broker abandons after
-    /// `broker_txn_timeout`, rather than after librdkafka's default
-    /// minute.
-    ///
-    /// This is a different quantity from `timeout`, which bounds how long
-    /// *this process* waits on a blocking transactional call. The broker
-    /// bound matters to everyone else: until an abandoned transaction
-    /// expires, the partition's last-stable-offset does not advance and
-    /// every `read_committed` consumer stalls behind it.
-    ///
-    /// Only a caller that also controls `message.timeout.ms` can set it,
-    /// because librdkafka requires `message.timeout.ms <=
-    /// transaction.timeout.ms` and refuses to build the producer at all
-    /// otherwise — which is why this is opt-in rather than derived from
-    /// the operation timeout.
-    pub fn from_config_bounded(
-        config: &KafkaConfig,
-        transactional_id: &str,
-        timeout: Duration,
-        broker_txn_timeout: Duration,
-    ) -> Result<Self, KafkaError> {
-        Self::build(
-            config,
-            transactional_id,
-            timeout,
-            Some(broker_txn_timeout),
-            DefaultClientContext,
-        )
     }
 }
 
@@ -438,7 +418,7 @@ mod tests {
             kafka_message_timeout_ms: 20_000,
             ..KafkaConfig::default()
         };
-        let Err(err) = TransactionalProducer::from_config_bounded(
+        let Err(err) = ConnectedTransactionalProducer::connect_bounded(
             &config,
             "test-txn-id",
             Duration::from_secs(10),

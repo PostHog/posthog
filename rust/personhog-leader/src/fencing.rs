@@ -127,6 +127,24 @@ struct Gate {
     waiters: Vec<oneshot::Sender<Result<(), FencedProduceError>>>,
 }
 
+/// Initialize a connected producer on the blocking pool, claiming the
+/// partition's transactional id. On failure the connection is discarded
+/// there too — librdkafka teardown blocks — and only the error comes
+/// back.
+async fn init_producer(
+    connected: ConnectedTransactionalProducer,
+    timeout: Duration,
+) -> Result<TransactionalProducer, String> {
+    match spawn_blocking(move || connected.init(timeout)).await {
+        Ok(Ok(ready)) => Ok(ready),
+        Ok(Err((e, connected))) => {
+            spawn_blocking(move || drop(connected));
+            Err(format!("fence init: {e}"))
+        }
+        Err(e) => Err(format!("fence init join: {e}")),
+    }
+}
+
 /// Send a fence to the blocking pool to die. Dropping the last
 /// reference runs librdkafka's destroy, which blocks while the client
 /// tears down — up to hundreds of milliseconds — and both removal sites
@@ -508,31 +526,18 @@ impl FencedChangelogProducers {
     async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionFence>, String> {
         let timeout = self.init_timeout;
         let mut start = Instant::now();
-        // A parked connection skips straight to the init round trip. Its
-        // init failing falls through to the cold path rather than
-        // failing the acquisition: the parked client may simply have
-        // gone stale, and the cold path is exactly the retry that
-        // discards it.
+        // The two acquisition shapes differ only in when the connect
+        // happened: a parked connection pays only the init round trip
+        // here, and one whose init fails (it may simply have gone
+        // stale) gets a single fresh connect-and-init rather than
+        // failing the acquisition.
         let mut path = "cold";
         let mut producer = None;
-        if let Some((_, connected)) = self.prepared.remove(&partition) {
-            // Every failure shape of the parked client falls through to
-            // the cold path — including its init task dying — because
-            // the cold path is exactly the retry that replaces it.
-            match spawn_blocking(move || connected.init(timeout)).await {
-                Ok(Ok(ready)) => {
+        if let Some((_, parked)) = self.prepared.remove(&partition) {
+            match init_producer(parked, timeout).await {
+                Ok(ready) => {
                     path = "prepared";
                     producer = Some(ready);
-                }
-                Ok(Err((e, connected))) => {
-                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "init_failed")
-                        .increment(1);
-                    warn!(
-                        partition,
-                        error = %e,
-                        "prepared connection failed to init; falling back to a fresh one"
-                    );
-                    spawn_blocking(move || drop(connected));
                 }
                 Err(e) => {
                     counter!("personhog_leader_fence_preconnect_total", "outcome" => "init_failed")
@@ -540,7 +545,7 @@ impl FencedChangelogProducers {
                     warn!(
                         partition,
                         error = %e,
-                        "prepared init task died; falling back to a fresh connection"
+                        "prepared connection failed to init; connecting fresh"
                     );
                 }
             }
@@ -551,24 +556,18 @@ impl FencedChangelogProducers {
                 // Timed from here so a failed prepared attempt cannot
                 // contaminate the cold path's histogram.
                 start = Instant::now();
-                let kafka = self.kafka.clone();
-                let tid = transactional_id(&self.topic, partition);
-                let broker_txn_timeout = self.broker_txn_timeout;
-                spawn_blocking(move || {
-                    TransactionalProducer::from_config_bounded(
-                        &kafka,
-                        &tid,
-                        timeout,
-                        broker_txn_timeout,
-                    )
-                })
-                .await
-                .map_err(|e| format!("fence init join: {e}"))?
-                .map_err(|e| {
+                let count_error = |e: String| {
                     counter!("personhog_leader_fence_init_total", "outcome" => "error")
                         .increment(1);
-                    format!("fence init: {e}")
-                })?
+                    e
+                };
+                let connected = self
+                    .connect_producer(partition)
+                    .await
+                    .map_err(count_error)?;
+                init_producer(connected, timeout)
+                    .await
+                    .map_err(count_error)?
             }
         };
         counter!("personhog_leader_fence_init_total", "outcome" => "ok").increment(1);
@@ -633,22 +632,9 @@ impl FencedChangelogProducers {
         if self.prepared.contains_key(&partition) {
             return;
         }
-        let kafka = self.kafka.clone();
-        let tid = transactional_id(&self.topic, partition);
-        let timeout = self.init_timeout;
-        let broker_txn_timeout = self.broker_txn_timeout;
         let start = Instant::now();
-        let connected = spawn_blocking(move || {
-            ConnectedTransactionalProducer::connect_bounded(
-                &kafka,
-                &tid,
-                timeout,
-                broker_txn_timeout,
-            )
-        })
-        .await;
-        match connected {
-            Ok(Ok(connected)) => {
+        match self.connect_producer(partition).await {
+            Ok(connected) => {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "ok").increment(1);
                 histogram!("personhog_leader_fence_preconnect_ms")
                     .record(start.elapsed().as_secs_f64() * 1000.0);
@@ -660,17 +646,35 @@ impl FencedChangelogProducers {
                     spawn_blocking(move || drop(displaced));
                 }
             }
-            Ok(Err(e)) => {
+            Err(e) => {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
                     .increment(1);
                 warn!(partition, error = %e, "fence preconnect failed; acquisition will connect cold");
             }
-            Err(e) => {
-                counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
-                    .increment(1);
-                warn!(partition, error = %e, "fence preconnect join failed; acquisition will connect cold");
-            }
         }
+    }
+
+    /// Build the partition's connected-but-uninitialized producer on the
+    /// blocking pool.
+    async fn connect_producer(
+        &self,
+        partition: u32,
+    ) -> Result<ConnectedTransactionalProducer, String> {
+        let kafka = self.kafka.clone();
+        let tid = transactional_id(&self.topic, partition);
+        let timeout = self.init_timeout;
+        let broker_txn_timeout = self.broker_txn_timeout;
+        spawn_blocking(move || {
+            ConnectedTransactionalProducer::connect_bounded(
+                &kafka,
+                &tid,
+                timeout,
+                broker_txn_timeout,
+            )
+        })
+        .await
+        .map_err(|e| format!("fence connect join: {e}"))?
+        .map_err(|e| format!("fence connect: {e}"))
     }
 
     /// Drop a parked connection on the blocking pool — librdkafka's
