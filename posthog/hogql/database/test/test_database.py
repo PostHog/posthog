@@ -31,6 +31,8 @@ from posthog.hogql.database.database import (
     _CATALOG_PICKLE_MODULES,
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _attach_decrypted_credentials,
+    _attach_external_data_sources,
     _CatalogUnpickler,
     _compute_system_table_access_decision,
     _construct_database_root_node,
@@ -1733,6 +1735,51 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
             with self.assertNumQueries(num_queries):
                 Database.create_for(team=self.team)
+
+    def test_warehouse_preload_helpers_hydrate_across_id_chunks(self) -> None:
+        # Guards the chunked id__in fetches: with more tables than fit in one chunk, sources,
+        # credentials, and schemas for tables past the first chunk must still hydrate. A reverted
+        # chunk or an off-by-one that drops the final chunk would leave later tables unhydrated.
+        tables = []
+        for i in range(5):
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id=f"chunk_source_{i}",
+                connection_id=f"chunk_connection_{i}",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+            credential = DataWarehouseCredential.objects.create(
+                access_key=f"chunk-key-{i}", access_secret="secret", team=self.team
+            )
+            table = DataWarehouseTable.objects.create(
+                name=f"chunk_table_{i}",
+                format="Parquet",
+                team=self.team,
+                external_data_source=source,
+                external_data_source_id=source.id,
+                credential=credential,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+            ExternalDataSchema.objects.create(
+                team=self.team, name=f"chunk_table_{i}", source=source, table=table, should_sync=True
+            )
+            tables.append(table)
+
+        fresh_tables = list(DataWarehouseTable.objects.filter(pk__in=[t.pk for t in tables]).order_by("name"))
+
+        with patch("posthog.hogql.database.database._ID_FILTER_CHUNK_SIZE", 2):
+            _attach_external_data_sources(fresh_tables, team_id=self.team.pk)
+            _attach_decrypted_credentials(fresh_tables, team_id=self.team.pk)
+            _preload_active_external_data_schemas(fresh_tables)
+
+        for table in fresh_tables:
+            assert table.external_data_source is not None
+            assert table.credential is not None
+            assert [schema.name for schema in table.__dict__["_active_external_data_schemas"]] == [table.name]
 
     def test_database_warehouse_joins_persons_poe_old_properties(self):
         DataWarehouseJoin.objects.create(

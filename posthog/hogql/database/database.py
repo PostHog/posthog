@@ -7,9 +7,10 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import cache
+from itertools import batched
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -2462,6 +2463,25 @@ def _not_deleted_q():
     return Q(deleted=False) | Q(deleted__isnull=True)
 
 
+# A team's warehouse table count is unbounded, so a single `id__in`/`table_id__in` filter over every
+# id builds one giant SQL IN list. Past a few tens of thousands of ids, Django's `In.batch_process_rhs`
+# unpacks the per-parameter pairs with `zip(*(...))`, which makes CPython resize the argument tuple and
+# raise `SystemError: bad argument to internal function`. Chunk the ids so each query stays well below
+# that limit; results merge across chunks with no behavior change for normal-sized teams.
+_ID_FILTER_CHUNK_SIZE = 5000
+
+
+def _fetch_in_chunks(
+    queryset: Any, field: str, ids: Sequence[Any], *extra_q: Any, **extra_filters: Any
+) -> Iterator[Any]:
+    """Yield rows matching `field__in=ids`, splitting `ids` into fixed-size batches to bound the IN list.
+
+    `queryset` may be a manager or a pre-built queryset (e.g. one with `.defer(...)` applied).
+    """
+    for chunk in batched(ids, _ID_FILTER_CHUNK_SIZE, strict=False):
+        yield from queryset.filter(*extra_q, **extra_filters, **{f"{field}__in": list(chunk)})
+
+
 def _attach_external_data_sources(
     warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int, defer_job_inputs: bool = True
 ) -> None:
@@ -2480,10 +2500,11 @@ def _attach_external_data_sources(
     }
     sources_by_id: dict[Any, ExternalDataSource] = {}
     if source_ids:
-        query = ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids)
+        queryset = ExternalDataSource.objects.all()
         if defer_job_inputs:
-            query = query.defer("job_inputs")
-        sources_by_id = {source.pk: source for source in query}
+            queryset = queryset.defer("job_inputs")
+        sources = _fetch_in_chunks(queryset, "id", list(source_ids), team_id=team_id)
+        sources_by_id = {source.pk: source for source in sources}
     for table in warehouse_tables:
         if table.external_data_source_id is None:
             continue
@@ -2508,7 +2529,8 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
     schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
     # Reuse the owning table's already-hydrated source instead of joining it per schema, which would
     # re-decrypt job_inputs on the same few sources thousands of times.
-    for schema in ExternalDataSchema.objects.filter(_not_deleted_q(), table_id__in=list(tables_by_id.keys())):
+    schemas = _fetch_in_chunks(ExternalDataSchema.objects, "table_id", list(tables_by_id.keys()), _not_deleted_q())
+    for schema in schemas:
         owning_table = tables_by_id.get(str(schema.table_id))
         owning_source = owning_table.external_data_source if owning_table is not None else None
         if owning_source is not None and schema.source_id == owning_source.pk:
@@ -2530,10 +2552,8 @@ def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable]
     credential_ids = {table.credential_id for table in warehouse_tables if table.credential_id is not None}
     credentials_by_id: dict[Any, DataWarehouseCredential] = {}
     if credential_ids:
-        credentials_by_id = {
-            credential.pk: credential
-            for credential in DataWarehouseCredential.objects.filter(team_id=team_id, id__in=credential_ids)
-        }
+        credentials = _fetch_in_chunks(DataWarehouseCredential.objects, "id", list(credential_ids), team_id=team_id)
+        credentials_by_id = {credential.pk: credential for credential in credentials}
     for table in warehouse_tables:
         table.credential = credentials_by_id.get(table.credential_id) if table.credential_id is not None else None
 
