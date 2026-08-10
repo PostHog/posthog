@@ -20,7 +20,6 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import AvailableFeature
 from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
@@ -37,6 +36,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.models.utils import uuid7
 from posthog.rbac.user_access_control import UserAccessControlError
 
