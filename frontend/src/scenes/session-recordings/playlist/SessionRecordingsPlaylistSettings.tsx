@@ -26,6 +26,7 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
+    MAX_SELECTED_RECORDINGS_REASON,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -573,7 +574,7 @@ export function SessionRecordingsPlaylistTopSettings({
                         recordings.length === 0
                             ? 'No recordings'
                             : recordings.length > MAX_SELECTED_RECORDINGS
-                              ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+                              ? MAX_SELECTED_RECORDINGS_REASON
                               : undefined
                     }
                     checked={checked}

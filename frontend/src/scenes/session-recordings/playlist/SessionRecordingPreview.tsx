@@ -40,6 +40,7 @@ import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPro
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
     MAX_SELECTED_RECORDINGS,
+    MAX_SELECTED_RECORDINGS_REASON,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -253,9 +254,7 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
             data-attr="select-recording"
             aria-label="Select recording"
             disabledReason={
-                selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
-                    ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                    : undefined
+                selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS ? MAX_SELECTED_RECORDINGS_REASON : undefined
             }
             onChange={() => {
                 if (selectedRecordingsIds.some((r) => r === recording.id)) {

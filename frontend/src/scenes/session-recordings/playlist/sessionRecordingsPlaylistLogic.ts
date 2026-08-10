@@ -171,6 +171,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 }
 
 export const MAX_SELECTED_RECORDINGS = 20
+export const MAX_SELECTED_RECORDINGS_REASON = `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
 const getDefaultFilterTestAccounts = (): boolean => {
@@ -1192,7 +1193,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         selectedRecordingsIds: [
             [] as string[],
             {
-                setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
+                // Enforce the cap here so every entry point stays bounded. The view-layer
+                // disabledReasons only hint at the limit; the bulk scan sends this list straight
+                // to an endpoint with a higher cap, so an uncapped selection over-spends quota.
+                setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds.slice(0, MAX_SELECTED_RECORDINGS),
                 // The filtered/pinned lists reload from scratch on a filter change, so a prior selection
                 // can no longer be matched against what's on screen - drop it rather than risk deleting
                 // recordings the user can't see.

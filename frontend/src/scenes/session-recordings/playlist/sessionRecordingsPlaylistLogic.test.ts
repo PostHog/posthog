@@ -30,6 +30,7 @@ import {
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
+    MAX_SELECTED_RECORDINGS,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -979,6 +980,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 logic.actions.setFilters({ date_from: '-30d' })
 
                 await expectLogic(logic).toMatchValues({ selectedRecordingsIds: [] })
+            })
+
+            it('caps the selection at MAX_SELECTED_RECORDINGS so consumers cannot exceed the limit', async () => {
+                const tooMany = Array.from({ length: MAX_SELECTED_RECORDINGS + 26 }, (_, i) => `rec-${i}`)
+
+                logic.actions.setSelectedRecordingsIds(tooMany)
+
+                await expectLogic(logic).toMatchValues({
+                    selectedRecordingsIds: tooMany.slice(0, MAX_SELECTED_RECORDINGS),
+                })
             })
 
             it('ignores a second delete request while one is already in flight', async () => {
