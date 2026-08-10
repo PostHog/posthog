@@ -27,7 +27,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
-import type { EmailTemplate } from './types'
+import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
 
@@ -159,6 +159,10 @@ export interface EmailTemplaterLogicProps {
      * parent form's dirty state and save flow see them without a separate editor-level save.
      */
     layout?: 'modal' | 'inline'
+    // Validation messages owned by the parent form, shown next to each field. The templater does
+    // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
+    // decides what and when to show.
+    fieldErrors?: EmailFieldErrors
 }
 
 function autoRevealAdvancedFields(

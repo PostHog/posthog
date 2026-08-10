@@ -193,6 +193,35 @@ def test_connection_failures_map_to_actionable_messages(raw_error, expected_frag
     capture.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "raw_error",
+    [
+        "(2013, 'Lost connection to MySQL server during query')",
+        "(1040, 'Too many connections')",
+        "(1105, 'reparent operation in progress')",
+    ],
+)
+def test_retryable_sync_errors_are_not_captured_during_validation(raw_error):
+    # `get_schemas` already retried these in-process (`_connect_with_transient_retry`) before
+    # exhausting its budget and re-raising. The sync path treats them as benign via
+    # `get_retryable_errors`; validation must not report them as unexpected bugs either.
+    with (
+        mock.patch.object(PlanetScaleSource, "is_database_host_valid", return_value=(True, None)),
+        mock.patch.object(PlanetScaleSource, "get_schemas", side_effect=Exception(raw_error)),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.source.capture_exception"
+        ) as capture,
+    ):
+        success, error = PlanetScaleSource().validate_credentials(_config(), team_id=1)
+
+    assert success is False
+    assert error == (
+        "Lost the connection to PlanetScale while checking your credentials. This is usually a brief "
+        "network blip rather than a configuration problem. Please try again."
+    )
+    capture.assert_not_called()
+
+
 def test_unrecognized_failure_is_captured_and_reported_generically():
     with (
         mock.patch.object(PlanetScaleSource, "is_database_host_valid", return_value=(True, None)),

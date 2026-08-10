@@ -12,9 +12,12 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
+import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { track } from "@posthog/ui/shell/analytics";
@@ -46,13 +49,17 @@ export function ActivityHoverCard({
     isFetchingNextPage,
     fetchNextPage,
   } = useTaskActivity();
+  // Selected once for the feed, not once per row.
+  const blockedTaskIds = useBlockedTaskIds();
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [loadMoreRef, loadMoreInView] = useInView<HTMLDivElement>({
     root: scrollRoot,
     rootMargin: "100px 0px",
   });
+  const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const visibleItems = getVisibleActivityItems(items, commentsEnabled);
   const unreadItems = getUnreadActivityItems(visibleItems);
+  const shownItems = unreadsOnly ? unreadItems : visibleItems;
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   useEffect(() => {
@@ -82,41 +89,48 @@ export function ActivityHoverCard({
       sideOffset={8}
       className="w-[380px] gap-0 overflow-hidden p-0"
     >
-      <div className="flex min-h-12 items-center justify-between border-border border-b px-3">
+      <div className="flex min-h-12 items-center gap-2 border-border border-b px-3">
         <span className="font-semibold text-sm">Activity</span>
-        {unreadItems.length > 0 && (
-          <Button
-            variant="default"
-            size="sm"
-            loading={isMarkingRead}
-            disabled={isMarkingRead}
-            onClick={markAllRead}
-          >
-            <ChecksIcon size={14} />
-            {markLoadedReadLabel(unreadItems.length, unreadCount)}
-          </Button>
-        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {unreadItems.length > 0 && (
+            <Button
+              variant="default"
+              size="sm"
+              loading={isMarkingRead}
+              disabled={isMarkingRead}
+              onClick={markAllRead}
+            >
+              <ChecksIcon size={14} />
+              {markLoadedReadLabel(unreadItems.length, unreadCount)}
+            </Button>
+          )}
+          <ActivityUnreadsToggle />
+        </div>
       </div>
       <div ref={setScrollRoot} className="max-h-[480px] overflow-y-auto p-1.5">
-        {isLoading && visibleItems.length === 0 ? (
+        {isLoading && shownItems.length === 0 ? (
           <div className="flex justify-center py-10">
             <Spinner />
           </div>
-        ) : visibleItems.length === 0 ? (
+        ) : shownItems.length === 0 ? (
           <Empty className="border-0 py-8">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <BellIcon />
               </EmptyMedia>
-              <EmptyTitle>No recent activity</EmptyTitle>
+              <EmptyTitle>
+                {unreadsOnly ? "No unread activity" : "No recent activity"}
+              </EmptyTitle>
               <EmptyDescription>
-                New task updates will appear here.
+                {unreadsOnly
+                  ? "You're all caught up."
+                  : "New task updates will appear here."}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {visibleItems.map((item) => (
+            {shownItems.map((item) => (
               <ActivityRow
                 key={item.id}
                 item={item}
@@ -124,6 +138,7 @@ export function ActivityHoverCard({
                 onOpen={markRead}
                 onMarkRead={markRead}
                 currentUser={currentUser}
+                blockedTaskIds={blockedTaskIds}
                 surface="activity_panel"
                 onNavigate={onClose}
                 compact

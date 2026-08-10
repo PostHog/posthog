@@ -239,6 +239,527 @@
             "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
             "type": "object"
         },
+        "AccountsTableAccountField": {
+            "enum": [
+                "name",
+                "external_id",
+                "created_at",
+                "updated_at",
+                "stripe_customer_id",
+                "hubspot_deal_id",
+                "billing_id",
+                "sfdc_id",
+                "zendesk_id"
+            ],
+            "type": "string"
+        },
+        "AccountsTableAccountFieldColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "field": {
+                    "$ref": "#/definitions/AccountsTableAccountField"
+                },
+                "kind": {
+                    "const": "account_field",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "field"],
+            "type": "object"
+        },
+        "AccountsTableAccountIdFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "accountId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "account_id",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "accountId"],
+            "type": "object"
+        },
+        "AccountsTableAssignedToFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "assigned_to",
+                    "type": "string"
+                },
+                "userIds": {
+                    "description": "Match accounts where any listed user actively holds any relationship.",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "userIds"],
+            "type": "object"
+        },
+        "AccountsTableColumn": {
+            "description": "A typed column supported by the Postgres-backed Accounts table.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableAccountFieldColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableTagsColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableNoteCountColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableRelationshipColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyHistoryColumn"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertyColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "definitionId": {
+                    "description": "Team-scoped custom property definition to return for each account.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "custom_property",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "definitionId"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "definitionId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "custom_property",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyOperator"
+                },
+                "values": {
+                    "description": "Values interpreted according to the custom property definition's display type.",
+                    "items": {
+                        "type": ["string", "number", "boolean"]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "definitionId", "operator"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertyHistoryColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "definitionId": {
+                    "description": "Team-scoped numeric custom property definition whose write history should be returned.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "custom_property_history",
+                    "type": "string"
+                },
+                "windowDays": {
+                    "description": "Number of days of history to return. The current value is included even when it is older.",
+                    "enum": [7, 14, 30, 90],
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "definitionId", "windowDays"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertyHistoryPoint": {
+            "additionalProperties": false,
+            "properties": {
+                "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["timestamp", "value"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertyOperator": {
+            "enum": [
+                "exact",
+                "is_not",
+                "icontains",
+                "not_icontains",
+                "regex",
+                "not_regex",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "is_set",
+                "is_not_set",
+                "is_date_exact",
+                "is_date_before",
+                "is_date_after"
+            ],
+            "type": "string"
+        },
+        "AccountsTableCustomPropertyValue": {
+            "type": ["string", "number", "boolean", "null"]
+        },
+        "AccountsTableFilter": {
+            "description": "A typed filter applied to the Postgres-backed Accounts table.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableSearchFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableTagsFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAssignedToFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableUnassignedFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAccountIdFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyFilter"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableNoteCountColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "note_count",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "description": "Columns to load for each account. Account identity fields are always returned.",
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableColumn"
+                    },
+                    "type": "array"
+                },
+                "filters": {
+                    "description": "Filters are combined with AND. Values within tag and assignment filters use OR.",
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "AccountsTableQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/positive_integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "response": {
+                    "$ref": "#/definitions/AccountsTableQueryResponse"
+                },
+                "sort": {
+                    "$ref": "#/definitions/AccountsTableSort"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["columns", "kind"],
+            "type": "object"
+        },
+        "AccountsTableQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "AccountsTableQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["hasMore", "kind", "limit", "offset", "results"],
+            "type": "object"
+        },
+        "AccountsTableRelationshipColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "definitionId": {
+                    "description": "Team-scoped relationship definition to return for each account.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "relationship",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "definitionId"],
+            "type": "object"
+        },
+        "AccountsTableRow": {
+            "additionalProperties": false,
+            "properties": {
+                "accountFields": {
+                    "additionalProperties": {
+                        "type": ["string", "null"]
+                    },
+                    "description": "Requested direct Account fields, keyed by their typed field reference.",
+                    "type": "object"
+                },
+                "customProperties": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/AccountsTableCustomPropertyValue"
+                    },
+                    "description": "Current values keyed by requested custom property definition ID.",
+                    "type": "object"
+                },
+                "customPropertyHistory": {
+                    "additionalProperties": {
+                        "items": {
+                            "$ref": "#/definitions/AccountsTableCustomPropertyHistoryPoint"
+                        },
+                        "type": "array"
+                    },
+                    "description": "Numeric write history keyed by requested custom property definition ID.",
+                    "type": "object"
+                },
+                "externalId": {
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "noteCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of linked internal notes. Omitted when the request does not select the note count."
+                },
+                "relationships": {
+                    "additionalProperties": {
+                        "items": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "type": "array"
+                    },
+                    "description": "Active assignee user IDs keyed by requested relationship definition ID.",
+                    "type": "object"
+                },
+                "tags": {
+                    "description": "Sorted tag names. Omitted when the request does not select tags.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["id", "name", "accountFields", "relationships", "customProperties", "customPropertyHistory"],
+            "type": "object"
+        },
+        "AccountsTableSearchFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "search",
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
+        "AccountsTableSort": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "$ref": "#/definitions/AccountsTableSortableColumn"
+                },
+                "direction": {
+                    "$ref": "#/definitions/AccountsTableSortDirection"
+                }
+            },
+            "required": ["column", "direction"],
+            "type": "object"
+        },
+        "AccountsTableSortDirection": {
+            "enum": ["asc", "desc"],
+            "type": "string"
+        },
+        "AccountsTableSortableColumn": {
+            "description": "A typed column that supports server-side sorting.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableAccountFieldColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableTagsColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableNoteCountColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableRelationshipColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableTagsColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "tags",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableTagsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "tags",
+                    "type": "string"
+                },
+                "tagNames": {
+                    "description": "Match accounts carrying any of these tag names.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "tagNames"],
+            "type": "object"
+        },
+        "AccountsTableUnassignedFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "unassigned",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "ActionConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -1019,6 +1540,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableQuery"
                 },
                 {
                     "$ref": "#/definitions/EndpointsUsageOverviewQuery"
@@ -5599,6 +6123,123 @@
                 "results",
                 "timezone",
                 "types"
+            ],
+            "type": "object"
+        },
+        "CachedAccountsTableQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "AccountsTableQuery",
+                    "type": "string"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "hasMore",
+                "is_cached",
+                "kind",
+                "last_refresh",
+                "limit",
+                "next_allowed_client_refresh",
+                "offset",
+                "results",
+                "timezone"
             ],
             "type": "object"
         },
@@ -17547,6 +18188,84 @@
                             },
                             "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
                             "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "kind": {
+                                    "const": "AccountsTableQuery",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_compare_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
+                                "results": {
+                                    "items": {
+                                        "$ref": "#/definitions/AccountsTableRow"
+                                    },
+                                    "type": "array"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "used_data_warehouse_sources": {
+                                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                                    "items": {
+                                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                                    },
+                                    "type": "array"
+                                },
+                                "warnings": {
+                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                                    "items": {
+                                        "anyOf": [
+                                            {
+                                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/AccessControlFilterWarning"
+                                            }
+                                        ]
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["hasMore", "kind", "limit", "offset", "results"],
+                            "type": "object"
                         }
                     ]
                 },
@@ -17755,6 +18474,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableQuery"
                 }
             ],
             "required": ["kind"],
@@ -24205,6 +24927,7 @@
                 "PeecAI",
                 "Healthchecks",
                 "Impact",
+                "ImpactPartner",
                 "AikidoSecurity",
                 "Alguna",
                 "Anthropic",
@@ -24824,7 +25547,8 @@
                 "WindsorAi",
                 "Wix",
                 "Sevalla",
-                "Motion"
+                "Motion",
+                "Framer"
             ],
             "type": "string"
         },
@@ -26966,11 +27690,19 @@
             "additionalProperties": false,
             "description": "Filters object that will be converted to a HogQL {filters} placeholder",
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval."
                 },
                 "properties": {
                     "items": {
@@ -28461,6 +29193,7 @@
                 "github",
                 "gitlab",
                 "meta-ads",
+                "instagram",
                 "clickup",
                 "reddit-ads",
                 "databricks",
@@ -35521,6 +36254,7 @@
                 "DocumentSimilarityQuery",
                 "UsageMetricsQuery",
                 "AccountsQuery",
+                "AccountsTableQuery",
                 "EndpointsUsageOverviewQuery",
                 "EndpointsUsageTableQuery",
                 "EndpointsUsageTrendsQuery",
@@ -42062,6 +42796,84 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "AccountsTableQuery",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["hasMore", "kind", "limit", "offset", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "boxplot_data": {
                             "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
@@ -43997,6 +44809,84 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "AccountsTableQuery",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["hasMore", "kind", "limit", "offset", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -45472,6 +46362,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableQuery"
                 },
                 {
                     "$ref": "#/definitions/EndpointsUsageOverviewQuery"

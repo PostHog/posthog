@@ -44,6 +44,25 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to read.
+    channel-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update channel instructions
+        description: >
+            Publish a complete replacement for a channel's CONTEXT.md. Read the current version with
+            channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if
+            another update changes the document.
+        param_overrides:
+            id:
+                description: ID of the channel whose instructions to update.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
     channel-list:
         operation: task_channels_list
         enabled: true
@@ -67,7 +86,10 @@ tools:
             destructive: false
             idempotent: true
         title: Get a channel
-        description: One channel by id, including its name and type.
+        description: "Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's
+            workspace channels that group tasks and canvases (public channels plus each member's #me channel). Use
+            channel-list to resolve a channel id from its name; use channel-instructions-retrieve to read the channel's
+            CONTEXT.md instructions."
         param_overrides:
             id:
                 description: ID of the channel to read.

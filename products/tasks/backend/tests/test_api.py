@@ -333,6 +333,53 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_retrieve_includes_passive_slack_thread_references(self):
+        task = self.create_task()
+        task.state = {
+            "slack_thread_references": [
+                {
+                    "channel": "C123",
+                    "thread_ts": "1234.5678",
+                    "created_at": "2026-08-09T10:00:00+00:00",
+                }
+            ]
+        }
+        task.save(update_fields=["state"])
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["slack_thread_references"],
+            [
+                {
+                    "url": "https://slack.com/archives/C123/p12345678",
+                    "channel": "C123",
+                    "created_at": "2026-08-09T10:00:00+00:00",
+                }
+            ],
+        )
+
+    def test_passive_slack_thread_references_keep_latest_thirty(self):
+        task = self.create_task()
+
+        for index in range(31):
+            tasks_facade.attach_slack_thread_reference(
+                task_id=task.id,
+                team_id=self.team.id,
+                slack_workspace_id="T123",
+                channel="C123",
+                thread_ts=f"{index}.000",
+                shared_by_slack_user_id="U123",
+            )
+
+        task.refresh_from_db()
+        references = (task.state or {}).get("slack_thread_references")
+        assert isinstance(references, list)
+        self.assertEqual(len(references), 30)
+        self.assertEqual(references[0]["thread_ts"], "1.000")
+        self.assertEqual(references[-1]["thread_ts"], "30.000")
+
     def test_retrieve_signal_report_task_owned_by_another_user_is_visible(self):
         # Signals-generated tasks are team-scoped artifacts; the pipeline picks
         # a system user as `created_by` purely to mint an OAuth token. Any team
@@ -3184,6 +3231,29 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_a_gated_model_the_caller_cannot_access(self, mock_workflow, mock_feature_enabled):
+        # The Desktop picker hides gated models, but a stored preference or a direct API
+        # call reaches this endpoint without one, so the entitlement is re-checked here.
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "moonshotai/kimi-k3",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_context_window_and_fast_mode(self, mock_workflow):
         task = self.create_task()
@@ -3791,6 +3861,31 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
             "attr": "reasoning_effort",
         }
+        mock_workflow.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_resume_rejects_inherited_gated_model(self, mock_workflow, mock_feature_enabled):
+        # A resume omits `model`, so the serializer sees None and passes. The inherited
+        # model is the one that actually runs, so entitlement is re-checked after it lands.
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"runtime_adapter": "claude", "model": "moonshotai/kimi-k3"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
         mock_workflow.assert_not_called()
 
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
@@ -7672,7 +7767,10 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             response = self.client.post(self._cancel_url(task, run), {}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        self.assertEqual(
+            sandbox.method_calls,
+            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+        )
         publish_complete.assert_called_once_with(str(run.id), False)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.CANCELLED)
@@ -7702,7 +7800,10 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             response = self.client.post(self._cancel_url(task, run), {}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        self.assertEqual(
+            sandbox.method_calls,
+            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+        )
         publish_complete.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
@@ -7731,7 +7832,10 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         self.assertEqual(first_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        self.assertEqual(
+            sandbox.method_calls,
+            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+        )
         self.assertEqual(publish_complete.call_count, 2)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.CANCELLED)
@@ -10919,6 +11023,46 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(response.json()["code"], "usage_limit_exceeded")
         mock_warm.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    def test_warm_rejects_a_gated_model_the_caller_cannot_access(
+        self, mock_feature_enabled, _mock_warm_enabled, mock_warm
+    ):
+        # Warming boots a sandbox and starts the agent on this model, so it bills like a run.
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"runtime_adapter": "claude", "model": "moonshotai/kimi-k3"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        mock_warm.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    def test_create_rejects_a_gated_model_hint(self, mock_feature_enabled):
+        # The create hint is write-only, but it is what selects a warm Run to activate,
+        # so a gated value here would run the gated model without ever reaching run_task.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Gated",
+                "description": "Gated",
+                "runtime_adapter": "claude",
+                "model": "moonshotai/kimi-k3",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert not Task.objects.filter(title="Gated").exists()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
