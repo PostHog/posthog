@@ -273,6 +273,11 @@ function handleToolUseChunk(
   }
 
   if (alreadyEmitted) {
+    // The permission handler owns an already-emitted ExitPlanMode call: it resolves the plan the
+    // model may have left out of its input, and re-sending that raw input would blank it again.
+    if (chunk.name === "ExitPlanMode") {
+      return null;
+    }
     return {
       _meta: meta,
       toolCallId: chunk.id,

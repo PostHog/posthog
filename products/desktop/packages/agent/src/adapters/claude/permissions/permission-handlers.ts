@@ -2,6 +2,7 @@ import type {
   AgentSideConnection,
   RequestPermissionRequest,
   RequestPermissionResponse,
+  ToolCallContent,
 } from "@agentclientprotocol/sdk";
 import type {
   PermissionRuleValue,
@@ -231,6 +232,34 @@ async function validatePlanContent(
   return { valid: true };
 }
 
+/**
+ * The thread's plan card reads the plan off the tool call, but that tool call is emitted from the
+ * model's raw input — so a plan recovered from the plan file or the agent's last message would reach
+ * the approval prompt and nowhere else. Put the resolved input on the tool call as well.
+ */
+async function publishResolvedPlan(
+  context: ToolHandlerContext,
+  updatedInput: Record<string, unknown>,
+  toolInfo: { content?: ToolCallContent[] },
+): Promise<void> {
+  if (
+    updatedInput === context.toolInput ||
+    !context.emittedToolCalls?.has(context.toolUseID)
+  ) {
+    return;
+  }
+
+  await context.client.sessionUpdate({
+    sessionId: context.sessionId,
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId: context.toolUseID,
+      rawInput: updatedInput,
+      content: toolInfo.content,
+    },
+  });
+}
+
 async function requestPlanApproval(
   context: ToolHandlerContext,
   updatedInput: Record<string, unknown>,
@@ -242,7 +271,12 @@ async function requestPlanApproval(
     input: updatedInput,
   });
 
-  return await requestPermissionFromClient(context, {
+  await publishResolvedPlan(context, updatedInput, toolInfo);
+
+  // The resolved input, so a first emission here carries the plan too.
+  const planContext = { ...context, toolInput: updatedInput };
+
+  return await requestPermissionFromClient(planContext, {
     options: buildExitPlanModePermissionOptions(session.modeBeforePlan),
     sessionId,
     toolCall: {
