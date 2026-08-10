@@ -4,7 +4,6 @@ import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
-import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { WarningHog } from 'lib/components/hedgehogs'
@@ -13,7 +12,6 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -37,6 +35,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
+import { ReplayVisionPromoBanner } from './ReplayVisionPromoBanner'
 import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
@@ -121,36 +120,6 @@ function Header(): JSX.Element {
                 Settings
             </LemonButton>
         </div>
-    )
-}
-
-const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
-
-function ReplayVisionPromoBanner(): JSX.Element | null {
-    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
-    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
-
-    // Without the flag the CTA would land on a 404, so don't advertise the feature at all.
-    // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (!hasReplayVision || isDismissed) {
-        return null
-    }
-
-    return (
-        <PostHogCaptureOnViewed name="replay-vision-launch-banner-shown">
-            <LemonBanner
-                type="ai"
-                dismissKey={REPLAY_VISION_PROMO_DISMISS_KEY}
-                action={{
-                    children: 'Try Replay vision',
-                    to: urls.replayVision(),
-                    center: true,
-                    'data-attr': 'replay-vision-launch-banner-cta',
-                }}
-            >
-                Replay vision is here. Scanners watch your recordings for you and surface what matters.
-            </LemonBanner>
-        </PostHogCaptureOnViewed>
     )
 }
 
@@ -243,7 +212,7 @@ function MainPanel(): JSX.Element {
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
-            <ReplayVisionPromoBanner />
+            <ReplayVisionPromoBanner source="replay-home" />
             <Warnings />
 
             {!tab ? (

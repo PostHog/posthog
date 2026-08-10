@@ -18,6 +18,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { ReplayVisionPromoBanner } from 'scenes/session-recordings/ReplayVisionPromoBanner'
 
 import { Experiment } from '~/types'
 
@@ -216,6 +217,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     return (
         <div data-attr="experiment-recordings-tab">
+            <ReplayVisionPromoBanner source="experiment-recordings-tab" className="mb-2" />
             {usingExposureFallback && (
                 <LemonBanner type="info" className="mb-2">
                     {EXPOSURE_FALLBACK_NOTICE}
