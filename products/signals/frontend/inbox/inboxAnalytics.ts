@@ -35,6 +35,7 @@ export const INBOX_EVENTS = {
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
     RUN_OPENED: 'Inbox run opened',
+    ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -558,6 +559,24 @@ export function captureInboxRunOpened(params: {
         run_kind: params.kind,
         run_status: params.status,
         has_report: params.hasReport,
+    })
+}
+
+/**
+ * What the inbox decided to do about self-driving onboarding, and when it decided nothing, why.
+ *
+ * The takeover and banner are the only prompt to run the wizard, and several inputs can hold them
+ * back — a run already in flight, loaders still settling, a wizard verdict that hasn't landed. None
+ * of that left a trace, so a drop in wizard runs was indistinguishable from a drop in intent: the
+ * inbox pageview fires either way. `reason` separates "we chose not to ask" from "nobody wanted it".
+ */
+export function captureInboxOnboardingDecided(params: {
+    mode: 'takeover' | 'banner' | 'none'
+    reason: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.ONBOARDING_DECIDED, {
+        mode: params.mode,
+        suppression_reason: params.reason,
     })
 }
 
