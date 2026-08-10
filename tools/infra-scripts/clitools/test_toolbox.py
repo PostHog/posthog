@@ -890,6 +890,14 @@ class TestToolbox(unittest.TestCase):
                     "cannot reach the cluster endpoint (check that Tailscale is connected)",
                 )
 
+    def test_summarize_diagnostic_keeps_credential_plugin_transport_errors(self):
+        aws_error = 'Could not connect to the endpoint URL: "https://portal.sso.us-east-1.amazonaws.com/token": connection refused'
+        diagnostic = (
+            "Unable to connect to the server: getting credentials: exec: executable aws failed with exit code 255\n"
+            + aws_error
+        )
+        self.assertEqual(summarize_diagnostic(diagnostic), aws_error)
+
     def _tailscale_status_result(self, payload):
         return MagicMock(returncode=0, stdout=json.dumps(payload))
 
