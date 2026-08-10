@@ -1606,7 +1606,9 @@ class TestFrameStoreFlagResolution(SimpleTestCase):
         # object storage — in production only, with the rest of the suite still green.
         from products.notebooks.backend.sql_v2 import NOTEBOOKS_FRAME_STORE_FLAG, is_frame_store_enabled
 
-        user = SimpleNamespace(distinct_id="user-distinct-id", organization=None)
+        # A structural stub, not a User row: the helper only reads distinct_id and
+        # organization, so this keeps the case off the database.
+        user: Any = SimpleNamespace(distinct_id="user-distinct-id", organization=None)
         with patch("products.notebooks.backend.sql_v2.posthoganalytics.feature_enabled") as feature_enabled:
             feature_enabled.return_value = flag_value
             self.assertEqual(is_frame_store_enabled(user), flag_value)
