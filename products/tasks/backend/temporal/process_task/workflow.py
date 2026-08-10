@@ -1551,21 +1551,25 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self, prepared: PrepareSandboxForRepositoryOutput
     ) -> CreateSandboxForRepositoryOutput:
         activity_input = CreateSandboxForRepositoryInput(context=self.context, prepared=prepared)
-        activity_kwargs = {
-            "start_to_close_timeout": timedelta(seconds=prepared.sandbox_creation_timeout_seconds),
-            "retry_policy": RetryPolicy(maximum_attempts=3),
-        }
+        creation_timeout = timedelta(seconds=prepared.sandbox_creation_timeout_seconds)
+        retry_policy = RetryPolicy(maximum_attempts=3)
         if not prepared.sandbox_creation_cancellable or not workflow.patched(
             _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION
         ):
-            return await workflow.execute_activity(create_sandbox_for_repository, activity_input, **activity_kwargs)
+            return await workflow.execute_activity(
+                create_sandbox_for_repository,
+                activity_input,
+                start_to_close_timeout=creation_timeout,
+                retry_policy=retry_policy,
+            )
 
         creation = workflow.start_activity(
             create_sandbox_for_repository,
             activity_input,
             cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
             heartbeat_timeout=timedelta(seconds=30),
-            **activity_kwargs,
+            start_to_close_timeout=creation_timeout,
+            retry_policy=retry_policy,
         )
         completion = asyncio.create_task(workflow.wait_condition(lambda: self._task_completed))
         done, _ = await asyncio.wait({creation, completion}, return_when=asyncio.FIRST_COMPLETED)
