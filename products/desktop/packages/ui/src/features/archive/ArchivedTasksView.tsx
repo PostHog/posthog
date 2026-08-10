@@ -558,20 +558,18 @@ export function ArchivedTasksView() {
 
   const isLoading = isLoadingArchived || isLoadingTasks;
 
-  const applyRestoreOutcome = (taskId: string, outcome: RestoreOutcome) => {
+  const applyRestoreOutcome = async (
+    taskId: string,
+    outcome: RestoreOutcome,
+  ): Promise<void> => {
     if (outcome.kind === "restored") {
       const navigateToTaskId = outcome.navigateToTaskId;
-      toast.success("Task unarchived", {
-        action: navigateToTaskId
-          ? {
-              label: "View task",
-              onClick: () =>
-                void queryClient
-                  .fetchQuery(taskDetailQuery(navigateToTaskId))
-                  .then(openTask),
-            }
-          : undefined,
-      });
+      toast.success("Task unarchived");
+      if (navigateToTaskId) {
+        await queryClient
+          .fetchQuery(taskDetailQuery(navigateToTaskId))
+          .then(openTask);
+      }
     } else if (outcome.kind === "branch-not-found") {
       setBranchNotFound({ taskId, branchName: outcome.branchName });
     } else {
@@ -590,7 +588,7 @@ export function ArchivedTasksView() {
   const onUnarchive = async (taskId: string) => {
     const hasTask =
       items.find((i) => i.archived.taskId === taskId)?.task != null;
-    applyRestoreOutcome(taskId, await restore(taskId, hasTask));
+    await applyRestoreOutcome(taskId, await restore(taskId, hasTask));
   };
 
   const onDelete = async (taskId: string) => {
@@ -612,7 +610,7 @@ export function ArchivedTasksView() {
     if (outcome.kind === "menu-error") {
       toast.error(`Context menu error: ${outcome.message}`);
     } else if (outcome.kind === "restore") {
-      applyRestoreOutcome(item.archived.taskId, outcome.outcome);
+      await applyRestoreOutcome(item.archived.taskId, outcome.outcome);
     } else if (outcome.kind === "delete") {
       applyDeleteOutcome(outcome.outcome);
     }
@@ -624,7 +622,7 @@ export function ArchivedTasksView() {
     setBranchNotFound(null);
     const hasTask =
       items.find((i) => i.archived.taskId === taskId)?.task != null;
-    applyRestoreOutcome(
+    await applyRestoreOutcome(
       taskId,
       await restore(taskId, hasTask, { recreateBranch: true }),
     );
