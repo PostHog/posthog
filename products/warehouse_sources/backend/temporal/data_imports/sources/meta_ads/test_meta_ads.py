@@ -420,10 +420,20 @@ class TestIsTransientError:
     def test_reads_transient_flag_or_code(self, body: dict, expected: bool) -> None:
         assert _is_transient_error(_mock_response(500, body)) is expected
 
-    def test_non_json_body_is_not_transient(self) -> None:
-        # A proxy/gateway can return a non-JSON error page; the flag check must not crash on it.
+    def test_non_json_5xx_body_is_transient(self) -> None:
+        # A proxy/gateway can return a 5xx with no parseable body at all (an empty response, or
+        # a non-JSON error page); the flag check must not crash on it, and a bare server-side
+        # failure with no diagnostic body is itself the signature of a momentary blip.
         response = mock.MagicMock()
         response.status_code = 500
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "<html>", 0)
+        assert _is_transient_error(response) is True
+
+    def test_non_json_4xx_body_is_not_transient(self) -> None:
+        # A 4xx more likely reflects a bad request of ours than a backend blip, so an
+        # unparseable body there must not be swept into the transient-retry path.
+        response = mock.MagicMock()
+        response.status_code = 400
         response.json.side_effect = RequestsJSONDecodeError("Expecting value", "<html>", 0)
         assert _is_transient_error(response) is False
 
@@ -1331,6 +1341,38 @@ class TestRetryableErrors:
         patterns = MetaAdsSource().get_retryable_errors()
         with pytest.raises(Exception) as exc_info:
             _raise_meta_api_error(_mock_response(500, body))
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    @pytest.mark.parametrize("code", sorted(meta_ads_module.META_RATE_LIMIT_ERROR_CODES))
+    def test_rate_limit_error_matches_retryable_pattern(self, code: int) -> None:
+        # Real-world Meta throttling response: code 17 "User request limit reached" with
+        # is_transient: false. It must be tagged retryable rather than falling through to the
+        # generic, unclassified message and getting reported to error tracking on every attempt.
+        body = {
+            "error": {
+                "message": "User request limit reached",
+                "type": "OAuthException",
+                "code": code,
+                "is_transient": False,
+            }
+        }
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(_mock_response(400, body))
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    def test_empty_body_500_matches_retryable_pattern(self) -> None:
+        # Meta (or a fronting proxy) occasionally returns a bare 500 with an empty body — no
+        # JSON, no error code to classify by. It must still be tagged retryable rather than
+        # surfacing as a raw, unclassified failure on every attempt.
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "", 0)
+        response.text = ""
+
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
 
     def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:

@@ -25,11 +25,17 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
+import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
+import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   PageHeader,
   PageHeaderActions,
@@ -40,6 +46,7 @@ import {
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
 import {
+  navigateToChannelDashboard,
   navigateToChannelTask,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
@@ -49,7 +56,9 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
+  activityUnreadTotalForLabel,
   getUnreadActivityItems,
+  getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -63,6 +72,17 @@ function ChannelSuffix({ channelName }: { channelName: string | null }) {
       </Text>
     </>
   );
+}
+
+function ownedItemName(item: TaskActivityItem): string {
+  switch (item.commentTarget?.scope) {
+    case "desktop_canvas":
+      return "canvas";
+    case "task_artifact":
+      return "artifact";
+    default:
+      return "task";
+  }
 }
 
 /** The lead line describing what happened, chosen by the row's activity kind. */
@@ -112,6 +132,26 @@ export function activityHeadline(
           <ChannelSuffix channelName={item.channelName} />
         </>
       );
+    case "thread_reply":
+      return (
+        <>
+          <Text as="span" size="1" weight="medium">
+            {userDisplayName(item.author)}
+          </Text>{" "}
+          replied to a thread you participated in
+          <ChannelSuffix channelName={item.channelName} />
+        </>
+      );
+    case "owned_item_comment":
+      return (
+        <>
+          <Text as="span" size="1" weight="medium">
+            {userDisplayName(item.author)}
+          </Text>{" "}
+          commented on your {ownedItemName(item)}
+          <ChannelSuffix channelName={item.channelName} />
+        </>
+      );
     default:
       return "You created this task";
   }
@@ -123,6 +163,7 @@ export function ActivityRow({
   onOpen,
   onMarkRead,
   currentUser,
+  blockedTaskIds,
   surface = "activity",
   onNavigate,
   compact = false,
@@ -133,14 +174,31 @@ export function ActivityRow({
   onOpen: (item: TaskActivityItem) => void;
   onMarkRead: (item: TaskActivityItem) => void;
   currentUser?: UserBasic | null;
+  /**
+   * Tasks whose session is waiting on you. Passed in rather than selected here:
+   * the feed renders one of these per item, and the selector behind it scans and
+   * sorts every live session on each store notification.
+   */
+  blockedTaskIds: ReadonlySet<string>;
   surface?: "activity" | "activity_panel";
   onNavigate?: () => void;
   compact?: boolean;
 }) {
+  const commentsEnabled = useCommentsEnabled();
   const isAgentActivity =
     item.activityKind === "awaiting_input" ||
     item.activityKind === "completed" ||
     (item.activityKind === "message" && !item.author);
+  // The one row here that is blocked on you, and the sidebar's session rows
+  // already say that in blue. Yellow is everything else the feed carries:
+  // something happened that you haven't read.
+  //
+  // Read against the live sessions rather than the row's kind alone, so this is
+  // the same fact the sidebar's blue dot is drawn from. The row records that the
+  // agent asked at a moment in time; whether it is still waiting is a question
+  // only the session can answer, and answering the prompt has to clear the dot.
+  const awaitsReply =
+    item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
   const openTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "open_task",
@@ -149,10 +207,27 @@ export function ActivityRow({
       task_id: item.taskId,
     });
     onOpen(item);
+    if (commentsEnabled && item.commentId && item.commentTarget) {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
+    }
     onNavigate?.();
+    if (
+      commentsEnabled &&
+      channelId &&
+      item.commentTarget?.scope === "desktop_canvas"
+    ) {
+      useCanvasChatPanelStore.getState().openComments();
+      navigateToChannelDashboard(channelId, item.commentTarget.itemId);
+      return;
+    }
     // The channel thread route is the deep-link target; unfiled tasks fall
     // back to the plain task view.
     if (channelId) {
+      if (item.commentId) {
+        useThreadPanelStore.getState().setCollapsed(false);
+      }
       navigateToChannelTask(channelId, item.taskId);
     } else {
       navigateToTaskDetail(item.taskId);
@@ -176,10 +251,20 @@ export function ActivityRow({
           ) : (
             <UserAvatar user={item.author ?? currentUser} size="xs" />
           )}
-          {item.isUnread && (
+          {/* Unread is a fact about the feed: you haven't looked at this yet.
+              Waiting on you is a fact about the session, and reading the row
+              doesn't answer the prompt — so it keeps its dot until you do. */}
+          {(item.isUnread || awaitsReply) && (
             <span
-              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full bg-primary"
-              title="New activity"
+              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full"
+              // Off the table the status dots read, so a row that says the agent
+              // is waiting is the same blue as the session it is waiting in.
+              style={{
+                backgroundColor: awaitsReply
+                  ? DOT_TONE_VAR.blue
+                  : "var(--primary)",
+              }}
+              title={awaitsReply ? "Waiting on you" : "New activity"}
             />
           )}
         </span>
@@ -252,6 +337,7 @@ export function ActivityRow({
 // in, or messaged in — newest activity first. Rows clear as they are opened, not
 // when the page is; merely landing here shouldn't dismiss what you haven't read.
 export function ActivityView() {
+  const commentsEnabled = useCommentsEnabled();
   const spacesLayout = useChannelsLayout();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
@@ -263,14 +349,35 @@ export function ActivityView() {
     isFetchingNextPage,
     fetchNextPage,
   } = useTaskActivity();
+  // Selected once for the feed, not once per row.
+  const blockedTaskIds = useBlockedTaskIds();
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
-  const unreadItems = useMemo(() => getUnreadActivityItems(items), [items]);
+  const visibleItems = useMemo(
+    () => getVisibleActivityItems(items, commentsEnabled),
+    [commentsEnabled, items],
+  );
+  const unreadItems = useMemo(
+    () => getUnreadActivityItems(visibleItems),
+    [visibleItems],
+  );
+  const visibleUnreadCount = activityUnreadTotalForLabel({
+    commentsEnabled,
+    unreadCount,
+    loadedVisibleUnread: unreadItems.length,
+    hasNextPage,
+  });
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(
     (item: TaskActivityItem) =>
-      markTasksRead([{ task_id: item.taskId, seen_before: item.activityAt }]),
+      markTasksRead([
+        {
+          task_id: item.taskId,
+          seen_before: item.activityAt,
+          ...(item.commentId ? { activity_id: item.id } : {}),
+        },
+      ]),
     [markTasksRead],
   );
   const markAllRead = useCallback(() => {
@@ -292,18 +399,18 @@ export function ActivityView() {
       onClick={markAllRead}
     >
       <ChecksIcon size={14} />
-      {markLoadedReadLabel(unreadItems.length, unreadCount)}
+      {markLoadedReadLabel(unreadItems.length, visibleUnreadCount)}
     </Button>
   );
 
   // The feed body is identical in both shells; only the empty-state copy tracks
   // the layout's naming ("spaces" vs "channels").
   const feed =
-    isLoading && items.length === 0 ? (
+    isLoading && visibleItems.length === 0 ? (
       <div className="flex justify-center py-16">
         <Spinner />
       </div>
-    ) : items.length === 0 ? (
+    ) : visibleItems.length === 0 ? (
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">
@@ -311,21 +418,22 @@ export function ActivityView() {
           </EmptyMedia>
           <EmptyTitle>No activity yet</EmptyTitle>
           <EmptyDescription>
-            Tasks you create, get tagged in, or reply to across{" "}
-            {spacesLayout ? "spaces" : "channels"} land here.
+            Task updates and comment notifications across{" "}
+            {spacesLayout ? "spaces" : "channels"} appear here.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
     ) : (
       <div className="flex flex-col gap-0.5">
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <ActivityRow
-            key={item.taskId}
+            key={item.id}
             item={item}
             channelId={item.channelId}
             onOpen={markRead}
             onMarkRead={markRead}
             currentUser={currentUser}
+            blockedTaskIds={blockedTaskIds}
           />
         ))}
         {hasNextPage && (
@@ -359,7 +467,7 @@ export function ActivityView() {
               )}
             </PageHeaderTitleRow>
             <PageHeaderDescription>
-              Tasks you're involved in across spaces.
+              Task updates and comment notifications across spaces.
             </PageHeaderDescription>
           </PageHeaderHeading>
         </PageHeader>
@@ -379,7 +487,7 @@ export function ActivityView() {
               Activity
             </Text>
             <Text size="2" className="block text-muted-foreground">
-              Tasks you're involved in across{" "}
+              Task updates and comment notifications across{" "}
               {spacesLayout ? "spaces" : "channels"}.
             </Text>
           </div>
