@@ -339,7 +339,7 @@ ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
-INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+INVITE_DAYS_VALIDITY = 7  # number of days for which team invites are valid
 
 # Sync with frontend/src/scenes/surveys/constants.tsx
 DEFAULT_SURVEY_APPEARANCE = {

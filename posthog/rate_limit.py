@@ -391,6 +391,18 @@ class SignupResendInviteThrottle(UserOrEmailRateThrottle):
     rate = "5/hour"
 
 
+class SignupRequestInviteThrottle(IPThrottle):
+    """
+    Rate limit "request a new invite" calls from the expired-invite page by IP.
+
+    Anyone holding an expired link can trigger a notification email to the inviter,
+    so cap it per IP. The email task also dedups per invite via its campaign key.
+    """
+
+    scope = "signup_request_invite"
+    rate = "5/hour"
+
+
 # Requesting PostHog AI access emails the org admins, so cap it per user and per IP
 # to keep a single member (or a shared-IP burst) from spamming admins' inboxes.
 class PostHogAIAccessRequestUserThrottle(UserRateThrottle):

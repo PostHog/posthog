@@ -54,6 +54,39 @@ function BackToPostHog(): JSX.Element {
     )
 }
 
+function RequestNewInviteAction(): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { requestNewInvite } = useActions(inviteSignupLogic)
+    const { newInviteRequested, newInviteRequestedLoading } = useValues(inviteSignupLogic)
+
+    if (newInviteRequested) {
+        return (
+            <>
+                <LemonBanner type="success" className="mb-4">
+                    Done. We asked the person who invited you to send a new link.
+                </LemonBanner>
+                {user ? <BackToPostHog /> : <HelperLinks />}
+            </>
+        )
+    }
+
+    return (
+        <>
+            <LemonButton
+                type="primary"
+                center
+                fullWidth
+                onClick={requestNewInvite}
+                loading={newInviteRequestedLoading}
+                disabledReason={newInviteRequestedLoading ? 'Sending request' : undefined}
+            >
+                Request a new invite
+            </LemonButton>
+            <div className="mt-2">{user ? <BackToPostHog /> : <HelperLinks />}</div>
+        </>
+    )
+}
+
 function ErrorView(): JSX.Element | null {
     const { error } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
@@ -68,6 +101,16 @@ function ErrorView(): JSX.Element | null {
                 </>
             ),
             actions: user ? <BackToPostHog /> : <HelperLinks />,
+        },
+        [ErrorCodes.InviteExpired]: {
+            title: 'This invite link has expired',
+            detail: (
+                <>
+                    Invite links are only valid for a few days. Request a new one and we'll let the person who invited
+                    you know.
+                </>
+            ),
+            actions: <RequestNewInviteAction />,
         },
         [ErrorCodes.UserAlreadyMember]: {
             title: "You're already a member of this organization",

@@ -2152,6 +2152,23 @@ class TestInviteSignupAPI(APIBaseTest):
             },
         )
 
+    @patch("posthoganalytics.capture")
+    def test_api_invite_sign_up_prevalidate_expired_invite_captures_failure(self, mock_capture):
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+expiredcapture@posthog.com", organization=self.organization
+        )
+        invite.created_at = datetime(2020, 12, 1, tzinfo=ZoneInfo("UTC"))
+        invite.save()
+
+        self.client.get(f"/api/signup/{invite.id}/")
+
+        failure_events = [
+            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "organization invite validation failed"
+        ]
+        self.assertEqual(len(failure_events), 1)
+        self.assertEqual(failure_events[0].kwargs["properties"]["reason"], "expired")
+        self.assertTrue(failure_events[0].kwargs["properties"]["is_expired"])
+
     # Signup (using invite)
 
     @patch("posthoganalytics.capture")
@@ -3267,3 +3284,45 @@ class TestSignupResendInvite(APIBaseTest):
         # Bob still has a fresh bucket
         bob_ok = self.client.post("/api/signup/resend-invite", {"email": "bob@acme.com"})
         self.assertEqual(bob_ok.status_code, status.HTTP_200_OK)
+
+
+class TestSignupRequestInvite(APIBaseTest):
+    def setUp(self):
+        cache.clear()
+        super().setUp()
+        self.client.logout()
+
+    def _create_expired_invite(self) -> OrganizationInvite:
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="alice@acme.com",
+            created_by=self.user,
+        )
+        invite.created_at = timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 5)
+        invite.save(update_fields=["created_at"])
+        return invite
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite_request.apply_async")
+    def test_request_invite_notifies_inviter_for_expired_invite(self, mock_send, _mock_email_available):
+        invite = self._create_expired_invite()
+        response = self.client.post("/api/signup/request-invite", {"invite_id": str(invite.id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"requested": True})
+        mock_send.assert_called_once_with(kwargs={"invite_id": str(invite.id)})
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite_request.apply_async")
+    def test_request_invite_no_op_for_unknown_invite(self, mock_send, _mock_email_available):
+        response = self.client.post("/api/signup/request-invite", {"invite_id": "00000000-0000-0000-0000-000000000000"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"requested": False})
+        mock_send.assert_not_called()
+
+    @patch("posthog.api.signup.is_email_available", return_value=False)
+    @patch("posthog.tasks.email.send_invite_request.apply_async")
+    def test_request_invite_skips_dispatch_when_email_disabled(self, mock_send, _mock_email_available):
+        invite = self._create_expired_invite()
+        response = self.client.post("/api/signup/request-invite", {"invite_id": str(invite.id)})
+        self.assertEqual(response.json(), {"requested": False})
+        mock_send.assert_not_called()

@@ -356,6 +356,50 @@ def send_invite(invite_id: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
+def send_invite_request(invite_id: str) -> None:
+    """Notify the inviter that an invitee wants a fresh invite after theirs expired.
+
+    Triggered from the expired-invite page so the blocked user can reach the inviter
+    without leaving the flow. Dedups per invite via the campaign key.
+    """
+    invite = OrganizationInvite.objects.select_related("created_by", "organization").filter(id=invite_id).first()
+    if invite is None or invite.created_by is None or not invite.created_by.email or not invite.target_email:
+        return
+    log_context = {
+        "invite_id": invite_id,
+        "organization_id": str(invite.organization_id),
+        "created_by_id": invite.created_by_id,
+    }
+    inviter_name = sanitize_display_name(
+        invite.created_by.first_name,
+        fallback="there",
+        context={"task": "send_invite_request", "field": "inviter_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        invite.organization.name,
+        fallback="your organization",
+        context={"task": "send_invite_request", "field": "organization_name", **log_context},
+    )
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"invite_request_{invite_id}",
+        subject=f"{invite.target_email} would like a new invite to {org_name}",
+        template_name="invite_request",
+        template_context={
+            "inviter_first_name": inviter_name,
+            "invitee_email": invite.target_email,
+            "org_name": org_name,
+            "members_url": f"{settings.SITE_URL}/settings/organization-members",
+            **get_email_team_and_org_context(organization=invite.organization),
+        },
+        reply_to=invite.target_email,
+    )
+    message.add_recipient(email=invite.created_by.email)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     invitee: User = User.objects.get(uuid=invitee_uuid)
     organization: Organization = Organization.objects.get(id=organization_id)

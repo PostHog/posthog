@@ -1,0 +1,21 @@
+{% extends "email/base.html" %} {% load posthog_assets %}
+{% block heading %}Someone needs a new invite to {{ org_name }}{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    Hi {{ inviter_first_name }},
+</p>
+<p>
+    <a href="mailto:{{ invitee_email }}">{{ invitee_email }}</a> tried to join {{ org_name }} on PostHog, but the
+    invite link expired before they could use it. They asked for a fresh one.
+</p>
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ members_url }}">Send a new invite</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ members_url }}">{{ members_url }}</a>
+    </p>
+</div>
+{% endblock %}

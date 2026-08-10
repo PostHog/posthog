@@ -140,6 +140,38 @@ export const InvalidLink: Story = {
     },
 }
 
+export const ExpiredLink: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: true,
+                    realm: 'cloud',
+                    can_create_org: true,
+                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+                },
+                '/api/signup/expired-invite/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'expired',
+                        detail: 'This invite has expired. Please ask your admin for a new one.',
+                        attr: null,
+                    },
+                ],
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            inviteSignupLogic.actions.setInviteId('expired-invite')
+            inviteSignupLogic.actions.prevalidateInvite('expired-invite')
+        })
+
+        return <InviteSignup />
+    },
+}
+
 export const LoggedIn: Story = {
     render: () => {
         useStorybookMocks({

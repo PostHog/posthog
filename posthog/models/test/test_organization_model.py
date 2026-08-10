@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import BillingPeriod, OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
@@ -33,7 +34,9 @@ class TestOrganization(BaseTest):
         self.assertEqual(self.organization.active_invites.count(), 1)
 
         expired_invite = OrganizationInvite.objects.create(organization=self.organization)
-        OrganizationInvite.objects.filter(id=expired_invite.id).update(created_at=timezone.now() - timedelta(hours=73))
+        OrganizationInvite.objects.filter(id=expired_invite.id).update(
+            created_at=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)
+        )
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 

@@ -358,14 +358,16 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
 }
 
 function InviteInvalid(): JSX.Element {
-    const { error } = useValues(inviteSignupLogic)
+    const { error, newInviteRequested, newInviteRequestedLoading } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
+    const { requestNewInvite } = useActions(inviteSignupLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const code = error?.code ?? ErrorCodes.Unknown
 
     const titles: Record<ErrorCodes, string> = {
         [ErrorCodes.InvalidInvite]: 'This invite link is invalid or expired',
+        [ErrorCodes.InviteExpired]: 'This invite link has expired',
         [ErrorCodes.UserAlreadyMember]: "You're already a member",
         [ErrorCodes.InvalidRecipient]: "This invite link can't be used",
         [ErrorCodes.Unknown]: "We couldn't validate this invite link",
@@ -377,6 +379,9 @@ function InviteInvalid(): JSX.Element {
                 {error?.detail} If you believe this is a mistake, ask whoever created the invite to{' '}
                 <b>send you a new one</b>.
             </>
+        ),
+        [ErrorCodes.InviteExpired]: (
+            <>Invite links are only valid for a few days. Request a new one and we'll let the inviter know.</>
         ),
         [ErrorCodes.UserAlreadyMember]: (
             <>
@@ -446,7 +451,25 @@ function InviteInvalid(): JSX.Element {
                     <p className="PaperDesk__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
                         {details[code]}
                     </p>
+                    {code === ErrorCodes.InviteExpired && newInviteRequested && (
+                        <p className="PaperDesk__sub mb-4 text-sm text-secondary text-center">
+                            Done. We asked the inviter to send you a new link.
+                        </p>
+                    )}
                     <div className="flex flex-col gap-2.5 w-full">
+                        {code === ErrorCodes.InviteExpired && !newInviteRequested && (
+                            <LemonButton
+                                size="large"
+                                center
+                                fullWidth
+                                type="primary"
+                                onClick={requestNewInvite}
+                                loading={newInviteRequestedLoading}
+                                disabledReason={newInviteRequestedLoading ? 'Sending request' : undefined}
+                            >
+                                Request a new invite
+                            </LemonButton>
+                        )}
                         {user ? (
                             <LemonButton size="large" center fullWidth type="primary" to={urls.default()}>
                                 Go back to PostHog

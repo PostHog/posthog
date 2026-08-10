@@ -35,6 +35,7 @@ from posthog.tasks.email import (
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
     send_invite,
+    send_invite_request,
     send_matview_failure_digest,
     send_member_join,
     send_new_ticket_notification,
@@ -123,6 +124,34 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "invited you to join" not in subject
         # Routed to the delegation template
         assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
+
+    def test_send_invite_request_notifies_inviter(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org, created_by=user, target_email="blocked@posthog.com"
+        )
+
+        send_invite_request(invite.id)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert MockEmailMessage.call_args.kwargs["template_name"] == "invite_request"
+        assert MockEmailMessage.call_args.kwargs["reply_to"] == "blocked@posthog.com"
+        assert mocked_email_messages[0].html_body
+
+    def test_send_invite_request_no_op_without_inviter(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, _ = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org, created_by=None, target_email="blocked@posthog.com"
+        )
+
+        send_invite_request(invite.id)
+
+        assert len(mocked_email_messages) == 0
 
     def test_send_member_join(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

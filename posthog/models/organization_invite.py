@@ -1,12 +1,14 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from rest_framework import exceptions
 
 from posthog.constants import INVITE_DAYS_VALIDITY
@@ -101,6 +103,22 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         invite_email: Optional[str] = None,
         request_path: Optional[str] = None,
     ) -> None:
+        # Capture every validation failure so we can measure how often invites dead-end (expired,
+        # wrong recipient, already a member). Without this the failure rate is invisible.
+        try:
+            self._validate(user=user, email=email, invite_email=invite_email, request_path=request_path)
+        except exceptions.ValidationError as error:
+            self._report_validation_failed(error)
+            raise
+
+    def _validate(
+        self,
+        *,
+        user: Optional["User"] = None,
+        email: Optional[str] = None,
+        invite_email: Optional[str] = None,
+        request_path: Optional[str] = None,
+    ) -> None:
         _email = email or getattr(user, "email", None)
 
         if (
@@ -135,6 +153,21 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 "Another user with this email address already belongs to this organization.",
                 code="existing_email_address",
             )
+
+    def _report_validation_failed(self, error: exceptions.ValidationError) -> None:
+        codes = error.get_codes()
+        reason = codes[0] if isinstance(codes, list) and codes else "invalid"
+        posthoganalytics.capture(
+            # Aliased to the user's distinct_id once they accept, matching `report_team_member_invited`.
+            distinct_id=f"invite_{self.id}",
+            event="organization invite validation failed",
+            properties={
+                "reason": reason,
+                "organization_id": str(self.organization_id),
+                "is_expired": self.is_expired() if self.created_at else False,
+            },
+            groups={"instance": settings.SITE_URL, "organization": str(self.organization_id)},
+        )
 
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:

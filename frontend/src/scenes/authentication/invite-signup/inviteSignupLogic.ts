@@ -15,6 +15,7 @@ import { PrevalidatedInvite } from '~/types'
 
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
+    InviteExpired = 'expired',
     InvalidRecipient = 'invalid_recipient',
     UserAlreadyMember = 'user_already_member',
     Unknown = 'unknown',
@@ -39,7 +40,10 @@ export interface inviteSignupLogicValues {
     challengeRequired: boolean
     error: ErrorInterface | null
     invite: PrevalidatedInvite | null
+    inviteId: string | null
     inviteLoading: boolean
+    newInviteRequested: boolean
+    newInviteRequestedLoading: boolean
     isPasskeyRegistering: boolean
     isSignupSubmitting: boolean
     isSignupValid: boolean
@@ -78,6 +82,24 @@ export interface inviteSignupLogicActions {
         payload?: any
     }
     prevalidateInvite: (id: string) => string
+    requestNewInvite: () => any
+    requestNewInviteFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    requestNewInviteSuccess: (
+        newInviteRequested: boolean,
+        payload?: any
+    ) => {
+        newInviteRequested: boolean
+        payload?: any
+    }
+    setInviteId: (id: string) => {
+        id: string
+    }
     prevalidateInviteFailure: (
         error: string,
         errorObject?: any
@@ -177,6 +199,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
     path(['scenes', 'authentication', 'invite-signup', 'inviteSignupLogic']),
     actions({
         setError: (payload: ErrorInterface) => ({ payload }),
+        setInviteId: (id: string) => ({ id }),
         registerPasskey: true,
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
@@ -192,6 +215,12 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
             null as ErrorInterface | null,
             {
                 setError: (_, { payload }) => payload,
+            },
+        ],
+        inviteId: [
+            null as string | null,
+            {
+                setInviteId: (_, { id }) => id,
             },
         ],
         passkeyRegistered: [
@@ -254,6 +283,8 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
+                            } else if (e.code === 'expired') {
+                                actions.setError({ code: ErrorCodes.InviteExpired, detail: e.detail })
                             } else if (e.code === 'user_already_member') {
                                 actions.setError({ code: ErrorCodes.UserAlreadyMember, detail: e.detail })
                             } else if (e.code === 'account_exists') {
@@ -277,6 +308,19 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         return null
                     }
                     return api.create(`api/signup/${values.invite.id}/`)
+                },
+            },
+        ],
+        newInviteRequested: [
+            false,
+            {
+                requestNewInvite: async (_, breakpoint) => {
+                    breakpoint()
+                    if (!values.inviteId) {
+                        return false
+                    }
+                    await api.create('api/signup/request-invite', { invite_id: values.inviteId })
+                    return true
                 },
             },
         ],
@@ -428,6 +472,9 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
     })),
     urlToAction(({ actions }) => ({
         '/signup/*': ({ _: id }, { error_code, error_detail }) => {
+            if (id) {
+                actions.setInviteId(id)
+            }
             if (error_code) {
                 if ((Object.values(ErrorCodes) as string[]).includes(error_code)) {
                     actions.setError({ code: error_code as ErrorCodes, detail: error_detail })

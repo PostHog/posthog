@@ -38,7 +38,12 @@ from posthog.models import InviteExpiredException, Organization, OrganizationDom
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.rate_limit import (
+    SignupEmailPrecheckThrottle,
+    SignupIPThrottle,
+    SignupRequestInviteThrottle,
+    SignupResendInviteThrottle,
+)
 from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
@@ -442,6 +447,36 @@ class SignupResendInviteViewset(generics.GenericAPIView):
 
             send_invite.apply_async(kwargs={"invite_id": str(invite.id)})
         return response.Response({"sent": invite is not None}, status=status.HTTP_200_OK)
+
+
+class SignupRequestInviteSerializer(serializers.Serializer):
+    invite_id: serializers.Field = serializers.UUIDField(help_text="ID of the expired invite the user tried to use.")
+
+
+class SignupRequestInviteViewset(generics.GenericAPIView):
+    """Ask the inviter for a fresh invite after the original expired.
+
+    The expired-invite page calls this so the blocked user can reach the inviter without
+    leaving the flow. Returns the same shape whether or not the invite still exists, so it
+    never discloses which invite IDs are real.
+    """
+
+    serializer_class = SignupRequestInviteSerializer
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = [] if settings.E2E_TESTING else [SignupRequestInviteThrottle]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        invite_id = serializer.validated_data["invite_id"]
+        invite = OrganizationInvite.objects.select_related("created_by").filter(id=invite_id).first()
+        requested = False
+        if invite is not None and invite.created_by is not None and is_email_available():
+            from posthog.tasks.email import send_invite_request
+
+            send_invite_request.apply_async(kwargs={"invite_id": str(invite.id)})
+            requested = True
+        return response.Response({"requested": requested}, status=status.HTTP_200_OK)
 
 
 class SignupViewset(generics.CreateAPIView):
