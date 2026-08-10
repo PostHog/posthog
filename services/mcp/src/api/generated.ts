@@ -846,10 +846,50 @@ export namespace Schemas {
       kind?: 'account_field';
     }
 
+    export interface AccountsTableAccountIdFilter {
+      accountId: string;
+      kind?: 'account_id';
+    }
+
+    export interface AccountsTableAssignedToFilter {
+      kind?: 'assigned_to';
+      /** Match accounts where any listed user actively holds any relationship. */
+      userIds: number[];
+    }
+
     export interface AccountsTableCustomPropertyColumn {
       /** Team-scoped custom property definition to return for each account. */
       definitionId: string;
       kind?: 'custom_property';
+    }
+
+    export type AccountsTableCustomPropertyOperator = typeof AccountsTableCustomPropertyOperator[keyof typeof AccountsTableCustomPropertyOperator];
+
+
+    export const AccountsTableCustomPropertyOperator = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+      IsDateExact: 'is_date_exact',
+      IsDateBefore: 'is_date_before',
+      IsDateAfter: 'is_date_after',
+    } as const;
+
+    export interface AccountsTableCustomPropertyFilter {
+      definitionId: string;
+      kind?: 'custom_property';
+      operator: AccountsTableCustomPropertyOperator;
+      /** Values interpreted according to the custom property definition's display type. */
+      values?: (string | number | boolean)[] | null;
     }
 
     export type WindowDays = typeof WindowDays[keyof typeof WindowDays];
@@ -890,6 +930,22 @@ export namespace Schemas {
       definitionId: string;
       kind?: 'relationship';
     }
+
+    export interface AccountsTableSearchFilter {
+      kind?: 'search';
+      query: string;
+    }
+
+    export interface AccountsTableTagsFilter {
+      kind?: 'tags';
+      /** Match accounts carrying any of these tag names. */
+      tagNames: string[];
+    }
+
+    export const AccountsTableUnassignedFilterValue = {
+      kind: 'unassigned',
+    } as const;
+    export type AccountsTableUnassignedFilter = typeof AccountsTableUnassignedFilterValue;
 
     /**
      * Requested direct Account fields, keyed by their typed field reference.
@@ -955,15 +1011,32 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export type AccountsTableSortDirection = typeof AccountsTableSortDirection[keyof typeof AccountsTableSortDirection];
+
+
+    export const AccountsTableSortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
+
+    export interface AccountsTableSort {
+      /** A typed column that supports server-side sorting. */
+      column: AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn;
+      direction: AccountsTableSortDirection;
+    }
+
     export interface AccountsTableQuery {
       /** Columns to load for each account. Account identity fields are always returned. */
       columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
+      /** Filters are combined with AND. Values within tag and assignment filters use OR. */
+      filters: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[];
       kind?: 'AccountsTableQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
       response?: AccountsTableQueryResponse | null;
+      sort?: AccountsTableSort | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
