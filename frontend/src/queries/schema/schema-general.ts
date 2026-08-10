@@ -8718,8 +8718,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'campaign_id',
         campaignTableName: 'campaign',
         statsTableName: 'campaign_overview_stats',
-        tableKeywords: ['campaign'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: [
             'google',
             'adwords',
@@ -8747,8 +8745,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaign_groups',
         statsTableName: 'campaign_group_stats',
-        tableKeywords: ['campaign_groups'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',
         // LinkedIn API hierarchy: Account → CampaignGroup → Campaign → Creative.
@@ -8766,8 +8762,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_stats',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: [
             'meta',
             'facebook',
@@ -8812,8 +8806,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'campaign_id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['report'] as const,
         defaultSources: ['tiktok'] as const,
         primarySource: 'tiktok',
         adsetTableName: 'ad_groups' as const,
@@ -8827,8 +8819,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['report'] as const,
         defaultSources: ['reddit'] as const,
         primarySource: 'reddit',
         adsetTableName: 'ad_groups' as const,
@@ -8842,8 +8832,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_performance_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['performance'] as const,
         defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
@@ -8863,8 +8851,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_stats_daily',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['stats_daily'] as const,
         defaultSources: ['snapchat'] as const,
         primarySource: 'snapchat',
         adsetTableName: 'ad_squads' as const,
@@ -8884,8 +8870,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_analytics',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['analytics'] as const,
         defaultSources: ['pinterest'] as const,
         primarySource: 'pinterest',
         adsetTableName: 'ad_groups' as const,
@@ -8906,27 +8890,6 @@ export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['Bing
 export type SnapchatAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['defaultSources'][number]
 export type PinterestAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['defaultSources'][number]
-
-export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
-export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
-export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableKeywords'][number]
-export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
-export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
-export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
-export type SnapchatAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableKeywords'][number]
-export type PinterestAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableKeywords'][number]
-
-export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
-export type LinkedinAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableExclusions'][number]
-export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableExclusions'][number]
-export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
-export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
-export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
-export type SnapchatAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableExclusions'][number]
-export type PinterestAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableExclusions'][number]
 
 // Conversion fields for Snapchat Ads - extracted as types so they generate as StrEnum in Python
 export type SnapchatAdsConversionFields =
@@ -8962,8 +8925,6 @@ export interface MarketingIntegrationConfigType {
     idField: string
     campaignTableName: string
     statsTableName: string
-    tableKeywords: string[]
-    tableExclusions: string[]
     defaultSources: string[]
     primarySource: string
 }
