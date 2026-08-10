@@ -4,7 +4,6 @@ on:
     release:
         types: [published]
 
-# No GITHUB_TOKEN permissions needed -- this workflow only calls an external webhook.
 permissions: {}
 
 jobs:
