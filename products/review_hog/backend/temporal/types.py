@@ -85,7 +85,8 @@ class ResolvePRWorkflowInputs:
 
     PR-only — review threads live on PRs, so there is no branch-target shape. `(team_id, user_id)`
     are the explicit identity the sandbox session runs under; `acting_user_id` pins whose selected
-    resolution-criteria skill applies (defaults to `user_id` when None).
+    resolution-criteria skill applies (None means the PR author: prepare maps the author login to a
+    PostHog user, and an unmapped author pins the canonical criteria — never `user_id`'s).
     """
 
     team_id: int
