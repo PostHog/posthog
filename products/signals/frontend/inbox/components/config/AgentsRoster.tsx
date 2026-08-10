@@ -82,7 +82,8 @@ const AgentCard = memo(function AgentCard({
     const toolOff = !!tool && !tool.enabled
     // An off tool blocks arming (the source would watch nothing), never disarming.
     const armingBlocked = toolOff && !armed
-    const isInteractive = !loading && !armingBlocked
+    // A managed source has no switch here, so clicking the card has nothing to do.
+    const isInteractive = !loading && !armingBlocked && !agent.manageUrl
 
     const handleCardClick = useCallback(() => {
         if (!isInteractive) {
@@ -98,6 +99,9 @@ const AgentCard = memo(function AgentCard({
                 'rounded border p-3 transition-colors',
                 armed ? 'border-accent bg-accent-highlight-secondary' : 'border-primary bg-surface-primary',
                 isInteractive ? 'cursor-pointer hover:border-secondary' : 'cursor-default',
+                // Recede an unused legacy source so the newer one reads as the default choice. A
+                // team already on it keeps full contrast, since they still need to see its state.
+                agent.legacy && !armed ? 'opacity-60 hover:opacity-100' : '',
             ].join(' ')}
         >
             <div className="flex items-start justify-between gap-3">
@@ -109,6 +113,11 @@ const AgentCard = memo(function AgentCard({
                             {agent.alpha && (
                                 <LemonTag type="completion" size="small">
                                     Alpha
+                                </LemonTag>
+                            )}
+                            {agent.legacy && (
+                                <LemonTag type="caution" size="small">
+                                    Legacy
                                 </LemonTag>
                             )}
                         </div>
@@ -140,6 +149,10 @@ const AgentCard = memo(function AgentCard({
                     )}
                     {loading ? (
                         <Spinner className="text-lg" />
+                    ) : agent.manageUrl ? (
+                        <LemonButton type="secondary" size="small" to={agent.manageUrl} sideIcon={<IconArrowUpRight />}>
+                            {armed ? 'Manage' : 'Set up'}
+                        </LemonButton>
                     ) : requiresSetup ? (
                         <LemonButton type="primary" size="small" onClick={() => onToggle(agent.source)}>
                             Connect
@@ -208,6 +221,8 @@ export function AgentsRoster(): JSX.Element {
         ciSignalsConfigLoading,
         ciSignalsIsFullyEnabled,
         errorTrackingIsFullyEnabled,
+        hasEmittingScanner,
+        hasEmittingScannerLoading,
         isSessionAnalysisToggling,
         isConversationsToggling,
         isEvalReportsToggling,
@@ -258,6 +273,13 @@ export function AgentsRoster(): JSX.Element {
                         loading: isConversationsToggling,
                         requiresSetup: false,
                         syncStatus: conversationsConfig?.status,
+                    }
+                case 'replay_vision':
+                    return {
+                        armed: hasEmittingScanner === true,
+                        loading: hasEmittingScannerLoading,
+                        requiresSetup: false,
+                        syncStatus: null,
                     }
                 case 'session_replay':
                     return {
@@ -310,6 +332,8 @@ export function AgentsRoster(): JSX.Element {
             isErrorTrackingToggling,
             conversationsConfig,
             isConversationsToggling,
+            hasEmittingScanner,
+            hasEmittingScannerLoading,
             sessionAnalysisConfig,
             isSessionAnalysisToggling,
             evalReportsConfig,
@@ -336,6 +360,9 @@ export function AgentsRoster(): JSX.Element {
     const handleToggle = useCallback(
         (source: AgentRosterSource) => {
             switch (source) {
+                case 'replay_vision':
+                    // Owned by the Replay Vision scene, per scanner. The card links there instead.
+                    return
                 case 'error_tracking':
                     toggleErrorTracking()
                     return

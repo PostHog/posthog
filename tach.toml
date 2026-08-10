@@ -702,6 +702,9 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
+    # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
+    "products.replay_vision",
     "products.skills",
     "products.surveys",
     "products.tasks",

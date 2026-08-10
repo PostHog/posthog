@@ -28,6 +28,7 @@ export function SignalSourcesPanel(): JSX.Element {
     const {
         loadSources,
         loadSourceConfigs,
+        loadHasEmittingScanner,
         loadToolDataEvents,
         closeSessionAnalysisSetup,
         closeDataSourceSetup,
@@ -37,6 +38,7 @@ export function SignalSourcesPanel(): JSX.Element {
     useEffect(() => {
         loadSources()
         loadSourceConfigs()
+        loadHasEmittingScanner()
         loadToolDataEvents()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

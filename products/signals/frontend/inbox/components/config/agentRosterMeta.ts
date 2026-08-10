@@ -1,4 +1,5 @@
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { SignalSourceProduct } from '../../types'
 
@@ -10,6 +11,7 @@ import { SignalSourceProduct } from '../../types'
 export type AgentRosterSource =
     | 'error_tracking'
     | 'conversations'
+    | 'replay_vision'
     | 'session_replay'
     | 'llm_analytics'
     | 'analytics'
@@ -29,6 +31,13 @@ export interface AgentRosterDefinition {
     docsUrl?: string
     docsLabel?: string
     alpha?: boolean
+    /** Superseded by another source. Tagged and dimmed so it reads as the older option. */
+    legacy?: boolean
+    /**
+     * Scene that owns this source's on/off state, for sources with no `SignalSourceConfig` row to
+     * toggle. The card links there instead of showing a switch.
+     */
+    manageUrl?: string
     /** Show this entry only while the given feature flag is enabled (alpha rollouts). */
     flag?: FeatureFlagKey
 }
@@ -59,13 +68,22 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 docsLabel: 'Support',
             },
             {
+                source: 'replay_vision',
+                sourceProduct: SignalSourceProduct.ReplayVision,
+                label: 'Replay vision',
+                description: 'Bugs and UX problems scanners find while watching recordings.',
+                docsUrl: 'https://posthog.com/docs/replay-vision',
+                docsLabel: 'Replay vision',
+                manageUrl: urls.replayVision(),
+            },
+            {
                 source: 'session_replay',
                 sourceProduct: SignalSourceProduct.SessionReplay,
                 label: 'Session replay',
-                description: 'UX problems found in session recordings.',
+                description: 'UX problems found in session recordings. Replay vision covers this now.',
                 docsUrl: 'https://posthog.com/docs/session-replay',
                 docsLabel: 'Session replay',
-                alpha: true,
+                legacy: true,
             },
             {
                 source: 'llm_analytics',

@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import type { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,6 +28,7 @@ import {
 } from 'products/engineering_analytics/frontend/generated/api'
 import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
+import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
@@ -212,6 +214,8 @@ export interface signalSourcesLogicValues {
     errorTrackingIsFullyEnabled: boolean
     evalReportsConfig: SignalSourceConfig | null
     githubIssuesConfig: SignalSourceConfig | null
+    hasEmittingScanner: boolean | null
+    hasEmittingScannerLoading: boolean
     hasNoSources: boolean
     healthChecksConfig: SignalSourceConfig | null
     isAnomalyInvestigationToggling: boolean
@@ -283,6 +287,21 @@ export interface signalSourcesLogicActions {
         payload?: any
     ) => {
         ciSignalsConfig: CISignalsConfigApi
+        payload?: any
+    }
+    loadHasEmittingScanner: () => any
+    loadHasEmittingScannerFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHasEmittingScannerSuccess: (
+        hasEmittingScanner: boolean,
+        payload?: any
+    ) => {
+        hasEmittingScanner: boolean
         payload?: any
     }
     loadSourceConfigs: () => any
@@ -412,7 +431,7 @@ export interface signalSourcesLogicMeta {
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
         isSessionAnalysisRunning: (sessionAnalysisConfig: SignalSourceConfig | null) => boolean
-        enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null) => number
+        enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null) => number
         hasNoSources: (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number) => boolean
     }
 }
@@ -495,6 +514,30 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         limit: TOOL_USAGE_EVENTS.length,
                     })
                     return new Set(response.results.map(({ name }) => name))
+                },
+            },
+        ],
+        // Replay Vision never writes a `SignalSourceConfig` row: each scanner's own `emits_signals`
+        // flag is the per-source authorization, so its roster row reads the scanners API instead.
+        // `null` until the answer is in, so callers can tell "nothing there" from "not asked yet".
+        hasEmittingScanner: [
+            null as boolean | null,
+            {
+                loadHasEmittingScanner: async (): Promise<boolean> => {
+                    try {
+                        // `ApiConfig` over `teamLogic.values.currentTeamId`: the team loads async, so
+                        // on a cold mount the kea value is still null and the source reads as off.
+                        const response = await visionScannersList(String(ApiConfig.getCurrentProjectId()), {
+                            enabled: 'enabled',
+                            emits_signals: true,
+                            limit: 1,
+                        })
+                        return response.count > 0
+                    } catch {
+                        // This only ever adds a source, so a blip should read as "none" rather than
+                        // stranding every consumer of the count on a loading state.
+                        return false
+                    }
                 },
             },
         ],
@@ -742,6 +785,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const team = currentTeam as TeamType | null
                 const has = (...events: string[]): boolean | null =>
                     toolDataEvents ? events.some((event) => toolDataEvents.has(event)) : null
+                // Both replay sources read recordings, so they stand or fall on the same opt-in.
+                const sessionReplayTool: SourceToolStatus = {
+                    toolName: 'Session replay',
+                    enabled: !!team?.session_recording_opt_in,
+                    enablement: 'session_replay',
+                    // Recordings never produce event definitions, so there is no cheap signal.
+                    receivingData: null,
+                }
                 return {
                     error_tracking: {
                         toolName: 'Error tracking',
@@ -751,13 +802,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         enablement: 'error_tracking',
                         receivingData: has('$exception'),
                     },
-                    session_replay: {
-                        toolName: 'Session replay',
-                        enabled: !!team?.session_recording_opt_in,
-                        enablement: 'session_replay',
-                        // Recordings never produce event definitions, so there is no cheap signal.
-                        receivingData: null,
-                    },
+                    replay_vision: sessionReplayTool,
+                    session_replay: sessionReplayTool,
                     conversations: {
                         toolName: 'Support',
                         enabled: !!team?.conversations_enabled,
@@ -807,19 +853,23 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
         ],
         enabledSourcesCount: [
-            (s) => [s.sourceConfigs],
+            (s) => [s.sourceConfigs, s.hasEmittingScanner],
             // The scout gate is a meta-toggle surfaced in the Scout troop section, not a generic
             // signal source — exclude it so a scout-only project doesn't show the "Signal sources"
-            // setup card as done with a phantom "1 watching".
-            (sourceConfigs: SignalSourceConfig[] | null): number =>
-                sourceConfigs?.filter(
-                    (c) =>
-                        c.enabled &&
-                        !(
-                            c.source_product === SignalSourceProduct.SignalsScout &&
-                            c.source_type === SignalSourceType.CrossSourceIssue
-                        )
-                ).length ?? 0,
+            // setup card as done with a phantom "1 watching". Replay Vision has no config row at
+            // all, so it is counted separately, once, however many of its scanners emit.
+            (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null): number => {
+                const configured =
+                    sourceConfigs?.filter(
+                        (c) =>
+                            c.enabled &&
+                            !(
+                                c.source_product === SignalSourceProduct.SignalsScout &&
+                                c.source_type === SignalSourceType.CrossSourceIssue
+                            )
+                    ).length ?? 0
+                return configured + (hasEmittingScanner ? 1 : 0)
+            },
         ],
         hasNoSources: [
             (s) => [s.sourceConfigs, s.enabledSourcesCount],
@@ -1205,6 +1255,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()
+                actions.loadHasEmittingScanner()
                 if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
                     actions.loadCiSignalsConfig()
                 }

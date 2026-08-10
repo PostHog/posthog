@@ -36,7 +36,7 @@ describe('inboxOnboardingLogic', () => {
                 { areCountsResolved: false },
                 { mode: 'none', reason: 'counts_loading' },
             ],
-            // Set up (a source or scout is watching) → no onboarding at all, and no wait on counts.
+            // Set up (a source, scout, or scanner is watching) → no onboarding at all, and no wait on counts.
             ['set up, empty inbox', { isSelfDrivingSetUp: true }, { mode: 'none', reason: 'already_set_up' }],
             [
                 'set up, with work',

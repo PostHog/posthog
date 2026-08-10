@@ -17,6 +17,8 @@ import { SignalSourcesPanel } from './SignalSourcesPanel'
 interface PanelState {
     // Armed sources
     errorTrackingArmed: boolean
+    /** Replay Vision arms per scanner, so this stands in for "a scanner emits signals". */
+    replayVisionArmed: boolean
     sessionReplayArmed: boolean
     supportArmed: boolean
     aiObservabilityArmed: boolean
@@ -88,6 +90,11 @@ function PanelHarness(state: PanelState): JSX.Element {
                 },
             ],
             '/api/projects/:team_id/signals/source_configs/': () => [200, { results: sourceConfigsFor(state) }],
+            // Only the count is read, so the rows can stay empty.
+            '/api/projects/:team_id/vision/scanners/': () => [
+                200,
+                { count: state.replayVisionArmed ? 1 : 0, next: null, previous: null, results: [] },
+            ],
             '/api/projects/:team_id/event_definitions/': () => [
                 200,
                 {
@@ -129,6 +136,7 @@ const meta: Meta<typeof PanelHarness> = {
     },
     args: {
         errorTrackingArmed: true,
+        replayVisionArmed: true,
         sessionReplayArmed: true,
         supportArmed: false,
         aiObservabilityArmed: false,
@@ -153,6 +161,7 @@ export const Playground: Story = {}
 export const ArmedButToolsOff: Story = {
     args: {
         errorTrackingArmed: true,
+        replayVisionArmed: true,
         sessionReplayArmed: true,
         supportArmed: true,
         exceptionAutocaptureOn: false,
@@ -168,6 +177,7 @@ export const ArmedButToolsOff: Story = {
 export const ArmingBlocked: Story = {
     args: {
         errorTrackingArmed: false,
+        replayVisionArmed: false,
         sessionReplayArmed: false,
         supportArmed: false,
         aiObservabilityArmed: false,
@@ -186,6 +196,7 @@ export const ArmingBlocked: Story = {
 export const EverythingHealthy: Story = {
     args: {
         errorTrackingArmed: true,
+        replayVisionArmed: true,
         sessionReplayArmed: true,
         supportArmed: true,
         aiObservabilityArmed: true,
@@ -204,6 +215,7 @@ export const EverythingHealthy: Story = {
 export const ToolsOnNoDataYet: Story = {
     args: {
         errorTrackingArmed: true,
+        replayVisionArmed: true,
         sessionReplayArmed: true,
         supportArmed: true,
         aiObservabilityArmed: true,
