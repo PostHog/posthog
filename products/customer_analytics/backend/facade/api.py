@@ -15,26 +15,53 @@ Do NOT:
 - Import DRF, serializers, or HTTP concerns
 """
 
+import asyncio
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime, time, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
+from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
+from django.db.models import (
+    BooleanField,
+    CharField,
+    Count,
+    DateTimeField,
+    Exists,
+    F,
+    Field,
+    FloatField,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    TextField,
+    Value,
+)
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 
 import structlog
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.group.util import get_group_by_key
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -46,7 +73,6 @@ from products.conversations.backend.facade.api import (
     list_account_tickets,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
-from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
@@ -62,6 +88,7 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
     coerce_is_big_number,
     normalize_options,
 )
+from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_properties_for_account
 from products.customer_analytics.backend.logic.event_stream_destination import (
     archive_event_stream_destination,
     send_test_slack_message as send_test_slack_message,
@@ -75,6 +102,7 @@ from products.customer_analytics.backend.logic.usage_spike_notifications import 
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
 from products.customer_analytics.backend.models import (
+    CANONICAL_DISPLAY_TYPE_BY_NAME,
     Account,
     AccountChannelSummary,
     AccountRelationship,
@@ -85,22 +113,33 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertySyncRun,
+    CustomPropertyValue,
     DisplayType,
     EventStream,
     EventStreamMember,
+    Meeting,
     SyncStatus,
+    SyncTrigger,
     TargetType,
 )
-from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
+from products.customer_analytics.backend.models.account import (
+    RETIRED_ROLE_KEYS,
+    AccountProperties as _ModelAccountProperties,
+)
+from products.customer_analytics.backend.models.custom_property_definition import (
+    DATA_TYPE_BY_DISPLAY_TYPE,
+    NUMERIC_DISPLAY_TYPES,
+    DataType,
+)
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
 )
 
-# ResourceNotebook stays a direct import for the account-list Prefetch only — prefetching the
-# account -> ResourceNotebook -> notebook relation can't cross a data facade. All account-notebook
-# CRUD goes through `notebooks` (the facade). Tracked by the notebooks legacy-leak interface block.
+# ResourceNotebook stays a direct import for account-list reads because the account relation cannot
+# cross a data facade. All account-notebook CRUD goes through `notebooks` (the facade). Tracked by
+# the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
 from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
 
@@ -120,19 +159,11 @@ if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
     from products.customer_analytics.backend.models import CustomPropertyValue
-
-
-def _to_assignment(assignment) -> contracts.AccountAssignment | None:
-    if assignment is None:
-        return None
-    return contracts.AccountAssignment(id=assignment.id, email=assignment.email)
+    from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
     return contracts.AccountProperties(
-        csm=_to_assignment(properties.csm),
-        account_executive=_to_assignment(properties.account_executive),
-        account_owner=_to_assignment(properties.account_owner),
         stripe_customer_id=properties.stripe_customer_id,
         hubspot_deal_id=properties.hubspot_deal_id,
         billing_id=properties.billing_id,
@@ -140,6 +171,7 @@ def _to_account_properties(properties: _ModelAccountProperties) -> contracts.Acc
         zendesk_id=properties.zendesk_id,
         slack_channel_id=properties.slack_channel_id,
         usage_dashboard_link=properties.usage_dashboard_link,
+        metabase_link=properties.metabase_link,
     )
 
 
@@ -361,14 +393,27 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     )
 
 
+def _json_safe_scalar(value: Any) -> float | bool | str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, float | bool | str):
+        return value
+    return None
+
+
 def _scalar_value(row: "CustomPropertyValue") -> float | bool | str | None:
     """Return the row's value as a JSON-safe scalar; datetimes become ISO strings."""
-    v = _custom_property_values_logic.value_of(row)
-    if isinstance(v, datetime):
-        return v.isoformat()
-    if isinstance(v, float | bool | str):
-        return v
-    return None
+    return _json_safe_scalar(_custom_property_values_logic.value_of(row))
+
+
+def _scalar_value_for_display_type(row: "CustomPropertyValue", display_type: DisplayType) -> float | bool | str | None:
+    value_column = {
+        DataType.STRING: "value_str",
+        DataType.NUMERIC: "value_num",
+        DataType.BOOLEAN: "value_bool",
+        DataType.DATETIME: "value_datetime",
+    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
+    return _json_safe_scalar(getattr(row, value_column))
 
 
 def _get_external_account_by_external_id(team_id: int, external_id: str) -> Account | None:
@@ -401,6 +446,36 @@ def _account_name_from_group(team: Team, external_id: str) -> str:
     return str(name) if name else external_id
 
 
+def get_account_group_type_name(team: Team) -> str | None:
+    """The group type name accounts are keyed on, or None when customer analytics is unconfigured."""
+    group_type_index = team.customer_analytics_config.account_group_type_index
+    if group_type_index is None:
+        return None
+    group_types = get_group_types_for_project(team.project_id, caller_tag="customer_analytics/account_audience")
+    for mapping in group_types:
+        if mapping["group_type_index"] == group_type_index:
+            return mapping["group_type"]
+    return None
+
+
+def count_accounts_for_audience(team: Team, filters: "AccountAudienceFilters") -> int:
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.count_accounts_for_audience(team, filters)
+
+
+def list_account_external_ids_for_audience(
+    team: Team, filters: "AccountAudienceFilters", *, cursor: str | None, limit: int
+) -> list[str]:
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.list_account_external_ids_for_audience(team, filters, cursor=cursor, limit=limit)
+
+
 def create_external_account(
     team: Team, *, external_id: str, workflow_id: str | None = None
 ) -> tuple[contracts.ExternalAccount, bool]:
@@ -408,6 +483,8 @@ def create_external_account(
     whether it was created; an existing account is returned untouched. The name comes from the
     matching group's ``name`` property (fallback: the external id). Attribution goes to the
     originating workflow (activity-log trigger) — there is no acting user on this path.
+    On workflow-originated creates, warehouse-backed custom properties are synced inline
+    (best-effort) so the response already carries them.
     Raises ``AccountPropertiesValidationError`` / ``AccountConflictError`` (concurrent create)."""
     existing = _get_external_account_by_external_id(team.pk, external_id)
     if existing is not None:
@@ -416,6 +493,11 @@ def create_external_account(
     account = create_account(
         team=team, name=_account_name_from_group(team, external_id), external_id=external_id, trigger=trigger
     )
+    if workflow_id is not None:
+        # Synchronous so the workflow can read the values in its next step; best-effort inside —
+        # a sync failure never fails the creation. Workflow-only to keep the per-request warehouse
+        # fan-out off the general create path.
+        sync_custom_properties_for_account(team_id=team.pk, external_id=external_id)
     return _to_external_account(account), True
 
 
@@ -695,6 +777,12 @@ class CustomPropertyDefinitionConflictError(Exception):
     """Raised when a custom property definition violates the per-team unique name constraint."""
 
 
+class CanonicalCustomPropertyReadOnlyError(Exception):
+    """Raised when an update would change a field PostHog owns on a canonical custom property —
+    its name or display type. Both are what the write path matches on, so a user editing them
+    would silently stop the values from being recorded (→ 400)."""
+
+
 class ResourceForbiddenError(Exception):
     """Raised when the caller passes resource/object access checks at the team level but
     lacks the object-level access required for the action — the view maps this to 403,
@@ -958,6 +1046,7 @@ def _to_custom_property_definition_view(
         target_type=definition.target_type,
         group_type_index=definition.group_type_index,
         is_big_number=definition.is_big_number,
+        is_canonical=definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME,
         created_at=definition.created_at,
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
@@ -1124,6 +1213,21 @@ def create_custom_property_definition(
     return _to_custom_property_definition_view(definition)
 
 
+def _assert_canonical_fields_unchanged(definition: CustomPropertyDefinition, fields: dict[str, Any]) -> None:
+    """Refuse a rename or a type change on a canonical property — PostHog owns both.
+
+    Everything else on the definition (description, position in a view) stays editable. Deleting
+    it is allowed: the next recorded value recreates it.
+    """
+    if definition.name not in CANONICAL_DISPLAY_TYPE_BY_NAME:
+        return
+    for attr in ("name", "display_type"):
+        if attr in fields and fields[attr] != getattr(definition, attr):
+            raise CanonicalCustomPropertyReadOnlyError(
+                f"'{definition.name}' is set by PostHog, so its {attr.replace('_', ' ')} can't be changed."
+            )
+
+
 def update_custom_property_definition(
     *,
     team_id: int,
@@ -1139,6 +1243,7 @@ def update_custom_property_definition(
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
     if definition is None:
         return None
+    _assert_canonical_fields_unchanged(definition, fields)
     previous = CustomPropertyDefinition.objects.get(pk=definition.pk)
     for attr, value in fields.items():
         setattr(definition, attr, value)
@@ -1286,6 +1391,7 @@ def _to_custom_property_source_view(
     if isinstance(enrichment, _ResolveEnrichmentInline):
         schema = _resolve_person_source_schema(source, user_access_control)
         latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
+        _expire_stale_running_runs(source.team_id, [latest])
     else:
         schema, latest = enrichment
     if schema is not None:
@@ -1348,6 +1454,7 @@ def _batch_source_enrichment(
         .distinct("source_id")
     }
     enrichment: dict[Any, tuple[Any, CustomPropertySyncRun | None]] = {}
+    authorized_runs: list[CustomPropertySyncRun | None] = []
     for source in person_sources:
         schema = schemas_by_id.get(source.external_data_schema_id)
         if (
@@ -1357,7 +1464,12 @@ def _batch_source_enrichment(
         ):
             schema = None
         latest = latest_run_by_source_id.get(source.id) if schema is not None else None
+        # Only mutate runs the caller can view; expiring runs for hidden schemas would let a
+        # denied viewer flip their status through the source-list endpoint.
+        if latest is not None:
+            authorized_runs.append(latest)
         enrichment[source.id] = (schema, latest)
+    _expire_stale_running_runs(team_id, authorized_runs)
     return enrichment
 
 
@@ -1431,11 +1543,40 @@ def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
 _WAREHOUSE_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
 
 
+# A run row only reaches a terminal state when its activity records one, so a sync that died before
+# getting there — an import that failed ahead of the person-property step, a killed worker — would sit
+# "running" forever, misreporting the source and keeping its sync/backfill buttons disabled. Six hours
+# matches the sync activity's start_to_close timeout, so nothing live is behind an older row.
+STALE_RUNNING_RUN_AFTER = timedelta(hours=6)
+STALE_RUNNING_RUN_ERROR = "This run never reported a result. The sync may have failed before it ran."
+
+
+def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncRun | None]") -> None:
+    """Fail abandoned 'running' rows, both in the database and in the passed-in objects so the caller
+    serializes what it just wrote. Runs on the read paths the UI polls, so a stuck row self-heals."""
+    cutoff = timezone.now() - STALE_RUNNING_RUN_AFTER
+    stale = [
+        run
+        for run in runs
+        if run is not None and run.status == SyncStatus.RUNNING.value and (run.started_at or run.created_at) < cutoff
+    ]
+    if not stale:
+        return
+    finished_at = timezone.now()
+    CustomPropertySyncRun.objects.for_team(team_id).filter(id__in=[run.id for run in stale]).update(
+        status=SyncStatus.FAILED.value, finished_at=finished_at, error=STALE_RUNNING_RUN_ERROR
+    )
+    for run in stale:
+        run.status = SyncStatus.FAILED.value
+        run.finished_at = finished_at
+        run.error = STALE_RUNNING_RUN_ERROR
+
+
 def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any]:
     """Insert a 'running' run for each enabled person/group source on the schema that isn't already
-    running. The UI shows these as in-progress and disables the trigger while they exist; the backfill
-    activity reconciles them to their terminal state (see record_sync_run). Skipping sources that
-    already have a running run makes this a no-op when a backfill for the table is already in flight
+    running. The UI shows these as in-progress and disables the trigger while they exist; the sync and
+    backfill activities reconcile them to their terminal state (see record_sync_run). Skipping sources
+    that already have a running run makes this a no-op when a run for the table is already in flight
     (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
     to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
     with transaction.atomic():
@@ -1452,11 +1593,12 @@ def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any
         )
         if not sources:
             return []
-        already_running = set(
-            CustomPropertySyncRun.objects.for_team(team_id)
-            .filter(source__in=sources, status=SyncStatus.RUNNING.value)
-            .values_list("source_id", flat=True)
+        running = list(
+            CustomPropertySyncRun.objects.for_team(team_id).filter(source__in=sources, status=SyncStatus.RUNNING.value)
         )
+        # An abandoned row must not coalesce away a fresh trigger.
+        _expire_stale_running_runs(team_id, running)
+        already_running = {run.source_id for run in running if run.status == SyncStatus.RUNNING.value}
         to_create = [source for source in sources if source.id not in already_running]
         now = timezone.now()
         CustomPropertySyncRun.objects.bulk_create(
@@ -1583,10 +1725,18 @@ def trigger_person_property_sync(
         trigger_schema_sync,
     )
 
+    # Open the run rows before the sync starts, so the history shows it in progress right away and the
+    # trigger buttons stay disabled until it settles. The person-property activity reconciles them
+    # when the import reaches it (see record_sync_run).
+    created_source_ids = _create_running_runs(team_id, schema_id, SyncTrigger.SYNC.value)
     try:
         trigger_schema_sync(team_id=team_id, schema_id=schema_id)
     except ExternalDataSchemaSyncPausedError as e:
+        _fail_created_runs(team_id, created_source_ids, "Warehouse syncs are paused for this project")
         raise WarehouseSyncPausedError(str(e)) from e
+    except Exception:
+        _fail_created_runs(team_id, created_source_ids, "Failed to start sync")
+        raise
     return True
 
 
@@ -1779,7 +1929,8 @@ def list_custom_property_sync_runs(
         _assert_warehouse_source_viewer(team_id, source.external_data_schema_id, user_access_control)
     queryset = CustomPropertySyncRun.objects.for_team(team_id).filter(source_id=source_id).order_by("-created_at")
     total_count = queryset.count()
-    page = queryset[offset : offset + limit]
+    page = list(queryset[offset : offset + limit])
+    _expire_stale_running_runs(team_id, page)
     return [_to_sync_run_view(run) for run in page], total_count
 
 
@@ -1938,8 +2089,10 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         name=account.name,
         external_id=account.external_id,
         # Raw stored JSON (already ``exclude_unset`` from the manager), so an account with
-        # no assignments serializes ``properties`` as ``{}`` exactly as before.
-        properties=account._properties or {},
+        # no assignments serializes ``properties`` as ``{}`` exactly as before. Retired role
+        # keys are dropped: rows not yet backfilled must not leak them into responses, or the
+        # frontend's read-modify-write of ``properties`` sends them back and gets a 400.
+        properties={k: v for k, v in (account._properties or {}).items() if k not in RETIRED_ROLE_KEYS},
         # Unsorted, matching the old ``TaggedItemSerializerMixin.to_representation`` output.
         tags=_account_view_tags(account),
         notebooks=_account_view_notebooks(account),
@@ -1950,6 +2103,493 @@ def _to_account_view(account: Account) -> contracts.AccountView:
     )
 
 
+class InvalidAccountTableColumn(ValueError):
+    pass
+
+
+ACCOUNT_TABLE_MAX_HISTORY_POINTS = 50_000
+
+
+def _account_table_field_values(
+    account: Account, fields: frozenset[contracts.AccountTableField]
+) -> dict[contracts.AccountTableField, str | None]:
+    properties = account.properties
+    values: dict[contracts.AccountTableField, str | None] = {}
+    for field in sorted(fields, key=lambda account_field: account_field.value):
+        match field:
+            case contracts.AccountTableField.NAME:
+                values[field] = account.name
+            case contracts.AccountTableField.EXTERNAL_ID:
+                values[field] = account.external_id
+            case contracts.AccountTableField.CREATED_AT:
+                values[field] = account.created_at.isoformat() if account.created_at else None
+            case contracts.AccountTableField.UPDATED_AT:
+                values[field] = account.updated_at.isoformat() if account.updated_at else None
+            case contracts.AccountTableField.STRIPE_CUSTOMER_ID:
+                values[field] = properties.stripe_customer_id
+            case contracts.AccountTableField.HUBSPOT_DEAL_ID:
+                values[field] = properties.hubspot_deal_id
+            case contracts.AccountTableField.BILLING_ID:
+                values[field] = properties.billing_id
+            case contracts.AccountTableField.SFDC_ID:
+                values[field] = properties.sfdc_id
+            case contracts.AccountTableField.ZENDESK_ID:
+                values[field] = properties.zendesk_id
+            case _:
+                raise ValueError(f"Unsupported account table field: {field}")
+    return values
+
+
+def _validate_account_table_definitions(
+    *,
+    team_id: int,
+    selection: contracts.AccountTableColumnSelection,
+    filters: tuple[contracts.AccountTableFilter, ...],
+    sort: contracts.AccountTableSort | None,
+) -> dict[UUID, DisplayType]:
+    relationship_ids = set(selection.relationship_definition_ids)
+    if sort and sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
+        if sort.definition_id is None:
+            raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
+        relationship_ids.add(sort.definition_id)
+    if relationship_ids:
+        valid_relationship_ids = set(
+            AccountRelationshipDefinition.objects.for_team(team_id)
+            .filter(id__in=relationship_ids)
+            .values_list("id", flat=True)
+        )
+        invalid_relationship_ids = relationship_ids - valid_relationship_ids
+        if invalid_relationship_ids:
+            invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_relationship_ids))
+            raise InvalidAccountTableColumn(f"Unknown relationship definitions: {invalid_ids}")
+
+    custom_property_ids = set(selection.custom_property_definition_ids) | set(selection.custom_property_history_windows)
+    custom_property_ids.update(
+        filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableCustomPropertyFilter)
+    )
+    if sort and sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
+        if sort.definition_id is None:
+            raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
+        custom_property_ids.add(sort.definition_id)
+    if not custom_property_ids:
+        return {}
+
+    custom_property_display_types = {
+        definition_id: DisplayType(display_type)
+        for definition_id, display_type in CustomPropertyDefinition.objects.for_team(team_id)
+        .filter(id__in=custom_property_ids, target_type=TargetType.ACCOUNT)
+        .values_list("id", "display_type")
+    }
+    invalid_custom_property_ids = custom_property_ids - set(custom_property_display_types)
+    if invalid_custom_property_ids:
+        invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_custom_property_ids))
+        raise InvalidAccountTableColumn(f"Unknown account custom property definitions: {invalid_ids}")
+
+    non_numeric_history_ids = {
+        definition_id
+        for definition_id in selection.custom_property_history_windows
+        if custom_property_display_types[definition_id].value not in NUMERIC_DISPLAY_TYPES
+    }
+    if non_numeric_history_ids:
+        invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in non_numeric_history_ids))
+        raise InvalidAccountTableColumn(f"Custom property history requires numeric definitions: {invalid_ids}")
+    return custom_property_display_types
+
+
+def _coerce_datetime_filter_value(value: float | bool | str) -> datetime:
+    if not isinstance(value, str):
+        raise InvalidAccountTableColumn("Date custom property filters require ISO-8601 values.")
+    parsed_datetime = parse_datetime(value)
+    if parsed_datetime is None:
+        parsed_date = parse_date(value)
+        if parsed_date is None:
+            raise InvalidAccountTableColumn("Date custom property filters require ISO-8601 values.")
+        parsed_datetime = datetime.combine(parsed_date, time.min, tzinfo=UTC)
+    elif timezone.is_naive(parsed_datetime):
+        parsed_datetime = timezone.make_aware(parsed_datetime, UTC)
+    return parsed_datetime
+
+
+def _coerce_custom_property_filter_values(
+    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType
+) -> tuple[float | bool | str | datetime, ...]:
+    data_type = DATA_TYPE_BY_DISPLAY_TYPE[display_type]
+    values = filter_.values
+    if filter_.operator in {
+        contracts.AccountTableCustomPropertyOperator.IS_SET,
+        contracts.AccountTableCustomPropertyOperator.IS_NOT_SET,
+    }:
+        return ()
+    if not values:
+        raise InvalidAccountTableColumn("Custom property filters require at least one value.")
+
+    if data_type == DataType.NUMERIC:
+        if any(isinstance(value, bool) for value in values):
+            raise InvalidAccountTableColumn("Numeric custom property filters require numeric values.")
+        try:
+            return tuple(float(value) for value in values)
+        except (TypeError, ValueError) as error:
+            raise InvalidAccountTableColumn("Numeric custom property filters require numeric values.") from error
+    if data_type == DataType.BOOLEAN:
+        coerced: list[bool] = []
+        for value in values:
+            if isinstance(value, bool):
+                coerced.append(value)
+            elif str(value).lower() in {"true", "1"}:
+                coerced.append(True)
+            elif str(value).lower() in {"false", "0"}:
+                coerced.append(False)
+            else:
+                raise InvalidAccountTableColumn("Boolean custom property filters require true or false values.")
+        return tuple(coerced)
+    if data_type == DataType.DATETIME:
+        return tuple(_coerce_datetime_filter_value(value) for value in values)
+    return tuple(str(value) for value in values)
+
+
+def _custom_property_filter_predicate(
+    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType
+) -> tuple[Q, bool]:
+    operator = filter_.operator
+    data_type = DATA_TYPE_BY_DISPLAY_TYPE[display_type]
+    values = _coerce_custom_property_filter_values(filter_, display_type)
+    value_field = {
+        DataType.STRING: "value_str",
+        DataType.NUMERIC: "value_num",
+        DataType.BOOLEAN: "value_bool",
+        DataType.DATETIME: "value_datetime",
+    }[data_type]
+
+    if operator == contracts.AccountTableCustomPropertyOperator.IS_SET:
+        return Q(), False
+    if operator == contracts.AccountTableCustomPropertyOperator.IS_NOT_SET:
+        return Q(), True
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.EXACT,
+        contracts.AccountTableCustomPropertyOperator.IS_NOT,
+    }:
+        return Q(**{f"{value_field}__in": values}), operator == contracts.AccountTableCustomPropertyOperator.IS_NOT
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.REGEX,
+        contracts.AccountTableCustomPropertyOperator.NOT_REGEX,
+    }:
+        raise InvalidAccountTableColumn("Regex custom property filters are not supported by account table queries.")
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.CONTAINS,
+        contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN,
+    }:
+        if data_type != DataType.STRING:
+            raise InvalidAccountTableColumn("Contains operators require a text custom property.")
+        predicate = Q()
+        for value in values:
+            predicate |= Q(value_str__icontains=value)
+        return predicate, operator == contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.GREATER_THAN,
+        contracts.AccountTableCustomPropertyOperator.GREATER_THAN_OR_EQUAL,
+        contracts.AccountTableCustomPropertyOperator.LESS_THAN,
+        contracts.AccountTableCustomPropertyOperator.LESS_THAN_OR_EQUAL,
+    }:
+        if data_type != DataType.NUMERIC:
+            raise InvalidAccountTableColumn("Comparison operators require a numeric custom property.")
+        if len(values) != 1:
+            raise InvalidAccountTableColumn("Numeric comparison filters require one value.")
+        lookup = {
+            contracts.AccountTableCustomPropertyOperator.GREATER_THAN: "gt",
+            contracts.AccountTableCustomPropertyOperator.GREATER_THAN_OR_EQUAL: "gte",
+            contracts.AccountTableCustomPropertyOperator.LESS_THAN: "lt",
+            contracts.AccountTableCustomPropertyOperator.LESS_THAN_OR_EQUAL: "lte",
+        }[operator]
+        return Q(**{f"value_num__{lookup}": values[0]}), False
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.DATE_EXACT,
+        contracts.AccountTableCustomPropertyOperator.DATE_BEFORE,
+        contracts.AccountTableCustomPropertyOperator.DATE_AFTER,
+    }:
+        if data_type != DataType.DATETIME:
+            raise InvalidAccountTableColumn("Date operators require a date or datetime custom property.")
+        if len(values) != 1:
+            raise InvalidAccountTableColumn("Date comparison filters require one value.")
+        if operator == contracts.AccountTableCustomPropertyOperator.DATE_EXACT:
+            target_date = cast(datetime, values[0]).replace(hour=0, minute=0, second=0, microsecond=0)
+            return Q(value_datetime__gte=target_date, value_datetime__lt=target_date + timedelta(days=1)), False
+        lookup = {
+            contracts.AccountTableCustomPropertyOperator.DATE_BEFORE: "lt",
+            contracts.AccountTableCustomPropertyOperator.DATE_AFTER: "gt",
+        }[operator]
+        return Q(**{f"value_datetime__{lookup}": values[0]}), False
+    raise InvalidAccountTableColumn(f"Unsupported custom property filter operator: {operator.value}")
+
+
+def _apply_account_table_filters(
+    queryset: QuerySet[Account],
+    *,
+    team_id: int,
+    filters: tuple[contracts.AccountTableFilter, ...],
+    custom_property_display_types: dict[UUID, DisplayType],
+) -> QuerySet[Account]:
+    active_relationships = AccountRelationship.objects.for_team(team_id).filter(
+        account_id=OuterRef("pk"), ended_at__isnull=True, user_id__isnull=False
+    )
+    for filter_ in filters:
+        if isinstance(filter_, contracts.AccountTableSearchFilter):
+            query = filter_.query.strip()
+            if query:
+                queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
+        elif isinstance(filter_, contracts.AccountTableTagsFilter):
+            if filter_.tag_names:
+                matching_tags = TaggedItem.objects.filter(
+                    account_id=OuterRef("pk"), tag__team_id=team_id, tag__name__in=filter_.tag_names
+                )
+                queryset = queryset.filter(Exists(matching_tags))
+        elif isinstance(filter_, contracts.AccountTableAssignedToFilter):
+            if filter_.user_ids:
+                queryset = queryset.filter(Exists(active_relationships.filter(user_id__in=filter_.user_ids)))
+        elif isinstance(filter_, contracts.AccountTableUnassignedFilter):
+            queryset = queryset.filter(~Exists(active_relationships))
+        elif isinstance(filter_, contracts.AccountTableAccountIdFilter):
+            queryset = queryset.filter(id=filter_.account_id)
+        elif isinstance(filter_, contracts.AccountTableCustomPropertyFilter):
+            active_values = CustomPropertyValue.objects.for_team(team_id).filter(
+                account_id=OuterRef("pk"), definition_id=filter_.definition_id, is_deleted=False
+            )
+            predicate, negate_exists = _custom_property_filter_predicate(
+                filter_, custom_property_display_types[filter_.definition_id]
+            )
+            matching_values = active_values.filter(predicate)
+            queryset = queryset.filter(~Exists(matching_values) if negate_exists else Exists(matching_values))
+    return queryset
+
+
+def _custom_property_sort_output_field(display_type: DisplayType) -> Field:
+    return {
+        DataType.STRING: TextField(),
+        DataType.NUMERIC: FloatField(),
+        DataType.BOOLEAN: BooleanField(),
+        DataType.DATETIME: DateTimeField(),
+    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
+
+
+def _apply_account_table_sort(
+    queryset: QuerySet[Account],
+    *,
+    team_id: int,
+    sort: contracts.AccountTableSort | None,
+    custom_property_display_types: dict[UUID, DisplayType],
+) -> QuerySet[Account]:
+    if sort is None:
+        return queryset.order_by("-created_at", "-id")
+
+    if sort.kind == contracts.AccountTableSortKind.ACCOUNT_FIELD:
+        if sort.account_field is None:
+            raise InvalidAccountTableColumn("Account field sorting requires a field.")
+        direct_fields = {
+            contracts.AccountTableField.NAME: "name",
+            contracts.AccountTableField.EXTERNAL_ID: "external_id",
+            contracts.AccountTableField.CREATED_AT: "created_at",
+            contracts.AccountTableField.UPDATED_AT: "updated_at",
+        }
+        if direct_field := direct_fields.get(sort.account_field):
+            queryset = queryset.annotate(_account_table_sort=F(direct_field))
+        else:
+            queryset = queryset.annotate(_account_table_sort=KeyTextTransform(sort.account_field.value, "_properties"))
+    elif sort.kind == contracts.AccountTableSortKind.TAGS:
+        tag_values = (
+            TaggedItem.objects.filter(account_id=OuterRef("pk"), tag__team_id=team_id)
+            .values("account_id")
+            .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
+            .values("value")
+        )
+        queryset = queryset.annotate(_account_table_sort=Subquery(tag_values, output_field=ArrayField(CharField())))
+    elif sort.kind == contracts.AccountTableSortKind.NOTE_COUNT:
+        note_counts = (
+            ResourceNotebook.objects.filter(account_id=OuterRef("pk"))
+            .values("account_id")
+            .annotate(value=Count("id"))
+            .values("value")
+        )
+        queryset = queryset.annotate(
+            _account_table_sort=Coalesce(Subquery(note_counts, output_field=IntegerField()), Value(0))
+        )
+    elif sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
+        if sort.definition_id is None:
+            raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
+        relationship_values = (
+            AccountRelationship.objects.for_team(team_id)
+            .filter(
+                account_id=OuterRef("pk"),
+                definition_id=sort.definition_id,
+                ended_at__isnull=True,
+                user_id__isnull=False,
+            )
+            .values("account_id")
+            .annotate(value=ArrayAgg("user_id", order_by="user_id"))
+            .values("value")
+        )
+        queryset = queryset.annotate(
+            _account_table_sort=Subquery(relationship_values, output_field=ArrayField(IntegerField()))
+        )
+    elif sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
+        if sort.definition_id is None:
+            raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
+        display_type = custom_property_display_types[sort.definition_id]
+        value_field = {
+            DataType.STRING: "value_str",
+            DataType.NUMERIC: "value_num",
+            DataType.BOOLEAN: "value_bool",
+            DataType.DATETIME: "value_datetime",
+        }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
+        custom_property_value = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id=OuterRef("pk"), definition_id=sort.definition_id, is_deleted=False
+        )
+        queryset = queryset.annotate(
+            _account_table_sort=Subquery(
+                custom_property_value.values(value_field)[:1],
+                output_field=_custom_property_sort_output_field(display_type),
+            )
+        )
+
+    order = F("_account_table_sort")
+    primary_order = (
+        order.asc(nulls_last=True)
+        if sort.direction == contracts.AccountTableSortDirection.ASCENDING
+        else order.desc(nulls_last=True)
+    )
+    return queryset.order_by(primary_order, "id")
+
+
+def query_accounts_table(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    selection: contracts.AccountTableColumnSelection,
+    filters: tuple[contracts.AccountTableFilter, ...],
+    sort: contracts.AccountTableSort | None,
+    offset: int,
+    limit: int,
+) -> contracts.AccountTablePage:
+    custom_property_display_types = _validate_account_table_definitions(
+        team_id=team_id,
+        selection=selection,
+        filters=filters,
+        sort=sort,
+    )
+
+    queryset = _apply_account_table_filters(
+        _accounts_queryset(team_id, user_access_control),
+        team_id=team_id,
+        filters=filters,
+        custom_property_display_types=custom_property_display_types,
+    )
+    queryset = _apply_account_table_sort(
+        queryset,
+        team_id=team_id,
+        sort=sort,
+        custom_property_display_types=custom_property_display_types,
+    )
+    fetched_accounts = list(queryset[offset : offset + limit + 1])
+    has_more = len(fetched_accounts) > limit
+    accounts = fetched_accounts[:limit]
+    account_ids = [account.id for account in accounts]
+
+    tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
+    if selection.include_tags:
+        for account_id, tag_name in (
+            TaggedItem.objects.filter(account_id__in=account_ids)
+            .order_by("tag__name")
+            .values_list("account_id", "tag__name")
+        ):
+            tags_by_account[account_id].append(tag_name)
+
+    note_counts_by_account: dict[UUID, int] = dict.fromkeys(account_ids, 0)
+    if selection.include_note_count:
+        for result in (
+            ResourceNotebook.objects.filter(account_id__in=account_ids).values("account_id").annotate(count=Count("id"))
+        ):
+            note_counts_by_account[result["account_id"]] = result["count"]
+
+    relationship_ids = selection.relationship_definition_ids
+    sorted_relationship_ids = sorted(relationship_ids, key=lambda definition_id: definition_id.hex)
+    relationships_by_account: dict[UUID, dict[UUID, list[int]]] = {
+        account_id: {definition_id: [] for definition_id in sorted_relationship_ids} for account_id in account_ids
+    }
+    if relationship_ids:
+        for account_id, definition_id, user_id in (
+            AccountRelationship.objects.for_team(team_id)
+            .filter(
+                account_id__in=account_ids,
+                definition_id__in=relationship_ids,
+                ended_at__isnull=True,
+                user_id__isnull=False,
+            )
+            .order_by("user_id")
+            .values_list("account_id", "definition_id", "user_id")
+        ):
+            relationships_by_account[account_id][definition_id].append(user_id)
+
+    custom_property_ids = selection.custom_property_definition_ids
+    sorted_custom_property_ids = sorted(custom_property_ids, key=lambda definition_id: definition_id.hex)
+    custom_properties_by_account: dict[UUID, dict[UUID, float | bool | str | None]] = {
+        account_id: dict.fromkeys(sorted_custom_property_ids) for account_id in account_ids
+    }
+    if custom_property_ids:
+        for value in CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id__in=account_ids,
+            definition_id__in=custom_property_ids,
+            is_deleted=False,
+        ):
+            custom_properties_by_account[value.account_id][value.definition_id] = _scalar_value_for_display_type(
+                value, custom_property_display_types[value.definition_id]
+            )
+
+    history_windows = selection.custom_property_history_windows
+    custom_property_history_by_account: dict[
+        UUID, dict[UUID, list[contracts.AccountTableCustomPropertyHistoryPoint]]
+    ] = {account_id: {definition_id: [] for definition_id in history_windows} for account_id in account_ids}
+    if history_windows:
+        now = timezone.now()
+        history_filter = Q()
+        for definition_id, window_days in history_windows.items():
+            history_filter |= Q(definition_id=definition_id, created_at__gte=now - timedelta(days=window_days))
+            history_filter |= Q(definition_id=definition_id, is_deleted=False)
+        history_point_count = 0
+        history_values = (
+            CustomPropertyValue.objects.for_team(team_id)
+            .filter(history_filter, account_id__in=account_ids, value_num__isnull=False)
+            .order_by("created_at", "id")
+            .iterator(chunk_size=2_000)
+        )
+        for value in history_values:
+            history_point_count += 1
+            if history_point_count > ACCOUNT_TABLE_MAX_HISTORY_POINTS:
+                raise InvalidAccountTableColumn(
+                    f"Account table queries support up to {ACCOUNT_TABLE_MAX_HISTORY_POINTS} history points."
+                )
+            assert value.value_num is not None
+            custom_property_history_by_account[value.account_id][value.definition_id].append(
+                contracts.AccountTableCustomPropertyHistoryPoint(
+                    timestamp=value.created_at,
+                    value=value.value_num,
+                )
+            )
+
+    rows = [
+        contracts.AccountTableRow(
+            id=account.id,
+            name=account.name,
+            external_id=account.external_id,
+            account_fields=_account_table_field_values(account, selection.account_fields),
+            tags=tags_by_account[account.id] if selection.include_tags else None,
+            note_count=note_counts_by_account[account.id] if selection.include_note_count else None,
+            relationships=relationships_by_account[account.id],
+            custom_properties=custom_properties_by_account[account.id],
+            custom_property_history=custom_property_history_by_account[account.id],
+        )
+        for account in accounts
+    ]
+    return contracts.AccountTablePage(rows=rows, has_more=has_more, limit=limit, offset=offset)
+
+
 def list_accounts_for_view(
     *,
     team_id: int,
@@ -1958,14 +2598,11 @@ def list_accounts_for_view(
     limit: int,
     search: str | None = None,
     tags: list[str] | None = None,
-    csm: str | None = None,
-    account_executive: str | None = None,
-    account_owner: str | None = None,
     all_roles_unassigned: bool = False,
     ordering: str | None = None,
 ) -> tuple[list[contracts.AccountView], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
-    the search / tags / role / ordering query filters, notebook + tag prefetching, and
+    the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
     pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
     the view; an empty ``tags`` list is treated as "no tag filter" (matches old behavior)."""
     queryset = _accounts_queryset(team_id, user_access_control).prefetch_related(
@@ -1979,40 +2616,14 @@ def list_accounts_for_view(
     if tags:
         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
 
-    # An unset role serializes as JSON null, which ``_properties__role__isnull`` does not
-    # match; probing the nested ``id`` matches every unassigned shape (missing key, null
-    # value, or empty object).
+    # "Unassigned" means nobody actively holds any relationship on the account, matching the
+    # accounts list HogQL runner's allRolesUnassigned.
     if all_roles_unassigned:
-        queryset = queryset.filter(
-            _properties__csm__id__isnull=True,
-            _properties__account_executive__id__isnull=True,
-            _properties__account_owner__id__isnull=True,
+        queryset = queryset.exclude(
+            id__in=AccountRelationship.objects.for_team(team_id)
+            .filter(ended_at__isnull=True, user__isnull=False)
+            .values("account_id")
         )
-
-    if csm == "unassigned":
-        queryset = queryset.filter(_properties__csm__id__isnull=True)
-    elif csm:
-        try:
-            queryset = queryset.filter(_properties__csm__id=int(csm))
-        except ValueError:
-            # Malformed user id is a no-op (return all), not "match nothing" — old behavior.
-            pass
-
-    if account_executive == "unassigned":
-        queryset = queryset.filter(_properties__account_executive__id__isnull=True)
-    elif account_executive:
-        try:
-            queryset = queryset.filter(_properties__account_executive__id=int(account_executive))
-        except ValueError:
-            pass
-
-    if account_owner == "unassigned":
-        queryset = queryset.filter(_properties__account_owner__id__isnull=True)
-    elif account_owner:
-        try:
-            queryset = queryset.filter(_properties__account_owner__id=int(account_owner))
-        except ValueError:
-            pass
 
     queryset = queryset.order_by(ordering) if ordering else queryset.order_by("-created_at")
 
@@ -2084,9 +2695,9 @@ def create_account(
     was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> Account:
-    """The single account-creation write path: validates properties, sets tags, shadows role
-    assignments into the relationships table, and logs activity. Product-internal — it returns
-    the model, so it must not be called across the product boundary.
+    """The single account-creation write path: validates properties, sets tags, and logs
+    activity. Product-internal — it returns the model, so it must not be called across the
+    product boundary.
     Raises ``AccountPropertiesValidationError`` / ``AccountConflictError``."""
     try:
         with transaction.atomic():
@@ -2100,8 +2711,6 @@ def create_account(
                 slack_summary_cadence=slack_summary_cadence,
             )
             _set_tags(tags, account, actor=created_by)
-            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
-                _relationships_logic.sync_from_account_properties(account, created_by=created_by)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -2169,8 +2778,6 @@ def update_account_for_view(
         with transaction.atomic():
             account = update_account(account, **update_kwargs)
             _set_tags(input.tags, account, actor=user)
-            if input.properties_provided:
-                _relationships_logic.sync_from_account_properties(account, created_by=user)
             if input.external_id_provided and account.external_id != previous.external_id:
                 # The external_id is the account's group key — every stream filtering on
                 # the old key must be rebuilt or it keeps streaming the stale key's events.
@@ -2339,6 +2946,7 @@ def _to_channel_summary_view(summary: AccountChannelSummary) -> contracts.Accoun
         period_end=summary.period_end,
         content=summary.content,
         message_count=summary.message_count,
+        messages=summary.messages,
         generated_at=summary.generated_at,
     )
 
@@ -2416,9 +3024,13 @@ def record_channel_summary(
     period_end: datetime,
     content: str,
     message_count: int,
+    messages: list[dict] | None = None,
     model_name: str = "",
 ) -> str | None:
     """Store a finished channel summary pushed in by the conversations pipeline.
+
+    ``messages`` is the per-message audit metadata ([{author, sent_at, permalink}]),
+    never message text.
 
     Idempotent on ``(team, account, cadence, period_start)``: a retry or overlapping run
     resolves to the existing row's id instead of double-writing. Returns None when the
@@ -2439,6 +3051,7 @@ def record_channel_summary(
                 period_end=period_end,
                 content=content,
                 message_count=message_count,
+                messages=messages or [],
                 model_name=model_name,
             )
     except IntegrityError:
@@ -2475,6 +3088,124 @@ def get_account_support_tickets(
     return list_account_tickets(team_id, account.external_id, limit=limit)
 
 
+def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStatus]:
+    """Sync state of every connected calendar for the team: last completed sync and
+    whether a run is currently in flight (started but not finished, within the sync
+    activity's timeout — a run past it is considered dead, not running)."""
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415 — keeps requests/HogQL layers off the import path
+        LAST_SYNCED_AT_CONFIG_KEY,
+        SYNC_STALE_AFTER,
+        SYNC_STARTED_AT_CONFIG_KEY,
+    )
+
+    statuses = []
+    for integration in Integration.objects.filter(team_id=team_id, kind="google-calendar").order_by("id"):
+        config = integration.config or {}
+        last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
+        started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
+        is_syncing = bool(
+            started_at
+            and (last_synced_at is None or started_at > last_synced_at)
+            and started_at > timezone.now() - SYNC_STALE_AFTER
+        )
+        statuses.append(
+            contracts.CalendarSyncStatus(
+                integration_id=integration.id,
+                last_synced_at=last_synced_at,
+                is_syncing=is_syncing,
+            )
+        )
+    return statuses
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def trigger_calendar_sync(team_id: int, integration_id: int) -> str | None:
+    """Start the calendar-sync workflow for one connected calendar, outside the hourly
+    schedule. Returns 'started', 'already_running' (a sync for this calendar is in
+    flight; the workflow id is deterministic per integration), or None when the
+    integration doesn't exist for this team (→ 404)."""
+    if not Integration.objects.filter(id=integration_id, team_id=team_id, kind="google-calendar").exists():
+        return None
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
+
+    from products.customer_analytics.backend.temporal.calendar_sync import (  # noqa: PLC0415 — same
+        CalendarSyncInput,
+        CalendarSyncWorkflow,
+    )
+
+    client = sync_connect()
+    try:
+        asyncio.run(
+            client.start_workflow(
+                CalendarSyncWorkflow.run,
+                CalendarSyncInput(integration_id=integration_id, team_id=team_id),
+                id=f"google-calendar-sync-{integration_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        return "already_running"
+    return "started"
+
+
+def list_account_meetings(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 100,
+    search: str | None = None,
+) -> tuple[list[contracts.MeetingView], int] | None:
+    """Synced calendar meetings for an accessible account, newest first, optionally
+    filtered by ``search`` (title or attendee email/name). None when the account isn't
+    accessible (→ 404)."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
+    if search:
+        queryset = queryset.filter(
+            Q(title__icontains=search)
+            | Q(participants__email__icontains=search)
+            | Q(participants__display_name__icontains=search)
+        ).distinct()
+    count = queryset.count()
+    meetings = queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit]
+    views = [
+        contracts.MeetingView(
+            id=meeting.id,
+            title=meeting.title,
+            start_time=meeting.start_time,
+            end_time=meeting.end_time,
+            organizer_email=meeting.organizer_email,
+            status=meeting.status,
+            participants=[
+                contracts.MeetingParticipantView(
+                    email=participant.email,
+                    display_name=participant.display_name,
+                    response_status=participant.response_status,
+                    is_organizer=participant.is_organizer,
+                    person_id=participant.person_id,
+                )
+                for participant in meeting.participants.all()
+            ],
+        )
+        for meeting in meetings
+    ]
+    return views, count
+
+
 def list_account_notebooks(
     team_id: int,
     account_id: str,
@@ -2507,14 +3238,16 @@ def list_account_notes_for_view(
     """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
     restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
     and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
-    notes authored by the given users, ``assigned_to_ids`` to notes on accounts whose CSM or
-    account executive is one of the given users. Returns ``(page, total_count)``."""
+    notes authored by the given users, ``assigned_to_ids`` to notes on accounts where one of the
+    given users actively holds a relationship. Returns ``(page, total_count)``."""
     accounts = _accounts_queryset(team_id, user_access_control)
     if assigned_to_ids:
-        # "Assigned to" means CSM or AE (account_owner excluded), matching the accounts list
-        # HogQL runner's ASSIGNED_ROLE_KEYS.
+        # "Assigned to" means any active relationship, matching the accounts list HogQL
+        # runner's assignedToUserIds.
         accounts = accounts.filter(
-            Q(_properties__csm__id__in=assigned_to_ids) | Q(_properties__account_executive__id__in=assigned_to_ids)
+            id__in=AccountRelationship.objects.for_team(team_id)
+            .filter(ended_at__isnull=True, user_id__in=assigned_to_ids)
+            .values("account_id")
         )
     accessible_account_ids = accounts.values_list("id", flat=True)
     notes, count = notebooks.list_team_account_notes(
@@ -2695,6 +3428,17 @@ def set_custom_property_value(
         actor=actor,
     )
     return _to_custom_property_value(row)
+
+
+def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
+    """Record when a customer last messaged in the Slack channel bound to `account_id`.
+
+    For conversations, which sees the messages. Throttled and self-creating — see the logic
+    function. Returns whether the stored value moved.
+    """
+    return _custom_property_values_logic.record_last_slack_message_at(
+        team_id=team_id, account_id=account_id, timestamp=timestamp
+    )
 
 
 def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> list[contracts.CustomPropertyValue]:

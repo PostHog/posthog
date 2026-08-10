@@ -31,6 +31,7 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -129,13 +130,7 @@ export function TrendsBarChart({
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
 
-    const hasData =
-        !!indexedResults?.[0] &&
-        (isAggregated
-            ? indexedResults.some(
-                  (r: IndexedTrendResult) => Number.isFinite(r.aggregated_value) && r.aggregated_value !== 0
-              )
-            : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
+    const hasData = hasTrendsChartData(indexedResults)
 
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
 

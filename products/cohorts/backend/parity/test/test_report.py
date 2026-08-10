@@ -9,12 +9,15 @@ from products.cohorts.backend.parity.classifier import (
     CohortComparison,
 )
 from products.cohorts.backend.parity.fold import ReconcileRunCompleteness
+from products.cohorts.backend.parity.population import PopulationComparison, PopulationSummary, skip_population
 from products.cohorts.backend.parity.recompute import RecomputeComparison, RecomputeSummary
 from products.cohorts.backend.parity.report import (
     format_notes,
+    format_population_table,
     format_recompute_table,
     format_reconcile_notes,
     to_json,
+    to_population_json,
     to_recompute_json,
 )
 
@@ -32,6 +35,16 @@ def _row(
         verdict=verdict,
         residual_pct=residual_pct,
         notes=notes,
+    )
+
+
+def _population_row(cohort_id: int, *, match_pct: float, fold_count: int = 0) -> PopulationComparison:
+    return PopulationComparison(
+        cohort_id=cohort_id,
+        name=f"c{cohort_id}",
+        compared=True,
+        match_pct=match_pct,
+        fold_count=fold_count,
     )
 
 
@@ -143,3 +156,24 @@ class TestRecomputeReport(SimpleTestCase):
         lines = format_recompute_table(rows).split("\n")
         self.assertEqual({len(line) for line in lines}, {len(lines[0])})
         self.assertIn("SKIP: has_event_property_filters", lines[-1])
+
+    def test_population_table_columns_line_up_across_row_kinds(self) -> None:
+        rows = [
+            _population_row(1, match_pct=99.5, fold_count=5303),
+            skip_population(cohort_id=2, name="x" * 60, reason="never_calculated"),
+        ]
+        lines = format_population_table(rows).split("\n")
+        self.assertEqual({len(line) for line in lines}, {len(lines[0])})
+        self.assertIn("SKIP: never_calculated", lines[-1])
+
+    def test_population_rows_order_worst_agreement_first(self) -> None:
+        # The report has no verdict to sort on, so a sign flip here would put the healthiest cohorts
+        # at the top of a long table and bury the divergent ones an operator is looking for.
+        rows = [
+            _population_row(1, match_pct=100.0),
+            skip_population(cohort_id=2, name="c2", reason="never_calculated"),
+            _population_row(3, match_pct=12.0),
+            _population_row(4, match_pct=61.5),
+        ]
+        document = to_population_json(rows, PopulationSummary(), {})
+        self.assertEqual([c["cohort_id"] for c in document["cohorts"]], [3, 4, 1, 2])

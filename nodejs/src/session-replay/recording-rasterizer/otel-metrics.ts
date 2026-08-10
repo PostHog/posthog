@@ -14,7 +14,7 @@ import { createOtlpMeterProvider } from '~/common/metrics/otlp-provider'
  * builds the provider through the shared createOtlpMeterProvider.
  *
  * Names and label sets deliberately match the prom metrics so dashboards translate 1:1
- * (the prom activity duration is a Summary; the OTLP twin is a histogram).
+ * (both activity duration metrics are histograms with the same bucket boundaries).
  *
  * Instruments are acquired lazily on first record: the OTel metrics API has no proxy
  * provider, so instruments created at module load (before initMetrics runs) would be
@@ -55,7 +55,8 @@ interface RasterizerInstruments {
     errorsTotal: Counter
 }
 
-const ACTIVITY_DURATION_BOUNDARIES = [1, 5, 15, 30, 60, 120, 300, 600, 1200]
+// Shared with the prom histogram in metrics.ts so the twins bucket identically.
+export const ACTIVITY_DURATION_BOUNDARIES = [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800]
 
 let instruments: RasterizerInstruments | null = null
 

@@ -1,1 +1,1 @@
-1276_untrack_legacy_provisioning_columns
+1297_add_instagram_integration_kind

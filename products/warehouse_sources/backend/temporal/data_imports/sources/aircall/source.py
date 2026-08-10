@@ -49,6 +49,7 @@ class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error: Bad Request for url: https://api.aircall.io": "Aircall rejected the request. Contact support if this keeps happening so we can look into it.",
             "401 Client Error: Unauthorized for url: https://api.aircall.io": "Aircall authentication failed. Please check your API ID and API token.",
             "403 Client Error: Forbidden for url: https://api.aircall.io": "Aircall denied access. Please check that your API key has the required permissions.",
         }

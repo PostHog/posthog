@@ -27,6 +27,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
     logo_media_id: zod.string().nullish(),
     enforce_2fa: zod.boolean().nullish(),
+    enforce_verified_domains: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
+        ),
     members_can_invite: zod.boolean().nullish(),
     members_can_create_projects: zod
         .boolean()
@@ -154,8 +160,12 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
 export const advancedActivityLogsListQueryClientsDefault = []
+export const advancedActivityLogsListQueryFollowDefault = false
+export const advancedActivityLogsListQueryIncludeValuesDefault = false
 export const advancedActivityLogsListQueryIpAddressesDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
+export const advancedActivityLogsListQueryOrderingDefault = `-created_at`
+
 export const advancedActivityLogsListQueryPageSizeDefault = 100
 export const advancedActivityLogsListQueryPageSizeMax = 1000
 
@@ -182,7 +192,19 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+    follow: zod
+        .boolean()
+        .default(advancedActivityLogsListQueryFollowDefault)
+        .describe(
+            'Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.'
+        ),
     hogql_filter: zod.string().optional().describe('Reserved for future HogQL-based filtering.'),
+    include_values: zod
+        .boolean()
+        .default(advancedActivityLogsListQueryIncludeValuesDefault)
+        .describe(
+            'Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.'
+        ),
     ip_addresses: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryIpAddressesDefault)
@@ -194,6 +216,13 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .default(advancedActivityLogsListQueryItemIdsDefault)
         .describe('Filter by the `item_id` of the affected resource(s).'),
+    ordering: zod
+        .string()
+        .min(1)
+        .default(advancedActivityLogsListQueryOrderingDefault)
+        .describe(
+            'Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.\n\n\* `-created_at` - -created_at\n\* `created_at` - created_at'
+        ),
     page: zod
         .number()
         .min(1)
@@ -206,7 +235,13 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .max(advancedActivityLogsListQueryPageSizeMax)
         .default(advancedActivityLogsListQueryPageSizeDefault)
-        .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
+        .describe('Number of results per page (default: 100, max: 1000).'),
+    schema: zod
+        .enum(['ocsf'])
+        .optional()
+        .describe(
+            'Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.\n\n\* `ocsf` - ocsf'
+        ),
     scopes: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryScopesDefault)
@@ -353,9 +388,15 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .min(1)
         .optional()
-        .describe('Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).'),
+        .describe(
+            'Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.'
+        ),
     search: zod.string().min(1).optional().describe('Full-text search within comment content.'),
     source_comment: zod.string().min(1).optional().describe('Filter replies to a specific parent comment.'),
+    task_id: zod
+        .string()
+        .optional()
+        .describe('Owning task for task, task_artifact, and desktop_canvas comment scopes.'),
 })
 
 export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({

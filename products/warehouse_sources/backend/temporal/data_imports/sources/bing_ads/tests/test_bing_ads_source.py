@@ -5,6 +5,7 @@ from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, S
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
@@ -305,6 +306,13 @@ class TestBingAdsSource:
                 "Bing Ads OAuth application credentials not configured",
                 "Bing Ads OAuth application credentials not configured",
             ),
+            # A column not valid for a report type comes back as a coded WebFault; retrying re-sends the
+            # same bad field list forever, so it must be non-retryable.
+            (
+                "InvalidReportColumn",
+                "Failed to generate keyword_performance_report report: WebFault: Server raised fault: "
+                "'Invalid client data...' (InvalidReportColumn: ...)",
+            ),
         ],
     )
     def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):
@@ -390,6 +398,16 @@ class TestBingAdsSource:
         transient_message = "Server raised fault: 'Internal Error. TrackingId: abc-123.'"
 
         assert not any(pattern in transient_message for pattern in non_retryable_errors)
+
+    def test_transient_bad_request_is_retryable_not_disabling(self):
+        # A bare transport-level HTTP 400 on a Bing SOAP call (no coded WebFault) is a transient edge
+        # rejection: it must be recognised as retryable (kept out of error tracking) and must NOT match
+        # any non-retryable pattern, or a transient blip would disable the schema.
+        error_message = "Failed to generate ad_performance_report report: Exception: (400, 'Bad Request')"
+
+        # Assert through the same case-insensitive matcher production classification uses.
+        assert error_message_matches(error_message, self.source.get_retryable_errors())
+        assert not error_message_matches(error_message, self.source.get_non_retryable_errors())
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""

@@ -110,6 +110,25 @@ def _preview_safe_cell(value: Any) -> Any:
     return str(value)
 
 
+def _column_type_name(dtype: Any) -> str:
+    """Name a pandas dtype in the envelope's ClickHouse-style vocabulary.
+
+    The other producers of `types` (`data_plane`, and HogQL itself) report ClickHouse
+    names, and the frontend reads those names to decide which columns a chart can put on
+    a numeric axis. A raw pandas dtype ('float64') is not one of them, so such a column
+    reads as non-numeric there and drops out of every axis picker.
+    """
+    if pd.api.types.is_bool_dtype(dtype):
+        return "Bool"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "Int64"
+    if pd.api.types.is_float_dtype(dtype):
+        return "Float64"
+    if pd.api.types.is_datetime64_any_dtype(dtype):
+        return "DateTime"
+    return "String"
+
+
 def _load_headless_pyplot() -> Any:
     # matplotlib is heavy and sandbox-only; keep it off the module import path (ruff TID253),
     # and force the Agg backend before pyplot loads so figures render without a display.
@@ -478,7 +497,7 @@ class KernelSession:
         if df is None:
             return [], [], [], 0, False
         columns = [str(column) for column in df.columns]
-        types = [[str(column), str(dtype)] for column, dtype in zip(df.columns, df.dtypes)]
+        types = [[str(column), _column_type_name(dtype)] for column, dtype in zip(df.columns, df.dtypes)]
         # to_json coerces numpy scalars, NaN and datetimes to JSON-native values in one pass.
         try:
             rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))

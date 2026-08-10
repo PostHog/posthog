@@ -94,6 +94,8 @@ function ExperimentButton({ insightShortId }: { insightShortId: InsightShortId }
                         <DropdownMenuItem asChild>
                             <ButtonPrimitive
                                 menuItem
+                                autoHeight
+                                className="items-start py-1"
                                 onClick={() => {
                                     posthog.capture('insight notify prominent button clicked', {
                                         insight_short_id: insightShortId,
@@ -103,7 +105,7 @@ function ExperimentButton({ insightShortId }: { insightShortId: InsightShortId }
                                     push(urls.insightAlerts(insightShortId))
                                 }}
                             >
-                                <IconWarning />
+                                <IconWarning className="mt-0.5" />
                                 <span className="flex flex-col">
                                     <span>Alerts</span>
                                     <span className="text-secondary text-xs">
@@ -115,6 +117,8 @@ function ExperimentButton({ insightShortId }: { insightShortId: InsightShortId }
                         <DropdownMenuItem asChild>
                             <ButtonPrimitive
                                 menuItem
+                                autoHeight
+                                className="items-start py-1"
                                 onClick={() => {
                                     posthog.capture('insight notify prominent button clicked', {
                                         insight_short_id: insightShortId,
@@ -124,7 +128,7 @@ function ExperimentButton({ insightShortId }: { insightShortId: InsightShortId }
                                     push(urlForSubscriptions({ insightShortId }))
                                 }}
                             >
-                                <IconBell />
+                                <IconBell className="mt-0.5" />
                                 <span className="flex flex-col">
                                     <span>Subscriptions</span>
                                     <span className="text-secondary text-xs">Send me a recurring report</span>
