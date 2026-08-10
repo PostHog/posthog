@@ -48,7 +48,7 @@ export const ONBOARDING_TOOLS: Record<OnboardingToolKey, OnboardingTool> = {
     product_analytics: {
         productPath: 'Product analytics',
         productKey: ProductKey.PRODUCT_ANALYTICS,
-        benefit: 'Events, trends, and funnels start flowing as soon as the SDK is in.',
+        benefit: 'Events, trends, and funnels. Understand how users use your product.',
         options: ['heatmaps', 'dead_clicks'],
     },
     session_replay: {
@@ -70,7 +70,7 @@ export const ONBOARDING_TOOLS: Record<OnboardingToolKey, OnboardingTool> = {
         options: ['web_vitals', 'heatmaps', 'network_performance'],
     },
     ai_observability: {
-        productPath: 'LLM analytics',
+        productPath: 'AI Observability',
         productKey: ProductKey.AI_OBSERVABILITY,
         benefit: 'Traces, costs, and failures from your LLM features.',
         options: [],
