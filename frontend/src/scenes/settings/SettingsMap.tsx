@@ -2123,7 +2123,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'notifications',
                 title: 'Notifications',
-                description: 'Choose which email notifications you receive from PostHog.',
+                description: 'Choose which email and Slack notifications you receive from PostHog.',
                 component: <UpdateEmailPreferences />,
                 keywords: ['email', 'notification', 'digest', 'unsubscribe'],
             },

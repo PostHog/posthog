@@ -447,6 +447,7 @@ export interface NotificationSettings {
     error_tracking_weekly_digest: boolean
     error_tracking_weekly_digest_project_enabled?: Record<string, boolean>
     discussions_mentioned: boolean
+    code_comments_slack_dm?: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     materialized_view_sync_failed?: boolean
