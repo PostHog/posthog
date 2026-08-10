@@ -507,7 +507,7 @@
                     "type": "number"
                 }
             },
-            "required": ["columns", "filters", "kind"],
+            "required": ["columns", "kind"],
             "type": "object"
         },
         "AccountsTableQueryResponse": {

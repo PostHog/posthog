@@ -15,7 +15,6 @@ Do NOT:
 - Import DRF, serializers, or HTTP concerns
 """
 
-import re
 import asyncio
 from collections.abc import Iterable
 from datetime import UTC, datetime, time, timedelta
@@ -2271,35 +2270,20 @@ def _custom_property_filter_predicate(
     }:
         return Q(**{f"{value_field}__in": values}), operator == contracts.AccountTableCustomPropertyOperator.IS_NOT
     if operator in {
-        contracts.AccountTableCustomPropertyOperator.CONTAINS,
-        contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN,
         contracts.AccountTableCustomPropertyOperator.REGEX,
         contracts.AccountTableCustomPropertyOperator.NOT_REGEX,
     }:
+        raise InvalidAccountTableColumn("Regex custom property filters are not supported by account table queries.")
+    if operator in {
+        contracts.AccountTableCustomPropertyOperator.CONTAINS,
+        contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN,
+    }:
         if data_type != DataType.STRING:
-            raise InvalidAccountTableColumn("Contains and regex operators require a text custom property.")
-        lookup = (
-            "icontains"
-            if operator
-            in {
-                contracts.AccountTableCustomPropertyOperator.CONTAINS,
-                contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN,
-            }
-            else "regex"
-        )
-        if lookup == "regex":
-            try:
-                for value in values:
-                    re.compile(str(value))
-            except re.error as error:
-                raise InvalidAccountTableColumn("Custom property regex filters require a valid pattern.") from error
+            raise InvalidAccountTableColumn("Contains operators require a text custom property.")
         predicate = Q()
         for value in values:
-            predicate |= Q(**{f"value_str__{lookup}": value})
-        return predicate, operator in {
-            contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN,
-            contracts.AccountTableCustomPropertyOperator.NOT_REGEX,
-        }
+            predicate |= Q(value_str__icontains=value)
+        return predicate, operator == contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN
     if operator in {
         contracts.AccountTableCustomPropertyOperator.GREATER_THAN,
         contracts.AccountTableCustomPropertyOperator.GREATER_THAN_OR_EQUAL,

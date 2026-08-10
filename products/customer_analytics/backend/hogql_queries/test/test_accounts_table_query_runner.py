@@ -349,14 +349,6 @@ class TestAccountsTableQueryRunner(BaseTest):
                 {"Set", "Unset"},
             ),
             (
-                "regex",
-                DisplayType.TEXT,
-                {"value_str": "enterprise"},
-                AccountsTableCustomPropertyOperator.REGEX,
-                ["^enter.*"],
-                {"Set"},
-            ),
-            (
                 "boolean",
                 DisplayType.BOOLEAN,
                 {"value_bool": True},
@@ -489,7 +481,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                 )
                 assert [row.name for row in response.results] == expected_names
 
-    def test_rejects_invalid_custom_property_regex(self) -> None:
+    def test_rejects_regex_custom_property_filters(self) -> None:
         definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
 
         with self.assertRaises(ValidationError):
@@ -500,7 +492,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                         AccountsTableCustomPropertyFilter(
                             definitionId=str(definition.id),
                             operator=AccountsTableCustomPropertyOperator.REGEX,
-                            values=["["],
+                            values=["^enter.*"],
                         )
                     ],
                 )

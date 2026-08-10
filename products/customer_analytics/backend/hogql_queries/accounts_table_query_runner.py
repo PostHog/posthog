@@ -90,7 +90,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
     def _filters(self) -> tuple[contracts.AccountTableFilter, ...]:
         filters: list[contracts.AccountTableFilter] = []
         try:
-            for filter_ in self.query.filters:
+            for filter_ in self.query.filters or []:
                 if isinstance(filter_, AccountsTableSearchFilter):
                     filters.append(contracts.AccountTableSearchFilter(query=filter_.query))
                 elif isinstance(filter_, AccountsTableTagsFilter):

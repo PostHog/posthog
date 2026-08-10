@@ -2945,7 +2945,7 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
-    filters: AccountsTableFilter[]
+    filters?: AccountsTableFilter[]
     sort?: AccountsTableSort
     limit?: positive_integer
     offset?: integer

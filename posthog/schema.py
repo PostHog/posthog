@@ -24229,18 +24229,18 @@ class AccountsTableQuery(BaseModel):
         ...,
         description=("Columns to load for each account. Account identity fields are always returned."),
     )
-    filters: list[
-        Annotated[
+    filters: (
+        list[
             AccountsTableSearchFilter
             | AccountsTableTagsFilter
             | AccountsTableAssignedToFilter
             | AccountsTableUnassignedFilter
             | AccountsTableAccountIdFilter
-            | AccountsTableCustomPropertyFilter,
-            Field(discriminator="kind"),
+            | AccountsTableCustomPropertyFilter
         ]
-    ] = Field(
-        ...,
+        | None
+    ) = Field(
+        default=None,
         description=("Filters are combined with AND. Values within tag and assignment filters use OR."),
     )
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
