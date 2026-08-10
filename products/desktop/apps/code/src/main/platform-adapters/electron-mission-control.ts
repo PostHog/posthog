@@ -64,6 +64,11 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
     if (this.timer) return;
     if (!this.resolveSampler()) return;
 
+    // Logged on success, not only on failure. Detection going quiet looks
+    // identical to the poller never starting, and the dev toolbar only installs
+    // log capture when developer mode goes on — after boot — so a line emitted
+    // once at startup is one nobody ever reads.
+    log.info("Watching for Mission Control", { intervalMs: POLL_INTERVAL_MS });
     this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
   }
 

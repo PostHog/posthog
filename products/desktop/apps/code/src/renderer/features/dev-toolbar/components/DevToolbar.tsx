@@ -829,8 +829,12 @@ function QuickActionsMenu() {
 
   // Records the window list for a few seconds so you can open Mission Control
   // during it — the app is unclickable while Mission Control is up, so a sample
-  // taken on click can only ever show the ordinary desktop. Logged rather than
-  // rendered: the result is raw window geometry for a test fixture, not a menu.
+  // taken on click can only ever show the ordinary desktop.
+  //
+  // The result goes to the clipboard as well as the log. It is raw window
+  // geometry destined for a bug report or a test fixture, and the log panel only
+  // captures from the moment developer mode goes on, so the log alone is a
+  // fragile place to leave the one artifact this action exists to produce.
   const [probing, setProbing] = useState(false);
   const probeMissionControl = () => {
     setProbing(true);
@@ -839,7 +843,17 @@ function QuickActionsMenu() {
     );
     void trpcClient.dev.probeMissionControl
       .mutate({ durationMs: MISSION_CONTROL_PROBE_MS })
-      .then((probe) => log.info("Mission Control probe", probe))
+      .then((probe) => {
+        log.info("Mission Control probe", probe);
+        return navigator.clipboard.writeText(JSON.stringify(probe, null, 2));
+      })
+      .then(
+        () =>
+          void trpcClient.dev.triggerToast.mutate({
+            variant: "info",
+            message: "Window list copied to the clipboard",
+          }),
+      )
       .catch((error: unknown) =>
         log.warn("Mission Control probe failed", error),
       )
