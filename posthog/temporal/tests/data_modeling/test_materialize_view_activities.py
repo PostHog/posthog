@@ -503,15 +503,14 @@ class TestNodeSuspension:
             await database_sync_to_async(j.delete)()
 
     @pytest.mark.parametrize(
-        "infra_error",
+        "aborted_error",
         [
-            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (total) exceeded",
             "Code: 202. DB::Exception: Too many simultaneous queries",
             "Cannot connect to host ch-offline.example.com:8443",
             "Abandoned: the materialization workflow is no longer running",
         ],
     )
-    async def test_infrastructure_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, infra_error):
+    async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
@@ -519,7 +518,7 @@ class TestNodeSuspension:
         )
 
         jobs = [
-            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=infra_error)
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=aborted_error)
             for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
         ]
 
@@ -529,7 +528,7 @@ class TestNodeSuspension:
             dag_id=str(adag.id),
             saved_query_id=asaved_query.id,
             engine=DataModelingJobEngine.CLICKHOUSE,
-            reason=infra_error,
+            reason=aborted_error,
             job_id=str(jobs[-1].id),
         )
 
@@ -545,12 +544,11 @@ class TestNodeSuspension:
         "memory_error",
         [
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (for query) exceeded",
+            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (total) exceeded",
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
         ],
     )
-    async def test_suspends_when_the_query_itself_blew_the_memory_limit(
-        self, ateam, anode, asaved_query, adag, memory_error
-    ):
+    async def test_suspends_when_the_query_exhausts_memory(self, ateam, anode, asaved_query, adag, memory_error):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
@@ -586,7 +584,7 @@ class TestNodeSuspension:
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(4)]
         jobs.append(
             await _make_job(
-                ateam, asaved_query, DataModelingJob.Status.FAILED, error="Code: 241. Memory limit (total) exceeded"
+                ateam, asaved_query, DataModelingJob.Status.FAILED, error="Code: 202. Too many simultaneous queries"
             )
         )
         job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")

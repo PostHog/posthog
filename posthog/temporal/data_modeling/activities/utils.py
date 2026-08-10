@@ -34,7 +34,7 @@ __all__ = [
     "bind_data_modeling_log_context",
     "clear_node_suspension",
     "clear_node_suspension_for_engine",
-    "is_infrastructure_error",
+    "is_externally_aborted",
     "is_node_suspended",
     "is_suspension_enforced",
     "mark_node_suspended",
@@ -50,20 +50,17 @@ CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
 
-# Failures where the cluster was busy, restarting or unreachable. The customer's query is fine, so
-# there is nothing they could change to stop the streak.
-INFRASTRUCTURE_ERROR_MARKERS = (
-    "Code: 241",  # MEMORY_LIMIT_EXCEEDED
-    "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES
+# Failures where something outside the query stopped it: it was refused admission, could not reach
+# the cluster, or we killed it. The test to apply before adding a marker here is "was the query
+# denied the chance to fail on its own merits", NOT "was this our fault" - a query that exhausts
+# memory or wall-clock is one we do want suspended, however much the cluster's load contributed.
+EXTERNALLY_ABORTED_MARKERS = (
+    "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES - refused admission, never executed
     "Cannot connect to host",
     "Connection refused",
     "Preempted",
     ABANDONED_ERROR,
 )
-
-# A 241 raised by the customer's own query is their fault, unlike one raised by cluster pressure.
-# Same phrasings, and same fail-safe polarity, as errors.py: an unrecognized wording is pressure.
-PER_QUERY_MEMORY_LIMIT_PHRASINGS = ("(for query)", "Query memory limit exceeded")
 
 
 def is_suspension_enforced(team_id: int) -> bool:
@@ -82,10 +79,8 @@ def is_suspension_enforced(team_id: int) -> bool:
         return False
 
 
-def is_infrastructure_error(error: str) -> bool:
-    if any(phrasing in error for phrasing in PER_QUERY_MEMORY_LIMIT_PHRASINGS):
-        return False
-    return any(marker in error for marker in INFRASTRUCTURE_ERROR_MARKERS)
+def is_externally_aborted(error: str) -> bool:
+    return any(marker in error for marker in EXTERNALLY_ABORTED_MARKERS)
 
 
 def bind_data_modeling_log_context(team_id: int, saved_query_id: UUID | str) -> None:
@@ -161,9 +156,9 @@ def _count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | N
     rows = jobs.order_by("-created_at").values_list("status", "error")[:CONSECUTIVE_FAILURES_TO_SUSPEND]
     count = 0
     for status, error in rows:
-        # Suspending on our own failures stops a model the customer cannot restart, because their
-        # query was never the problem.
-        if status != DataModelingJobStatus.FAILED or is_infrastructure_error(error or ""):
+        # A run that was blocked or killed says nothing about the query, so counting it would
+        # suspend a model on evidence it never produced.
+        if status != DataModelingJobStatus.FAILED or is_externally_aborted(error or ""):
             break
         count += 1
     return count
