@@ -1,33 +1,48 @@
-//! The merge saga's step handlers: `started → claimed → sources_sealed →
-//! document_folded → flipped → completed`, with `aborted` reachable only
-//! from the claim and seal handlers (before anything was mutated). Each
-//! step commits its Postgres work together with the step advance — see the
-//! engine's correctness model — and every leader call (fence, fold,
-//! release) is convergent under repetition, which is what keeps the steps
-//! safe to re-run even though those calls cannot roll back with a lost CAS.
+//! The merge saga's step handlers.
+//!
+//! Steps run in order: `started → claimed → sources_sealed →
+//! document_folded → flipped → completed`. `aborted` is reachable only
+//! from the claim and seal handlers, which run before anything has been
+//! mutated.
+//!
+//! Two rules make every step safe to re-run (the engine's lease is a
+//! throttle, not a lock, so any step may execute more than once):
+//!
+//! - Each step commits its Postgres work in the same transaction as its
+//!   step advance, so a lost step CAS rolls the work back with it.
+//! - Leader calls (fence, fold, release) cannot roll back with a lost
+//!   CAS, so every leader call is convergent under repetition: a re-run
+//!   step re-issues the call and lands in the same state.
 //!
 //! The driver receives the classified case-3 set of a MergePersons call:
-//! source distinct ids that resolved to persons distinct from the target.
-//! The claim step re-resolves everything authoritatively — the handler's
-//! classification is advisory, and the world can change between the two.
+//! source distinct ids that resolved to persons distinct from the
+//! target. That classification is advisory. The claim step re-resolves
+//! everything authoritatively inside its own transaction, because the
+//! world can change between the handler and the saga.
 //!
 //! Durable per-op state beyond the step column lives on the op's
-//! `lifecycle_op_person` rows. The target row's JSONB columns are
-//! deliberately repurposed as the op's scratch anchor — a target's dids
-//! never move (`moved` is free) and a target is never fenced (`sealed` is
-//! free): `moved` holds the per-did claim dispositions, `sealed` holds the
-//! folded survivor document. Sources use the columns as the schema
-//! intends: `sealed` freezes the fence snapshot, `moved` records the
-//! repointed mapping rows for later ClickHouse emission (delete parity).
+//! `lifecycle_op_person` rows. Source rows use the JSONB columns as the
+//! schema intends: `sealed` freezes the fence snapshot, `moved` records
+//! the repointed mapping rows for later ClickHouse emission (delete
+//! parity). The target row's columns are repurposed as the op's scratch
+//! anchor, which is safe because a target is never fenced (`sealed` is
+//! otherwise unused) and a target's dids never move (`moved` is
+//! otherwise unused): `moved` holds the per-did claim dispositions and
+//! `sealed` holds the folded survivor document.
 //!
-//! Known residual (pending the revival/birth-document RFC stage): the
-//! death documents this saga has the leader produce stay in the leader's
-//! cache as authoritative not-found entries, and a later Postgres revival
-//! of the same person key (the stub-create conflict path) never notifies
-//! the leader — until eviction or a partition handoff, the revived person
-//! answers NOT_FOUND at the leader, and a merge claiming it mis-drops it
-//! as vanished. Closed when revival produces a birth document through the
-//! leader like every other creation.
+//! Known residual: a merge can mis-drop a revived person. The death
+//! documents this saga has the leader produce stay in the leader's
+//! memory as authoritative not-found entries, and a Postgres revival (a
+//! stub insert resolving its unique conflict against the tombstone row)
+//! never displaces one: the create path calls the leader only when the
+//! event carries initial properties, and a leader holding a death entry
+//! answers even that call NOT_FOUND from memory instead of reloading
+//! the revived row. Until the entry is displaced by cache eviction or a
+//! partition handoff, the leader answers NOT_FOUND for the revived
+//! person, and a merge claiming it drops it as vanished instead of
+//! merging it. The agreed design closes this with an unconditional
+//! birth document through the owning leader on every creation, revival
+//! included, which replaces the leader's death entry.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -667,7 +682,36 @@ impl MergeDriver {
         record_transition(MergeStep::Started.as_str(), MergeStep::Claimed.as_str());
         Ok(())
     }
+}
 
+/// End an op inside the claim transaction: nothing outside this op's own
+/// rows has been mutated, so recording the outcome and the terminal step
+/// in the same commit is the whole abort.
+async fn abort_in_claim_tx(
+    mut tx: Tx<'_>,
+    op: &OpRow,
+    dispositions: Vec<Disposition>,
+) -> Result<(), SagaError> {
+    let outcome = outcome_from_dispositions(&dispositions, true, None, &HashMap::new())?;
+    if !complete_op_in_tx(
+        &mut tx,
+        op.op_id,
+        MergeStep::Started.as_str(),
+        STEP_ABORTED,
+        &outcome,
+    )
+    .await?
+    {
+        tx.rollback().await?;
+        return Ok(());
+    }
+    tx.commit().await?;
+    record_transition(MergeStep::Started.as_str(), STEP_ABORTED);
+    record_outcomes(&outcome);
+    Ok(())
+}
+
+impl MergeDriver {
     /// `claimed → sources_sealed` (or `→ aborted`): fence every claimed
     /// source's owning leader and persist the sealed snapshots. The fences
     /// are the step's only external effect and re-fencing with the same
@@ -858,6 +902,107 @@ impl MergeDriver {
         Ok(())
     }
 
+    /// Release fences with outcome `aborted` for the given persons,
+    /// bounded-concurrently. Releasing a never-fenced person is a no-op at
+    /// the leader, so callers pass every candidate rather than tracking
+    /// which fences actually installed.
+    async fn release_fences(&self, op: &OpRow, persons: &[(i64, Uuid)]) -> Result<(), SagaError> {
+        let calls: Vec<_> = persons
+            .iter()
+            .map(|(person_id, person_uuid)| {
+                let leader = Arc::clone(&self.leader);
+                let request = ReleaseFenceRequest {
+                    team_id: op.team_id,
+                    person_id: *person_id,
+                    person_uuid: person_uuid.to_string(),
+                    op_id: op.op_id.to_string(),
+                    outcome: ReleaseOutcome::Aborted.into(),
+                    sealed_version: None,
+                    created_at: 0,
+                };
+                async move { leader.release_fence(request).await }
+            })
+            .collect();
+        let results: Vec<_> = stream::iter(calls)
+            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .collect()
+            .await;
+        for result in results {
+            result.map_err(|status| SagaError::Leader(Box::new(status)))?;
+        }
+        Ok(())
+    }
+}
+
+fn snapshot_from_sealed(person: &Person) -> Result<SealedSnapshot, SagaError> {
+    let properties = if person.properties.is_empty() {
+        Value::Object(serde_json::Map::new())
+    } else {
+        serde_json::from_slice(&person.properties).map_err(|e| {
+            SagaError::CorruptState(format!("sealed properties do not parse as JSON: {e}"))
+        })?
+    };
+    Ok(SealedSnapshot {
+        version: person.version,
+        created_at: person.created_at,
+        is_identified: person.is_identified,
+        properties,
+        last_seen_at: person.last_seen_at,
+    })
+}
+
+/// Settle sources that dropped out during the seal: `dropped` releases
+/// their marks; the claim record's decisions flip to the drop reason.
+async fn settle_drops(
+    tx: &mut Tx<'_>,
+    op: &OpRow,
+    vanished: &[i64],
+    identified: &[i64],
+) -> Result<(), SagaError> {
+    let all: Vec<i64> = vanished.iter().chain(identified.iter()).copied().collect();
+    if all.is_empty() {
+        return Ok(());
+    }
+    sqlx::query!(
+        r#"
+        UPDATE lifecycle_op_person SET status = $2
+        WHERE op_id = $1 AND person_id = ANY($3) AND status IN ('marked', 'sealed')
+        "#,
+        op.op_id,
+        STATUS_DROPPED,
+        &all,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let mut record = claim_record(tx, op).await?;
+    for disposition in record.dispositions.iter_mut() {
+        if disposition.decision != DECISION_PENDING_MERGE {
+            continue;
+        }
+        let Some(person_id) = disposition.person_id else {
+            continue;
+        };
+        if vanished.contains(&person_id) {
+            disposition.decision = OUTCOME_ERROR.to_string();
+        } else if identified.contains(&person_id) {
+            disposition.decision = OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string();
+        }
+    }
+    let updated = serde_json::to_value(&record)
+        .map_err(|e| SagaError::CorruptState(format!("failed to serialize claim record: {e}")))?;
+    sqlx::query!(
+        "UPDATE lifecycle_op_person SET moved = $2 WHERE op_id = $1 AND role = $3",
+        op.op_id,
+        updated,
+        ROLE_TARGET,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+impl MergeDriver {
     /// `sources_sealed → document_folded`: one FoldPersonDocument call to
     /// the target's leader with the sealed snapshots in precedence order.
     /// A re-driven fold on unchanged target state changes no content and
@@ -967,7 +1112,273 @@ impl MergeDriver {
         );
         Ok(())
     }
+}
 
+struct TargetRow {
+    person_id: i64,
+}
+
+async fn target_row(pool: &PgPool, op: &OpRow) -> Result<TargetRow, SagaError> {
+    let row = sqlx::query!(
+        "SELECT person_id FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
+        op.op_id,
+        ROLE_TARGET,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(TargetRow {
+        person_id: row.person_id,
+    })
+}
+
+fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+    serde_json::to_vec(value)
+        .map_err(|e| SagaError::CorruptState(format!("failed to serialize event payload: {e}")))
+}
+
+/// `document_folded → flipped`: the destroying transaction, all Postgres.
+/// Repoint every sealed source's distinct ids to the target (recording the
+/// moves per source row in the same commit), move cohort membership and
+/// hash-key overrides target-wins, scrub and tombstone the source person
+/// rows at their exact death versions, and clear the target's mark. The
+/// source marks stay: they are the fences' durable record until release.
+async fn flip(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    let team_id = op.team_id as i32;
+    let mut tx = pool.begin().await?;
+
+    let target = {
+        let row = sqlx::query!(
+            "SELECT person_id FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
+            op.op_id,
+            ROLE_TARGET,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        row.person_id
+    };
+    let mut sources: Vec<i64> = sqlx::query_scalar!(
+        r#"
+        SELECT person_id FROM lifecycle_op_person
+        WHERE op_id = $1 AND role = $2 AND status = $3
+        "#,
+        op.op_id,
+        ROLE_SOURCE,
+        STATUS_SEALED,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    sources.sort_unstable();
+
+    let repointed = repoint_distinct_ids(&mut tx, team_id, &sources, target).await?;
+    record_moved_mappings(&mut tx, op, &sources, &repointed).await?;
+    move_cohort_membership(&mut tx, &sources, target).await?;
+    move_hash_key_overrides(&mut tx, team_id, &sources, target).await?;
+    tombstone_sealed_sources(&mut tx, op, team_id).await?;
+    clear_target_mark(&mut tx, op).await?;
+
+    if !advance_step_in_tx(
+        &mut tx,
+        op.op_id,
+        MergeStep::DocumentFolded.as_str(),
+        MergeStep::Flipped.as_str(),
+    )
+    .await?
+    {
+        tx.rollback().await?;
+        return Ok(());
+    }
+    tx.commit().await?;
+    record_transition(
+        MergeStep::DocumentFolded.as_str(),
+        MergeStep::Flipped.as_str(),
+    );
+    Ok(())
+}
+
+/// One distinct-id row repointed by [`repoint_distinct_ids`], keyed by its
+/// pre-update owner.
+struct RepointedDid {
+    old_person_id: i64,
+    distinct_id: String,
+    version: i64,
+}
+
+/// Repoint every sealed source's live distinct ids to the target, bumping
+/// each row's version.
+async fn repoint_distinct_ids(
+    tx: &mut Tx<'_>,
+    team_id: i32,
+    sources: &[i64],
+    target: i64,
+) -> Result<Vec<RepointedDid>, SagaError> {
+    // RETURNING sees the post-update row, so the pre-update owner has to
+    // come from a self-join snapshot — without it every returned
+    // person_id would be the target.
+    let rows = sqlx::query!(
+        r#"
+        UPDATE posthog_persondistinctid pdi
+        SET person_id = $3, version = COALESCE(pdi.version, 0) + 1
+        FROM posthog_persondistinctid old
+        WHERE old.id = pdi.id
+          AND pdi.team_id = $1 AND pdi.person_id = ANY($2) AND pdi.is_deleted = false
+        RETURNING old.person_id as "old_person_id!", pdi.distinct_id, pdi.version as "version!"
+        "#,
+        team_id,
+        sources,
+        target,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| RepointedDid {
+            old_person_id: r.old_person_id,
+            distinct_id: r.distinct_id,
+            version: r.version,
+        })
+        .collect())
+}
+
+/// Record the repointed mappings per source in the same commit — what a
+/// later ClickHouse emission (or an operator) reads back (delete parity).
+async fn record_moved_mappings(
+    tx: &mut Tx<'_>,
+    op: &OpRow,
+    sources: &[i64],
+    repointed: &[RepointedDid],
+) -> Result<(), SagaError> {
+    let mut moved_ids: Vec<i64> = Vec::new();
+    let mut moved_json: Vec<Value> = Vec::new();
+    for source in sources {
+        let rows: Vec<Value> = repointed
+            .iter()
+            .filter(|r| r.old_person_id == *source)
+            .map(|r| serde_json::json!({"distinct_id": r.distinct_id, "version": r.version}))
+            .collect();
+        if !rows.is_empty() {
+            moved_ids.push(*source);
+            moved_json.push(Value::Array(rows));
+        }
+    }
+    if moved_ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query!(
+        r#"
+        UPDATE lifecycle_op_person lop
+        SET moved = u.moved
+        FROM unnest($2::bigint[], $3::jsonb[]) AS u(person_id, moved)
+        WHERE lop.op_id = $1 AND lop.person_id = u.person_id
+        "#,
+        op.op_id,
+        &moved_ids,
+        &moved_json,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Cohort membership moves wholesale. The table has no unique
+/// constraint, so a target already in a cohort ends up with duplicate
+/// rows — deliberately matching the production merge path, whose
+/// recalculation heals the rare duplicate.
+async fn move_cohort_membership(
+    tx: &mut Tx<'_>,
+    sources: &[i64],
+    target: i64,
+) -> Result<(), SagaError> {
+    sqlx::query!(
+        "UPDATE posthog_cohortpeople SET person_id = $2 WHERE person_id = ANY($1)",
+        sources,
+        target,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Hash-key overrides move target-wins: the target's existing override
+/// for a flag beats any source's.
+async fn move_hash_key_overrides(
+    tx: &mut Tx<'_>,
+    team_id: i32,
+    sources: &[i64],
+    target: i64,
+) -> Result<(), SagaError> {
+    sqlx::query!(
+        r#"
+        WITH removed AS (
+            DELETE FROM posthog_featureflaghashkeyoverride
+            WHERE team_id = $1 AND person_id = ANY($2)
+            RETURNING feature_flag_key, hash_key
+        )
+        INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+        SELECT $1, $3, feature_flag_key, hash_key FROM removed
+        ON CONFLICT (team_id, person_id, feature_flag_key) DO NOTHING
+        "#,
+        team_id,
+        sources,
+        target,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Scrub and tombstone the sealed source person rows at the death version
+/// the leader derives from the same seal (sealed + 1; the leader
+/// max-merges with its current version as defense in depth), so a reused
+/// key revives above it. Exact PG/CH agreement additionally assumes no
+/// spent-but-unconfirmed version sits above the seal — the fence path
+/// does not consult the leader's emitted-version floor today.
+async fn tombstone_sealed_sources(
+    tx: &mut Tx<'_>,
+    op: &OpRow,
+    team_id: i32,
+) -> Result<(), SagaError> {
+    sqlx::query!(
+        r#"
+        UPDATE posthog_person p
+        SET is_deleted = true,
+            properties = '{}'::jsonb,
+            properties_last_updated_at = '{}'::jsonb,
+            properties_last_operation = '{}'::jsonb,
+            version = (lop.sealed->>'version')::bigint + 1
+        FROM lifecycle_op_person lop
+        WHERE lop.op_id = $1 AND lop.role = $3 AND lop.status = $4
+          AND p.team_id = $2 AND p.id = lop.person_id
+        "#,
+        op.op_id,
+        team_id,
+        ROLE_SOURCE,
+        STATUS_SEALED,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// The target's own person row is untouched: the folded document
+/// reaches Postgres through the writer's projection (single-writer
+/// rule). Only its mark clears — from here the merged person is
+/// claimable by other lifecycle ops.
+async fn clear_target_mark(tx: &mut Tx<'_>, op: &OpRow) -> Result<(), SagaError> {
+    sqlx::query!(
+        "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND role = $3",
+        op.op_id,
+        STATUS_CLEARED,
+        ROLE_TARGET,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+impl MergeDriver {
     /// `flipped → completed`: release every source fence with outcome
     /// committed — the leader verifies the live mark and produces each
     /// death document — then settle the rows and record the outcome. The
@@ -1066,305 +1477,6 @@ impl MergeDriver {
         record_outcomes(&outcome);
         Ok(())
     }
-
-    /// Release fences with outcome `aborted` for the given persons,
-    /// bounded-concurrently. Releasing a never-fenced person is a no-op at
-    /// the leader, so callers pass every candidate rather than tracking
-    /// which fences actually installed.
-    async fn release_fences(&self, op: &OpRow, persons: &[(i64, Uuid)]) -> Result<(), SagaError> {
-        let calls: Vec<_> = persons
-            .iter()
-            .map(|(person_id, person_uuid)| {
-                let leader = Arc::clone(&self.leader);
-                let request = ReleaseFenceRequest {
-                    team_id: op.team_id,
-                    person_id: *person_id,
-                    person_uuid: person_uuid.to_string(),
-                    op_id: op.op_id.to_string(),
-                    outcome: ReleaseOutcome::Aborted.into(),
-                    sealed_version: None,
-                    created_at: 0,
-                };
-                async move { leader.release_fence(request).await }
-            })
-            .collect();
-        let results: Vec<_> = stream::iter(calls)
-            .buffer_unordered(LEADER_CALL_CONCURRENCY)
-            .collect()
-            .await;
-        for result in results {
-            result.map_err(|status| SagaError::Leader(Box::new(status)))?;
-        }
-        Ok(())
-    }
-}
-
-/// `document_folded → flipped`: the destroying transaction, all Postgres.
-/// Repoint every sealed source's distinct ids to the target (recording the
-/// moves per source row in the same commit), move cohort membership and
-/// hash-key overrides target-wins, scrub and tombstone the source person
-/// rows at their exact death versions, and clear the target's mark. The
-/// source marks stay: they are the fences' durable record until release.
-async fn flip(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
-    let team_id = op.team_id as i32;
-    let mut tx = pool.begin().await?;
-
-    let target = {
-        let row = sqlx::query!(
-            "SELECT person_id FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
-            op.op_id,
-            ROLE_TARGET,
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        row.person_id
-    };
-    let mut sources: Vec<i64> = sqlx::query_scalar!(
-        r#"
-        SELECT person_id FROM lifecycle_op_person
-        WHERE op_id = $1 AND role = $2 AND status = $3
-        "#,
-        op.op_id,
-        ROLE_SOURCE,
-        STATUS_SEALED,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    sources.sort_unstable();
-
-    // RETURNING sees the post-update row, so the pre-update owner has to
-    // come from a self-join snapshot — without it every returned
-    // person_id would be the target.
-    let repointed = sqlx::query!(
-        r#"
-        UPDATE posthog_persondistinctid pdi
-        SET person_id = $3, version = COALESCE(pdi.version, 0) + 1
-        FROM posthog_persondistinctid old
-        WHERE old.id = pdi.id
-          AND pdi.team_id = $1 AND pdi.person_id = ANY($2) AND pdi.is_deleted = false
-        RETURNING old.person_id as "old_person_id!", pdi.distinct_id, pdi.version as "version!"
-        "#,
-        team_id,
-        &sources,
-        target,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    // Record the repointed mappings per source in the same commit — what a
-    // later ClickHouse emission (or an operator) reads back (delete parity).
-    let mut moved_ids: Vec<i64> = Vec::new();
-    let mut moved_json: Vec<Value> = Vec::new();
-    for source in &sources {
-        let rows: Vec<Value> = repointed
-            .iter()
-            .filter(|r| r.old_person_id == *source)
-            .map(|r| serde_json::json!({"distinct_id": r.distinct_id, "version": r.version}))
-            .collect();
-        if !rows.is_empty() {
-            moved_ids.push(*source);
-            moved_json.push(Value::Array(rows));
-        }
-    }
-    if !moved_ids.is_empty() {
-        sqlx::query!(
-            r#"
-            UPDATE lifecycle_op_person lop
-            SET moved = u.moved
-            FROM unnest($2::bigint[], $3::jsonb[]) AS u(person_id, moved)
-            WHERE lop.op_id = $1 AND lop.person_id = u.person_id
-            "#,
-            op.op_id,
-            &moved_ids,
-            &moved_json,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // Cohort membership moves wholesale. The table has no unique
-    // constraint, so a target already in a cohort ends up with duplicate
-    // rows — deliberately matching the production merge path, whose
-    // recalculation heals the rare duplicate.
-    sqlx::query!(
-        "UPDATE posthog_cohortpeople SET person_id = $2 WHERE person_id = ANY($1)",
-        &sources,
-        target,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // Hash-key overrides move target-wins: the target's existing override
-    // for a flag beats any source's.
-    sqlx::query!(
-        r#"
-        WITH removed AS (
-            DELETE FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = $1 AND person_id = ANY($2)
-            RETURNING feature_flag_key, hash_key
-        )
-        INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-        SELECT $1, $3, feature_flag_key, hash_key FROM removed
-        ON CONFLICT (team_id, person_id, feature_flag_key) DO NOTHING
-        "#,
-        team_id,
-        &sources,
-        target,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // Scrub and tombstone the source person rows at the death version the
-    // leader derives from the same seal (sealed + 1; the leader max-merges
-    // with its current version as defense in depth), so a reused key
-    // revives above it. Exact PG/CH agreement additionally assumes no
-    // spent-but-unconfirmed version sits above the seal — the fence path
-    // does not consult the leader's emitted-version floor today.
-    sqlx::query!(
-        r#"
-        UPDATE posthog_person p
-        SET is_deleted = true,
-            properties = '{}'::jsonb,
-            properties_last_updated_at = '{}'::jsonb,
-            properties_last_operation = '{}'::jsonb,
-            version = (lop.sealed->>'version')::bigint + 1
-        FROM lifecycle_op_person lop
-        WHERE lop.op_id = $1 AND lop.role = $3 AND lop.status = $4
-          AND p.team_id = $2 AND p.id = lop.person_id
-        "#,
-        op.op_id,
-        team_id,
-        ROLE_SOURCE,
-        STATUS_SEALED,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // The target's own person row is untouched: the folded document
-    // reaches Postgres through the writer's projection (single-writer
-    // rule). Only its mark clears — from here the merged person is
-    // claimable by other lifecycle ops.
-    sqlx::query!(
-        "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND role = $3",
-        op.op_id,
-        STATUS_CLEARED,
-        ROLE_TARGET,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    if !advance_step_in_tx(
-        &mut tx,
-        op.op_id,
-        MergeStep::DocumentFolded.as_str(),
-        MergeStep::Flipped.as_str(),
-    )
-    .await?
-    {
-        tx.rollback().await?;
-        return Ok(());
-    }
-    tx.commit().await?;
-    record_transition(
-        MergeStep::DocumentFolded.as_str(),
-        MergeStep::Flipped.as_str(),
-    );
-    Ok(())
-}
-
-struct TargetRow {
-    person_id: i64,
-}
-
-async fn target_row(pool: &PgPool, op: &OpRow) -> Result<TargetRow, SagaError> {
-    let row = sqlx::query!(
-        "SELECT person_id FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
-        op.op_id,
-        ROLE_TARGET,
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok(TargetRow {
-        person_id: row.person_id,
-    })
-}
-
-/// End an op inside the claim transaction: nothing outside this op's own
-/// rows has been mutated, so recording the outcome and the terminal step
-/// in the same commit is the whole abort.
-async fn abort_in_claim_tx(
-    mut tx: Tx<'_>,
-    op: &OpRow,
-    dispositions: Vec<Disposition>,
-) -> Result<(), SagaError> {
-    let outcome = outcome_from_dispositions(&dispositions, true, None, &HashMap::new())?;
-    if !complete_op_in_tx(
-        &mut tx,
-        op.op_id,
-        MergeStep::Started.as_str(),
-        STEP_ABORTED,
-        &outcome,
-    )
-    .await?
-    {
-        tx.rollback().await?;
-        return Ok(());
-    }
-    tx.commit().await?;
-    record_transition(MergeStep::Started.as_str(), STEP_ABORTED);
-    record_outcomes(&outcome);
-    Ok(())
-}
-
-/// Settle sources that dropped out during the seal: `dropped` releases
-/// their marks; the claim record's decisions flip to the drop reason.
-async fn settle_drops(
-    tx: &mut Tx<'_>,
-    op: &OpRow,
-    vanished: &[i64],
-    identified: &[i64],
-) -> Result<(), SagaError> {
-    let all: Vec<i64> = vanished.iter().chain(identified.iter()).copied().collect();
-    if all.is_empty() {
-        return Ok(());
-    }
-    sqlx::query!(
-        r#"
-        UPDATE lifecycle_op_person SET status = $2
-        WHERE op_id = $1 AND person_id = ANY($3) AND status IN ('marked', 'sealed')
-        "#,
-        op.op_id,
-        STATUS_DROPPED,
-        &all,
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    let mut record = claim_record(tx, op).await?;
-    for disposition in record.dispositions.iter_mut() {
-        if disposition.decision != DECISION_PENDING_MERGE {
-            continue;
-        }
-        let Some(person_id) = disposition.person_id else {
-            continue;
-        };
-        if vanished.contains(&person_id) {
-            disposition.decision = OUTCOME_ERROR.to_string();
-        } else if identified.contains(&person_id) {
-            disposition.decision = OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string();
-        }
-    }
-    let updated = serde_json::to_value(&record)
-        .map_err(|e| SagaError::CorruptState(format!("failed to serialize claim record: {e}")))?;
-    sqlx::query!(
-        "UPDATE lifecycle_op_person SET moved = $2 WHERE op_id = $1 AND role = $3",
-        op.op_id,
-        updated,
-        ROLE_TARGET,
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
 }
 
 async fn claim_record(tx: &mut Tx<'_>, op: &OpRow) -> Result<ClaimRecord, SagaError> {
@@ -1454,31 +1566,6 @@ fn outcome_from_dispositions(
         results,
     })
     .map_err(|e| SagaError::CorruptState(format!("failed to serialize merge outcome: {e}")))
-}
-
-fn snapshot_from_sealed(person: &Person) -> Result<SealedSnapshot, SagaError> {
-    let properties = if person.properties.is_empty() {
-        Value::Object(serde_json::Map::new())
-    } else {
-        serde_json::from_slice(&person.properties).map_err(|e| {
-            SagaError::CorruptState(format!("sealed properties do not parse as JSON: {e}"))
-        })?
-    };
-    Ok(SealedSnapshot {
-        version: person.version,
-        created_at: person.created_at,
-        is_identified: person.is_identified,
-        properties,
-        last_seen_at: person.last_seen_at,
-    })
-}
-
-fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
-    if value.is_null() {
-        return Ok(Vec::new());
-    }
-    serde_json::to_vec(value)
-        .map_err(|e| SagaError::CorruptState(format!("failed to serialize event payload: {e}")))
 }
 
 #[cfg(test)]
