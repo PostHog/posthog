@@ -579,6 +579,23 @@ describe("CloudArtifactDownloads", () => {
     fireEvent.click(trigger);
   });
 
+  it("stays collapsed through an empty refresh when the session retains the files", () => {
+    const { rerender } = renderDownloads();
+
+    fireEvent.click(screen.getByRole("button", { name: "Files (1)" }));
+    session.cloudArtifacts = fetchedArtifacts;
+    fetchedArtifacts = [];
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Files (1)" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(trigger);
+  });
+
   it("remembers collapse state per task", () => {
     const { unmount } = renderDownloads();
 
