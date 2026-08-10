@@ -5,8 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
-class AwsSesSourceConfig(config.Config):
-    aws_access_key_id: str
-    aws_secret_access_key: str
-    aws_region: str
-    aws_session_token: str | None = None
+class ImpactPartnerSourceConfig(config.Config):
+    account_sid: str
+    auth_token: str
