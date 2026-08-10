@@ -121,7 +121,10 @@ export function ThreadDiscussionEntry({
                     ) : null}
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                    <TeamOnlyBadge label="Team discussion" tone="discussion" />
+                    {/* "Internal", not the entry's name again: the left of the row already says what
+                        this is, and the badge's job is only to promise the customer cannot see it.
+                        Same split as an agent report, which reads "Self-driving" then "Internal". */}
+                    <TeamOnlyBadge label="Internal" tone="discussion" />
                     {anchor ? (
                         <span className="text-xs text-muted-alt">
                             <TZLabel time={anchor} />

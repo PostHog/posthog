@@ -54,8 +54,11 @@ describe('ThreadDiscussionEntry', () => {
 
         expect(screen.getByText('Started by Luke')).toBeInTheDocument()
         expect(screen.getByText('Is this the same bug as the flag eval regression?')).toBeInTheDocument()
-        // The badge is what promises the customer can't see this.
-        expect(screen.getAllByText('Team discussion').length).toBeGreaterThan(0)
+        // The row names the entry once on the left and promises team-only on the right. Saying
+        // "Team discussion" in both places reads as a mistake next to an agent report, which
+        // splits the same two jobs across two different words.
+        expect(screen.getByText('Team discussion')).toBeInTheDocument()
+        expect(screen.getByText('Internal')).toBeInTheDocument()
     })
 
     // Reactions are stripped upstream by commentsLogic's commentsWithReplies, so the card can trust
