@@ -114,6 +114,7 @@ describe("signed-commit tool handler", () => {
       taskId: "task-1",
       taskRunId: "run-1",
       branch: "posthog-code/feature",
+      updateCheckoutBranch: true,
     });
   });
 
@@ -132,10 +133,11 @@ describe("signed-commit tool handler", () => {
       taskId: "task-1",
       taskRunId: "run-1",
       branch: "posthog-code/feature",
+      updateCheckoutBranch: true,
     });
   });
 
-  it("does not persist a branch created in a sibling repository", async () => {
+  it("reports a sibling repository branch without changing the checkout branch", async () => {
     await signedCommitTool.handler(
       {
         cwd: "/tmp/workspace/repos/posthog/code",
@@ -149,7 +151,12 @@ describe("signed-commit tool handler", () => {
       },
     );
 
-    expect(reportTaskRunBranch).not.toHaveBeenCalled();
+    expect(reportTaskRunBranch).toHaveBeenCalledWith({
+      taskId: "task-1",
+      taskRunId: "run-1",
+      branch: "posthog-code/feature",
+      updateCheckoutBranch: false,
+    });
   });
 
   it("returns the no-token error without invoking createSignedCommit", async () => {

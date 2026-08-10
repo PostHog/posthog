@@ -391,4 +391,31 @@ describe("reportTaskRunBranch", () => {
       }),
     });
   });
+
+  it("can report a PR head branch without changing the checkout branch", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await reportTaskRunBranch({
+      taskId: "task-1",
+      taskRunId: "run-1",
+      branch: "posthog-code/fix-foo",
+      updateCheckoutBranch: false,
+      env: ENV,
+      envFilePath: NO_ENV_FILE,
+      oauthEnvFilePath: TEST_OAUTH_ENV_FILE,
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({
+        output: { head_branch: "posthog-code/fix-foo" },
+      }),
+    });
+  });
 });

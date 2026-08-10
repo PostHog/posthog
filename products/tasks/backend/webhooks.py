@@ -88,6 +88,21 @@ def find_task_run(
         if task_run:
             return task_run
 
+        # Signed commits report their pushed branch separately from ``branch``.
+        # The latter controls which branch provisioning checks out and cannot
+        # represent a repository nested below a multi-repo workspace root.
+        task_run = (
+            TaskRun.objects.filter(
+                _run_repository_filter(repository),
+                output__head_branch=branch,
+                state__wizard_head_branch__isnull=True,
+            )
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
+        if task_run:
+            return task_run
+
         # Wizard cloud runs push to a server-generated head branch stored in run state.
         # The prefix check keeps this leg off the hot path for ordinary PR webhooks, and
         # terminal runs are excluded so a reopened branch can't fire events on a dead run

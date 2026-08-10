@@ -142,6 +142,7 @@ export async function reportTaskRunBranch(opts: {
   taskId: string | undefined;
   taskRunId: string | undefined;
   branch: string;
+  updateCheckoutBranch?: boolean;
   env?: Record<string, string | undefined>;
   envFilePath?: string;
   oauthEnvFilePath?: string;
@@ -159,7 +160,7 @@ export async function reportTaskRunBranch(opts: {
       return;
     }
     await client.updateTaskRun(opts.taskId, opts.taskRunId, {
-      branch: opts.branch,
+      ...(opts.updateCheckoutBranch !== false && { branch: opts.branch }),
       output: { head_branch: opts.branch },
     });
   } catch (err) {
