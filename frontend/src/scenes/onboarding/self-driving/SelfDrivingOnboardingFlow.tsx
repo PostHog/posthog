@@ -9,14 +9,12 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 
-// Deliberate self-driving → legacy import: onboardingLogic owns the completion flow (marking the
-// team onboarded, redirecting out) for both variants.
-import { onboardingLogic } from '../legacy/onboardingLogic'
 import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
 import { resolveSetup } from '../shared/useCases'
 import type { OnboardingExtraStepId, OnboardingUseCaseKey } from '../shared/useCases'
 import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
 import { InstallationTrackerGate } from './components/InstallationTracker'
+import { onboardingLogic } from './onboardingLogic'
 import { productEnablementStepLogic } from './productEnablementStepLogic'
 import { RoughMark } from './RoughMark'
 import { AIObservabilityStep } from './steps/AIObservabilityStep'
@@ -127,7 +125,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         return () => releaseInlinePanel('local')
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
-    const { completeSelfDrivingOnboarding } = useActions(onboardingLogic)
+    const { completeOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
     const {
         reportSelfDrivingOnboardingStarted,
@@ -189,7 +187,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         if (isLast) {
             // Marks onboarding complete (credits the sources turned on, plus the declared use
             // case's product) and navigates out, so sceneLogic doesn't bounce the user back in.
-            completeSelfDrivingOnboarding(selectedUseCase)
+            completeOnboarding(selectedUseCase)
             return
         }
         goToStep(stepIndex + 1)
