@@ -2799,17 +2799,14 @@ def update_account_for_view(
         was_impersonated=was_impersonated,
         previous=previous,
     )
-    # Off-to-on only. A cadence change while already on doesn't qualify, because the
-    # coordinator picks the new cadence's closed period up within the hour and one summary
-    # per switch is LLM spend nobody asked for.
+    # Off-to-on only: the coordinator picks a mid-flight cadence change up within the hour,
+    # and one backfill per switch is LLM spend nobody asked for.
     if not previous.slack_summary_cadence and account.slack_summary_cadence:
         _dispatch_initial_channel_summary(account)
     return _to_account_view(account)
 
 
 def _dispatch_initial_channel_summary(account: Account) -> None:
-    """Summarize the account's recent closed periods now, one summary per period, so the
-    user sees real history without waiting for the coordinator's next tick."""
     cadence = account.slack_summary_cadence
     slack_channel_id = (account._properties or {}).get("slack_channel_id")
     if not cadence or not slack_channel_id:
@@ -2827,8 +2824,7 @@ def _dispatch_initial_channel_summary(account: Account) -> None:
                 period_end=period.end,
             )
         except Exception as e:
-            # Per period, so one bad dispatch doesn't drop the rest. The cadence is already
-            # saved and the coordinator catches up on whatever this misses.
+            # Per period, so one bad dispatch doesn't drop the rest.
             capture_exception(
                 e,
                 {

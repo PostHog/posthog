@@ -44,8 +44,7 @@ describe('accountSummariesLogic', () => {
     })
 
     afterEach(() => {
-        // Clears this account's entry in the module-level backfill deadlines, which would
-        // otherwise leave the next test's mount resuming a poll it never started.
+        // Clears this account's module-level backfill deadline, which would leak into the next test.
         logic?.actions.stopFirstSummaryPolling()
         logic?.unmount()
     })
@@ -119,7 +118,6 @@ describe('accountSummariesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.generatingFirstSummary).toBe(true)
 
-        // What the poll's interval does once the backfill lands.
         mockList.mockResolvedValue({ count: 1, next: null, previous: null, results: [SUMMARY] })
         logic.actions.loadSummaries()
         await expectLogic(logic).toFinishAllListeners()
@@ -154,7 +152,6 @@ describe('accountSummariesLogic', () => {
         logic.actions.setCadence('daily')
         await expectLogic(logic).toFinishAllListeners()
 
-        // count, not results length: a page holds 5 while a daily backfill writes up to 7.
         for (const count of [3, 6]) {
             nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_QUIET_MS * 2)
             mockList.mockResolvedValue({ count, next: null, previous: null, results: [SUMMARY] })
@@ -163,7 +160,6 @@ describe('accountSummariesLogic', () => {
             expect(logic.values.generatingFirstSummary).toBe(true)
         }
 
-        // A backfilled day with no messages writes no summary, so 6 of 7 is where this one ends.
         nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_QUIET_MS * 3 + 1)
         logic.actions.loadSummaries()
         await expectLogic(logic).toFinishAllListeners()
@@ -184,7 +180,6 @@ describe('accountSummariesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.generatingFirstSummary).toBe(true)
 
-        // Hidden tabs suspend the poll, so the stop has to come from elapsed time, not poll count.
         nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_POLL_TIMEOUT_MS + 1)
         logic.actions.loadSummaries()
         await expectLogic(logic).toFinishAllListeners()

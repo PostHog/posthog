@@ -148,8 +148,6 @@ class TestTriggerImmediateChannelSummary(BaseTest):
     @parameterized.expand(
         [
             ("eligible", True, "xoxb-token", True),
-            # Channel messages go to an LLM, so an org that hasn't approved AI data
-            # processing must never have its channels summarized.
             ("ai_processing_not_approved", False, "xoxb-token", False),
             ("support_bot_not_configured", True, "", False),
         ]

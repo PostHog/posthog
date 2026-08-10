@@ -90,8 +90,6 @@ class TestGetInitialSummaryPeriods:
         assert [(p.start, p.end) for p in periods] == [(expected_start, expected_end)]
 
     def test_every_backfilled_period_is_one_the_coordinator_would_produce(self):
-        # The coordinator's dedupe is an exact (account, cadence, period_start) match, so a
-        # backfill whose boundaries drift off the closed-period grid gets summarized twice.
         for cadence in ("daily", "weekly", "monthly"):
             periods = get_initial_summary_periods(cadence, self.NOW, SP)
 
@@ -296,7 +294,6 @@ class TestAccountSummariesEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert dispatch.called is expected_dispatch
         if expected_dispatch:
-            # One dispatch per closed day, so a daily cadence yields daily summaries.
             assert dispatch.call_count == 7
             starts = [call.kwargs["period_start"] for call in dispatch.call_args_list]
             assert starts == sorted(starts)

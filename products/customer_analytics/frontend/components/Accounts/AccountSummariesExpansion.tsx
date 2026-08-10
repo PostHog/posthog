@@ -67,8 +67,7 @@ function backfillDescription(cadence: SlackSummaryCadenceEnumApi | null): string
 
 export function periodLabel(summary: AccountChannelSummaryApi): string {
     const start = summary.period_start.slice(0, 10)
-    // Span, not cadence: the summary written when summaries are turned on covers a trailing
-    // week or month under whichever cadence was picked, so a daily one isn't always a day.
+    // Span, not cadence: an opt-in backfill writes a trailing window under whichever cadence was picked.
     if (dayjs(summary.period_end).diff(summary.period_start, 'day') <= 1) {
         // period_end is exclusive, so a single day's end already reads as the next date.
         return start

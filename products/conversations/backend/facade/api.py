@@ -168,9 +168,8 @@ def trigger_immediate_channel_summary(
     Fire-and-forget: the caller's own write already succeeded, so a Temporal failure is
     logged and swallowed rather than raised.
     """
-    # Deferred: importing anything under temporal/ runs that package's __init__, which loads
-    # the summarize workflow, which imports the customer_analytics facade, which imports this
-    # module at module level.
+    # Deferred: temporal/__init__ loads the summarize workflow, which imports the
+    # customer_analytics facade, which imports this module.
     from products.conversations.backend.temporal.channel_summary.schemas import ChannelSummaryInput  # noqa: PLC0415
     from products.conversations.backend.temporal.channel_summary.summarize import (  # noqa: PLC0415
         AccountChannelSummaryWorkflow,

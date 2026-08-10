@@ -52,12 +52,8 @@ def get_last_closed_period(cadence: str, now: datetime, tz: ZoneInfo) -> Summary
 
 
 def get_initial_summary_periods(cadence: str, now: datetime, tz: ZoneInfo) -> list[SummaryPeriod]:
-    """The closed periods an opt-in backfill covers, oldest first.
-
-    The current partial period is excluded: its summary would claim the period key the
-    coordinator later wants for the complete period, and the unique key would then keep the
-    partial one forever.
-    """
+    """Oldest first. Excludes the current partial period, whose summary would claim the
+    period key the coordinator later wants for the complete one."""
     count = _INITIAL_BACKFILL_PERIODS.get(cadence)
     if count is None:
         raise ValueError(f"Unknown slack summary cadence: {cadence}")
