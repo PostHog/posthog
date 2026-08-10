@@ -50,8 +50,11 @@ from products.product_analytics.backend.models.insight_variable import InsightVa
 
 
 class TestQueryRequiredScopes(TestCase):
-    def test_top_level_product_query_replaces_generic_query_scope(self):
-        self.assertEqual(required_scopes_for_query_tree({"kind": "ErrorTrackingQuery"}), ["error_tracking:read"])
+    def test_top_level_error_tracking_query_requires_generic_and_product_scopes(self):
+        self.assertEqual(
+            required_scopes_for_query_tree({"kind": "ErrorTrackingQuery"}),
+            ["query:read", "error_tracking:read"],
+        )
 
     def test_wrapped_product_query_requires_generic_and_product_scopes(self):
         self.assertEqual(

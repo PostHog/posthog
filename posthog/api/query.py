@@ -162,10 +162,10 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
-    "ErrorTrackingBreakdownsQuery": ["error_tracking:read"],
-    "ErrorTrackingIssueCorrelationQuery": ["error_tracking:read"],
-    "ErrorTrackingQuery": ["error_tracking:read"],
-    "ErrorTrackingSimilarIssuesQuery": ["error_tracking:read"],
+    "ErrorTrackingBreakdownsQuery": ["query:read", "error_tracking:read"],
+    "ErrorTrackingIssueCorrelationQuery": ["query:read", "error_tracking:read"],
+    "ErrorTrackingQuery": ["query:read", "error_tracking:read"],
+    "ErrorTrackingSimilarIssuesQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
@@ -193,13 +193,7 @@ def required_scopes_for_query_tree(query: object) -> list[str] | None:
                 visit(value)
 
     visit(query)
-    if not scopes:
-        return None
-
-    top_level_kind = query.get("kind") if isinstance(query, dict) else None
-    if top_level_kind not in _QUERY_KIND_SCOPES and "query:read" not in scopes:
-        scopes.insert(0, "query:read")
-    return scopes
+    return scopes or None
 
 
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
