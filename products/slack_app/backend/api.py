@@ -2219,7 +2219,7 @@ def route_posthog_code_event_to_relevant_region(
 
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
-    local_match = link_result.candidates[0] if link_result.candidates else None
+    local_match = _link_shared_integration(event, link_result.candidates)
     if local_match:
         if _us_should_handle_instead(
             slack_team_id, list(SLACK_INTEGRATION_KINDS), can_defer_to_other_region, incoming_host
@@ -3056,6 +3056,28 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
             resource_type, resource_ref = parsed
             resources.append({"type": resource_type, "ref": str(resource_ref)})
     return resources
+
+
+def _link_shared_integration(event: dict[str, Any], candidates: list[Integration]) -> Integration | None:
+    team_ids: set[int] = set()
+    links = event.get("links")
+    if isinstance(links, list):
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            url = link.get("url")
+            if not isinstance(url, str):
+                continue
+            parts = [part for part in urlparse(url).path.split("/") if part]
+            if len(parts) >= 2 and parts[0] == "project" and parts[1].isdigit():
+                team_ids.add(int(parts[1]))
+
+    if len(team_ids) == 1:
+        team_id = next(iter(team_ids))
+        return next((candidate for candidate in candidates if candidate.team_id == team_id), None)
+    if team_ids:
+        return None
+    return candidates[0] if candidates else None
 
 
 def _extract_context_token(payload: dict) -> str:
