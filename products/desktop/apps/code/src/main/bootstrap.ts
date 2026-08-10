@@ -22,6 +22,13 @@ import path from "node:path";
 import { app, crashReporter, protocol } from "electron";
 import { fixPath } from "./utils/fixPath";
 import { shouldRefuseInternalChildBoot } from "./utils/internal-child-guard";
+import {
+  defaultCdpPort,
+  InvalidProfileError,
+  profileLabel,
+  profileSuffix,
+  resolveProfile,
+} from "./utils/profile";
 
 // The internal-child marker means a workspace-server descendant stripped
 // ELECTRON_RUN_AS_NODE and ran `node` or process.execPath; booting a full app
@@ -36,9 +43,23 @@ if (shouldRefuseInternalChildBoot(app.isPackaged, process.env)) {
 
 const isDev = !app.isPackaged;
 
+// A dev profile gives this instance its own single-instance lock and userData
+// dir, so it can run beside the default instance signed in as a different user.
+let profile: string | null;
+try {
+  profile = resolveProfile(process.argv, process.env, isDev);
+} catch (error) {
+  if (!(error instanceof InvalidProfileError)) throw error;
+  process.stderr.write(`[posthog-code] ${error.message}\n`);
+  process.exit(1);
+}
+const suffix = profileSuffix(profile);
+
 // Set app name for single-instance lock, crashReporter, etc
-const appName = isDev ? "posthog-code-dev" : "posthog-code";
-app.setName(isDev ? "PostHog (Development)" : "PostHog");
+const appName = (isDev ? "posthog-code-dev" : "posthog-code") + suffix;
+app.setName(
+  isDev ? `PostHog (Development${profileLabel(profile)})` : "PostHog",
+);
 
 // Set userData path for @posthog/code
 const appDataPath = app.getPath("appData");
@@ -53,6 +74,13 @@ app.setPath("userData", userDataPath);
 process.env.POSTHOG_CODE_DATA_DIR = userDataPath;
 process.env.POSTHOG_CODE_IS_DEV = String(isDev);
 process.env.POSTHOG_CODE_VERSION = app.getVersion();
+// Re-exported normalized so the rest of the app reads the resolved name rather
+// than re-parsing argv, and so a `--posthog-profile=` launch is visible to it.
+if (profile === null) {
+  delete process.env.POSTHOG_CODE_PROFILE;
+} else {
+  process.env.POSTHOG_CODE_PROFILE = profile;
+}
 
 // Enable Chromium internal logging to a dedicated file. Without this, Chromium
 // crashes (black screens, render-process-gone, GPU process death) leave no
@@ -62,7 +90,7 @@ process.env.POSTHOG_CODE_VERSION = app.getVersion();
 const chromiumLogDir = path.join(
   os.homedir(),
   ".posthog-code",
-  isDev ? "logs-dev" : "logs",
+  (isDev ? "logs-dev" : "logs") + suffix,
 );
 mkdirSync(chromiumLogDir, { recursive: true });
 const chromiumLogPath = path.join(chromiumLogDir, "chromium.log");
@@ -82,11 +110,19 @@ app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 // test-electron-app skill. electron-vite launches Electron itself, so this is
 // set in-process rather than via a CLI flag. POSTHOG_CODE_CDP_PORT matches the
 // port resolution in scripts/electron-cdp.mjs, for when :9222 is taken.
+// Profiled instances get their own default port, since only one process can
+// bind a given one and Chromium drops the loser without failing the boot.
 if (isDev) {
-  app.commandLine.appendSwitch(
-    "remote-debugging-port",
-    process.env.POSTHOG_CODE_CDP_PORT ?? "9222",
-  );
+  const cdpPort =
+    process.env.POSTHOG_CODE_CDP_PORT ?? String(defaultCdpPort(profile));
+  process.env.POSTHOG_CODE_CDP_PORT = cdpPort;
+  app.commandLine.appendSwitch("remote-debugging-port", cdpPort);
+
+  if (profile !== null) {
+    process.stdout.write(
+      `[posthog-code] profile "${profile}", userData ${userDataPath}, devtools port ${cdpPort}\n`,
+    );
+  }
 }
 
 crashReporter.start({ uploadToServer: false });

@@ -24,8 +24,9 @@ import {
 } from "./services/dev-flags/service";
 import { trpcRouter } from "./trpc/router";
 import { collectMemorySnapshot } from "./utils/crash-diagnostics";
-import { isDevBuild } from "./utils/env";
+import { getProfile, isDevBuild } from "./utils/env";
 import { logger, readChromiumLogTail } from "./utils/logger";
+import { profileLabel } from "./utils/profile";
 import {
   getFullScreenDisplayBounds,
   saveFullScreenDisplayBounds,
@@ -164,6 +165,28 @@ function setupEditableContextMenu(window: BrowserWindow): void {
   });
 }
 
+/**
+ * Keeps the dev profile name in the window title so instances of the app signed
+ * in as different users are tellable apart in the taskbar and window switcher.
+ * The renderer rewrites `document.title` on every navigation, so re-stamp it.
+ */
+function markWindowProfile(window: BrowserWindow): void {
+  const profile = getProfile();
+  if (profile === null) return;
+
+  const stamp = (title: string): void => {
+    const stamped = `${title}${profileLabel(profile)}`;
+    if (!window.isDestroyed() && window.getTitle() !== stamped) {
+      window.setTitle(stamped);
+    }
+  };
+  window.on("page-title-updated", (event, title) => {
+    event.preventDefault();
+    stamp(title);
+  });
+  stamp(window.getTitle());
+}
+
 export function createWindow(): void {
   const isDev = isDevBuild();
   const savedState = getSavedWindowState();
@@ -290,6 +313,8 @@ export function createWindow(): void {
   const showFallback = setTimeout(showWindow, 3000);
 
   setupWindowZoom(mainWindow);
+
+  markWindowProfile(mainWindow);
 
   // Persist window state on changes
   mainWindow.on(

@@ -28,6 +28,11 @@ export function getAppVersion(): string {
   return requireEnv("POSTHOG_CODE_VERSION");
 }
 
+/** Active dev profile name, or null for the default instance. */
+export function getProfile(): string | null {
+  return process.env.POSTHOG_CODE_PROFILE ?? null;
+}
+
 export function ensureClaudeConfigDir(): void {
   const existing = process.env.CLAUDE_CONFIG_DIR;
   if (existing) return;

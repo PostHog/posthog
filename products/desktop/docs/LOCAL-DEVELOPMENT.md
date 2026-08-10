@@ -106,6 +106,44 @@ Open devtools in the dev build and type:
 
 Source: `apps/code/src/renderer/features/inbox/devtools/inboxDemoConsole.ts`.
 
+## Signing in as several users at once
+
+Multiplayer features are easier to test with two copies of the app open, each
+signed in as a different user. Dev profiles do that.
+
+With `pnpm dev` already running, start a second instance:
+
+```bash
+pnpm dev:profile alice
+```
+
+Repeat with another name for a third. Each profile is a separate app instance
+with its own single-instance lock and its own `userData` directory, so it has
+its own login, database, settings, window state and logs. The profile name is
+appended to the window title and the macOS app name so you can tell the windows
+apart.
+
+Profiles work in dev builds only. You can also set `POSTHOG_CODE_PROFILE=alice`
+or pass `--posthog-profile=alice` if you launch Electron yourself.
+
+Data for a profile lives in `<appData>/@posthog/posthog-code-dev-profile-alice`,
+and its Chromium log in `~/.posthog-code/logs-dev-profile-alice`. Deleting the
+`userData` directory resets that profile.
+
+Some things to know:
+
+- Sign in to one instance at a time. The dev OAuth flow listens on a fixed
+  callback port (8237), which is registered on the OAuth application, so two
+  concurrent logins collide. Once signed in, both instances run fine together.
+- Deep links (`posthog-code-dev://`) go to whichever instance your OS picks.
+- `pnpm dev:profile` reuses the renderer dev server and the compiled main
+  bundle from `pnpm dev`. Renderer edits hot-reload as usual; main-process edits
+  do not, so quit and re-run the profile after one.
+- Restarting `pnpm dev` while a profile instance is running logs a warning about
+  a previous Electron instance and then starts anyway. That is expected.
+- Each profile gets its own devtools protocol port, printed at boot. Pass it to
+  `pnpm app:cdp <port>` to drive that instance.
+
 ## Feature flags in local dev
 
 Feature flags are read through posthog-js, configured by the `VITE_POSTHOG_*`
