@@ -1207,6 +1207,7 @@ describe("SessionService", () => {
                 expect.objectContaining({ value: "plan" }),
                 expect.objectContaining({ value: "read-only" }),
                 expect.objectContaining({ value: "auto" }),
+                expect.objectContaining({ value: "multitask" }),
                 expect.objectContaining({ value: "full-access" }),
               ],
             }),
