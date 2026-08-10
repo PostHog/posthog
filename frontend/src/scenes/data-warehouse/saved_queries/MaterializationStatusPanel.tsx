@@ -386,6 +386,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     Completed: 'success',
                                     Failed: 'danger',
                                     Running: 'warning',
+                                    Skipped: 'muted',
                                 }
                                 const type = statusToType[status] || 'warning'
 
@@ -424,7 +425,8 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                             title: 'Rows',
                             dataIndex: 'rows_materialized',
                             render: (_, { rows_materialized, status }: DataModelingJob) =>
-                                (status === 'Running' || status === 'Cancelled') && rows_materialized === 0
+                                (status === 'Running' || status === 'Cancelled' || status === 'Skipped') &&
+                                rows_materialized === 0
                                     ? '~'
                                     : humanFriendlyNumber(rows_materialized),
                         },
