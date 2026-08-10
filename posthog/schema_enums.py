@@ -1866,6 +1866,7 @@ class ExternalDataSourceType(StrEnum):
     PEEC_AI = "PeecAI"
     HEALTHCHECKS = "Healthchecks"
     IMPACT = "Impact"
+    IMPACT_PARTNER = "ImpactPartner"
     AIKIDO_SECURITY = "AikidoSecurity"
     ALGUNA = "Alguna"
     ANTHROPIC = "Anthropic"
