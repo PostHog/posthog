@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseWindowListPlist } from "./cg-window-list";
+import {
+  createSamplerFromBindings,
+  parseWindowListPlist,
+  type WindowListBindings,
+} from "./cg-window-list";
 
 // A CGWindowListCopyWindowInfo-shaped binary plist. Regenerate with:
 //   python3 -c "import plistlib,base64; print(base64.b64encode(plistlib.dumps([...], fmt=plistlib.FMT_BINARY)).decode())"
@@ -36,5 +40,73 @@ describe("parseWindowListPlist", () => {
     );
 
     expect(parseWindowListPlist(notAnArray)).toEqual([]);
+  });
+});
+
+const LIST = { cf: "list" };
+const DATA = { cf: "data" };
+
+function fakeBindings(overrides: Partial<WindowListBindings> = {}) {
+  const released: unknown[] = [];
+  const bindings: WindowListBindings = {
+    copyWindowInfo: () => LIST,
+    createData: () => DATA,
+    getBytePtr: () => null,
+    getLength: () => WINDOW_LIST_PLIST.length,
+    release: (ref) => released.push(ref),
+    decodeBytes: () => new Uint8Array(WINDOW_LIST_PLIST),
+    ...overrides,
+  };
+  return { released, sampler: createSamplerFromBindings(bindings) };
+}
+
+describe("createSamplerFromBindings", () => {
+  it("parses the window list and releases both owned refs", () => {
+    const { released, sampler } = fakeBindings();
+
+    expect(sampler.sample().map((window) => window.ownerName)).toEqual([
+      "Dock",
+      "PostHog",
+      "",
+    ]);
+    expect(released).toEqual([DATA, LIST]);
+  });
+
+  it.each([
+    {
+      name: "there is no window list",
+      overrides: { copyWindowInfo: () => null } as Partial<WindowListBindings>,
+      expected: [] as unknown[],
+    },
+    {
+      name: "serialising the plist fails",
+      overrides: { createData: () => null } as Partial<WindowListBindings>,
+      expected: [LIST] as unknown[],
+    },
+    {
+      name: "the plist data is empty",
+      overrides: { getLength: () => 0 } as Partial<WindowListBindings>,
+      expected: [DATA, LIST] as unknown[],
+    },
+  ])(
+    "returns nothing and releases only what it owns when $name",
+    ({ overrides, expected }) => {
+      const { released, sampler } = fakeBindings(overrides);
+
+      expect(sampler.sample()).toEqual([]);
+      expect(released).toEqual(expected);
+    },
+  );
+
+  it("releases both refs even when decoding throws", () => {
+    // A skipped CFRelease leaks CoreFoundation objects on every 250ms poll.
+    const { released, sampler } = fakeBindings({
+      decodeBytes: () => {
+        throw new Error("bad pointer");
+      },
+    });
+
+    expect(() => sampler.sample()).toThrow("bad pointer");
+    expect(released).toEqual([DATA, LIST]);
   });
 });

@@ -827,7 +827,12 @@ function QuickActionsMenu() {
   const toggleMissionControlOverlay = () => {
     const next = !missionControlForced;
     setMissionControlForced(next);
-    void trpcClient.dev.setForceMissionControlOverlay.mutate({ enabled: next });
+    trpcClient.dev.setForceMissionControlOverlay
+      .mutate({ enabled: next })
+      .catch((error: unknown) => {
+        setMissionControlForced(!next);
+        log.warn("Failed to force the Mission Control overlay", { error });
+      });
   };
 
   // Mission Control is modal, so a sample taken on click would only ever show
@@ -839,13 +844,20 @@ function QuickActionsMenu() {
       const probe = await trpcClient.dev.probeMissionControl.mutate({
         durationMs: MISSION_CONTROL_PROBE_MS,
       });
+      if (!probe.available) {
+        await trpcClient.dev.triggerToast.mutate({
+          variant: "error",
+          message: "Couldn't read the window list on this device",
+        });
+        return;
+      }
       await navigator.clipboard.writeText(JSON.stringify(probe, null, 2));
       await trpcClient.dev.triggerToast.mutate({
         variant: "info",
         message: "Window list copied to the clipboard",
       });
     } catch (error) {
-      log.warn("Mission Control probe failed", error);
+      log.warn("Mission Control probe failed", { error });
     } finally {
       setProbing(false);
     }

@@ -49,7 +49,22 @@ export function parseWindowListPlist(bytes: Buffer): CgWindow[] {
   return Array.isArray(root) ? (root as RawWindow[]).map(toCgWindow) : [];
 }
 
-function bind() {
+export interface WindowListBindings {
+  copyWindowInfo(option: number, relativeToWindow: number): unknown;
+  createData(
+    allocator: null,
+    plist: unknown,
+    format: number,
+    options: number,
+    error: null,
+  ): unknown;
+  getBytePtr(data: unknown): unknown;
+  getLength(data: unknown): number | bigint;
+  release(ref: unknown): void;
+  decodeBytes(ptr: unknown, length: number): Uint8Array;
+}
+
+function bind(): WindowListBindings {
   // Required lazily so the native module only loads once something samples.
   const koffi = require("koffi") as typeof import("koffi");
 
@@ -57,7 +72,6 @@ function bind() {
   const cf = koffi.load(CORE_FOUNDATION);
 
   return {
-    koffi,
     copyWindowInfo: cg.func(
       "void *CGWindowListCopyWindowInfo(uint32_t option, uint32_t relativeToWindow)",
     ),
@@ -67,16 +81,16 @@ function bind() {
     getBytePtr: cf.func("void *CFDataGetBytePtr(void *data)"),
     getLength: cf.func("long CFDataGetLength(void *data)"),
     release: cf.func("void CFRelease(void *ref)"),
+    decodeBytes: (ptr, length) =>
+      koffi.decode(ptr, koffi.array("uint8", length, "Typed")) as Uint8Array,
   };
 }
 
-// Returns null off macOS; throws when the binding cannot be set up so the
-// caller can log the reason.
-export function createWindowListSampler(): WindowListSampler | null {
-  if (process.platform !== "darwin") return null;
-
-  const cg = bind();
-
+// Takes the bound functions as data so the CFRelease bookkeeping is testable
+// off macOS.
+export function createSamplerFromBindings(
+  cg: WindowListBindings,
+): WindowListSampler {
   return {
     sample(): CgWindow[] {
       const list = cg.copyWindowInfo(
@@ -99,11 +113,7 @@ export function createWindowListSampler(): WindowListSampler | null {
         const length = Number(cg.getLength(data));
         if (length <= 0) return [];
 
-        const bytes = cg.koffi.decode(
-          cg.getBytePtr(data),
-          cg.koffi.array("uint8", length, "Typed"),
-        ) as Uint8Array;
-
+        const bytes = cg.decodeBytes(cg.getBytePtr(data), length);
         return parseWindowListPlist(Buffer.from(bytes));
       } finally {
         // Both came from Copy/Create calls, so we own them.
@@ -112,4 +122,11 @@ export function createWindowListSampler(): WindowListSampler | null {
       }
     },
   };
+}
+
+// Returns null off macOS; throws when the binding cannot be set up so the
+// caller can log the reason.
+export function createWindowListSampler(): WindowListSampler | null {
+  if (process.platform !== "darwin") return null;
+  return createSamplerFromBindings(bind());
 }
