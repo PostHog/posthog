@@ -116,6 +116,34 @@ describe('customPropertyDefinitionsLogic', () => {
             .toMatchValues({ definitions: [expect.objectContaining({ id: 'def-1', name: 'ARR' })] })
     })
 
+    it('filters definitions by target type combined with search', async () => {
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [DEFINITIONS_URL]: {
+                    count: 3,
+                    results: [
+                        buildDefinition({ id: 'def-a', name: 'ARR', target_type: 'account' }),
+                        buildDefinition({ id: 'def-p', name: 'Plan', target_type: 'person' }),
+                        buildDefinition({ id: 'def-g', name: 'Region', target_type: 'group' }),
+                    ],
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+
+        logic.actions.setTargetTypeFilter('person')
+        expect(logic.values.filteredDefinitions.map((d) => d.id)).toEqual(['def-p'])
+
+        logic.actions.setSearchTerm('arr')
+        expect(logic.values.filteredDefinitions).toEqual([])
+
+        logic.actions.setTargetTypeFilter('all')
+        expect(logic.values.filteredDefinitions.map((d) => d.id)).toEqual(['def-a'])
+    })
+
     it('hydrates the form, including the source fields, when editing a synced definition', async () => {
         useMocks(defaultMocks())
         mountLogic()
