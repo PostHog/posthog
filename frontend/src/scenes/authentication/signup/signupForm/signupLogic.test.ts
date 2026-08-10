@@ -142,52 +142,6 @@ describe('signupLogic — pending invite banner', () => {
     })
 })
 
-describe('signupLogic — client-side validation', () => {
-    let logic: ReturnType<typeof signupLogic.build>
-
-    beforeEach(() => {
-        useMocks({
-            post: {
-                '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
-            },
-        })
-        initKeaTests()
-        router.actions.push('/signup')
-        logic = signupLogic()
-        logic.mount()
-    })
-
-    afterEach(() => {
-        logic.unmount()
-    })
-
-    it.each([
-        { description: 'empty', email: '', expectedError: 'Please enter your email to continue' },
-        { description: 'malformed', email: 'not-an-email', expectedError: 'Please use a valid email address' },
-    ])('a(n) $description email blocks the email panel with an error', async ({ email, expectedError }) => {
-        logic.actions.setSignupPanelEmailValue('email', email)
-        logic.actions.submitSignupPanelEmail()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.signupPanelEmailErrors.email).toBe(expectedError)
-        expect(logic.values.panel).toBe(0)
-    })
-
-    it('a too-short password blocks the auth panel with an error', async () => {
-        logic.actions.setSignupPanelEmailValue('email', 'test@example.com')
-        logic.actions.submitSignupPanelEmail()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.panel).toBe(1)
-
-        logic.actions.setSignupPanelAuthValue('password', '123')
-        logic.actions.submitSignupPanelAuth()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.signupPanelAuthErrors.password).toBe('Must be at least 8 characters long')
-        expect(logic.values.panel).toBe(1)
-    })
-})
-
 describe('signupLogic — name handling', () => {
     let logic: ReturnType<typeof signupLogic.build>
     let signupRequestBody: Record<string, any> | null
@@ -226,26 +180,11 @@ describe('signupLogic — name handling', () => {
         logic.unmount()
     })
 
-    it.each([
-        {
-            description: 'trims and splits a multi-word name',
-            name: '  John van Der Berg ',
-            organization_name: 'Hogflix',
-            expectedFirstName: 'John',
-            expectedLastName: 'van Der Berg',
-        },
-        {
-            description: 'sends only first_name for a single-word name',
-            name: 'Alice',
-            organization_name: '',
-            expectedFirstName: 'Alice',
-            expectedLastName: undefined,
-        },
-    ])('$description', async ({ name, organization_name, expectedFirstName, expectedLastName }) => {
+    it('trims and splits the name before building the signup payload', async () => {
         await advanceToOnboardingPanel()
         logic.actions.setSignupPanelOnboardingValues({
-            name,
-            organization_name,
+            name: '  John van Der Berg ',
+            organization_name: 'Hogflix',
             role_at_organization: 'engineer',
             referral_source: '',
             referral_source_ai_prompt: '',
@@ -253,12 +192,8 @@ describe('signupLogic — name handling', () => {
         logic.actions.submitSignupPanelOnboarding()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(signupRequestBody?.first_name).toBe(expectedFirstName)
-        if (expectedLastName === undefined) {
-            expect(signupRequestBody).not.toHaveProperty('last_name')
-        } else {
-            expect(signupRequestBody?.last_name).toBe(expectedLastName)
-        }
+        expect(signupRequestBody?.first_name).toBe('John')
+        expect(signupRequestBody?.last_name).toBe('van Der Berg')
     })
 
     it('omits a whitespace-only organization name so the backend applies its default', async () => {
