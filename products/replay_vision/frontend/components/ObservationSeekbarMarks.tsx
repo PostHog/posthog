@@ -75,6 +75,9 @@ function ObservationSeekbarMarksContent({
                             data-attr="vision-seekbar-observation-mark"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ left: `${position}%` }}
+                            // The slider scrubs on mousedown. Without this the pointer-position seek overrides the exact one.
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onTouchStart={(e) => e.stopPropagation()}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 onSeek(mark.timestampMs)
