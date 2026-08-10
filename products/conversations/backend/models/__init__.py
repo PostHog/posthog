@@ -5,7 +5,7 @@ from .email_outbox_message import EmailOutboxMessage
 from .github_comment_mapping import GithubCommentMapping
 from .restore_token import ConversationRestoreToken
 from .signing_secret import SigningSecret
-from .team_conversations_email_config import EmailChannel
+from .team_conversations_email_config import EmailChannel, EmailChannelKind
 from .team_conversations_slack_config import TeamConversationsSlackConfig
 from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannelSync
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
@@ -19,6 +19,7 @@ __all__ = [
     "ChannelDetail",
     "ConversationRestoreToken",
     "EmailChannel",
+    "EmailChannelKind",
     "EmailMessageMapping",
     "EmailOutboxMessage",
     "GithubCommentMapping",

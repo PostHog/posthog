@@ -18,7 +18,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.mailgun import validate_webhook_signature
-from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
+from products.conversations.backend.models import Channel, EmailChannel, EmailChannelKind, EmailMessageMapping, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import (
     sanitize_attachment_filename,
@@ -322,6 +322,9 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Unknown recipient", status=404)
 
     team = config.team
+    if config.kind != EmailChannelKind.SUPPORT:
+        logger.info("email_inbound_customer_communication_deferred", team_id=team.id, config_id=str(config.id))
+        return HttpResponse(status=200)
 
     # 3. Check email_enabled
     settings_dict = team.conversations_settings or {}
