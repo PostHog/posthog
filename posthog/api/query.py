@@ -162,10 +162,6 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
-    "ErrorTrackingBreakdownsQuery": ["query:read", "error_tracking:read"],
-    "ErrorTrackingIssueCorrelationQuery": ["query:read", "error_tracking:read"],
-    "ErrorTrackingQuery": ["query:read", "error_tracking:read"],
-    "ErrorTrackingSimilarIssuesQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
@@ -173,27 +169,6 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
 }
-
-
-def required_scopes_for_query_tree(query: object) -> list[str] | None:
-    """Collect product scopes from every executable query node, including wrapped sources."""
-    scopes: list[str] = []
-
-    def visit(node: object) -> None:
-        if isinstance(node, dict):
-            kind = node.get("kind")
-            if isinstance(kind, str):
-                for scope in _QUERY_KIND_SCOPES.get(kind, []):
-                    if scope not in scopes:
-                        scopes.append(scope)
-            for value in node.values():
-                visit(value)
-        elif isinstance(node, list):
-            for value in node:
-                visit(value)
-
-    visit(query)
-    return scopes or None
 
 
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -209,7 +184,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         if getattr(view, "action", None) != "create":
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
-        return required_scopes_for_query_tree(query)
+        kind = query.get("kind") if isinstance(query, dict) else None
+        return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
 
     def get_throttles(self):
         if self.action == "draft_sql":
