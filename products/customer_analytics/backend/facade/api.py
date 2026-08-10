@@ -38,7 +38,6 @@ from django.db.models import (
     Field,
     FloatField,
     IntegerField,
-    Max,
     OuterRef,
     Prefetch,
     Q,
@@ -2809,28 +2808,35 @@ def update_account_for_view(
 
 
 def _dispatch_initial_channel_summary(account: Account) -> None:
-    """Summarize the account's channel now so the user sees a summary without waiting for
-    the first period to close."""
+    """Summarize the account's recent closed periods now, one summary per period, so the
+    user sees real history without waiting for the coordinator's next tick."""
     cadence = account.slack_summary_cadence
     slack_channel_id = (account._properties or {}).get("slack_channel_id")
     if not cadence or not slack_channel_id:
         return
-    period_start, period_end = _channel_summaries_logic.get_initial_summary_period(
-        cadence, timezone.now(), account.team.timezone_info
-    )
-    try:
-        trigger_immediate_channel_summary(
-            team_id=account.team_id,
-            account_id=str(account.id),
-            account_name=account.name,
-            slack_channel_id=slack_channel_id,
-            cadence=cadence,
-            period_start=period_start,
-            period_end=period_end,
-        )
-    except Exception as e:
-        # The cadence is already saved and the coordinator will catch up. Never fail the write.
-        capture_exception(e, {"team_id": account.team_id, "account_id": str(account.id)})
+    periods = _channel_summaries_logic.get_initial_summary_periods(cadence, timezone.now(), account.team.timezone_info)
+    for period in periods:
+        try:
+            trigger_immediate_channel_summary(
+                team_id=account.team_id,
+                account_id=str(account.id),
+                account_name=account.name,
+                slack_channel_id=slack_channel_id,
+                cadence=cadence,
+                period_start=period.start,
+                period_end=period.end,
+            )
+        except Exception as e:
+            # Per period, so one bad dispatch doesn't drop the rest. The cadence is already
+            # saved and the coordinator catches up on whatever this misses.
+            capture_exception(
+                e,
+                {
+                    "team_id": account.team_id,
+                    "account_id": str(account.id),
+                    "period_start": period.start.isoformat(),
+                },
+            )
 
 
 def delete_account_for_view(
@@ -3003,9 +3009,7 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
         cadence = account.slack_summary_cadence
         if not slack_channel_id or not cadence:
             continue
-        period_start, period_end = _channel_summaries_logic.get_last_closed_period(
-            cadence, now, account.team.timezone_info
-        )
+        period = _channel_summaries_logic.get_last_closed_period(cadence, now, account.team.timezone_info)
         candidates.append(
             contracts.AccountDueForSlackSummary(
                 team_id=account.team_id,
@@ -3013,27 +3017,21 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
                 account_name=account.name,
                 slack_channel_id=slack_channel_id,
                 cadence=cadence,
-                period_start=period_start,
-                period_end=period_end,
+                period_start=period.start,
+                period_end=period.end,
             )
         )
     if not candidates:
         return []
-    # Coverage, not an exact period match: the summary written when an account opts in spans a
-    # trailing window ending at that moment, so it already covers the last closed period and
-    # must suppress it. The next period reaches past that window and is due normally.
-    covered_through = {
-        (str(row["account_id"]), row["cadence"]): row["latest_period_end"]
-        for row in AccountChannelSummary.objects.unscoped()
-        .filter(account_id__in=[c.account_id for c in candidates])
-        .values("account_id", "cadence")
-        .annotate(latest_period_end=Max("period_end"))
-    }
-    return [
-        c
-        for c in candidates
-        if (covered := covered_through.get((c.account_id, c.cadence))) is None or covered < c.period_end
-    ]
+    existing = set(
+        AccountChannelSummary.objects.unscoped()
+        .filter(
+            account_id__in=[c.account_id for c in candidates],
+            period_start__in={c.period_start for c in candidates},
+        )
+        .values_list("account_id", "cadence", "period_start")
+    )
+    return [c for c in candidates if (UUID(c.account_id), c.cadence, c.period_start) not in existing]
 
 
 def get_account_slack_summary_binding(team_id: int, account_id: str) -> contracts.AccountSlackSummaryBinding | None:

@@ -157,7 +157,8 @@ def trigger_immediate_channel_summary(
     period_start: datetime,
     period_end: datetime,
 ) -> bool:
-    """Summarize an account's Slack channel now, outside the hourly coordinator's schedule.
+    """Summarize one closed period of an account's Slack channel now, outside the hourly
+    coordinator's schedule.
 
     Applies the same team-level gates the coordinator applies before it fans out: the team
     must have the SupportHog bot (it reads the channel) and the org must have approved AI
@@ -188,9 +189,9 @@ def trigger_immediate_channel_summary(
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
     )
-    # Id keyed on the day so a same-day off/on toggle doesn't re-summarize the same window.
-    # ALLOW_DUPLICATE_FAILED_ONLY still lets a failed attempt retry.
-    workflow_id = f"account-channel-summary-initial-{account_id}-{period_end.date().isoformat()}"
+    # Must stay identical to the id the coordinator derives, so a backfill and a scheduled
+    # tick racing over one period resolve to a single run.
+    workflow_id = f"account-channel-summary-{account_id}-{cadence}-{period_start.date().isoformat()}"
     try:
         client = sync_connect()
         asyncio.run(
@@ -203,7 +204,6 @@ def trigger_immediate_channel_summary(
             )
         )
     except WorkflowAlreadyStartedError:
-        # Toggling off and on again the same day hits the still-running id. Expected.
         logger.info("immediate_channel_summary_already_started", workflow_id=workflow_id)
         return False
     except RPCError as e:

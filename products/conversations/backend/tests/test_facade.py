@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -128,16 +128,20 @@ class TestListAccountTickets(BaseTest):
         assert list_account_tickets(self.team.pk, "") == []
 
 
+ACCOUNT_ID = "e1f4a5b6-0000-4000-8000-000000000001"
+PERIOD_START = datetime(2026, 7, 27, tzinfo=UTC)
+
+
 class TestTriggerImmediateChannelSummary(BaseTest):
     def _trigger(self) -> bool:
         return trigger_immediate_channel_summary(
             team_id=self.team.pk,
-            account_id="e1f4a5b6-0000-4000-8000-000000000001",
+            account_id=ACCOUNT_ID,
             account_name="Acme Corp",
             slack_channel_id="C123",
             cadence="daily",
-            period_start=timezone.now() - timedelta(days=7),
-            period_end=timezone.now(),
+            period_start=PERIOD_START,
+            period_end=PERIOD_START + timedelta(days=1),
         )
 
     @parameterized.expand(
@@ -164,7 +168,7 @@ class TestTriggerImmediateChannelSummary(BaseTest):
         assert connect.called is expected_dispatch
         assert run.called is expected_dispatch
 
-    def test_dispatch_is_keyed_per_account_and_day(self):
+    def test_workflow_id_matches_the_one_the_coordinator_derives(self):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         client = MagicMock()
@@ -176,8 +180,11 @@ class TestTriggerImmediateChannelSummary(BaseTest):
         ):
             self._trigger()
 
-        kwargs = client.start_workflow.call_args.kwargs
-        assert kwargs["id"].startswith("account-channel-summary-initial-e1f4a5b6-0000-4000-8000-000000000001-")
         workflow_input = client.start_workflow.call_args.args[1]
+        # Diverging from this id lets a backfill and a scheduled tick summarize one period twice.
+        coordinator_id = (
+            f"account-channel-summary-{workflow_input.account_id}"
+            f"-{workflow_input.cadence}-{workflow_input.period_start[:10]}"
+        )
+        assert client.start_workflow.call_args.kwargs["id"] == coordinator_id
         assert workflow_input.slack_channel_id == "C123"
-        assert workflow_input.cadence == "daily"

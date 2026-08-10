@@ -58,6 +58,13 @@ function CadencePicker({ accountId }: { accountId: string }): JSX.Element {
     )
 }
 
+function backfillDescription(cadence: SlackSummaryCadenceEnumApi | null): string {
+    if (cadence === SlackSummaryCadenceEnumApi.Daily) {
+        return 'Summarizing the last 7 days, one summary per day.'
+    }
+    return cadence === SlackSummaryCadenceEnumApi.Monthly ? 'Summarizing last month.' : 'Summarizing last week.'
+}
+
 export function periodLabel(summary: AccountChannelSummaryApi): string {
     const start = summary.period_start.slice(0, 10)
     // Span, not cadence: the summary written when summaries are turned on covers a trailing
@@ -175,10 +182,12 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
         if (generatingFirstSummary) {
             return (
                 <SummariesEmptyState
-                    title="Generating your first summary"
-                    detail={`We're summarizing the last ${
-                        cadence === SlackSummaryCadenceEnumApi.Monthly ? 'month' : '7 days'
-                    } of this channel. This usually takes a minute.`}
+                    title={
+                        cadence === SlackSummaryCadenceEnumApi.Daily
+                            ? 'Generating your first summaries'
+                            : 'Generating your first summary'
+                    }
+                    detail={`${backfillDescription(cadence)} This usually takes a minute.`}
                 >
                     <Spinner className="text-xl" />
                     <CadencePicker accountId={accountId} />
@@ -202,7 +211,14 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-                <h4 className="mb-0">Channel summaries</h4>
+                <div className="flex items-center gap-2">
+                    <h4 className="mb-0">Channel summaries</h4>
+                    {generatingFirstSummary && (
+                        <span className="text-muted text-sm flex items-center gap-1">
+                            <Spinner /> Generating more
+                        </span>
+                    )}
+                </div>
                 <div className="flex items-center gap-2">
                     <span className="text-muted text-sm">Cadence</span>
                     <CadencePicker accountId={accountId} />

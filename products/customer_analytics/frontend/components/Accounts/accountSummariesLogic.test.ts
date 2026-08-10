@@ -47,8 +47,10 @@ describe('accountSummariesLogic', () => {
         logic?.unmount()
     })
 
-    const mount = async (): Promise<void> => {
-        logic = accountSummariesLogic({ accountId: 'acc-1' })
+    // Account id is a parameter because the in-flight backfill deadlines are module state,
+    // so a test that leaves one pending would otherwise bleed into the next.
+    const mount = async (accountId = 'acc-1'): Promise<void> => {
+        logic = accountSummariesLogic({ accountId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
@@ -122,6 +124,43 @@ describe('accountSummariesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.summariesResult.summaries).toEqual([SUMMARY])
+        expect(logic.values.generatingFirstSummary).toBe(false)
+    })
+
+    it('resumes the wait after the account row is collapsed and re-expanded', async () => {
+        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        mockPatch.mockResolvedValue(ACCOUNT)
+        await mount('acc-collapse')
+
+        logic.actions.setCadence('daily')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+
+        await mount('acc-collapse')
+
+        expect(logic.values.generatingFirstSummary).toBe(true)
+    })
+
+    it('keeps waiting until every daily summary lands, not just the first', async () => {
+        const daily = { ...ACCOUNT, slack_summary_cadence: 'daily' } as AccountApi
+        mockRetrieve.mockResolvedValue(daily)
+        mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        mockPatch.mockResolvedValue(daily)
+        await mount('acc-daily')
+
+        logic.actions.setCadence('daily')
+        await expectLogic(logic).toFinishAllListeners()
+
+        // count, not results length: a page holds 5 and the backfill writes 7.
+        mockList.mockResolvedValue({ count: 3, next: null, previous: null, results: [SUMMARY] })
+        logic.actions.loadSummaries()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.generatingFirstSummary).toBe(true)
+
+        mockList.mockResolvedValue({ count: 7, next: null, previous: null, results: [SUMMARY] })
+        logic.actions.loadSummaries()
+        await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.generatingFirstSummary).toBe(false)
     })
 
