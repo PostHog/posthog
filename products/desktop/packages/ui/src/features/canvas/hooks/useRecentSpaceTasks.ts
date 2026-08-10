@@ -6,7 +6,13 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
+import {
+  type TaskTimestamps,
+  wantsAttention,
+} from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
 import {
@@ -58,7 +64,58 @@ interface CachedSpaceTasks {
   page: SpaceTaskPage;
   archivedTaskIds: ReadonlySet<string>;
   pinnedTaskIds: ReadonlySet<string>;
+  viewedAt: TaskTimestamps;
+  blockedTaskIds: ReadonlySet<string>;
   built: SpaceTasks;
+}
+
+/**
+ * What a session is asking of you: blocked on you, then merely unread or
+ * working, then quiet.
+ *
+ * Blue is its own tier rather than part of the yellow one, because the two are
+ * cleared differently. `wantsAttention` is the space dot's yellow predicate, and
+ * reading a session clears it: open a blocked session and its row would fall
+ * past the unread rows above it while the prompt it is blocked on is still
+ * sitting there unanswered. A permission prompt only goes away when answered, so
+ * a blue row holds its place until it is.
+ */
+const ATTENTION_TIERS = 3;
+
+function attentionTier(
+  item: ChannelItemModel,
+  viewedAt: TaskTimestamps,
+  blockedTaskIds: ReadonlySet<string>,
+): number {
+  if (item.task && blockedTaskIds.has(item.task.id)) return 0;
+  if (item.task && wantsAttention(item.task, viewedAt)) return 1;
+  return 2;
+}
+
+/**
+ * The order a space's rows are cut to five in: pinned sessions, then the rest,
+ * each run ordered by what it wants from you and still newest first inside that.
+ *
+ * Two keys rather than one, because they answer different questions. Pinning is
+ * the reader's own filing and outranks everything, the way it does in the Code
+ * sidebar's list. Within a run, a space that shows a dot has to show the row
+ * behind it: by recency alone the session its dot is counting can sit below the
+ * cut, leaving a marked space that opens onto five quiet rows.
+ *
+ * Buckets rather than a comparator: the list arrives newest first, and pushing
+ * in order keeps that inside each run without a second sort key.
+ */
+function spaceTreeOrder(
+  items: ChannelItemModel[],
+  viewedAt: TaskTimestamps,
+  blockedTaskIds: ReadonlySet<string>,
+): ChannelItemModel[] {
+  const runs: ChannelItemModel[][] = [[], [], [], [], [], []];
+  for (const item of items) {
+    const tier = attentionTier(item, viewedAt, blockedTaskIds);
+    runs[(item.pinned ? 0 : ATTENTION_TIERS) + tier]?.push(item);
+  }
+  return runs.flat();
 }
 
 /**
@@ -92,6 +149,8 @@ export function useRecentSpaceTasks(
   const client = useOptionalAuthenticatedClient();
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds } = usePinnedTasks();
+  const { timestamps: viewedAt } = useTaskViewed();
+  const blockedTaskIds = useBlockedTaskIds();
 
   const pagePerSpace = useQueries({
     queries: spaceIds.map((spaceId) => ({
@@ -127,7 +186,9 @@ export function useRecentSpaceTasks(
         cached &&
         cached.page === page &&
         cached.archivedTaskIds === archivedTaskIds &&
-        cached.pinnedTaskIds === pinnedTaskIds
+        cached.pinnedTaskIds === pinnedTaskIds &&
+        cached.viewedAt === viewedAt &&
+        cached.blockedTaskIds === blockedTaskIds
       ) {
         bySpace.set(spaceId, cached.built);
         return;
@@ -145,7 +206,10 @@ export function useRecentSpaceTasks(
       // once the archived ones are dropped. A full page falls back to the
       // server's total, which still counts anything archived in it.
       const built: SpaceTasks = {
-        items: available.slice(0, RECENT_TASKS_PER_SPACE),
+        items: spaceTreeOrder(available, viewedAt, blockedTaskIds).slice(
+          0,
+          RECENT_TASKS_PER_SPACE,
+        ),
         total:
           page.tasks.length < TREE_FETCH_LIMIT ? available.length : page.count,
       };
@@ -153,12 +217,21 @@ export function useRecentSpaceTasks(
         page,
         archivedTaskIds,
         pinnedTaskIds,
+        viewedAt,
+        blockedTaskIds,
         built,
       });
       bySpace.set(spaceId, built);
     });
     return bySpace;
-  }, [spaceIds, pagePerSpace, archivedTaskIds, pinnedTaskIds]);
+  }, [
+    spaceIds,
+    pagePerSpace,
+    archivedTaskIds,
+    pinnedTaskIds,
+    viewedAt,
+    blockedTaskIds,
+  ]);
 }
 
 /**

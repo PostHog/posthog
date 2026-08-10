@@ -53,6 +53,7 @@ ActivityScope = Literal[
     "Team",
     "Project",
     "ErrorTrackingIssue",
+    "DataWarehouseExpression",
     "DataWarehouseSavedQuery",
     "LegalDocument",
     "Organization",
@@ -100,6 +101,7 @@ ActivityScope = Literal[
     "StreamlitApp",
     "Metric",
     "TableCertification",
+    "DataQualityCheck",
     "Billing",
     "Loop",
 ]
@@ -507,6 +509,16 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "source_insight_query_hash",
         "referenced_table_names",
     ],
+    "DataQualityCheck": [
+        # Written by the runner, not by a person editing the check.
+        "last_run_at",
+        "last_status",
+        "subject_name",
+        "subject_status",
+        # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "saved_query",
+        "table",
+    ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason
         # FeatureFlag/Subscription exclude theirs).
@@ -657,6 +669,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "_old_api_token",
     ],
     "Project": ["id", "created_at"],
+    "DataWarehouseExpression": ["deleted_at"],
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
