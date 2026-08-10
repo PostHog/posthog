@@ -112,6 +112,7 @@ export interface ITaskCreationHost {
    */
   takeWarmTaskLease(args: {
     repository?: string | null;
+    repositories?: string[];
     branch?: string | null;
     runtimeAdapter?: string | null;
     model?: string | null;

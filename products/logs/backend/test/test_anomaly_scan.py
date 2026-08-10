@@ -1,6 +1,7 @@
 import json
 import uuid
 import datetime as dt
+from types import SimpleNamespace
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -11,6 +12,8 @@ from django.test import SimpleTestCase
 
 import numpy as np
 from parameterized import parameterized
+
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManyBytes
@@ -30,6 +33,7 @@ from products.apm.backend.facade.api import (
 from products.logs.backend.anomaly_scan import (
     BindingConstraint,
     ScanBudgetExceeded,
+    ScanFetchTruncated,
     TimeRange,
     baseline_slice_ranges,
     degradation_ladder,
@@ -170,13 +174,19 @@ class TestRunScan(SimpleTestCase):
     def _now(self) -> dt.datetime:
         return T0 + BUCKETS_PER_DAY * BUCKET
 
-    def test_degrades_on_byte_budget_and_reports_constraint(self) -> None:
+    @parameterized.expand(
+        [
+            ("byte_budget", CHQueryErrorTooManyBytes("too many bytes", code=307)),
+            ("row_truncation", ScanFetchTruncated("bucket fetch returned 50000 rows, at the row limit")),
+        ]
+    )
+    def test_degrades_on_fetch_failure_and_reports_constraint(self, _name: str, error: Exception) -> None:
         calls: list[int] = []
 
         def fake_fetch(team, service_name, ranges, max_execution_seconds=60):
             calls.append(len(ranges))
             if len(calls) == 1:
-                raise CHQueryErrorTooManyBytes("too many bytes", code=307)
+                raise error
             return {"info": {T0: 100}}
 
         with patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", side_effect=fake_fetch):
@@ -186,6 +196,13 @@ class TestRunScan(SimpleTestCase):
         assert result.degraded
         assert BindingConstraint.BYTE_BUDGET in result.binding_constraints
         assert result.lookback_buckets < 6 * BUCKETS_PER_WEEK
+
+    def test_fetch_raises_on_full_result_page(self) -> None:
+        full_page = [(T0 + i * BUCKET, "info", 1) for i in range(MAX_SELECT_RETURNED_ROWS)]
+        response = SimpleNamespace(results=full_page)
+        with patch("products.logs.backend.anomaly_scan.execute_hogql_query", return_value=response):
+            with self.assertRaises(ScanFetchTruncated):
+                fetch_bucket_counts(_team(), "svc", [TimeRange(start=T0, end=T0 + BUCKET)])
 
     def test_retention_clamps_lookback_and_reports_constraint(self) -> None:
         with patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", return_value={}) as fetch:
