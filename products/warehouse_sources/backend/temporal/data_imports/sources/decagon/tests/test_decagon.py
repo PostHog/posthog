@@ -40,7 +40,6 @@ def _conversation(conversation_id: str) -> dict[str, Any]:
 def _drive_rows(
     manager: MagicMock, responses: list[Response], endpoint: str = "conversations", **incremental_kwargs: Any
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
-    """Drive get_rows with a mocked session; return (params sent per page, batches yielded)."""
     sent_params: list[dict[str, Any]] = []
     response_iter = iter(responses)
 
@@ -97,7 +96,6 @@ class TestGetRows:
     def _drive(
         self, manager: MagicMock, responses: list[Response], **incremental_kwargs: Any
     ) -> tuple[list[dict[str, Any]], list[list[str]]]:
-        """Drive the conversations walk; return (params sent per page, ids yielded per batch)."""
         sent_params, batches = _drive_rows(manager, responses, **incremental_kwargs)
         yielded_ids = [[item["conversation_id"] for item in batch] for batch in batches]
         return sent_params, yielded_ids
@@ -134,6 +132,9 @@ class TestGetRows:
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [DecagonResumeConfig(cursor=str(cursor_1)), DecagonResumeConfig(cursor=str(cursor_2))]
+        # A retried attempt of this completed job must start fresh, not resume at the
+        # final page and append its rows again.
+        manager.clear_state.assert_called_once()
 
     def test_null_prose_cursor_key_does_not_mask_a_populated_alias(self) -> None:
         manager = self._fresh_manager()
@@ -455,7 +456,9 @@ class TestAgentAssistActions:
     def test_walk_sends_details_flag_and_window_and_pages_on_has_more(self) -> None:
         manager = _fresh_manager()
         watermark = datetime(2026, 1, 15, 12, 0, 5, tzinfo=UTC)
-        epoch = str(int(watermark.timestamp()))
+        # The bound is exclusive for this keyless stream: appends have no merge to dedupe
+        # a re-fetched watermark second, which would otherwise re-import it every sync.
+        epoch = str(int(watermark.timestamp()) + 1)
         responses = [
             _make_response(
                 {

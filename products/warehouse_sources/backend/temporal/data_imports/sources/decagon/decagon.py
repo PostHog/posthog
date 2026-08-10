@@ -185,6 +185,13 @@ def get_rows(
                 )
         else:
             window_value = _incremental_window_value(config, db_incremental_field_last_value)
+            if config.primary_keys is None and isinstance(window_value, int):
+                # Keyless streams append without a merge to dedupe re-fetched rows, so an
+                # inclusive bound would re-import the watermark second on every sync and
+                # inflate counts indefinitely. Advance past it instead: an event landing in
+                # that same second after the walk read it is the rarer failure, and a full
+                # refresh trues the table up.
+                window_value += 1
 
     @retry(
         retry=retry_if_exception_type((DecagonRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -332,6 +339,10 @@ def get_rows(
         if exhausted:
             break
         offset = next_offset
+
+    # Walked to completion, so drop any checkpoint: a retried attempt of this job would
+    # otherwise resume at the final page and append its rows again.
+    resumable_source_manager.clear_state()
 
 
 def decagon_source(
