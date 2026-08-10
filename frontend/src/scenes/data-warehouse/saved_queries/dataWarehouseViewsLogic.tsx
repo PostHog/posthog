@@ -352,7 +352,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return [...values.dataWarehouseSavedQueries, newView]
                 },
                 deleteDataWarehouseSavedQuery: async (viewId: string) => {
-                    await api.dataWarehouseSavedQueries.delete(viewId)
+                    try {
+                        await api.dataWarehouseSavedQueries.delete(viewId)
+                    } catch (error: any) {
+                        // A view that's already gone is the outcome the user asked for, so treat a
+                        // 404 as success. This also covers a stale list or a double-click.
+                        if (error?.status !== 404) {
+                            throw error
+                        }
+                    }
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
                 updateDataWarehouseSavedQuery: async (

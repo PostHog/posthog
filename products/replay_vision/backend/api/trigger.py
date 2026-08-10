@@ -32,7 +32,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -68,7 +68,7 @@ def check_team_in_flight_capacity(team_id: int) -> None:
 
 def check_observation_quota(organization_id: UUID, observation_credits: int) -> None:
     """Raise 402 when starting an observation of this credit cost would exceed the org's monthly limit."""
-    snapshot = compute_quota_snapshot(organization_id=organization_id)
+    snapshot = quota_state(organization_id=organization_id)
     if snapshot.would_exceed(observation_credits):
         # would_exceed is only ever true when a limit is set, so credit_limit is non-None here.
         assert snapshot.credit_limit is not None
