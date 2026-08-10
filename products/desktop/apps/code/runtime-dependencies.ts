@@ -62,19 +62,33 @@ export const buildExternals = [
   "koffi",
 ];
 
-// electron-builder ships the whole @parcel and @koromix scopes so the
-// platform-specific @parcel/watcher-<plat>-<arch> and @koromix/koffi-<plat>-<arch>
-// packages staged by before-pack are covered too.
+// electron-builder ships whole scopes, so the platform-specific
+// @parcel/watcher-<plat>-<arch> and @koromix/koffi-<plat>-<arch> packages that
+// before-pack stages are covered by the parent scope's glob.
 const scopeOf = (name: string) => {
   if (name.startsWith("@parcel/")) return "@parcel";
   if (name.startsWith("@koromix/")) return "@koromix";
   return name;
 };
 
+/**
+ * Scopes that hold only arch-specific packages, named by `watcherPackageFor` and
+ * `koffiPackageFor` rather than by any list here.
+ *
+ * They still need a glob. electron-builder's `files` drops all of node_modules
+ * and then re-includes these globs, so a scope nobody names is stripped and its
+ * prebuilt binary never reaches the app — silently, because the failure only
+ * shows up as the feature not working in a packaged build. @parcel earns its glob
+ * via `@parcel/watcher` above; @koromix has no such entry.
+ */
+const stagedOnlyScopes = ["@koromix"];
+
 export const packagedFileGlobs = [
-  ...runtimeNativeModules,
-  ...macOnlyNativeModules,
-].map((name) => `node_modules/${scopeOf(name)}/**/*`);
+  ...new Set([
+    ...[...runtimeNativeModules, ...macOnlyNativeModules].map(scopeOf),
+    ...stagedOnlyScopes,
+  ]),
+].map((scope) => `node_modules/${scope}/**/*`);
 
 export const asarUnpackGlobs = asarUnpackModules.map(
   (name) => `node_modules/${scopeOf(name)}/**`,
