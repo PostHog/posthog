@@ -744,6 +744,12 @@ class TaskWriteSerializer(serializers.Serializer):
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
+        # Write-only and never persisted, but it selects which warm Run gets activated, so a
+        # gated model here still runs one. Reject rather than silently cold-creating instead.
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):
@@ -2726,6 +2732,11 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Repository and GitHub integration must either both be provided or both be omitted."
             )
+
+        # Warming starts the agent on this model, so it bills like a run and gates like one.
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
         return attrs
 
 

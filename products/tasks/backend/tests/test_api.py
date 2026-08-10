@@ -3863,6 +3863,31 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_resume_rejects_inherited_gated_model(self, mock_workflow, mock_feature_enabled):
+        # A resume omits `model`, so the serializer sees None and passes. The inherited
+        # model is the one that actually runs, so entitlement is re-checked after it lands.
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"runtime_adapter": "claude", "model": "moonshotai/kimi-k3"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        mock_workflow.assert_not_called()
+
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
         task = self.create_task()
 
@@ -10989,6 +11014,46 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(response.json()["code"], "usage_limit_exceeded")
         mock_warm.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    def test_warm_rejects_a_gated_model_the_caller_cannot_access(
+        self, mock_feature_enabled, _mock_warm_enabled, mock_warm
+    ):
+        # Warming boots a sandbox and starts the agent on this model, so it bills like a run.
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"runtime_adapter": "claude", "model": "moonshotai/kimi-k3"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        mock_warm.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    def test_create_rejects_a_gated_model_hint(self, mock_feature_enabled):
+        # The create hint is write-only, but it is what selects a warm Run to activate,
+        # so a gated value here would run the gated model without ever reaching run_task.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Gated",
+                "description": "Gated",
+                "runtime_adapter": "claude",
+                "model": "moonshotai/kimi-k3",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert not Task.objects.filter(title="Gated").exists()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
