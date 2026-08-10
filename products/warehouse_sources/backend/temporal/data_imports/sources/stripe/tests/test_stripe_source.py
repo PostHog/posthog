@@ -555,8 +555,8 @@ class TestInvoiceListWithAllLines:
             return _list_object([{"id": "il_1"}])
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
-        client.invoices.line_items.list.side_effect = line_items_list
+        client.v1.invoices.list.return_value = _list_object(invoices)
+        client.v1.invoices.line_items.list.side_effect = line_items_list
 
         result = list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
 
@@ -574,8 +574,8 @@ class TestInvoiceListWithAllLines:
             raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
-        client.invoices.line_items.list.side_effect = line_items_list
+        client.v1.invoices.list.return_value = _list_object(invoices)
+        client.v1.invoices.line_items.list.side_effect = line_items_list
 
         with pytest.raises(stripe_lib.InvalidRequestError):
             list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
@@ -1129,8 +1129,8 @@ class TestCustomerPaymentMethodHistory:
 
         with patch.object(stripe_module, "StripeClient") as client_cls:
             client = client_cls.return_value
-            client.customers.list = lambda params: _list_object([{"id": "cus_1"}])
-            client.customers.payment_methods.list = payment_methods_list
+            client.v1.customers.list = lambda params: _list_object([{"id": "cus_1"}])
+            client.v1.customers.payment_methods.list = payment_methods_list
             rows: list[dict] = []
             for table in get_rows(
                 api_key="sk_test_123",
@@ -1240,8 +1240,8 @@ class TestCreditBalanceSummaryFanout:
             return {"object": "billing.credit_balance_summary", "customer": params["customer"], "balances": []}
 
         client = MagicMock()
-        client.billing.credit_balance_summary.retrieve.side_effect = retrieve
-        client.billing.credit_grants.list.return_value = _list_object(grants)
+        client.v1.billing.credit_balance_summary.retrieve.side_effect = retrieve
+        client.v1.billing.credit_grants.list.return_value = _list_object(grants)
 
         resource = stripe_module._build_resources(client, logger=None)[BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME]
         resumable_source_manager = MagicMock()
@@ -1303,8 +1303,8 @@ class TestCreditBalanceTransactionFanout:
             return _list_object([{"id": f"cbtxn_{params['credit_grant']}", "credit_grant": params["credit_grant"]}])
 
         client = MagicMock()
-        client.billing.credit_balance_transactions.list.side_effect = list_transactions
-        client.billing.credit_grants.list.return_value = _list_object(grants)
+        client.v1.billing.credit_balance_transactions.list.side_effect = list_transactions
+        client.v1.billing.credit_grants.list.return_value = _list_object(grants)
 
         resource = stripe_module._build_resources(client, logger=None)[BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME]
         resumable_source_manager = MagicMock()
@@ -1384,14 +1384,95 @@ class TestCreateWebhookPermissionErrorCopy:
     def test_permission_error_message_matches_auth_method(self, auth_method, expected_phrase):
         with patch.object(stripe_module, "StripeClient") as mock_client_cls:
             mock_client = mock_client_cls.return_value
-            mock_client.webhook_endpoints.create.side_effect = stripe_lib.PermissionError("forbidden")
+            mock_client.v1.webhook_endpoints.create.side_effect = stripe_lib.PermissionError("forbidden")
 
             result = create_webhook(
                 api_key="sk_test_123",
                 stripe_account_id=None,
+                stripe_api_version=None,
                 webhook_url="https://example.com/webhook",
                 auth_method=auth_method,
             )
 
         assert result.success is False
         assert expected_phrase in (result.error or "")
+
+
+class TestStripeApiVersionReachesTheClient:
+    """Every vendor-touching surface must build its client from the source's selected version.
+
+    A surface that silently keeps the legacy version would sync (or reconcile webhooks) under a
+    different API version than the one the user picked, which is exactly the drift the version
+    pinning framework exists to prevent. Parameterised over every supported version so a newly
+    declared version can't be added without a path that carries it.
+    """
+
+    @staticmethod
+    def _stripe_version_of(client_cls: MagicMock) -> str | None:
+        assert client_cls.call_args is not None, "StripeClient was never constructed"
+        return client_cls.call_args.kwargs.get("stripe_version")
+
+    @pytest.mark.parametrize("version", StripeSource.supported_versions)
+    def test_get_rows_uses_the_selected_version(self, version):
+        resumable_source_manager = MagicMock(can_resume=MagicMock(return_value=False))
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList([])))
+
+        with (
+            patch.object(stripe_module, "StripeClient") as client_cls,
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=version,
+                )
+            )
+
+        assert self._stripe_version_of(client_cls) == version
+
+    @pytest.mark.parametrize("version", StripeSource.supported_versions)
+    def test_validate_credentials_uses_the_selected_version(self, version):
+        with patch.object(stripe_module, "StripeClient") as client_cls:
+            validate_stripe_credentials("sk_test_123", stripe_api_version=version)
+
+        assert self._stripe_version_of(client_cls) == version
+
+    @pytest.mark.parametrize("version", StripeSource.supported_versions)
+    def test_check_endpoint_permissions_uses_the_selected_version(self, version):
+        with patch.object(stripe_module, "StripeClient") as client_cls:
+            check_endpoint_permissions("sk_test_123", [CHARGE_RESOURCE_NAME], stripe_api_version=version)
+
+        assert self._stripe_version_of(client_cls) == version
+
+    @pytest.mark.parametrize("version", StripeSource.supported_versions)
+    def test_webhook_management_uses_the_selected_version(self, version):
+        for call in (
+            lambda: stripe_module.create_webhook("sk_test_123", None, version, "https://ph.test/hook"),
+            lambda: stripe_module.delete_webhook("sk_test_123", None, version, "https://ph.test/hook"),
+            lambda: stripe_module.update_webhook_events(
+                "sk_test_123", None, version, "https://ph.test/hook", ["charge.updated"]
+            ),
+            lambda: stripe_module.get_external_webhook_info("sk_test_123", None, version, "https://ph.test/hook"),
+        ):
+            with patch.object(stripe_module, "StripeClient") as client_cls:
+                client_cls.return_value.v1.webhook_endpoints.list.return_value = _list_object([])
+                call()
+
+            assert self._stripe_version_of(client_cls) == version
+
+    def test_created_webhook_endpoint_is_pinned_to_the_same_version(self):
+        # Stripe fixes an endpoint's api_version at creation, so the payload shape has to be pinned
+        # explicitly — otherwise it follows the account default and drifts from the synced tables.
+        version = StripeSource.default_version
+
+        with patch.object(stripe_module, "StripeClient") as client_cls:
+            stripe_module.create_webhook("sk_test_123", None, version, "https://ph.test/hook")
+
+        create_params = client_cls.return_value.v1.webhook_endpoints.create.call_args.kwargs["params"]
+        assert create_params["api_version"] == version

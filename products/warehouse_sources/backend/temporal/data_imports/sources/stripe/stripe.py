@@ -4,7 +4,7 @@ import time
 import inspect
 import dataclasses
 from collections.abc import Callable, Mapping
-from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
+from typing import Any, Literal, Optional, Union, cast, get_args
 
 import orjson
 import stripe as stripe_lib
@@ -13,7 +13,7 @@ import requests
 from asgiref.sync import async_to_sync
 from stripe import ListObject, RequestsClient, StripeClient
 from stripe._base_address import BaseAddresses
-from stripe._webhook_endpoint_service import WebhookEndpointService
+from stripe.params._webhook_endpoint_create_params import WebhookEndpointCreateParams
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.logger import get_logger
@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    LEGACY_STRIPE_API_VERSION,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
     PAYOUT_RESOURCE_NAME,
@@ -379,7 +380,7 @@ def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListOb
     current balance of a grant we already sync."""
 
     def _retrieve(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
-        summary = client.billing.credit_balance_summary.retrieve(
+        summary = client.v1.billing.credit_balance_summary.retrieve(
             params={
                 "customer": params["customer"],
                 "filter": {"type": "credit_grant", "credit_grant": credit_grant},
@@ -401,7 +402,7 @@ def _credit_balance_transaction_lister(client: StripeClient) -> Callable[..., Li
     grant) so each row is a transaction against a grant we already sync."""
 
     def _list(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
-        return client.billing.credit_balance_transactions.list(
+        return client.v1.billing.credit_balance_transactions.list(
             params=cast(Any, {**params, "credit_grant": credit_grant})
         )
 
@@ -509,25 +510,25 @@ def _build_resources(
     need the wrapped invoice expansion (e.g. validation, which just probes the list endpoint).
     """
     return {
-        ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
-        BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
-        CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
-        CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
-        DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
-        INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
+        ACCOUNT_RESOURCE_NAME: StripeResource(method=client.v1.accounts.list),
+        BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.v1.balance_transactions.list),
+        CHARGE_RESOURCE_NAME: StripeResource(method=client.v1.charges.list),
+        CUSTOMER_RESOURCE_NAME: StripeResource(method=client.v1.customers.list),
+        DISPUTE_RESOURCE_NAME: StripeResource(method=client.v1.disputes.list),
+        INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.v1.invoice_items.list),
         INVOICE_RESOURCE_NAME: StripeResource(
             method=(
                 (lambda params: InvoiceListWithAllLines(client, params, logger))  # type: ignore
                 if logger is not None
-                else client.invoices.list
+                else client.v1.invoices.list
             )
         ),
-        PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
-        PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
-        PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
-        REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
+        PAYOUT_RESOURCE_NAME: StripeResource(method=client.v1.payouts.list),
+        PRICE_RESOURCE_NAME: StripeResource(method=client.v1.prices.list, params={"expand[]": "data.tiers"}),
+        PRODUCT_RESOURCE_NAME: StripeResource(method=client.v1.products.list),
+        REFUND_RESOURCE_NAME: StripeResource(method=client.v1.refunds.list),
         SUBSCRIPTION_RESOURCE_NAME: StripeResource(
-            method=client.subscriptions.list,
+            method=client.v1.subscriptions.list,
             params={
                 "status": "all",
                 # Smaller page than DEFAULT_LIMIT because the expansions below bloat each object; see
@@ -541,21 +542,21 @@ def _build_resources(
                 "expand": ["data.discounts", "data.items.data.discounts"],
             },
         ),
-        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
-        COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
+        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.v1.credit_notes.list),
+        COUPON_RESOURCE_NAME: StripeResource(method=client.v1.coupons.list),
         CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
-            method=client.customers.balance_transactions.list,
+            method=client.v1.customers.balance_transactions.list,
             nested_parent_param="customer",
             parent_id="id",
-            parent=StripeResource(method=client.customers.list),
+            parent=StripeResource(method=client.v1.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
             parent_has_nested=_customer_might_have_balance_transactions,
         ),
         CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
-            method=client.customers.payment_methods.list,
+            method=client.v1.customers.payment_methods.list,
             nested_parent_param="customer",
             parent_id="id",
-            parent=StripeResource(method=client.customers.list),
+            parent=StripeResource(method=client.v1.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
         ),
         # Same sweep as CustomerPaymentMethod, used only to seed the history table on its initial
@@ -563,79 +564,79 @@ def _build_resources(
         # cannot see payment methods detached before it ran — Stripe exposes no endpoint listing
         # detached payment methods — so history from before the source connected is unrecoverable.
         CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME: StripeNestedResource(
-            method=client.customers.payment_methods.list,
+            method=client.v1.customers.payment_methods.list,
             nested_parent_param="customer",
             parent_id="id",
-            parent=StripeResource(method=client.customers.list),
+            parent=StripeResource(method=client.v1.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
             row_transform=_payment_method_history_snapshot_row,
         ),
-        PAYMENT_INTENT_RESOURCE_NAME: StripeResource(method=client.payment_intents.list),
-        CHECKOUT_SESSION_RESOURCE_NAME: StripeResource(method=client.checkout.sessions.list),
-        SUBSCRIPTION_SCHEDULE_RESOURCE_NAME: StripeResource(method=client.subscription_schedules.list),
-        PROMOTION_CODE_RESOURCE_NAME: StripeResource(method=client.promotion_codes.list),
+        PAYMENT_INTENT_RESOURCE_NAME: StripeResource(method=client.v1.payment_intents.list),
+        CHECKOUT_SESSION_RESOURCE_NAME: StripeResource(method=client.v1.checkout.sessions.list),
+        SUBSCRIPTION_SCHEDULE_RESOURCE_NAME: StripeResource(method=client.v1.subscription_schedules.list),
+        PROMOTION_CODE_RESOURCE_NAME: StripeResource(method=client.v1.promotion_codes.list),
         # Tiers are only returned when expanded, same as Price. Key must be "expand[]" for a single
         # string value (see the Subscription note above for the list-valued form).
-        PLAN_RESOURCE_NAME: StripeResource(method=client.plans.list, params={"expand[]": "data.tiers"}),
-        TAX_RATE_RESOURCE_NAME: StripeResource(method=client.tax_rates.list),
+        PLAN_RESOURCE_NAME: StripeResource(method=client.v1.plans.list, params={"expand[]": "data.tiers"}),
+        TAX_RATE_RESOURCE_NAME: StripeResource(method=client.v1.tax_rates.list),
         # `/v1/tax_ids` without an `owner` filter lists the account's own tax IDs. Customer-owned tax
         # IDs live under the customer and are not part of this list.
-        TAX_ID_RESOURCE_NAME: StripeResource(method=client.tax_ids.list),
-        QUOTE_RESOURCE_NAME: StripeResource(method=client.quotes.list),
-        EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
-        BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
-        BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
+        TAX_ID_RESOURCE_NAME: StripeResource(method=client.v1.tax_ids.list),
+        QUOTE_RESOURCE_NAME: StripeResource(method=client.v1.quotes.list),
+        EVENT_RESOURCE_NAME: StripeResource(method=client.v1.events.list),
+        BILLING_METER_RESOURCE_NAME: StripeResource(method=client.v1.billing.meters.list),
+        BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.v1.billing.credit_grants.list),
         BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
             method=_credit_balance_transaction_lister(client),
             nested_parent_param="credit_grant",
             parent_id="id",
-            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent=StripeResource(method=client.v1.billing.credit_grants.list),
             parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
             parent_has_nested=_credit_grant_has_customer,
             nested_params_from_parent=_credit_grant_customer_params,
         ),
-        ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.entitlements.features.list),
-        INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.invoice_payments.list),
-        SETUP_INTENT_RESOURCE_NAME: StripeResource(method=client.setup_intents.list),
-        PAYMENT_LINK_RESOURCE_NAME: StripeResource(method=client.payment_links.list),
-        TRANSFER_RESOURCE_NAME: StripeResource(method=client.transfers.list),
-        APPLICATION_FEE_RESOURCE_NAME: StripeResource(method=client.application_fees.list),
-        TOPUP_RESOURCE_NAME: StripeResource(method=client.topups.list),
-        REVIEW_RESOURCE_NAME: StripeResource(method=client.reviews.list),
-        EARLY_FRAUD_WARNING_RESOURCE_NAME: StripeResource(method=client.radar.early_fraud_warnings.list),
-        SHIPPING_RATE_RESOURCE_NAME: StripeResource(method=client.shipping_rates.list),
+        ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.v1.entitlements.features.list),
+        INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.v1.invoice_payments.list),
+        SETUP_INTENT_RESOURCE_NAME: StripeResource(method=client.v1.setup_intents.list),
+        PAYMENT_LINK_RESOURCE_NAME: StripeResource(method=client.v1.payment_links.list),
+        TRANSFER_RESOURCE_NAME: StripeResource(method=client.v1.transfers.list),
+        APPLICATION_FEE_RESOURCE_NAME: StripeResource(method=client.v1.application_fees.list),
+        TOPUP_RESOURCE_NAME: StripeResource(method=client.v1.topups.list),
+        REVIEW_RESOURCE_NAME: StripeResource(method=client.v1.reviews.list),
+        EARLY_FRAUD_WARNING_RESOURCE_NAME: StripeResource(method=client.v1.radar.early_fraud_warnings.list),
+        SHIPPING_RATE_RESOURCE_NAME: StripeResource(method=client.v1.shipping_rates.list),
         # `/v1/subscription_items` requires a `subscription`, so it fans out over subscriptions. The
         # parent list skips the discount expansions the Subscription table uses — we only need ids.
         SUBSCRIPTION_ITEM_RESOURCE_NAME: StripeNestedResource(
-            method=client.subscription_items.list,
+            method=client.v1.subscription_items.list,
             nested_parent_param="subscription",
             parent_id="id",
-            parent=StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+            parent=StripeResource(method=client.v1.subscriptions.list, params={"status": "all"}),
             parent_name=SUBSCRIPTION_RESOURCE_NAME,
         ),
         # `/v1/entitlements/active_entitlements` requires a `customer`.
         ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME: StripeNestedResource(
-            method=client.entitlements.active_entitlements.list,
+            method=client.v1.entitlements.active_entitlements.list,
             nested_parent_param="customer",
             parent_id="id",
-            parent=StripeResource(method=client.customers.list),
+            parent=StripeResource(method=client.v1.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
         ),
         BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME: StripeNestedResource(
             method=_credit_balance_summary_lister(client),
             nested_parent_param="credit_grant",
             parent_id="id",
-            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent=StripeResource(method=client.v1.billing.credit_grants.list),
             parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
             parent_has_nested=_credit_grant_has_customer,
             nested_params_from_parent=_credit_grant_customer_params,
         ),
         # `/v1/setup_attempts` requires a `setup_intent`.
         SETUP_ATTEMPT_RESOURCE_NAME: StripeNestedResource(
-            method=client.setup_attempts.list,
+            method=client.v1.setup_attempts.list,
             nested_parent_param="setup_intent",
             parent_id="id",
-            parent=StripeResource(method=client.setup_intents.list),
+            parent=StripeResource(method=client.v1.setup_intents.list),
             parent_name=SETUP_INTENT_RESOURCE_NAME,
         ),
     }
@@ -904,7 +905,10 @@ def stripe_source(
     should_use_incremental_field: bool = False,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
-    # pipeline infer their columns from the rows Stripe returns.
+    # pipeline infer their columns from the rows Stripe returns. Every supported API version is one
+    # the canonical `external_table_definitions` were built for, so the hints apply to all of them —
+    # they must, because the read path (`DataWarehouseTable.hogql_definition`) applies those same
+    # definitions regardless of version. See the note on STRIPE_API_VERSIONS in constants.py.
     table_name = f"stripe_{endpoint.lower()}"
     column_mapping = get_dlt_mapping_for_external_table(table_name) if table_name in external_tables else {}
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
@@ -1049,13 +1053,20 @@ def validate_credentials(
     api_key: str,
     endpoints: Optional[list[str]] = None,
     auth_method: Literal["api_key", "oauth"] = "api_key",
+    stripe_api_version: Optional[str] = None,
 ) -> bool:
     """Validate Stripe credentials.
 
     - ``endpoints=None``: single auth probe. 401 → ``StripeAuthenticationError``, 403 → pass.
     - ``endpoints=[...]``: probe each (nested → parent). Raises Permission/Validation errors.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    version = stripe_api_version or LEGACY_STRIPE_API_VERSION
+    client = StripeClient(
+        api_key,
+        stripe_version=version,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
     all_resources = _build_resources(client, logger=None)
 
     if endpoints is None:
@@ -1103,12 +1114,19 @@ def check_endpoint_permissions(
     api_key: str,
     endpoints: list[str],
     auth_method: Literal["api_key", "oauth"] = "api_key",
+    stripe_api_version: Optional[str] = None,
 ) -> dict[str, str | None]:
     """Probe each endpoint's read scope. Returns ``{name: None}`` if reachable, ``{name: reason}`` otherwise.
 
     Never raises for missing permissions (schema UI needs the full picture). 401 still raises.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    version = stripe_api_version or LEGACY_STRIPE_API_VERSION
+    client = StripeClient(
+        api_key,
+        stripe_version=version,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
     all_resources = _build_resources(client, logger=None)
 
     results: dict[str, str | None] = {}
@@ -1140,8 +1158,7 @@ def check_endpoint_permissions(
 def _all_known_webhook_events() -> list[str]:
     """Every Stripe event whose prefix appears in RESOURCE_TO_STRIPE_WEBHOOK_EVENT.
     Re-deriving on each reconcile is what auto-heals webhooks created before the map grew."""
-    hints = get_type_hints(WebhookEndpointService.CreateParams, include_extras=True)
-    enabled_events_type = hints["enabled_events"]
+    enabled_events_type = WebhookEndpointCreateParams.__annotations__["enabled_events"]
     list_inner = get_args(enabled_events_type)[0]
     possible_event_values: tuple[str] = get_args(list_inner)
 
@@ -1170,6 +1187,7 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
 def create_webhook(
     api_key: str,
     stripe_account_id: str | None,
+    stripe_api_version: str | None,
     webhook_url: str,
     auth_method: Literal["api_key", "oauth"] = "api_key",
 ) -> WebhookCreationResult:
@@ -1184,20 +1202,28 @@ def create_webhook(
         )
 
     try:
+        version = stripe_api_version or LEGACY_STRIPE_API_VERSION
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
         )
 
-        endpoint = client.webhook_endpoints.create(
+        endpoint = client.v1.webhook_endpoints.create(
             params={
                 "url": webhook_url,
                 "enabled_events": filtered_events,  # type: ignore
                 "description": "PostHog data warehouse webhook",
+                # Pin the endpoint's payload version to the synced version explicitly. Without this
+                # Stripe assigns the account's default version, so webhook payloads could arrive in a
+                # different shape than the table synced via the API. Stripe fixes an endpoint's
+                # api_version at creation time — changing the source's version later requires
+                # recreating the webhook, it can't be updated in place. The SDK's typed params only
+                # accept the versions it was generated against, hence the ignore on the version string.
+                "api_version": version,  # type: ignore[typeddict-item]
             }
         )
 
@@ -1240,24 +1266,27 @@ def create_webhook(
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
 
 
-def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookDeletionResult:
+def delete_webhook(
+    api_key: str, stripe_account_id: str | None, stripe_api_version: str | None, webhook_url: str
+) -> WebhookDeletionResult:
     logger = LOGGER.bind()
 
     try:
+        version = stripe_api_version or LEGACY_STRIPE_API_VERSION
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
         )
 
-        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+        endpoints = client.v1.webhook_endpoints.list(params={"limit": 100})
 
         for endpoint in endpoints.auto_paging_iter():
             if endpoint.url == webhook_url:
-                client.webhook_endpoints.delete(endpoint.id)
+                client.v1.webhook_endpoints.delete(endpoint.id)
                 return WebhookDeletionResult(success=True)
 
         return WebhookDeletionResult(success=True)
@@ -1278,7 +1307,11 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
 
 
 def update_webhook_events(
-    api_key: str, stripe_account_id: str | None, webhook_url: str, desired_events: list[str]
+    api_key: str,
+    stripe_account_id: str | None,
+    stripe_api_version: str | None,
+    webhook_url: str,
+    desired_events: list[str],
 ) -> WebhookSyncResult:
     """Add `desired_events` to the matching Stripe endpoint, writing only on drift.
     A 403 (missing webhook write scope) returns a failure result rather than raising, so
@@ -1289,16 +1322,17 @@ def update_webhook_events(
         return WebhookSyncResult(success=True)
 
     try:
+        version = stripe_api_version or LEGACY_STRIPE_API_VERSION
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
         )
 
-        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+        endpoints = client.v1.webhook_endpoints.list(params={"limit": 100})
 
         for endpoint in endpoints.auto_paging_iter():
             if endpoint.url != webhook_url:
@@ -1315,7 +1349,7 @@ def update_webhook_events(
 
             # Merge, don't replace — never drop events the user added themselves.
             merged = sorted(current | set(desired_events))
-            client.webhook_endpoints.update(endpoint.id, params={"enabled_events": merged})  # type: ignore
+            client.v1.webhook_endpoints.update(endpoint.id, params={"enabled_events": merged})  # type: ignore
             return WebhookSyncResult(success=True)
 
         # No matching endpoint — nothing to reconcile (creation is handled elsewhere).
@@ -1335,18 +1369,21 @@ def update_webhook_events(
         return WebhookSyncResult(success=False, error=f"Failed to update webhook events automatically: {error_str}")
 
 
-def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webhook_url: str) -> ExternalWebhookInfo:
+def get_external_webhook_info(
+    api_key: str, stripe_account_id: str | None, stripe_api_version: str | None, webhook_url: str
+) -> ExternalWebhookInfo:
     try:
+        version = stripe_api_version or LEGACY_STRIPE_API_VERSION
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
         )
 
-        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+        endpoints = client.v1.webhook_endpoints.list(params={"limit": 100})
 
         for endpoint in endpoints.auto_paging_iter():
             if endpoint.url == webhook_url:

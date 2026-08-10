@@ -43,9 +43,29 @@ REVIEW_RESOURCE_NAME = "Review"
 EARLY_FRAUD_WARNING_RESOURCE_NAME = "EarlyFraudWarning"
 SHIPPING_RATE_RESOURCE_NAME = "ShippingRate"
 
-# Vendor API version the sync pipeline pins by default. One constant so the source's version
-# declaration (`StripeSource.supported_versions`) and the request layer share a single label.
-STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
+# Vendor API version labels — opaque Stripe date-versions, never parsed or ordered.
+# One set of constants so the source's version declaration (`StripeSource.supported_versions`),
+# the request layer, and the version picker all share the same labels.
+STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"  # legacy default before selectable versions
+STRIPE_VERSION_ACACIA_2025 = "2025-02-24.acacia"
+
+LEGACY_STRIPE_API_VERSION = STRIPE_API_VERSION_ACACIA
+DEFAULT_STRIPE_API_VERSION = STRIPE_VERSION_ACACIA_2025
+
+# Selectable versions shown in the source's "API version" picker, oldest -> newest (same order and
+# membership as `StripeSource.supported_versions`). Legacy is listed so sources pinned to it
+# (migration 0058) round-trip in the picker instead of rendering blank; new sources default to
+# DEFAULT_STRIPE_API_VERSION.
+#
+# Only versions the canonical `external_table_definitions` were built for are offered. Those
+# definitions are also applied on the read path (`DataWarehouseTable.hogql_definition`), which is
+# version-blind, so a version that reshapes the fields they describe (basil onwards moves
+# invoice.subscription, price.product, ...) cannot be offered until the canonical schema itself is
+# version-aware — the write and read sides have to agree on the same shape.
+STRIPE_API_VERSIONS: dict[str, str] = {
+    LEGACY_STRIPE_API_VERSION: "Acacia (2024-09-30, legacy)",
+    STRIPE_VERSION_ACACIA_2025: "Acacia (2025-02-24)",
+}
 
 # CustomerPaymentMethodHistory metadata columns. Every row is one observation of a payment
 # method: either a `payment_method.*` webhook event, or a row from the initial attached-payment-

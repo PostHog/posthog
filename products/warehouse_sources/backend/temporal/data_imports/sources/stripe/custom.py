@@ -1,19 +1,20 @@
 # custom functions for stripe sources
 import stripe as stripe_lib
-from stripe import InvoiceService, StripeClient
+from stripe import StripeClient
+from stripe.params._invoice_list_params import InvoiceListParams
 from structlog.types import FilteringBoundLogger
 
 
 class InvoiceListWithAllLines:
     # Invoices have a line field that is a paginated list. This list needs to be expanded for all lines to be included
 
-    def __init__(self, client: StripeClient, params: InvoiceService.ListParams, logger: FilteringBoundLogger):
+    def __init__(self, client: StripeClient, params: InvoiceListParams, logger: FilteringBoundLogger):
         self.client = client
         self.params = params
         self.logger = logger
 
     def auto_paging_iter(self):
-        invoices = self.client.invoices.list(params=self.params)
+        invoices = self.client.v1.invoices.list(params=self.params)
 
         total_line_calls = 0
         invoice_count = 0
@@ -26,7 +27,7 @@ class InvoiceListWithAllLines:
 
                 all_lines = []
                 try:
-                    line_items = self.client.invoices.line_items.list(invoice=invoice.id, params={"limit": 100})
+                    line_items = self.client.v1.invoices.line_items.list(invoice=invoice.id, params={"limit": 100})
                     for line in line_items.auto_paging_iter():
                         all_lines.append(line)
                 except stripe_lib.InvalidRequestError as e:
