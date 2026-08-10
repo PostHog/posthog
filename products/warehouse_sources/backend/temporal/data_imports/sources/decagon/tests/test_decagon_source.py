@@ -62,6 +62,13 @@ class TestDecagonSource:
         assert conversations.supports_append is False
         assert [f["field"] for f in conversations.incremental_fields] == ["updated_at"]
 
+        actions = next(s for s in schemas if s.name == "agent_assist_actions")
+        # No documented unique id means no merge key, so append (windowed on created_at)
+        # and full refresh are the only sync types that cannot lose or merge rows.
+        assert actions.supports_incremental is False
+        assert actions.supports_append is True
+        assert [f["field"] for f in actions.incremental_fields] == ["created_at"]
+
     def test_get_schemas_filtered_by_names(self) -> None:
         assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["conversations"])] == [
             "conversations"

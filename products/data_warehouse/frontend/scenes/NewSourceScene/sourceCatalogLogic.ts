@@ -581,6 +581,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Formbricks'
                       | 'Fortnox'
                       | 'Fourthwall'
+                      | 'Framer'
                       | 'Fred'
                       | 'FreeAgent'
                       | 'Freightview'

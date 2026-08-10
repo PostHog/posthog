@@ -363,6 +363,7 @@ class ExternalDataSourceType(models.TextChoices):
     FLOATAPP = "FloatApp", "FloatApp"
     FLOWLU = "Flowlu", "Flowlu"
     FORMBRICKS = "Formbricks", "Formbricks"
+    FRAMER = "Framer", "Framer"
     FREEAGENT = "FreeAgent", "FreeAgent"
     FREIGHTVIEW = "Freightview", "Freightview"
     FRESHCALLER = "Freshcaller", "Freshcaller"
