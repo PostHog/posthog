@@ -2,7 +2,6 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -118,9 +117,7 @@ const meta: Meta<typeof App> = {
         }),
     ],
     render: () => {
-        useEffect(() => {
-            router.actions.push(urls.settings('organization-authentication'))
-        }, [])
+        router.actions.push(urls.settings('organization-authentication'))
         return <App />
     },
 }

@@ -80,6 +80,7 @@ export const IframeExample: Story = {
             // Wait for heatmap canvas to be ready with data loaded
             waitForSelector: '.heatmaps-ready',
             waitForLoadersToDisappear: true,
+            snapshotSettleTimeMs: 1000,
         },
     },
     decorators: [
