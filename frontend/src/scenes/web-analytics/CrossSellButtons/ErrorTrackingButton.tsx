@@ -24,6 +24,8 @@ export const ErrorTrackingButton = ({ breakdownBy, value }: ErrorTrackingButtonP
 
     return (
         <LemonButton
+            // Both supported breakdowns are built on `$pathname`, so `value` is a bare path such as
+            // `/pricing`. Matching it against `$current_url` never hits, as that holds the absolute URL.
             to={urls.errorTracking({
                 filterGroup: {
                     type: FilterLogicalOperator.And,
@@ -32,7 +34,7 @@ export const ErrorTrackingButton = ({ breakdownBy, value }: ErrorTrackingButtonP
                             type: FilterLogicalOperator.And,
                             values: [
                                 {
-                                    key: '$current_url',
+                                    key: '$pathname',
                                     value: [value],
                                     operator: PropertyOperator.Exact,
                                     type: PropertyFilterType.Event,
