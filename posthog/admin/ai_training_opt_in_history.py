@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Optional
 
 from django.db import transaction
+from django.db.models import Q
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -100,21 +101,36 @@ def _to_change(entry: ActivityLog, change: dict) -> OptInChange:
     )
 
 
+def _opt_in_activity(organization: Organization):
+    return ActivityLog.objects.filter(
+        organization_id=organization.id,
+        scope="Organization",
+        item_id=str(organization.id),
+        # Whole-column containment, not `detail__changes__contains`: jsonb containment is recursive
+        # so this matches the same rows, but only this form can use the GIN index on detail.
+        # Filtering on `detail -> 'changes'` scans the org's whole activity history.
+        detail__contains={"changes": [{"field": AI_TRAINING_OPT_IN_FIELD}]},
+    )
+
+
+def _has_recorded_opt_in(organization: Organization) -> bool:
+    # Deliberately uncapped, unlike the displayed changes: an opt-in older than the cap still means
+    # the organization was opted in at some point, and the headline speaks to its whole history.
+    return (
+        _opt_in_activity(organization)
+        .filter(
+            Q(detail__contains={"changes": [{"field": AI_TRAINING_OPT_IN_FIELD, "after": True}]})
+            | Q(detail__contains={"changes": [{"field": AI_TRAINING_OPT_IN_FIELD, "before": True}]})
+        )
+        .exists()
+    )
+
+
 def _fetch_changes(organization: Organization) -> tuple[list[OptInChange], bool]:
     # Newest-first so an organization over the cap keeps its most recent changes, which are the ones
     # support is asking about. Reversed below so the panel reads oldest to newest.
     entries = list(
-        ActivityLog.objects.filter(
-            organization_id=organization.id,
-            scope="Organization",
-            item_id=str(organization.id),
-            # Whole-column containment, not `detail__changes__contains`: jsonb containment is
-            # recursive so this matches the same rows, but only this form can use the GIN index on
-            # detail. Filtering on `detail -> 'changes'` scans the org's whole activity history.
-            detail__contains={"changes": [{"field": AI_TRAINING_OPT_IN_FIELD}]},
-        )
-        .select_related("user")
-        .order_by("-created_at", "-id")[: MAX_ENTRIES_SHOWN + 1]
+        _opt_in_activity(organization).select_related("user").order_by("-created_at", "-id")[: MAX_ENTRIES_SHOWN + 1]
     )
 
     truncated = len(entries) > MAX_ENTRIES_SHOWN
@@ -130,13 +146,12 @@ def _timestamp(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _build_headline(current: Optional[bool], changes: list[OptInChange]) -> str:
+def _build_headline(current: Optional[bool], was_opted_in: bool) -> str:
     if current is True:
         return "Currently opted in"
 
     # "No recorded opt-in" rather than "Never opted in": an opt-out written outside the ORM, or a
     # dropped activity-log write, would leave no row to find.
-    was_opted_in = any(c.after is True or c.before is True for c in changes)
     headline = "Currently opted out, was opted in previously" if was_opted_in else "No recorded opt-in"
     # The column is nullable, and null reads as opted out everywhere else. Say so rather than let
     # support assume someone set it to false.
@@ -164,12 +179,13 @@ def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
         # validation error into an opaque 500 from the next unrelated query.
         with transaction.atomic():
             changes, truncated = _fetch_changes(organization)
+            was_opted_in = _has_recorded_opt_in(organization)
     except Exception as e:
         capture_exception(e)
         return OptInHistory(headline="Could not load opt-in history", changes=[], error=str(e))
 
     return OptInHistory(
-        headline=_build_headline(organization.is_ai_training_opted_in, changes),
+        headline=_build_headline(organization.is_ai_training_opted_in, was_opted_in),
         changes=changes,
         warning=_hipaa_conflict_warning(organization),
         truncated=truncated,

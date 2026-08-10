@@ -20,7 +20,9 @@ class TestAITrainingOptInHistory(APIBaseTest):
         Organization.objects.filter(pk=self.organization.pk).update(is_ai_training_opted_in=value)
         self.organization.refresh_from_db()
 
-    def _log_opt_in_change(self, *, user: User | None, before: bool, after: bool, is_system: bool) -> ActivityLog:
+    def _log_opt_in_change(
+        self, *, user: User | None, before: bool | None, after: bool | None, is_system: bool
+    ) -> ActivityLog:
         return ActivityLog.objects.create(
             organization_id=self.organization.id,
             item_id=str(self.organization.id),
@@ -132,6 +134,21 @@ class TestAITrainingOptInHistory(APIBaseTest):
         self.assertEqual(len(history.changes), 1)
         self.assertEqual(history.changes[0].origin, "manual")
         self.assertEqual(history.changes[0].actor, "user since deleted")
+
+    def test_opt_in_older_than_the_cap_still_counts_towards_the_headline(self) -> None:
+        self._set_opt_in_without_logging(False)
+        self._log_opt_in_change(user=None, before=False, after=True, is_system=True)
+        # The column is nullable, so the newest changes can oscillate without ever touching True,
+        # which pushes the only opt-in out of the displayed window.
+        for index in range(MAX_ENTRIES_SHOWN + 1):
+            before, after = (None, False) if index % 2 == 0 else (False, None)
+            self._log_opt_in_change(user=None, before=before, after=after, is_system=True)
+
+        history = get_ai_training_opt_in_history(self.organization)
+
+        self.assertTrue(history.truncated)
+        self.assertNotIn(True, [c.after for c in history.changes] + [c.before for c in history.changes])
+        self.assertEqual(history.headline, "Currently opted out, was opted in previously")
 
     def test_history_over_the_cap_is_flagged_as_truncated(self) -> None:
         self._set_opt_in_without_logging(False)
