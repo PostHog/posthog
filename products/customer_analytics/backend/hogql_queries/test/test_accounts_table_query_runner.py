@@ -193,12 +193,13 @@ class TestAccountsTableQueryRunner(BaseTest):
             name="Health score",
             display_type=DisplayType.NUMBER,
         )
-        for value in [10, 20]:
+        for index, value in enumerate([10, 20]):
             CustomPropertyValue.objects.unscoped().create(
                 team=self.team,
                 account=account,
                 definition=definition,
                 value_num=value,
+                is_deleted=index == 0,
             )
 
         with self.assertRaises(ValidationError):
@@ -212,8 +213,9 @@ class TestAccountsTableQueryRunner(BaseTest):
         accounts = [create_account(team_id=self.team.id, name=name) for name in ["First", "Second", "Third"]]
 
         response = self._run(AccountsTableQuery(columns=[], limit=1, offset=1))
+        expected_account = sorted(accounts, key=lambda account: (account.created_at, account.id), reverse=True)[1]
 
-        assert [row.id for row in response.results] == [str(accounts[1].id)]
+        assert [row.id for row in response.results] == [str(expected_account.id)]
         assert response.hasMore is True
         assert response.limit == 1
         assert response.offset == 1
