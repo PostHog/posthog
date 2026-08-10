@@ -7412,14 +7412,16 @@ export interface AccountsTableQueryApi {
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
-    filters: (
-        | AccountsTableSearchFilterApi
-        | AccountsTableTagsFilterApi
-        | AccountsTableAssignedToFilterApi
-        | AccountsTableUnassignedFilterApi
-        | AccountsTableAccountIdFilterApi
-        | AccountsTableCustomPropertyFilterApi
-    )[]
+    filters?:
+        | (
+              | AccountsTableSearchFilterApi
+              | AccountsTableTagsFilterApi
+              | AccountsTableAssignedToFilterApi
+              | AccountsTableUnassignedFilterApi
+              | AccountsTableAccountIdFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[]
+        | null
     kind?: 'AccountsTableQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
