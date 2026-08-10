@@ -70,18 +70,28 @@ describe('featureFlagUsageLogic', () => {
     })
 
     it('writes the selected range to the URL without pushing a history entry', async () => {
+        router.actions.push(urls.featureFlag(FLAG_ID))
+
         await expectLogic(logic, () => {
             logic.actions.setDates('-7d', null)
         }).toFinishAllListeners()
 
         expect(router.values.searchParams).toMatchObject({ date_from: '-7d' })
         expect(router.values.searchParams.date_to).toBeUndefined()
+        // A push here would make featureFlagLogic reload the flag on every date change.
+        expect(router.values.lastMethod).toEqual('REPLACE')
     })
 
     it('restores the range from the URL', async () => {
         await expectLogic(logic, () => {
             router.actions.push(urls.featureFlag(FLAG_ID), { date_from: '-24h' })
         }).toMatchValues({ dateRange: { date_from: '-24h', date_to: null } })
+    })
+
+    it('treats a URL with only date_to as an explicit range, not the default', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlag(FLAG_ID), { date_to: '2024-01-01' })
+        }).toMatchValues({ dateRange: { date_from: null, date_to: '2024-01-01' } })
     })
 
     it('keeps the default range when the URL carries no date params', async () => {

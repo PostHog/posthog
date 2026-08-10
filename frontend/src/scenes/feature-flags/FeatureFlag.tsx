@@ -646,8 +646,11 @@ function ConnectedUsageDashboard({
     dashboardId: number
     hasEnrichedAnalytics: boolean | undefined
 }): JSX.Element | null {
-    const { dashboard } = useValues(dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })) as {
+    const { dashboard, error404 } = useValues(
+        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+    ) as {
         dashboard: DashboardType<QueryBasedInsightModel> | null
+        error404: boolean
     }
     const { enrichUsageDashboard } = useActions(featureFlagLogic)
 
@@ -660,6 +663,13 @@ function ConnectedUsageDashboard({
             enrichUsageDashboard()
         }
     }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
+
+    // The dashboard FK survives a soft delete (SET_NULL only fires on a hard delete), so a
+    // deleted dashboard still looks linked here. Fall back to the same inline charts a
+    // dashboardless flag gets instead of an unrecoverable skeleton.
+    if (error404) {
+        return <FeatureFlagUsageMetrics id={featureFlag.id!} />
+    }
 
     if (!dashboard) {
         return <LemonSkeleton className="h-60" />

@@ -5043,6 +5043,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_dashboard_endpoint_is_idempotent(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        self._generate_usage_dashboard(flag_id)
+        first_dashboard_id = FeatureFlag.objects.get(id=flag_id).usage_dashboard_id
+
+        self._generate_usage_dashboard(flag_id)
+        instance = FeatureFlag.objects.get(id=flag_id)
+
+        self.assertEqual(instance.usage_dashboard_id, first_dashboard_id)
+        self.assertTrue(Dashboard.objects.filter(id=first_dashboard_id, deleted=False).exists())
+
+    def test_dashboard_endpoint_regenerates_after_dashboard_is_deleted(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        self._generate_usage_dashboard(flag_id)
+        deleted_dashboard_id = FeatureFlag.objects.get(id=flag_id).usage_dashboard_id
+        Dashboard.objects.filter(id=deleted_dashboard_id).update(deleted=True)
+
+        self._generate_usage_dashboard(flag_id)
+        instance = FeatureFlag.objects.get(id=flag_id)
+
+        self.assertNotEqual(instance.usage_dashboard_id, deleted_dashboard_id)
+        self.assertTrue(Dashboard.objects.filter(id=instance.usage_dashboard_id, deleted=False).exists())
+
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
         FeatureFlag.objects.all().delete()

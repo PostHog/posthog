@@ -3093,11 +3093,23 @@ class FeatureFlagViewSet(
 
     # No UI surface calls this, since the Usage tab renders its charts inline. It exists for API
     # users who want a saved usage dashboard.
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True)
     def dashboard(self, request: request.Request, **kwargs):
+        from products.dashboards.backend.models.dashboard import Dashboard
+
         feature_flag: FeatureFlag = self.get_object()
         try:
-            usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
+            # The FK on the flag isn't cleared by a dashboard soft-delete, so look the id up
+            # through the manager that excludes deleted rows rather than via the FK accessor,
+            # which would happily return a deleted dashboard and skip regenerating it.
+            usage_dashboard = (
+                Dashboard.objects.filter(id=feature_flag.usage_dashboard_id).first()
+                if feature_flag.usage_dashboard_id
+                else None
+            )
+            if usage_dashboard is None:
+                usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
 
             if feature_flag.has_enriched_analytics and not feature_flag.usage_dashboard_has_enriched_insights:
                 add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
@@ -3114,6 +3126,7 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True)
     def enrich_usage_dashboard(self, request: request.Request, **kwargs):
         feature_flag: FeatureFlag = self.get_object()
