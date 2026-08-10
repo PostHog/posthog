@@ -8,6 +8,9 @@ from unittest import mock
 
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible import plausible as plausible_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible import (
     PlausibleResumeConfig,
@@ -21,10 +24,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     DEFAULT_METRICS,
     ENDPOINTS,
+    EVENT_DIMENSIONS_ALLOWING_SESSION_METRICS,
     EVENT_SCOPED_METRICS,
     PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
     SESSION_ONLY_DIMENSIONS,
+    SESSION_SCOPED_METRICS,
     PlausibleEndpointConfig,
     compatible_metrics,
 )
@@ -149,7 +154,9 @@ class TestNormalizeRow:
     def test_a_response_of_the_wrong_shape_raises_instead_of_dropping_columns(self, dimensions, metrics):
         config = PLAUSIBLE_ENDPOINTS["timeseries"]
 
-        with pytest.raises(ValueError):
+        # Classified, so the import stops on the first attempt rather than replaying the same page
+        # for every resumable retry, and names the report so the failure is actionable.
+        with pytest.raises(RESTClientNonRetryableError, match="report 'timeseries'"):
             _normalize_row(config, _result(dimensions, metrics))
 
 
@@ -290,6 +297,12 @@ class TestGetRows:
             _rows(_source(endpoint="timeseries"))
 
 
+def _page_breakdown_is_exempt(dimensions: list[str]) -> bool:
+    """Plausible accepts a page breakdown outright, which clears both of its scope rules."""
+    event_dimensions = {d for d in dimensions if d.startswith("event:")}
+    return "event:page" in event_dimensions and not (event_dimensions - EVENT_DIMENSIONS_ALLOWING_SESSION_METRICS)
+
+
 class TestMetricDimensionScoping:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_no_report_pairs_event_metrics_with_a_session_only_dimension(self, endpoint):
@@ -297,8 +310,18 @@ class TestMetricDimensionScoping:
         conflicting_metrics = EVENT_SCOPED_METRICS.intersection(config.metrics)
         session_only_dimensions = SESSION_ONLY_DIMENSIONS.intersection(config.dimensions)
 
-        assert not (conflicting_metrics and session_only_dimensions), (
-            f"Plausible rejects {sorted(conflicting_metrics)} broken down by {sorted(session_only_dimensions)}"
+        assert not (
+            conflicting_metrics and session_only_dimensions and not _page_breakdown_is_exempt(config.dimensions)
+        ), f"Plausible rejects {sorted(conflicting_metrics)} broken down by {sorted(session_only_dimensions)}"
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_no_report_pairs_session_metrics_with_a_non_exempt_event_dimension(self, endpoint):
+        config = PLAUSIBLE_ENDPOINTS[endpoint]
+        conflicting_metrics = SESSION_SCOPED_METRICS.intersection(config.metrics)
+        event_dimensions = {d for d in config.dimensions if d.startswith("event:")}
+
+        assert not (conflicting_metrics and event_dimensions and not _page_breakdown_is_exempt(config.dimensions)), (
+            f"Plausible rejects {sorted(conflicting_metrics)} broken down by {sorted(event_dimensions)}"
         )
 
     @pytest.mark.parametrize(
@@ -306,13 +329,19 @@ class TestMetricDimensionScoping:
         [
             ([], DEFAULT_METRICS),
             (["visit:source"], DEFAULT_METRICS),
-            (["event:page"], DEFAULT_METRICS),
             (["visit:entry_page"], ["visitors", "visits", "bounce_rate", "visit_duration"]),
             (["visit:exit_page"], ["visitors", "visits", "bounce_rate", "visit_duration"]),
             # No report breaks down by the hostname variants yet, so these cases are what prove the
             # rule covers every session-only dimension rather than the two currently in use.
             (["visit:entry_page_hostname"], ["visitors", "visits", "bounce_rate", "visit_duration"]),
             (["visit:exit_page_hostname"], ["visitors", "visits", "bounce_rate", "visit_duration"]),
+            # Event dimensions lose the session metrics instead, except under the page exemption.
+            (["event:page"], DEFAULT_METRICS),
+            (["event:page", "event:hostname"], DEFAULT_METRICS),
+            (["event:goal"], ["visitors", "visits", "pageviews", "events"]),
+            (["event:hostname"], ["visitors", "visits", "pageviews", "events"]),
+            # Tripping both rules drops both sets rather than whichever is checked first.
+            (["visit:entry_page", "event:goal"], ["visitors", "visits"]),
         ],
     )
     def test_incompatible_metrics_are_dropped_per_breakdown(self, breakdown_dimensions, expected):

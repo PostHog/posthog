@@ -14,13 +14,17 @@ DEFAULT_BACKFILL_DAYS = 365
 DEFAULT_METRICS = ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration", "events"]
 
 # Plausible resolves metrics and dimensions against either its events table or its sessions table,
-# and answers 400 when a query pairs an event-scoped metric with a session-only dimension. Both sets
-# mirror `metric_partitioner` and `dimension_partitioner` in Plausible's `TableDecider`; every other
-# `visit:*` dimension is denormalized onto events, so it pairs with metrics from either table.
+# and answers 400 when a query mixes one table's metric with the other's dimension. These sets mirror
+# `metric_partitioner` and `dimension_partitioner` in Plausible's `TableDecider`; any `visit:*`
+# dimension not listed here is denormalized onto events, so it pairs with metrics from either table.
 EVENT_SCOPED_METRICS = frozenset({"pageviews", "events", "scroll_depth", "time_on_page"})
+SESSION_SCOPED_METRICS = frozenset({"bounce_rate", "visit_duration", "views_per_visit", "exit_rate"})
 SESSION_ONLY_DIMENSIONS = frozenset(
     {"visit:entry_page", "visit:entry_page_hostname", "visit:exit_page", "visit:exit_page_hostname"}
 )
+# Plausible exempts a breakdown by `event:page`, optionally alongside `event:hostname`, from the
+# session-metric rule, which is why `pages` keeps the full metric set.
+EVENT_DIMENSIONS_ALLOWING_SESSION_METRICS = frozenset({"event:page", "event:hostname"})
 
 # The day bucket every report is grouped by — must be the first dimension so `order_by` can sort
 # on it and the pipeline can slide the date window incrementally.
@@ -39,12 +43,19 @@ _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
 def compatible_metrics(metrics: list[str], breakdown_dimensions: list[str]) -> list[str]:
     """Drop the metrics Plausible refuses to return alongside these breakdown dimensions.
 
-    Models only the event-metric/session-dimension rule. Plausible also rejects session metrics
-    under an event dimension other than `event:page`, which no report here hits.
+    Plausible checks the page-breakdown exemption first and accepts the query outright, then applies
+    its two rules independently, so a breakdown that trips both loses both metric sets.
     """
-    if not any(d in SESSION_ONLY_DIMENSIONS for d in breakdown_dimensions):
+    event_dimensions = {d for d in breakdown_dimensions if d.startswith("event:")}
+    if "event:page" in event_dimensions and not (event_dimensions - EVENT_DIMENSIONS_ALLOWING_SESSION_METRICS):
         return list(metrics)
-    return [m for m in metrics if m not in EVENT_SCOPED_METRICS]
+
+    excluded: set[str] = set()
+    if event_dimensions:
+        excluded |= SESSION_SCOPED_METRICS
+    if any(d in SESSION_ONLY_DIMENSIONS for d in breakdown_dimensions):
+        excluded |= EVENT_SCOPED_METRICS
+    return [m for m in metrics if m not in excluded]
 
 
 def dimension_to_column(dimension: str) -> str:

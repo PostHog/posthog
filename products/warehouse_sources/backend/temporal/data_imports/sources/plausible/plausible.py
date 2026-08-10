@@ -11,6 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -77,12 +80,22 @@ def _to_date(value: Any) -> Optional[date]:
 
 def _normalize_row(config: PlausibleEndpointConfig, result: dict[str, Any]) -> dict[str, Any]:
     """Flatten a Stats API result ({dimensions: [...], metrics: [...]}) into a named-column dict."""
+    # Direct access (not .get) so a response missing either list fails instead of ingesting rows
+    # without the `date` primary key.
+    dimensions, metrics = result["dimensions"], result["metrics"]
+    # Both lists are positional, so a count mismatch would drop trailing columns. Raise the
+    # classified error rather than letting `zip` raise a bare ValueError: a bare one matches no
+    # classifier, so the schema replays this same page for all 15 resumable attempts.
+    if len(dimensions) != len(config.column_names) or len(metrics) != len(config.metrics):
+        raise RESTClientNonRetryableError(
+            f"Plausible returned {len(dimensions)} dimensions and {len(metrics)} metrics for report "
+            f"'{config.name}', expected {len(config.column_names)} and {len(config.metrics)}"
+        )
+
     row: dict[str, Any] = {}
-    # Direct access (not .get) and strict zips so a malformed response fails fast instead of
-    # ingesting rows missing the `date` primary key or silently dropping metric columns.
-    for name, value in zip(config.column_names, result["dimensions"], strict=True):
+    for name, value in zip(config.column_names, dimensions, strict=True):
         row[name] = value
-    for name, value in zip(config.metrics, result["metrics"], strict=True):
+    for name, value in zip(config.metrics, metrics, strict=True):
         row[name] = value
     return row
 
