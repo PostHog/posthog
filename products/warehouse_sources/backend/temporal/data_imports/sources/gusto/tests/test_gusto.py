@@ -12,7 +12,8 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto import (
     DEFAULT_WINDOW_START,
-    GUSTO_API_VERSION,
+    GUSTO_API_VERSION_2024_04_01,
+    GUSTO_API_VERSION_2026_06_15,
     GustoClient,
     GustoResumeConfig,
     _window_bounds,
@@ -125,7 +126,7 @@ def _run(
                 client_secret="secret",
                 refresh_token="refresh",
                 endpoint=endpoint,
-                api_version=GUSTO_API_VERSION,
+                api_version=GUSTO_API_VERSION_2026_06_15,
                 logger=MagicMock(),
                 resumable_source_manager=resume_manager,
                 db_incremental_field_last_value=db_incremental_field_last_value,
@@ -182,7 +183,7 @@ class TestListCompanies:
             "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
             return_value=session,
         ):
-            return GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION)
+            return GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
 
     def test_returns_companies_sorted_by_uuid(self) -> None:
         client = self._client(_me_body(["c-zeta", "c-alpha"]))
@@ -293,15 +294,17 @@ class TestGustoClient:
             "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
             return_value=session,
         ):
-            return GustoClient(environment, "cid", "secret", "refresh", GUSTO_API_VERSION, MagicMock())
+            return GustoClient(environment, "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15, MagicMock())
 
-    def test_session_pins_the_api_version_and_redacts_secrets(self) -> None:
+    @parameterized.expand([(GUSTO_API_VERSION_2024_04_01,), (GUSTO_API_VERSION_2026_06_15,)])
+    def test_session_pins_the_api_version_and_redacts_secrets(self, api_version: str) -> None:
+        # Each supported version reaches the header verbatim, so a pinned source syncs under its pin.
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session"
         ) as make_session:
-            GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION)
+            GustoClient("production", "cid", "secret", "refresh", api_version)
         kwargs = make_session.call_args.kwargs
-        assert kwargs["headers"]["X-Gusto-API-Version"] == GUSTO_API_VERSION
+        assert kwargs["headers"]["X-Gusto-API-Version"] == api_version
         assert set(kwargs["redact_values"]) == {"secret", "refresh"}
         # Payroll PII must never reach HTTP sample capture.
         assert kwargs["capture"] is False
@@ -519,7 +522,7 @@ class TestGustoSourceResponse:
             client_secret="secret",
             refresh_token="refresh",
             endpoint=endpoint,
-            api_version=GUSTO_API_VERSION,
+            api_version=GUSTO_API_VERSION_2026_06_15,
             logger=MagicMock(),
             resumable_source_manager=_FakeResumableManager(),
         )
@@ -540,7 +543,7 @@ class TestGustoSourceResponse:
             client_secret="secret",
             refresh_token="refresh",
             endpoint="employees",
-            api_version=GUSTO_API_VERSION,
+            api_version=GUSTO_API_VERSION_2026_06_15,
             logger=MagicMock(),
             resumable_source_manager=_FakeResumableManager(),
         )
@@ -560,7 +563,7 @@ class TestValidateCredentials:
             "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
             return_value=session,
         ):
-            return validate_credentials("production", "cid", "secret", "refresh", GUSTO_API_VERSION)
+            return validate_credentials("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
 
     def test_accepts_credentials_that_reach_a_company(self) -> None:
         assert self._validate({"/v1/me": [_FakeResponse(200, _me_body(["c-1"]))]}) == (True, None)
@@ -590,7 +593,7 @@ class TestValidateCredentials:
             "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto.make_tracked_session",
             return_value=_FakeSession({}),
         ):
-            ok, message = validate_credentials("sandbox", "cid", "secret", "refresh", GUSTO_API_VERSION)
+            ok, message = validate_credentials("sandbox", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
         assert ok is False
         assert message is not None and "Invalid Gusto environment" in message
 
