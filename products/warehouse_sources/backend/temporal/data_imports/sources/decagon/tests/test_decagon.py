@@ -584,6 +584,32 @@ class TestArticleTables:
         assert response.partition_keys is None
 
 
+class TestTags:
+    def test_tags_is_a_single_request_with_counts(self) -> None:
+        # get_counts populates human_count/total_count; dropping the param silently
+        # empties both columns.
+        manager = _fresh_manager()
+        responses = [_make_response({"tags": [{"id": 1, "parent_id": None}, {"id": 2, "parent_id": 1}]})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="tags")
+
+        assert sent_params == [{"get_counts": "true"}]
+        assert [[t["id"] for t in b] for b in batches] == [[1, 2]]
+        manager.save_state.assert_not_called()
+
+    def test_tags_response_is_unpartitioned_with_id_key(self) -> None:
+        # Tags carry no timestamp; wiring the datetime partitioning every other stream
+        # uses would fail the sync on a missing column.
+        response = decagon_source(
+            api_key="key",
+            endpoint="tags",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+
 class TestToEpochSeconds:
     # The pipeline hands the DateTime watermark back as a datetime, a date, or an epoch
     # number depending on how it round-tripped through storage; the request boundary must
