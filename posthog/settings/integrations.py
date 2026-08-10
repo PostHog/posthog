@@ -33,6 +33,10 @@ GOOGLE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ANALYTICS_APP_CLIENT_S
 
 GOOGLE_CALENDAR_APP_CLIENT_ID = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_ID", "")
 GOOGLE_CALENDAR_APP_CLIENT_SECRET = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_SECRET", "")
+# Drive's read-only scope is a Google "restricted" scope, so this client needs its own OAuth app
+# and verification rather than sharing one with the other Google connectors.
+GOOGLE_DRIVE_APP_CLIENT_ID = get_from_env("GOOGLE_DRIVE_APP_CLIENT_ID", "")
+GOOGLE_DRIVE_APP_CLIENT_SECRET = get_from_env("GOOGLE_DRIVE_APP_CLIENT_SECRET", "")
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
