@@ -351,17 +351,21 @@ class EmailValidationHelper:
         return EmailLookupHandler.get_user_by_email(email) is not None
 
     @staticmethod
-    def user_exists_with_stripped_alias(email: str) -> bool:
-        """True if any existing active user's email, once its '+alias' is stripped, equals `email`."""
+    def user_exists_with_stripped_alias(email: str, exclude_user_id: Optional[int] = None) -> bool:
+        """
+        True if any existing active user's email, once its '+alias' is stripped, equals `email`.
+        `exclude_user_id` skips one account, so a user dropping their own '+alias' isn't blocked by themselves.
+        """
         from posthog.models.user import User
 
         stripped = strip_email_alias(email)
         local, _, domain = stripped.rpartition("@")
-        return (
-            User.objects.filter(is_active=True)
-            .filter(Q(email__iexact=stripped) | (Q(email__istartswith=f"{local}+") & Q(email__iendswith=f"@{domain}")))
-            .exists()
+        candidates = User.objects.filter(is_active=True).filter(
+            Q(email__iexact=stripped) | (Q(email__istartswith=f"{local}+") & Q(email__iendswith=f"@{domain}"))
         )
+        if exclude_user_id is not None:
+            candidates = candidates.exclude(pk=exclude_user_id)
+        return candidates.exists()
 
 
 ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day

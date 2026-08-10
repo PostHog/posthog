@@ -330,7 +330,6 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_stripped_alias_collision(self):
-        """A plain-email signup is deflected when an existing user's plus-addressed email matches once stripped."""
         User.objects.create(email="jane+old@posthog.com", first_name="Jane")
 
         response = self.client.post(
@@ -354,7 +353,7 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_social_signup_allows_plus_addressed_email(self):
-        """Social signup is explicitly out of scope for the plus-addressing rules."""
+        # Social signup is deliberately out of scope for the plus-addressing rules.
         session = self.client.session
         session["backend"] = "google-oauth2"
         session["email"] = "social+alias@posthog.com"
