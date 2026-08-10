@@ -10,8 +10,10 @@ import uuid
 
 import pytest
 
-from django.db import connection, migrations, models
+from django.db import connection, migrations, models, transaction
 from django.db.migrations.state import ModelState, ProjectState
+from django.db.utils import InternalError
+from django.test import override_settings
 
 from posthog.migration_helpers import (
     CreateIndexConcurrently,
@@ -440,3 +442,49 @@ def test_safe_ops_deconstruct_round_trips(op):
     assert args == []
     rebuilt = type(op)(**kwargs)
     assert rebuilt.deconstruct() == op.deconstruct()
+
+
+# --- Running inside a transaction (TestMigrations replays migrations in one) ---
+#
+# `django_db` without transaction=True is the point of these: it wraps the test in the
+# same atomic block TestMigrations runs under, where Postgres rejects CONCURRENTLY. Any
+# TestMigrations case whose migrate_from predates a concurrent-index migration has to
+# roll that migration back from in there, so these ops have to survive it.
+
+
+@pytest.mark.django_db
+def test_create_index_concurrently_round_trips_inside_a_transaction(temp_table):
+    idx_name = f"{temp_table}_col_idx"
+    op = CreateIndexConcurrently(index_name=idx_name, table_name=temp_table, columns="(col)")
+
+    _apply_forwards(op, state=None)
+    assert _index_exists(idx_name)
+
+    _apply_backwards(op, state=None)
+    assert not _index_exists(idx_name)
+
+
+@pytest.mark.django_db
+def test_safe_add_index_concurrently_round_trips_inside_a_transaction(temp_model):
+    table, state = temp_model
+    idx_name = f"{table}_col_idx"
+    op = SafeAddIndexConcurrently(model_name=MODEL_NAME, index=models.Index(fields=["col"], name=idx_name))
+
+    _apply_forwards(op, state)
+    assert _index_exists(idx_name)
+
+    _apply_backwards(op, state)
+    assert not _index_exists(idx_name)
+
+
+@pytest.mark.django_db
+def test_concurrently_is_not_dropped_outside_tests(temp_table):
+    """The fallback is test-only: a migration that forgets atomic = False must still
+    fail loudly rather than quietly taking an ACCESS EXCLUSIVE lock on a live table.
+    """
+    op = CreateIndexConcurrently(index_name=f"{temp_table}_col_idx", table_name=temp_table, columns="(col)")
+
+    # The inner atomic() is a savepoint, so the aborted statement doesn't poison the
+    # outer test transaction and leave fixture teardown unable to drop the table.
+    with override_settings(TEST=False), pytest.raises(InternalError), transaction.atomic():
+        _apply_forwards(op, state=None)
