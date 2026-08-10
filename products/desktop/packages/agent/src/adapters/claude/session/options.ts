@@ -99,6 +99,8 @@ export interface BuildOptionsParams {
   /** Called after createTaskHook mutates taskState so callers can emit a plan
    * sessionUpdate to the client. */
   onTaskStateChange?: () => Promise<void>;
+  /** Returns the canonical model selected for the live parent session. */
+  getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
 }
@@ -264,6 +266,7 @@ function buildHooks(
   enrichmentDeps: FileEnrichmentDeps | undefined,
   enrichedReadCache: EnrichedReadCache | undefined,
   registeredAgents: ReadonlySet<string>,
+  getCurrentModelId: (() => string | undefined) | undefined,
   cloudMode: boolean,
   onEnsureLocalToolsConnected: (() => Promise<boolean>) | undefined,
   taskState: TaskState,
@@ -285,7 +288,7 @@ function buildHooks(
 
   const preToolUseHooks = [
     createPreToolUseHook(settingsManager, logger, posthogExecPermissionRegex),
-    createSubagentRewriteHook(logger, registeredAgents),
+    createSubagentRewriteHook(logger, registeredAgents, getCurrentModelId),
   ];
   if (cloudMode) {
     preToolUseHooks.push(
@@ -522,6 +525,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.enrichmentDeps,
       params.enrichedReadCache,
       registeredAgentNames,
+      params.getCurrentModelId,
       params.cloudMode ?? false,
       params.onEnsureLocalToolsConnected,
       params.taskState,

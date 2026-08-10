@@ -18,23 +18,21 @@ import { type BasePermissionProps, toSelectorOptions } from "./types";
 const TITLE = "Implementation Plan";
 const QUESTION = "Approve this plan to proceed?";
 
-// Don't steal focus from an interactive element in a different grid cell
-// (multi-task view). Mirrors the guard in useActionSelectorState.
-function isInteractiveElementInDifferentCell(
+// Don't steal focus from a different task in multi-task view.
+function isElementInDifferentCell(
   containerRef: React.RefObject<HTMLDivElement | null>,
 ): boolean {
   const el = document.activeElement;
   if (!(el instanceof HTMLElement)) return false;
+  const activeCell = el.closest("[data-grid-cell]");
+  const ownCell = containerRef.current?.closest("[data-grid-cell]");
+  if (activeCell && ownCell && activeCell !== ownCell) return true;
   const isInteractive =
     el.tagName === "INPUT" ||
     el.tagName === "TEXTAREA" ||
     el.tagName === "SELECT" ||
     el.getAttribute("contenteditable") === "true";
-  if (!isInteractive) return false;
-  const activeCell = el.closest("[data-grid-cell]");
-  const ownCell = containerRef.current?.closest("[data-grid-cell]");
-  if (!activeCell || !ownCell) return true;
-  return activeCell !== ownCell;
+  return isInteractive && (!activeCell || !ownCell);
 }
 
 /**
@@ -124,7 +122,7 @@ export function PlanApprovalSelector({
   // different grid cell (multi-task view) already owns focus. Selection-driven
   // focus is handled inline in `selectRow`, not via a state-syncing effect.
   useEffect(() => {
-    if (!isInteractiveElementInDifferentCell(containerRef)) {
+    if (!isElementInDifferentCell(containerRef)) {
       containerRef.current?.focus();
     }
   }, []);
@@ -158,6 +156,7 @@ export function PlanApprovalSelector({
   };
 
   const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     // The reject textarea owns the keyboard while it's the selected row.
     if (rejectSelected) return;
     switch (e.key) {
@@ -309,10 +308,7 @@ export function PlanApprovalSelector({
                       onChange={setFeedback}
                       onNavigateUp={() => selectRow(0)}
                       onNavigateDown={() => selectRow(0)}
-                      onEscape={() => {
-                        setFeedback("");
-                        selectRow(0);
-                      }}
+                      onEscape={onCancel}
                       onSubmit={submitReject}
                     />
                   </Box>

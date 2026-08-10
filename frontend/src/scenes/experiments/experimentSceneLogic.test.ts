@@ -1,5 +1,6 @@
 import { resetContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FORM_MODES } from './experimentLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
@@ -109,6 +110,27 @@ describe('experimentSceneLogic', () => {
         })
 
         expect(mockModule.experimentLogic.__logic.actions.loadExperiment).toHaveBeenCalledTimes(1)
+
+        logic.unmount()
+    })
+
+    it('reports a tab view only when the active tab actually changes', async () => {
+        // LemonTabs fires onChange on every tab click, including clicks on the already-active
+        // tab, so a same-tab dispatch must not count as another view.
+        const capture = posthog.capture as jest.Mock
+        const logic = experimentSceneLogic({ experimentId: 123 as any, formMode: FORM_MODES.update })
+        logic.mount()
+        // Mounting replays `urlToAction` for the current URL, which reports a landing tab when
+        // earlier tests left a matching /experiments/:id URL behind — not this test's subject.
+        capture.mockClear()
+
+        logic.actions.setActiveTabKey('recordings')
+        logic.actions.setActiveTabKey('recordings')
+        logic.actions.setActiveTabKey('metrics')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const tabViews = capture.mock.calls.filter(([event]) => event === 'experiment tab viewed')
+        expect(tabViews.map(([, properties]) => (properties as any)?.tab)).toEqual(['recordings', 'metrics'])
 
         logic.unmount()
     })

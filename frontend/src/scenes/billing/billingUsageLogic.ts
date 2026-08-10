@@ -24,8 +24,8 @@ import {
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
-import type { BillingPeriodMarker } from './BillingLineGraph'
 import { billingLogic } from './billingLogic'
+import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 import type { BillingFilters } from './types'
 import type { BillingUsageInteractionProps } from './types'
 

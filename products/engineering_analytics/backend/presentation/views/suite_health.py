@@ -120,8 +120,11 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct "
             "failures (by test id + normalized error signature) and classified by how each is behaving right "
-            "now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one "
-            "PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the "
+            "now — breaking trunk, blocking the merge queue, a new failure spreading across branches, "
+            "probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. A "
+            "blocking_merge_queue row is a failure on a merge-queue gate branch that never hit trunk: the "
+            "commit had already passed the PR's own CI, so it is the semantic conflict the queue exists to "
+            "catch, and it is holding up landings. Also returns breaking_master_jobs, the "
             "default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I "
             "care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. "
             "Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and "

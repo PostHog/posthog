@@ -239,9 +239,9 @@ The collector parses each JSON key into a queryable attribute and turns the emit
 so one run groups as a trace and can be pulled up with an attribute filter on `task_run_id`.
 
 ```bash
-# Which task origins to mirror (comma-separated). Defaults to signals scouts only.
+# Which task origins to mirror (comma-separated). Defaults to signals scouts and user-created tasks.
 # Set empty to disable.
-TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout,user_created
 ```
 
 The mirror also has a **direct OTLP leg** that ships each batch straight to a logs ingest endpoint:

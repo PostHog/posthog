@@ -405,6 +405,7 @@ def process_query_task(
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ) -> None:
     """
     Kick off query
@@ -427,6 +428,7 @@ def process_query_task(
         limit_context=limit_context,
         is_query_service=is_query_service,
         analytics_props=analytics_props,
+        sharing_configuration_id=sharing_configuration_id,
     )
 
 

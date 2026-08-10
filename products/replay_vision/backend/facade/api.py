@@ -6,8 +6,9 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
+from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -49,7 +50,7 @@ def fetch_page_session_observations(
     readable_scanner_ids = [
         str(sid)
         for sid in UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        .filter_queryset_by_access_level(ReplayScanner.objects.filter(team_id=team.id))
+        .filter_queryset_by_access_level(scanners_for_reading_observations(team.id))
         .values_list("id", flat=True)
     ]
     if not readable_scanner_ids:

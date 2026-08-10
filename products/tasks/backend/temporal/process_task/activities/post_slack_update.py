@@ -12,6 +12,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.tasks.backend.access import has_tasks_access
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     TIMED_OUT_INACTIVITY_STATE_KEY,
+    TIMED_OUT_WALL_CLOCK_STATE_KEY,
 )
 
 logger = get_logger(__name__)
@@ -106,6 +107,10 @@ def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+
+    # Deferred with the model import below: `facade.run_config` re-exports from
+    # `process_task.utils`, whose import graph reaches back to this module.
+    from products.tasks.backend.facade.run_config import parse_run_state
     from products.tasks.backend.models import TaskRun
 
     try:
@@ -132,8 +137,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             elif task_run.status == TaskRun.Status.CANCELLED:
                 _post_cancelled_once(task_run, handler, task_url)
             elif task_run.status == TaskRun.Status.FAILED:
-                error = task_run.error_message or "Unknown error"
-                _post_error_once(task_run, handler, error, task_url)
+                _post_failure_or_timeout(task_run, handler, task_url)
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
@@ -148,8 +152,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         elif task_run.status == TaskRun.Status.CANCELLED:
             _post_cancelled_once(task_run, handler, task_url)
         elif task_run.status == TaskRun.Status.FAILED:
-            error = task_run.error_message or "Unknown error"
-            _post_error_once(task_run, handler, error, task_url)
+            _post_failure_or_timeout(task_run, handler, task_url)
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
@@ -158,17 +161,45 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.update_reaction("eyes")
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(stage, task_url)
+            run_state = parse_run_state(task_run.state)
+            handler.post_or_update_progress(
+                stage,
+                task_url,
+                model=run_state.model,
+                reasoning_effort=run_state.reasoning_effort,
+            )
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 
 
-def _is_timed_out_completion(task_run: Any) -> bool:
-    """The error_message check covers runs finalized before the state marker existed."""
+def _has_timeout_marker(task_run: Any) -> bool:
+    """True only for runs the workflow itself terminalized as a timeout."""
     state = task_run.state if isinstance(task_run.state, dict) else {}
-    if state.get(TIMED_OUT_INACTIVITY_STATE_KEY):
+    return bool(state.get(TIMED_OUT_INACTIVITY_STATE_KEY) or state.get(TIMED_OUT_WALL_CLOCK_STATE_KEY))
+
+
+def _is_timed_out_completion(task_run: Any) -> bool:
+    """The error_message check covers COMPLETED runs finalized before the state markers existed."""
+    if _has_timeout_marker(task_run):
         return True
     return bool(task_run.error_message and "timed out" in task_run.error_message)
+
+
+def _post_failure_or_timeout(task_run: Any, handler: Any, task_url: str | None) -> None:
+    """A genuine failure posts an error card; a timeout stays quiet (just clears progress).
+
+    Timeouts are recorded as FAILED so the UI and analytics can tell a hang apart from a
+    success, but Slack should not ping a loud error card on every timeout. Only the explicit
+    state markers count here: plenty of genuine failures carry "timed out" in their message
+    (sandbox request timeouts, agent command timeouts, the wizard's own deadline), and those
+    still deserve an error card.
+    """
+    if _has_timeout_marker(task_run):
+        handler.update_reaction("hedgehog")
+        handler.delete_progress()
+        return
+    error = task_run.error_message or "Unknown error"
+    _post_error_once(task_run, handler, error, task_url)
 
 
 def _get_stage_from_status(status: str, stage: str | None = None) -> str:

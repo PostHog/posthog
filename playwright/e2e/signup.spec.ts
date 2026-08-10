@@ -111,6 +111,31 @@ test.describe('Signup', () => {
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
     })
 
+    test('Trims surrounding whitespace in the name so first_name is never blank', async ({ page }) => {
+        let signupRequestBody: string | null = null
+
+        await page.route('/api/signup/', async (route) => {
+            signupRequestBody = route.request().postData()
+            await route.continue()
+        })
+
+        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
+        await startSignupFlow(page, email, VALID_PASSWORD)
+        // A leading space used to slip through client validation and produce first_name: ""
+        await page.locator('[data-attr=signup-name]').fill(' Alice Bob')
+        await expect(page.locator('[data-attr=signup-name]')).toHaveValue(' Alice Bob')
+        await page.locator('[data-attr=signup-role-at-organization]').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
+        await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
+        await page.locator('[data-attr=signup-submit]').click()
+
+        const parsedBody = JSON.parse(signupRequestBody!)
+        expect(parsedBody.first_name).toEqual('Alice')
+        expect(parsedBody.last_name).toEqual('Bob')
+
+        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
+    })
+
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
         let signupRequestBody: string | null = null
         const email = `new_user+generic_error_test_${Math.floor(Math.random() * 10000)}@posthog.com`

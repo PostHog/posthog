@@ -7,10 +7,12 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend import build_service
-from products.canvas.backend.models import Canvas, CanvasBuild
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.canvas.backend.tests.test_canvas_api import InMemoryStorage
 from products.tasks.backend.models import Channel
@@ -63,7 +65,7 @@ class BuildServiceBaseTest(APIBaseTest):
             has_expected_version=False,
             expected_version_id=None,
             task_id=None,
-            created_by_id=None,
+            created_by=None,
         )
         self.canvas.refresh_from_db()
         return build
@@ -188,6 +190,35 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert build.status == CanvasBuild.STATUS_FAILED
         assert self.canvas.published_build_id is None
 
+    @parameterized.expand(
+        [
+            ("ready", _builder_result({"index.html": "<html></html>"}), []),
+            (
+                "failed",
+                {
+                    "contractVersion": 1,
+                    "status": "failed",
+                    "diagnostics": [{"severity": "error", "code": "bundle_error", "message": "boom"}],
+                },
+                ["bundle_error"],
+            ),
+        ]
+    )
+    def test_terminal_build_captures_its_outcome(self, outcome: str, builder_result: dict, error_codes: list[str]):
+        # The capture is wrapped in a catch-all so telemetry never fails a build, which
+        # would let a broken payload lose the event silently.
+        build = self._publish()
+        with patch.object(build_service, "ph_background_capture") as capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                with patch.object(build_service, "run_cloud_builder", return_value=builder_result):
+                    build_service.run_canvas_build(self.team.id, str(build.id))
+
+        properties = capture.return_value.call_args.kwargs["properties"]
+        assert capture.return_value.call_args.kwargs["event"] == "canvas build completed"
+        assert properties["outcome"] == outcome
+        assert properties["error_codes"] == error_codes
+        assert properties["build_id"] == str(build.id)
+
 
 class TestSweeper(BuildServiceBaseTest):
     def test_lease_expired_building_is_requeued_then_failed(self):
@@ -301,3 +332,36 @@ class TestCleanup(BuildServiceBaseTest):
         assert str(aged[2].id) in kept  # newest other ready build (instant rollback)
         assert str(published.id) not in kept  # aged past retention, unprotected
         assert pruned == 1
+
+
+class TestLegacySourcePreservation(BuildServiceBaseTest):
+    def test_first_publish_materializes_legacy_code_as_parent_version(self):
+        legacy = "export default function Legacy() { return null }"
+        Canvas.objects.unscoped().filter(id=self.canvas.id).update(legacy_code=legacy)
+        self.canvas.refresh_from_db()
+
+        canvas, version, _build, first_publish = build_service.publish_source_project(
+            self.canvas,
+            project=synthetic_source_project("export default function Rewrite() { return null }"),
+            prompt="rewrite",
+            name=None,
+            has_expected_version=True,
+            expected_version_id=None,
+            task_id=None,
+            created_by=None,
+        )
+
+        head = CanvasSourceVersion.objects.unscoped().get(pk=version.id)
+        assert head.parent_version_id is not None
+        legacy_version = CanvasSourceVersion.objects.unscoped().get(pk=head.parent_version_id)
+        assert build_service.read_source_project(legacy_version) == synthetic_source_project(legacy)
+        assert canvas.current_source_version_id == head.id
+        assert canvas.legacy_code is None
+        assert not first_publish
+
+    def test_publish_on_fresh_canvas_creates_single_root_version(self):
+        self._publish()
+
+        versions = CanvasSourceVersion.objects.unscoped().filter(canvas_id=self.canvas.id)
+        assert versions.count() == 1
+        assert versions.get().parent_version_id is None

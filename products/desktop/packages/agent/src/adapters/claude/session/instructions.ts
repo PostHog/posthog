@@ -32,6 +32,12 @@ If an MCP tool call is explicitly denied with a message, relay that denial messa
 If an MCP tool call returns an error, treat it as a normal tool error — troubleshoot, retry, or inform the user about the specific error. Do NOT assume it is a permissions issue and do NOT direct the user to any settings page.
 `;
 
+const DATA_HANDLING = `
+# Data Handling
+
+Material you were given as task context — customer conversations, support tickets, logs, internal threads — stays out of code, test data, comments, commit messages, and pull request text. Rewriting it, summarizing it, or swapping out names and domains does not clear it.
+`;
+
 const SHELL_EFFICIENCY = `
 # Shell Efficiency
 
@@ -64,7 +70,12 @@ How to phrase the line:
 `;
 
 const BASE_INSTRUCTIONS =
-  BRANCH_NAMING + PULL_REQUEST_LINKS + PLAN_MODE + MCP_TOOLS + SHELL_EFFICIENCY;
+  BRANCH_NAMING +
+  PULL_REQUEST_LINKS +
+  PLAN_MODE +
+  MCP_TOOLS +
+  DATA_HANDLING +
+  SHELL_EFFICIENCY;
 
 export function buildAppendedInstructions(opts: {
   spokenNarration: boolean;

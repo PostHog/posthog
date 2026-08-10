@@ -82,19 +82,48 @@ class TestCreateDataModelingJobActivity:
 
 
 class TestFailMaterializationActivity:
-    async def test_marks_job_as_failed(self, activity_environment, ateam, anode, ajob, adag):
+    @pytest.mark.parametrize(
+        "cancelled,expected_status",
+        [(False, DataModelingJob.Status.FAILED), (True, DataModelingJob.Status.CANCELLED)],
+    )
+    async def test_marks_job_as_terminal(
+        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status
+    ):
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
             dag_id=str(adag.id),
             job_id=str(ajob.id),
             error="Test error message",
+            cancelled=cancelled,
         )
         await activity_environment.run(fail_materialization_activity, inputs)
         await database_sync_to_async(ajob.refresh_from_db)()
-        assert ajob.status == DataModelingJob.Status.FAILED
+        assert ajob.status == expected_status
         assert ajob.rows_materialized == 0
         assert ajob.error == "Test error message"
+        # The UI derives run duration and the log-search window from last_run_at, so a
+        # terminal transition must stamp it (the model default is the job's start time).
+        assert ajob.last_run_at > ajob.created_at
+
+    async def test_does_not_overwrite_already_terminal_job(self, activity_environment, ateam, anode, ajob, adag):
+        ajob.status = DataModelingJob.Status.COMPLETED
+        await database_sync_to_async(ajob.save)()
+        await database_sync_to_async(ajob.refresh_from_db)()
+        completed_last_run_at = ajob.last_run_at
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            error="Late failure",
+        )
+        await activity_environment.run(fail_materialization_activity, inputs)
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.status == DataModelingJob.Status.COMPLETED
+        assert ajob.error is None
+        assert ajob.last_run_at == completed_last_run_at
 
     async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = FailMaterializationInputs(
@@ -365,6 +394,46 @@ class TestShouldPauseScheduleForTimeout:
         for job in previous_jobs:
             await database_sync_to_async(job.delete)()
 
+    async def test_streak_survives_a_run_skipped_for_an_upstream_failure(self, ateam, asaved_query):
+        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
+
+        previous_jobs = []
+        for i in range(5):
+            job = await database_sync_to_async(DataModelingJob.objects.create)(
+                team=ateam,
+                saved_query=asaved_query,
+                status=DataModelingJob.Status.FAILED,
+                error="Timeout exceeded",
+                workflow_id=f"prev-workflow-{i}",
+            )
+            previous_jobs.append(job)
+
+        skipped = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            saved_query=asaved_query,
+            status=DataModelingJob.Status.SKIPPED,
+            error="Skipped because upstream view orders_daily is failing.",
+            workflow_id="skipped-workflow",
+        )
+        previous_jobs.append(skipped)
+
+        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            saved_query=asaved_query,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="current-workflow",
+        )
+
+        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
+            asaved_query.id, current_job.id
+        )
+        assert should_pause is True
+        assert count == 5
+
+        await database_sync_to_async(current_job.delete)()
+        for job in previous_jobs:
+            await database_sync_to_async(job.delete)()
+
     async def test_streak_ignores_jobs_from_other_engines(self, ateam, asaved_query):
         from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
 
@@ -489,6 +558,40 @@ class TestNodeSuspension:
         # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
         for job in jobs:
             await database_sync_to_async(job.delete)()
+
+    async def test_skipped_runs_do_not_break_the_failure_streak(self, ateam, anode, asaved_query, adag):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND - 1)
+        ]
+        # an upstream failure parks this node for one run; it never got to succeed
+        jobs.append(await _make_job(ateam, asaved_query, DataModelingJob.Status.SKIPPED, error="upstream failed"))
+        job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        jobs.append(job)
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason="boom",
+            job_id=str(job.id),
+        )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for j in jobs:
+            await database_sync_to_async(j.delete)()
 
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
@@ -756,6 +859,45 @@ class TestPrepareQueryableTableActivity:
             assert asaved_query.table_id == warehouse_table.id
             await database_sync_to_async(warehouse_table.refresh_from_db)()
             assert warehouse_table.row_count == 250
+        await database_sync_to_async(warehouse_table.delete)()
+
+    async def test_retypes_view_node_to_matview_once_a_table_is_linked(
+        self, activity_environment, ateam, asaved_query, anode, ajob
+    ):
+        # revert_materialization leaves the node typed VIEW; every scheduled DAG run then treats
+        # it as ephemeral and skips materialization without recording a job.
+        anode.type = NodeType.VIEW
+        await database_sync_to_async(anode.save)()
+
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=["s3://test-bucket/test_file.parquet"],
+            row_count=10,
+        )
+        warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam,
+            name="test_warehouse_table",
+            format="Delta",
+        )
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+            ) as mock_prepare,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+            ) as mock_create_table,
+        ):
+            mock_prepare.return_value = "test-bucket/queryable_folder"
+            mock_create_table.return_value = CreateTableResult(
+                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+            )
+            await activity_environment.run(prepare_queryable_table_activity, inputs)
+
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert anode.type == NodeType.MAT_VIEW
         await database_sync_to_async(warehouse_table.delete)()
 
 

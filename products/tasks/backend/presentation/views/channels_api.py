@@ -8,6 +8,7 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
@@ -82,6 +83,13 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
+
+    @staticmethod
+    def _sandbox_task_id(request: Request) -> UUID | None:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return None
+        return authenticator.access_token.sandbox_task_id
 
     @extend_schema(
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
@@ -162,6 +170,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(**PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS)
     @instructions.mapping.put
     def publish_instructions(self, request, pk=None, **kwargs):
+        sandbox_task_id = self._sandbox_task_id(request)
+        if sandbox_task_id is not None and not tasks_facade.task_can_publish_channel_instructions(
+            sandbox_task_id, self.team_id, pk
+        ):
+            raise PermissionDenied("This loop can update only the CONTEXT.md configured for this run.")
+
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -389,8 +403,7 @@ class _ActivityPageEnvelopeSchema(AutoSchema):
 
 class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    API for the requester's activity feed — one row per task they are involved in (created,
-    @-mentioned in, or authored a thread message on), most-recent activity first.
+    API for the requester's task lifecycle and comment activity feed.
     """
 
     authentication_classes = [
@@ -417,8 +430,8 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="List the requester's task activity",
         description=(
-            "Tasks the requester is involved in (created, mentioned, or messaged), one row per task, "
-            "most-recent activity first, restricted to tasks they can see."
+            "Task lifecycle rows collapse per task. Comment notifications remain separate. "
+            "Results are most-recent first and restricted to tasks the requester can see."
         ),
     )
     def list(self, request, *args, **kwargs):
@@ -440,15 +453,16 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Mark task activity read",
         description=(
-            "Clear the unread flag on the requester's feed rows for the given tasks. Read state is per "
-            "task, so opening a task through any surface clears the same row."
+            "Clear collapsed task activity through task timestamps and individual comment activity "
+            "through activity IDs."
         ),
     )
     @action(detail=False, methods=["post"], url_path="mark_read", required_scopes=["task:write"])
     @validated_request(request_serializer=TaskActivityMarkReadSerializer)
     def mark_read(self, request, *args, **kwargs):
         activities = [
-            (activity["task_id"], activity["seen_before"]) for activity in request.validated_data["activities"]
+            (activity["task_id"], activity["seen_before"], activity.get("activity_id"))
+            for activity in request.validated_data["activities"]
         ]
         marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)
         return Response(

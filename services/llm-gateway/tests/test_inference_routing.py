@@ -3,9 +3,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
+from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
+    LiteLLMMessagesToCompletionTransformationHandler,
+)
 
 from llm_gateway.api.handler import ProviderError
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.baseten import make_baseten_anthropic_call
+from llm_gateway.cloudflare import make_cloudflare_anthropic_call
 from llm_gateway.config import Settings
 from llm_gateway.inference_routing import (
     normalize_glm_anthropic_request,
@@ -13,6 +18,7 @@ from llm_gateway.inference_routing import (
     send_inference_chat_completions,
     send_inference_responses,
 )
+from llm_gateway.modal import make_modal_anthropic_call
 from llm_gateway.request_context import RequestContext, set_request_context
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
@@ -263,3 +269,33 @@ async def test_provider_failure_propagates_without_cross_backend_retry(
         await _send(settings, handle, flag=flag)
     assert exc_info.value.status_code == 502
     assert _called_providers(handle) == [expected_provider]
+
+
+@pytest.mark.parametrize(
+    ("make_call", "model"),
+    [
+        pytest.param(
+            lambda: make_cloudflare_anthropic_call("https://cf.test/v1", "cf-key"), GLM_MODEL, id="cloudflare"
+        ),
+        pytest.param(
+            lambda: make_modal_anthropic_call("https://modal.test/v1", "wk", "ws"), "moonshotai/kimi-k3", id="modal"
+        ),
+        pytest.param(
+            lambda: make_baseten_anthropic_call("https://baseten.test/v1", "bt-key"), DEEPSEEK_MODEL, id="baseten"
+        ),
+    ],
+)
+async def test_anthropic_calls_convert_enabled_thinking_to_adaptive(make_call: Any, model: str) -> None:
+    # litellm reroutes provider="openai" requests with enabled thinking through OpenAI's Responses
+    # API ("responses/" model prefix), which 400s on these chat/completions-only backends.
+    handler = AsyncMock(return_value={"ok": True})
+    with patch.object(LiteLLMMessagesToCompletionTransformationHandler, "async_anthropic_messages_handler", handler):
+        await make_call()(
+            model=model,
+            messages=[{"role": "user", "content": "hi"}],
+            max_tokens=64,
+            thinking={"type": "enabled", "budget_tokens": 31999},
+        )
+
+    assert handler.call_args.kwargs["thinking"] == {"type": "adaptive"}
+    assert handler.call_args.kwargs["output_config"] == {"effort": "high"}

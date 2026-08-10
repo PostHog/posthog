@@ -257,7 +257,7 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
                 # instead of collapsing into one grouped row (see `groupKey` on the client).
                 resource_id=str(track.key),
                 priority=Priority.NORMAL,
-                source_url=f"/project/{ctx.team.id}/web",
+                source_url=f"/project/{ctx.team.id}/web?openAchievements={track.key.value}",
             )
         )
     except Exception as e:

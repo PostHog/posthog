@@ -4,6 +4,7 @@ import {
     AttributionMode,
     ConversionGoalFilter,
     MarketingAnalyticsAttributionBreakdown,
+    MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -15,6 +16,18 @@ import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLog
 /** Rows the table asks for. Sorting happens client side over this page, so it's also the sort scope. */
 export const ATTRIBUTION_ROW_LIMIT = 100
 
+/** Fewer than the table's limit: paths are a long-tail distribution and row 51 is almost always a singleton. */
+export const PATHS_ROW_LIMIT = 50
+
+/**
+ * Both attribution queries register under this collection, so the tab's refresh button reloads exactly
+ * them — not the dashboard tiles living in the scene-level collection.
+ */
+export const MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID = 'marketing-analytics-attribution'
+
+/** The conversion paths length filter: an exact touchpoint count, "4 or more", or null for any. */
+export type PathTouchpointFilter = number | 'four_plus' | null
+
 export const BREAKDOWN_LABELS: Record<MarketingAnalyticsAttributionBreakdown, string> = {
     [MarketingAnalyticsAttributionBreakdown.Channel]: 'Channel',
     [MarketingAnalyticsAttributionBreakdown.Source]: 'Source',
@@ -24,6 +37,35 @@ export const BREAKDOWN_LABELS: Record<MarketingAnalyticsAttributionBreakdown, st
     [MarketingAnalyticsAttributionBreakdown.Term]: 'Term',
     [MarketingAnalyticsAttributionBreakdown.ReferringDomain]: 'Referring domain',
     [MarketingAnalyticsAttributionBreakdown.LandingPage]: 'Landing page',
+}
+
+/**
+ * How the row that "Exclude unattributed traffic" removes is labelled — only where that label is
+ * knowable from here. Most breakdowns leave the value empty and render as "(none)"; channel and
+ * referring domain substitute a fixed sentinel instead.
+ *
+ * Source is deliberately absent. Its empty value is displayed via the organic source bucket, but that
+ * happens *before* source normalization, so a team that lists "organic" among an ad platform's custom
+ * UTM sources sees those touchpoints reported under the platform's name instead. The label therefore
+ * depends on team config the frontend doesn't have, and guessing it is what the previous copy did.
+ */
+const UNATTRIBUTED_ROW_LABELS: Partial<Record<MarketingAnalyticsAttributionBreakdown, string>> = {
+    [MarketingAnalyticsAttributionBreakdown.Channel]: '"Unknown"',
+    [MarketingAnalyticsAttributionBreakdown.ReferringDomain]: '"$direct"',
+    [MarketingAnalyticsAttributionBreakdown.Campaign]: '"(none)"',
+    [MarketingAnalyticsAttributionBreakdown.Medium]: '"(none)"',
+    [MarketingAnalyticsAttributionBreakdown.Content]: '"(none)"',
+    [MarketingAnalyticsAttributionBreakdown.Term]: '"(none)"',
+    [MarketingAnalyticsAttributionBreakdown.LandingPage]: '"(none)"',
+}
+
+/** Names the row that disappears when it's knowable, and stays quiet about it when it isn't. */
+export const unattributedTooltip = (breakdownBy: MarketingAnalyticsAttributionBreakdown): string => {
+    const label = UNATTRIBUTED_ROW_LABELS[breakdownBy]
+    const rowClause = label ? ` — the ones shown as ${label} —` : ''
+    return `Sessions with no ${BREAKDOWN_LABELS[
+        breakdownBy
+    ].toLowerCase()}${rowClause} stop counting as touchpoints, and their credit is shared across the remaining ones.`
 }
 
 export const MODEL_LABELS: Record<AttributionMode, string> = {
@@ -56,8 +98,11 @@ export interface marketingAttributionLogicValues {
     effectiveAllowMultipleConversions: boolean
     effectiveLookbackDays: number
     excludeDirectTraffic: boolean
+    excludeUnattributed: boolean
     lookbackWindowDays: number | null
     optionsOpen: boolean
+    pathTouchpointFilter: PathTouchpointFilter
+    pathsQuery: MarketingAnalyticsAttributionPathsQuery | null
     query: MarketingAnalyticsAttributionQuery | null
     selectedGoalId: string | null
 }
@@ -76,11 +121,17 @@ export interface marketingAttributionLogicActions {
     setExcludeDirectTraffic: (excludeDirectTraffic: boolean) => {
         excludeDirectTraffic: boolean
     }
+    setExcludeUnattributed: (excludeUnattributed: boolean) => {
+        excludeUnattributed: boolean
+    }
     setLookbackWindowDays: (lookbackWindowDays: number | null) => {
         lookbackWindowDays: number | null
     }
     setOptionsOpen: (optionsOpen: boolean) => {
         optionsOpen: boolean
+    }
+    setPathTouchpointFilter: (pathTouchpointFilter: PathTouchpointFilter) => {
+        pathTouchpointFilter: PathTouchpointFilter
     }
 }
 
@@ -99,6 +150,7 @@ export interface marketingAttributionLogicMeta {
             selectedGoalId: string | null,
             breakdownBy: MarketingAnalyticsAttributionBreakdown,
             excludeDirectTraffic: boolean,
+            excludeUnattributed: boolean,
             lookbackWindowDays: number | null,
             allowMultipleConversionsPerVisitor: boolean | null,
             dateFilter: {
@@ -107,6 +159,10 @@ export interface marketingAttributionLogicMeta {
                 interval: IntervalType
             }
         ) => MarketingAnalyticsAttributionQuery | null
+        pathsQuery: (
+            query: MarketingAnalyticsAttributionQuery | null,
+            pathTouchpointFilter: PathTouchpointFilter
+        ) => MarketingAnalyticsAttributionPathsQuery | null
     }
 }
 
@@ -133,7 +189,9 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
         setBreakdownBy: (breakdownBy: MarketingAnalyticsAttributionBreakdown) => ({ breakdownBy }),
         setConversionGoalId: (conversionGoalId: string) => ({ conversionGoalId }),
         setExcludeDirectTraffic: (excludeDirectTraffic: boolean) => ({ excludeDirectTraffic }),
+        setExcludeUnattributed: (excludeUnattributed: boolean) => ({ excludeUnattributed }),
         setLookbackWindowDays: (lookbackWindowDays: number | null) => ({ lookbackWindowDays }),
+        setPathTouchpointFilter: (pathTouchpointFilter: PathTouchpointFilter) => ({ pathTouchpointFilter }),
         setAllowMultipleConversionsPerVisitor: (allowMultipleConversionsPerVisitor: boolean) => ({
             allowMultipleConversionsPerVisitor,
         }),
@@ -151,6 +209,12 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
         excludeDirectTraffic: [
             false,
             { setExcludeDirectTraffic: (_, { excludeDirectTraffic }) => excludeDirectTraffic },
+        ],
+        excludeUnattributed: [false, { setExcludeUnattributed: (_, { excludeUnattributed }) => excludeUnattributed }],
+        // null means "any number of touchpoints".
+        pathTouchpointFilter: [
+            null as PathTouchpointFilter,
+            { setPathTouchpointFilter: (_, { pathTouchpointFilter }) => pathTouchpointFilter },
         ],
         // null means "use the team's configured window", so a later settings change flows through.
         lookbackWindowDays: [
@@ -213,6 +277,7 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                 s.selectedGoalId,
                 s.breakdownBy,
                 s.excludeDirectTraffic,
+                s.excludeUnattributed,
                 s.lookbackWindowDays,
                 s.allowMultipleConversionsPerVisitor,
                 s.dateFilter,
@@ -221,6 +286,7 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                 selectedGoalId: string | null,
                 breakdownBy: MarketingAnalyticsAttributionBreakdown,
                 excludeDirectTraffic: boolean,
+                excludeUnattributed: boolean,
                 lookbackWindowDays: number | null,
                 allowMultipleConversionsPerVisitor: boolean | null,
                 dateFilter: DateFilter
@@ -234,10 +300,43 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                     breakdownBy,
                     conversionGoalId: selectedGoalId,
                     excludeDirectTraffic,
+                    excludeUnattributed,
                     ...(lookbackWindowDays ? { lookbackWindowDays } : {}),
                     // Omitted when null so the backend applies the goal's own math.
                     ...(allowMultipleConversionsPerVisitor !== null ? { allowMultipleConversionsPerVisitor } : {}),
                     limit: ATTRIBUTION_ROW_LIMIT,
+                    properties: [],
+                }
+            },
+        ],
+        pathsQuery: [
+            (s) => [s.query, s.pathTouchpointFilter],
+            // Derived from the table's query so the two sections can never disagree on goal, breakdown,
+            // window or exclusions; only the kind, the length filter and the row limit differ.
+            (
+                query: MarketingAnalyticsAttributionQuery | null,
+                pathTouchpointFilter: PathTouchpointFilter
+            ): MarketingAnalyticsAttributionPathsQuery | null => {
+                if (!query) {
+                    return null
+                }
+                return {
+                    kind: NodeKind.MarketingAnalyticsAttributionPathsQuery,
+                    dateRange: query.dateRange,
+                    breakdownBy: query.breakdownBy,
+                    conversionGoalId: query.conversionGoalId,
+                    excludeDirectTraffic: query.excludeDirectTraffic,
+                    excludeUnattributed: query.excludeUnattributed,
+                    ...(query.lookbackWindowDays ? { lookbackWindowDays: query.lookbackWindowDays } : {}),
+                    ...(query.allowMultipleConversionsPerVisitor !== undefined
+                        ? { allowMultipleConversionsPerVisitor: query.allowMultipleConversionsPerVisitor }
+                        : {}),
+                    ...(pathTouchpointFilter === 'four_plus'
+                        ? { minTouchpoints: 4 }
+                        : pathTouchpointFilter !== null
+                          ? { minTouchpoints: pathTouchpointFilter, maxTouchpoints: pathTouchpointFilter }
+                          : {}),
+                    limit: PATHS_ROW_LIMIT,
                     properties: [],
                 }
             },

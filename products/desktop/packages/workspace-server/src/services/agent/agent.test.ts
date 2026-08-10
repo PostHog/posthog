@@ -158,7 +158,6 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import type { RegisteredFolder } from "../folders/schemas";
 import {
   AgentService,
   buildAutoApproveOutcome,
@@ -246,9 +245,6 @@ function createMockDependencies() {
     workspaceSettings: {
       getWorktreeLocation: () => "/mock/worktrees",
     },
-    foldersService: {
-      getFolders: vi.fn().mockResolvedValue([]),
-    },
     loggerFactory: {
       scope: () => ({
         info: vi.fn(),
@@ -293,7 +289,6 @@ describe("AgentService", () => {
       deps.storagePaths as never,
       deps.workspaceRepository as never,
       deps.workspaceSettings as never,
-      deps.foldersService as never,
       deps.loggerFactory as never,
     );
     vi.spyOn(service, "emit");
@@ -919,26 +914,10 @@ describe("AgentService", () => {
     });
   });
 
-  describe("channel system prompt local folders", () => {
+  describe("channel system prompt repository isolation", () => {
     const credentials = { apiHost: "https://app.posthog.com", projectId: 1 };
-    const FOLDERS_HEADER =
-      "already has these repositories checked out locally on this machine";
 
-    function makeFolder(
-      overrides: Partial<RegisteredFolder>,
-    ): RegisteredFolder {
-      return {
-        id: "folder-id",
-        path: "/src/example",
-        name: "example",
-        remoteUrl: null,
-        lastAccessed: "2026-01-01T00:00:00.000Z",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        ...overrides,
-      };
-    }
-
-    function buildChannelPrompt(folders: RegisteredFolder[]): string {
+    function buildChannelPrompt(): string {
       return (
         service as unknown as {
           buildSystemPrompt: (
@@ -948,7 +927,6 @@ describe("AgentService", () => {
             additionalDirectories?: string[],
             systemPromptOverride?: string,
             channelMode?: boolean,
-            knownLocalFolders?: RegisteredFolder[],
           ) => { append: string };
         }
       ).buildSystemPrompt(
@@ -958,93 +936,20 @@ describe("AgentService", () => {
         undefined,
         undefined,
         true,
-        folders,
       ).append;
     }
 
-    it.each([
-      {
-        desc: "exists:true with a remoteUrl renders name, path and URL",
-        folder: makeFolder({
-          name: "posthog",
-          path: "/src/posthog",
-          remoteUrl: "git@github.com:PostHog/posthog.git",
-          exists: true,
-        }),
-        included: true,
-        line: "  - posthog — /src/posthog (git@github.com:PostHog/posthog.git)",
-      },
-      {
-        desc: "exists undefined with a null remoteUrl renders without parens",
-        folder: makeFolder({
-          name: "local-only",
-          path: "/src/local-only",
-          remoteUrl: null,
-        }),
-        included: true,
-        line: "  - local-only — /src/local-only",
-      },
-      {
-        desc: "exists:false is filtered out and omits the block",
-        folder: makeFolder({
-          name: "stale",
-          path: "/src/stale",
-          exists: false,
-        }),
-        included: false,
-        line: "  - stale — /src/stale",
-      },
-    ])("$desc", ({ folder, included, line }) => {
-      const prompt = buildChannelPrompt([folder]);
+    it("requires a task-specific clone instead of an existing checkout", () => {
+      const prompt = buildChannelPrompt();
 
-      if (included) {
-        expect(prompt).toContain(FOLDERS_HEADER);
-        expect(prompt).toContain(line);
-        // The reuse-first guidance only appears when a folder is on disk.
-        expect(prompt).toContain("do NOT clone it again");
-      } else {
-        expect(prompt).not.toContain(line);
-        // The only folder was filtered out, so the block is dropped entirely
-        // and the prompt falls back to the "ask for a path" guidance.
-        expect(prompt).not.toContain(FOLDERS_HEADER);
-        expect(prompt).toContain("If the user names a folder or path");
-      }
-    });
-
-    it("lists only existing folders when given a mix", () => {
-      const prompt = buildChannelPrompt([
-        makeFolder({
-          id: "1",
-          name: "posthog",
-          path: "/src/posthog",
-          remoteUrl: "git@github.com:PostHog/posthog.git",
-          exists: true,
-        }),
-        makeFolder({ id: "2", name: "local-only", path: "/src/local-only" }),
-        makeFolder({
-          id: "3",
-          name: "stale",
-          path: "/src/stale",
-          exists: false,
-        }),
-      ]);
-
-      expect(prompt).toContain(FOLDERS_HEADER);
       expect(prompt).toContain(
-        "  - posthog — /src/posthog (git@github.com:PostHog/posthog.git)",
+        "Do not `cd` into or edit an existing checkout elsewhere on the machine",
       );
-      expect(prompt).toContain("  - local-only — /src/local-only");
-      // A null remoteUrl must not render an empty "()" suffix.
-      expect(prompt).not.toContain("/src/local-only (");
-      // exists:false folders never reach the prompt.
-      expect(prompt).not.toContain("stale");
-    });
-
-    it("omits the local-folders block entirely when none are known", () => {
-      const prompt = buildChannelPrompt([]);
-
-      expect(prompt).not.toContain(FOLDERS_HEADER);
-      expect(prompt).toContain("If the user names a folder or path");
+      expect(prompt).toContain("use `clone_repo`");
+      expect(prompt).toContain(
+        "task-specific clone inside the scratch directory",
+      );
+      expect(prompt).not.toContain("Prefer reusing one of these");
     });
   });
 

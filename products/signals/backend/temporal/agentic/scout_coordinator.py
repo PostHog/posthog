@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import asyncio
+import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
+from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Case, DateTimeField, Q, Value, When
 from django.utils import timezone
 
 import structlog
@@ -36,6 +38,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_max_runs_per_tick,
+    _resolve_slot_aligned_dispatch,
     _resolve_withheld_skills,
     _runs_today_by_team,
     _team_configs,
@@ -57,6 +60,8 @@ COORDINATOR_INTERVAL_MINUTES = 30
 # Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
 # else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
 DUE_GRACE_SECONDS = 60
+
+TICK_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60
 
 
 @dataclass
@@ -143,19 +148,121 @@ async def stamp_dispatched_signals_scout_runs_activity(
     — far less harmful than a day of suppression, and bounded by the activity retry policy.
     """
     async with Heartbeater():
-        await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(stamp_input.dispatched_runs)
+        # Same off-the-DB-pool read as planning: the SDK call can block on a cold cache, and
+        # `database_sync_to_async`'s pool is sized for DB-bound work.
+        payload = await asyncio.to_thread(_read_flag_payload)
+        slot_aligned = _resolve_slot_aligned_dispatch(payload)
+        await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
+            stamp_input.dispatched_runs, slot_aligned=slot_aligned
+        )
 
 
-def _stamp_dispatched_runs(dispatched_runs: list[PlannedRun]) -> None:
+def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
+    """The config's stable slot within its interval, as a count of coordinator ticks.
+
+    Derived from a digest of the config's primary key so it never moves: the same scout keeps the
+    same slot across restarts, redeploys, and re-enrolments, and the fleet's slots are spread by
+    the digest's uniformity rather than by whenever each scout happened to be enabled.
+    """
+    ticks_per_interval = _ticks_per_interval(run_interval_minutes)
+    digest = hashlib.sha256(str(config_pk).encode("utf-8"), usedforsecurity=False).digest()
+    return int.from_bytes(digest[:8], "big") % ticks_per_interval
+
+
+def _ticks_per_interval(run_interval_minutes: int) -> int:
+    """The scout's dispatch period, as a count of coordinator ticks.
+
+    This has to be the cadence the grid actually produces, or the anchor pulls the scout onto a
+    schedule its owner did not configure: an anchor period shorter than the real cadence snaps
+    every dispatch back far enough that the scout comes due again early, forever. So it accounts
+    for both effects the grid applies. A scout comes due `DUE_GRACE_SECONDS` short of its interval,
+    and is then dispatched at the first tick at or after that, which is why the interval is
+    rounded up rather than down and why the grace is subtracted before rounding.
+
+    `run_interval_minutes` is validated to 30..43200 with no multiple-of-30 constraint, so an
+    interval that lands off the grid is allowed even though the fleet does not use one today.
+    """
+    due_after_seconds = run_interval_minutes * 60 - DUE_GRACE_SECONDS
+    return max(1, -(-due_after_seconds // TICK_SECONDS))
+
+
+def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datetime) -> datetime:
+    """The schedule anchor to stamp: the config's own slot, at or before this tick.
+
+    Stamping `timezone.now()` here instead made `last_run_at` absorb the tick's planning and
+    fan-out latency, so the next due time crept later every run. Once that creep passed
+    `DUE_GRACE_SECONDS` a scout missed its usual tick and re-anchored on the next one, merging its
+    cohort into that tick's cohort. The bigger merged wave then took longer to fan out, which made
+    the next slip more likely, so waves only ever grew.
+
+    Snapping back to the config's own slot removes both halves of that. Latency never accumulates,
+    because the anchor is a grid point rather than a measured time. A run deferred past its slot by
+    a per-team cap or a missed tick anchors on the slot it was meant to have, so cohorts drift back
+    together on the grid instead of ratcheting forward off it.
+
+    The snapped anchor always lands in `(this tick - period, this tick]`, where the period is the
+    scout's cadence from `_ticks_per_interval`. Once a scout is dispatched on its own slot the
+    anchor is exactly that tick, so its cadence is the configured one forever after.
+
+    Before then the anchor can sit up to one period back, which shortens that single gap and costs
+    the scout ONE EXTRA RUN. The shift is permanent rather than repaid: the scout keeps its new
+    phase and its normal cadence from there, so it never skips a later run to make up for the early
+    one. Each scout pays it once, when it first lands on its slot, and again after an interval edit
+    (which changes its period, and so its slot). Accepted deliberately: it buys a de-merge that
+    needs no migration and no backfill command, and the extra runs spread across every tick in the
+    period rather than landing in the wave this is meant to break up.
+    """
+    ticks_per_interval = _ticks_per_interval(run_interval_minutes)
+    slot = _dispatch_slot(config_pk, run_interval_minutes)
+    tick_index = int(dispatched_at.timestamp()) // TICK_SECONDS
+    snapped_index = tick_index - ((tick_index - slot) % ticks_per_interval)
+    return datetime.fromtimestamp(snapped_index * TICK_SECONDS, tz=UTC)
+
+
+def _stamp_dispatched_runs(dispatched_runs: list[PlannedRun], *, slot_aligned: bool = True) -> None:
     """Sync bulk stamp. `.update()` bypasses save(), so this per-tick write never hits the
-    activity log."""
+    activity log.
+
+    Rolling-interval scouts are stamped with their slot anchor (see `_slot_anchor`). Anchors differ
+    per config, so they are applied through a single `CASE` expression rather than one `.update()`
+    per anchor: at the global tick cap a per-anchor loop would be up to `MAX_RUNS_PER_TICK`
+    sequential round trips inside an activity whose timeout is a minute, and a timeout there lands
+    after the children have already launched. Two kinds of config are stamped with the wall clock
+    instead:
+
+    - A cron scout, because `_overdue_seconds` feeds `last_run_at` to croniter as the reference for
+      the next slot. Cron slots are already absolute, so that path never had the drift, and moving
+      the reference backwards could re-select the slot this dispatch just fulfilled.
+    - A disabled config, which here is a lane the failure breaker paused and the coordinator is
+      probing. Its `last_run_at` is the probe cooldown clock rather than a schedule anchor, so
+      backdating it would shorten the cooldown the breaker is counting.
+    """
     if not dispatched_runs:
         return
     now = timezone.now()
     predicate = Q()
     for run in dispatched_runs:
         predicate |= Q(team_id=run.team_id, skill_name=run.skill_name)
-    SignalScoutConfig.all_teams.filter(predicate).update(last_run_at=now)
+    dispatched = SignalScoutConfig.all_teams.filter(predicate)
+    if not slot_aligned:
+        dispatched.update(last_run_at=now)
+        return
+
+    pks_by_anchor: dict[datetime, list[UUID]] = {}
+    for pk, enabled, cron_schedule, interval_minutes in dispatched.values_list(
+        "pk", "enabled", "run_cron_schedule", "run_interval_minutes"
+    ):
+        anchor = _slot_anchor(str(pk), interval_minutes, now) if enabled and not cron_schedule else now
+        pks_by_anchor.setdefault(anchor, []).append(pk)
+    if not pks_by_anchor:
+        return
+    dispatched.update(
+        last_run_at=Case(
+            *(When(pk__in=pks, then=Value(anchor)) for anchor, pks in pks_by_anchor.items()),
+            default=Value(now),
+            output_field=DateTimeField(),
+        )
+    )
 
 
 @dataclass
@@ -443,11 +550,17 @@ def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: se
     for config in paused_configs:
         if config.skill_name not in live_skills:
             continue
-        # `last_run_at` is stamped on every dispatch, including the failed run that tripped the
-        # breaker, so the first probe lands one full cooldown after the trip. A null (possible
-        # only through manual row surgery) probes immediately rather than never.
+        # The cooldown runs from the later of the lane's last dispatch and the moment it was
+        # paused. `last_run_at` alone is not enough: the run that trips the breaker was dispatched
+        # while the lane was still enabled, so it was stamped with a slot anchor that can sit up to
+        # a full period before the trip, and the cooldown would then read as already elapsed and
+        # probe on the next tick. `status_changed_at` alone is not enough either, because a failed
+        # probe leaves the status untouched and only `last_run_at` advances to restart the
+        # cooldown. Neither set (possible only through manual row surgery) probes immediately
+        # rather than never.
+        cooldown_anchors = [moment for moment in (config.last_run_at, config.status_changed_at) if moment is not None]
         cooldown_elapsed_s = (
-            (now - config.last_run_at).total_seconds() if config.last_run_at else float(AUTO_PAUSE_PROBE_INTERVAL_S)
+            (now - max(cooldown_anchors)).total_seconds() if cooldown_anchors else float(AUTO_PAUSE_PROBE_INTERVAL_S)
         )
         overdue_s = cooldown_elapsed_s - AUTO_PAUSE_PROBE_INTERVAL_S
         if overdue_s < 0:

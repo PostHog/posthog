@@ -31,7 +31,12 @@ TERMINAL_JOB_STATUSES: frozenset[str] = frozenset(_TERMINAL_STATUS_TO_METRIC)
 
 # latest_error written when lock takeover force-fails a stuck-RUNNING job; sentinel that
 # lets update_external_job_status permit Failed -> Completed for takeover-failed jobs only.
-LOCK_TAKEOVER_LATEST_ERROR = "Lock takeover: workflow terminated but job was stuck in RUNNING"
+# Shown to the customer verbatim, so keep it plain; the exact string is the recovery sentinel,
+# so all comparisons must go through this constant rather than the literal.
+LOCK_TAKEOVER_LATEST_ERROR = (
+    "A previous sync run did not shut down cleanly and was still marked as running. "
+    "PostHog cleaned it up so syncing can continue. No action is needed."
+)
 
 
 def get_data_import_finished_metric(source_type: str | None, status: str) -> MetricCounter:

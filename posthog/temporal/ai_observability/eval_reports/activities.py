@@ -590,6 +590,9 @@ async def run_eval_report_agent_activity(
             return (
                 run_eval_report_agent(
                     team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    trace_id=inputs.trace_id,
+                    session_id=inputs.session_id,
                     evaluation_id=inputs.evaluation_id,
                     evaluation_name=inputs.evaluation_name,
                     evaluation_description=inputs.evaluation_description,
@@ -667,6 +670,7 @@ async def store_report_run_activity(
         citations = content.get("citations", []) or []
         all_referenced_ids = [c.get("generation_id", "") for c in citations if c.get("generation_id")]
         all_referenced_trace_ids = [c.get("trace_id", "") for c in citations if c.get("trace_id")]
+        all_referenced_session_ids = [c.get("session_id", "") for c in citations if c.get("session_id")]
 
         properties: dict = {
             "$ai_evaluation_id": inputs.evaluation_id,
@@ -682,6 +686,7 @@ async def store_report_run_activity(
             "$ai_report_citations": citations,
             "$ai_report_referenced_generation_ids": all_referenced_ids,
             "$ai_report_referenced_trace_ids": all_referenced_trace_ids,
+            "$ai_report_referenced_session_ids": all_referenced_session_ids,
             "$ai_report_section_count": len(content.get("sections", [])),
         }
         if parsed_metrics is not None:
