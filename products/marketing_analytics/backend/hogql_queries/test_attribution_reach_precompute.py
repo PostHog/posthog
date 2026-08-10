@@ -130,6 +130,34 @@ class TestAttributionReachPrecompute(ClickhouseTestMixin, BaseTest):
 
         assert REACH_PRECOMPUTE_TABLE not in sql
 
+    @parameterized.expand([("half_hour", "Asia/Kolkata"), ("three_quarter_hour", "Asia/Kathmandu")])
+    def test_falls_back_for_a_non_integer_offset_timezone(self, _name: str, tz: str):
+        """`period_bucket` is an hourly UTC bucket, so a window boundary is only expressible to the hour.
+
+        An integer-offset team's midnight lands exactly on a bucket edge and the comparison is exact. A
+        half-hour-offset team's lands mid-bucket, silently moving up to an hour of sessions across each
+        edge — a denominator that quietly disagrees with the credit side.
+        """
+        self.team.timezone = tz
+        self.team.save()
+        with patch(ENSURE_PATH, return_value=self._ready()) as ensure:
+            sql = self._sql()
+
+        assert REACH_PRECOMPUTE_TABLE not in sql
+        # Rejected before any precompute work is done, not after paying for it.
+        ensure.assert_not_called()
+
+    @parameterized.expand([("utc", "UTC"), ("negative_offset", "US/Pacific"), ("positive_offset", "Asia/Tokyo")])
+    def test_integer_offset_timezones_still_use_the_precompute(self, _name: str, tz: str):
+        # The counterpart to the test above: the gate must reject only what it has to. ClickHouse
+        # compares the boundary and `period_bucket` as absolute instants, so an integer offset lines up.
+        self.team.timezone = tz
+        self.team.save()
+        with patch(ENSURE_PATH, return_value=self._ready()):
+            sql = self._sql()
+
+        assert REACH_PRECOMPUTE_TABLE in sql
+
     def test_flag_off_never_touches_the_precompute(self):
         self._set_reach_flag(False)
         with patch(ENSURE_PATH, return_value=self._ready()) as ensure:

@@ -19,10 +19,22 @@ Two things this deliberately keeps in lockstep with `AttributionQueryRunnerBase`
   no visitors.
 - the exclusion options, applied before aggregation.
 
-Known divergence, and why this path is gated: the pre-aggregated channel type ignores the team's custom
-channel rules (they can key on the full URL, which no pre-aggregated table stores), while the credit
-side reads `sessions.$channel_type`, which applies them. For a team with custom rules the two sides
-would disagree, so `can_use_reach_precompute` refuses the precompute path for them.
+Known divergences, and how each is handled:
+
+- **Custom channel rules.** The pre-aggregated channel type ignores them (they can key on the full URL,
+  which no pre-aggregated table stores) while the credit side reads `sessions.$channel_type`, which
+  applies them. Gated out.
+- **Non-integer timezones.** `period_bucket` is an hourly UTC bucket, so a half-hour-offset team's
+  midnight lands mid-bucket. Gated out, same as web analytics does for its own reads.
+- **`$screen`-only sessions — NOT gated, and this one is a real known gap.** `BOUNCES_INSERT_TEMPLATE`
+  feeds on `$pageview` OR `$screen`, but `_touchpoint_condition` counts only `$pageview`. A mobile
+  session that never fires a pageview is therefore a visitor here and not one on the credit side, so a
+  team with app traffic gets a denominator inflated by those sessions (they carry no UTMs, so they land
+  under Direct) and correspondingly deflated conversion rates. The table cannot express the difference:
+  its `pageviews_count_state` counts both event types, so there is no column to filter on. Closing this
+  needs either a `$pageview`-only count column on the table or an accepted change to what the live path
+  counts as a touchpoint — neither belongs in this change. Until then the flag should stay off for teams
+  with meaningful `$screen` volume.
 """
 
 from datetime import timedelta
@@ -34,6 +46,7 @@ from posthog.schema import MarketingAnalyticsAttributionBreakdown
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import create_preaggregated_channel_type_expr
+from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -46,6 +59,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
 
 from .constants import UNKNOWN_CHANNEL
 from .marketing_lazy_precompute import marketing_ensure_precomputed
+from .metrics import ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER, ATTRIBUTION_REACH_PRECOMPUTE_SUCCESS_COUNTER
 
 if TYPE_CHECKING:
     from .attribution_base import AttributionQueryRunnerBase
@@ -77,17 +91,32 @@ def _table_field(name: str) -> ast.Expr:
     return ast.Field(chain=[name])
 
 
-def can_use_reach_precompute(runner: "AttributionQueryRunnerBase") -> bool:
-    """Whether this query's reach can be read from the pre-aggregated table.
+def reach_precompute_ineligible_reason(runner: "AttributionQueryRunnerBase") -> Optional[str]:
+    """Why this query cannot read reach from the pre-aggregated table, or None if it can.
 
-    Refuses a team with custom channel rules regardless of the current breakdown: the rules also feed
-    `excludeDirectTraffic`, which compares against the classifier's output on every breakdown, not just
-    CHANNEL.
+    Returns a reason string rather than a bool so the caller can label the fallback counter with it —
+    these reasons carry very different weight (permanent vs transient) and an unlabeled counter would
+    blur them together.
     """
     modifiers = runner.modifiers
     if modifiers is not None and modifiers.customChannelTypeRules:
-        return False
-    return True
+        # Refused on every breakdown, not just CHANNEL: the rules also feed `excludeDirectTraffic`,
+        # which compares against the classifier's output whatever the breakdown is.
+        return "custom_channel_rules"
+
+    if not is_integer_timezone(runner.team.timezone):
+        # `period_bucket` is an hourly UTC bucket, so a window boundary can only be expressed to the
+        # hour. An integer-offset team's midnight lands exactly on a bucket edge and the comparison is
+        # exact; a half-hour-offset team's (Asia/Kolkata, Asia/Kathmandu, Australia/Adelaide) lands
+        # mid-bucket, silently moving up to an hour of sessions across each edge. Same gate web
+        # analytics applies to its own reads of these tables (`NonIntegerTimezone`).
+        return "non_integer_timezone"
+
+    return None
+
+
+def can_use_reach_precompute(runner: "AttributionQueryRunnerBase") -> bool:
+    return reach_precompute_ineligible_reason(runner) is None
 
 
 def build_reach_from_precompute(
@@ -98,8 +127,10 @@ def build_reach_from_precompute(
     Returns None rather than raising so the caller keeps one fallback path for "not eligible", "not
     warmed yet" and "blew up".
     """
-    if not can_use_reach_precompute(runner):
-        logger.info("attribution_reach_precompute", outcome="fallback_custom_channel_rules", team_id=runner.team.pk)
+    ineligible = reach_precompute_ineligible_reason(runner)
+    if ineligible is not None:
+        ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER.labels(reason=ineligible).inc()
+        logger.info("attribution_reach_precompute", outcome=f"fallback_{ineligible}", team_id=runner.team.pk)
         return None
 
     # Same bounds as `_lookback_date_conditions`: the display range extended back by the attribution
@@ -124,15 +155,18 @@ def build_reach_from_precompute(
                 query_type="web_bounces_dimensional_insert",
             )
     except Exception:
+        ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER.labels(reason="exception").inc()
         logger.exception("attribution_reach_precompute_failed", team_id=runner.team.pk)
         return None
 
     if not result.ready:
+        ATTRIBUTION_REACH_PRECOMPUTE_FALLBACK_COUNTER.labels(reason="not_ready").inc()
         logger.info("attribution_reach_precompute", outcome="fallback_not_ready", team_id=runner.team.pk)
         return None
     if result.stale:
         runner._precompute_stale = True
 
+    ATTRIBUTION_REACH_PRECOMPUTE_SUCCESS_COUNTER.inc()
     breakdown_expr = _preagg_breakdown_expr(runner)
     where: list[ast.Expr] = [
         ast.Call(
