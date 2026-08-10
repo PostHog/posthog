@@ -52,8 +52,12 @@ export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Elemen
         platforms: {
             selector:
                 '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered, .LemonBanner',
+            // Keep the mascot out of the bottom-right corner that popovers and survey popups own,
+            // so it stops parking on top of them.
             viewportPadding: {
                 top: 100,
+                right: 100,
+                bottom: 100,
             },
         },
         onQuit: (game) => {

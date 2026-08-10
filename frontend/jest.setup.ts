@@ -191,6 +191,8 @@ jest.mock('posthog-js', () => {
         people: { set: jest.fn() },
         featureFlags: { override: jest.fn() },
         metrics: { count: jest.fn(), gauge: jest.fn(), histogram: jest.fn() },
+        config: {},
+        set_config: jest.fn(),
     }
     mock.init = jest.fn(() => mock)
 

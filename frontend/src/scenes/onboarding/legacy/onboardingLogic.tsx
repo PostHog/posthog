@@ -1,5 +1,6 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -1112,6 +1113,20 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.clearProductKey()
             }
             actions.resetOnboardingFlowState()
+        },
+    })),
+    events(({ cache }) => ({
+        // Suppress survey popups while the user is inside onboarding. The post-onboarding survey
+        // fires on the `onboarding completed` event, which the flow captures before the user leaves
+        // this scene, and it shows after a delay. Without this guard it lands on top of the flow and
+        // can cover the install step Next button. Restore the prior value on leave, so the survey
+        // shows on the next surface instead.
+        afterMount: () => {
+            cache.priorDisableSurveys = posthog.config.disable_surveys
+            posthog.set_config({ disable_surveys: true })
+        },
+        beforeUnmount: () => {
+            posthog.set_config({ disable_surveys: cache.priorDisableSurveys })
         },
     })),
 ])
