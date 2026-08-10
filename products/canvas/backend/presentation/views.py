@@ -1,9 +1,9 @@
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -126,6 +126,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # DRF resolves all detail actions off this queryset.
         user = self._request_user()
         queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
+        if self._is_sandbox_authenticated(self.request):
+            sandbox_task_id = self._sandbox_task_id(self.request)
+            if sandbox_task_id is None:
+                return queryset.none()
+            queryset = queryset.filter(
+                Q(generation_task_id=sandbox_task_id) | Q(source_versions__task_id=sandbox_task_id)
+            ).distinct()
         if self.action == "list":
             channel_id = self.request.query_params.get("channel")
             if channel_id:
@@ -139,7 +146,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         operation_id="canvases_create",
         request=CanvasCreateSerializer,
-        responses={201: CanvasSerializer},
+        responses={
+            201: CanvasSerializer,
+            403: OpenApiResponse(description="The sandbox token is not bound to this task or space."),
+        },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Create a new, empty canvas in a channel; give it source by publishing a project."""
@@ -151,6 +161,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # someone else's personal channel must be refused here too.
         if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+        sandbox_task_id = self._sandbox_task_id(request)
+        if self._is_sandbox_authenticated(request) and (
+            sandbox_task_id is None or not tasks_facade.task_is_in_channel(sandbox_task_id, self.team_id, channel_id)
+        ):
+            return Response(
+                {"detail": "This sandbox can create canvases only in its task's space."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         canvas = Canvas.objects.create(
             team_id=self.team_id,
             channel_id=channel_id,
@@ -161,7 +179,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # the two at birth so the client can show the run on the
             # canvas and nest the task under it — composer-initiated
             # generations have no client-side create to record it.
-            generation_task_id=self._sandbox_task_id(request),
+            generation_task_id=sandbox_task_id,
         )
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
         self._report_canvas_action(
@@ -623,21 +641,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return None
 
     def _sandbox_task_id(self, request: Request) -> UUID | None:
-        """The calling task's id when this is a sandbox-stamped MCP call for a
-        task in this team; None for human/app saves. The task sandbox stamps
-        every MCP call with an X-PostHog-Task-Id header, but the header alone
-        is forgeable, so two checks bind it to a real sandbox run: the request
-        must carry an OAuth token minted under a sandbox app (those tokens are
-        only created server-side), and the task must have been created by the
-        requesting user (the sandbox authenticates with the task creator's
-        credentials)."""
+        """Return the calling sandbox's task when its header matches the OAuth binding."""
         task_id = self._request_task_id(request)
         if task_id is None or not self._is_sandbox_authenticated(request):
             return None
-        user = self._request_user()
-        if user is None or not tasks_facade.task_owned_by_user(task_id, self.team_id, user.id):
+        authenticator = cast(OAuthAccessTokenAuthentication, request.successful_authenticator)
+        if authenticator.access_token.sandbox_task_id != task_id:
             return None
-        return task_id
+        return task_id if tasks_facade.task_exists(task_id, self.team_id) else None
 
     def _announce_canvas_created(self, task_id: UUID | None, user: User | None, canvas: Canvas) -> None:
         """Announce a canvas's first publish in the generating task's thread.

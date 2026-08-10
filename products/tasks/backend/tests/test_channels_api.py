@@ -152,7 +152,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(created.json()["github_integration"], integration.id)
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
-    def test_only_creator_can_configure_public_channel_repositories(self, list_repositories):
+    def test_only_creator_can_configure_or_rename_public_channel(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
@@ -171,8 +171,8 @@ class ChannelsAPITestCase(TestCase):
         self.assertIsNone(channel.github_integration_id)
 
         renamed = other_client.patch(f"{self._channels_url()}{channel_id}/", {"name": "renamed"}, format="json")
-        self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
-        self.assertEqual(renamed.json()["name"], "renamed")
+        self.assertEqual(renamed.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Channel.objects.unscoped().get(id=channel_id).name, "growth")
 
     def test_public_channel_task_is_readable_but_not_controllable_by_teammates(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
@@ -201,19 +201,89 @@ class ChannelsAPITestCase(TestCase):
             status.HTTP_404_NOT_FOUND,
         )
 
-    def test_task_in_personal_channel_stays_private(self):
+    @parameterized.expand(
+        [
+            ("explicit", True),
+            ("default", False),
+        ]
+    )
+    def test_task_in_private_space_stays_private(self, _name: str, select_channel: bool):
         self.client.get(self._channels_url())
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
-        created = self.client.post(
-            self._tasks_url(),
-            {"title": "Secret", "description": "mine", "channel": str(personal.id)},
-        )
+        payload = {"title": "Secret", "description": "mine"}
+        if select_channel:
+            payload["channel"] = str(personal.id)
+        created = self.client.post(self._tasks_url(), payload)
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.content)
+        self.assertEqual(created.json()["channel"], str(personal.id))
 
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
         listed = other_client.get(self._tasks_url(), {"channel": str(personal.id)}).json()["results"]
         self.assertEqual(listed, [])
+        self.assertEqual(
+            other_client.get(f"{self._tasks_url()}{created.json()['id']}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_team_readable_origin_does_not_widen_private_space(self):
+        self.client.get(self._channels_url())
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            channel=personal,
+            title="Private signal task",
+            description="private",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+
+        self.assertEqual(
+            other_client.get(f"{self._tasks_url()}{task.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_task_channel_cannot_be_changed(self):
+        first = self.client.post(self._channels_url(), {"name": "first"}).json()["id"]
+        second = self.client.post(self._channels_url(), {"name": "second"}).json()["id"]
+        task = self.client.post(
+            self._tasks_url(),
+            {"title": "Fixed placement", "description": "d", "channel": first},
+        ).json()
+
+        response = self.client.patch(f"{self._tasks_url()}{task['id']}/", {"channel": second}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(str(Task.objects.get(id=task["id"]).channel_id), first)
+
+    def test_only_creator_can_delete_an_empty_public_space(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "empty"}).json()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+
+        self.assertEqual(
+            other_client.delete(f"{self._channels_url()}{channel_id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.delete(f"{self._channels_url()}{channel_id}/").status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+    def test_non_empty_public_space_cannot_be_deleted(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "active"}).json()["id"]
+        self.client.post(
+            self._tasks_url(),
+            {"title": "Keep me", "description": "d", "channel": channel_id},
+        )
+
+        response = self.client.delete(f"{self._channels_url()}{channel_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertFalse(Channel.objects.unscoped().get(id=channel_id).deleted)
 
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
         self.client.get(self._channels_url())

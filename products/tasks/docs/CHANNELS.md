@@ -1,9 +1,11 @@
 # Channels & Threads (PostHog Desktop / Bluebird)
 
-Spec for the Slack-style channel revamp. A channel is a shared feed where each
-member message kicks off a task; the task renders as a card everyone in the
-channel can see. Every task is owned by a channel. Each task has one thread — a
-side-chain of human messages that never reach the agent unless the task author
+A channel is the backend model for a space. Public spaces are visible to project members.
+`#me` is a private space that only its owner can access. A task with a channel inherits
+that channel's visibility. Null-channel tasks keep the legacy creator and product-origin
+rules until their product adopts spaces.
+
+Each task has one thread. Human messages reach the agent only when the task author
 explicitly forwards one.
 
 ## Django models
@@ -42,7 +44,7 @@ class Channel(models.Model):
 
 
 class Task(...):
-    # every new task is owned by the channel it was kicked off in; legacy tasks stay NULL
+    # Ordinary user tasks get a channel; legacy and product tasks can remain NULL.
     channel = models.ForeignKey(
         "tasks.Channel", on_delete=models.SET_NULL, null=True, blank=True, related_name="tasks", db_index=False
     )
@@ -71,10 +73,16 @@ class TaskThreadMessage(models.Model):
 
 ### Visibility
 
-`task_visibility_q` gains `| Q(channel__channel_type=PUBLIC)`: a task filed to a
-public channel is visible to every team member (multiplayer feed). Tasks in a
-personal channel remain visible only via the existing `created_by` rule.
-Thread messages inherit the task's visibility.
+A task with a channel uses only channel visibility:
+
+- `PUBLIC` is readable by project members.
+- `PERSONAL` is readable only by `Channel.created_by` and is shown as a private space.
+- Task origin and creator fallbacks never widen a task with a channel.
+
+A null-channel task uses the legacy creator and team-readable origin rules. Thread
+messages, runs, artifacts, conversations, and task activity inherit task visibility.
+A future selected-member private space can extend `Channel.visible_to_q` with channel
+membership without adding permissions to Task.
 
 ## API
 
@@ -85,13 +93,15 @@ Thread messages inherit the task's visibility.
   so every user always has one.
 - `POST / {name}` — resolve-or-create a public channel by name
   (`get_or_create`, so concurrent creates and name-bridging are race-safe).
-- `PATCH /{id}/ {name}` — rename a public channel. Personal channels cannot be renamed.
-- `DELETE /{id}/` — soft-delete a public channel. Personal channels cannot be deleted.
+- `PATCH /{id}/ {name}` - rename a public channel. Only its creator can change it. Private `#me` spaces cannot be renamed.
+- `DELETE /{id}/` - soft-delete an empty public channel. Only its creator can delete it. Private `#me` and non-empty spaces cannot be deleted.
 
 ### Task endpoints
 
-- `TaskWriteSerializer` accepts `channel` (UUID). Must belong to the team; a
-  personal channel is only accepted from its owner.
+- `TaskCreateSerializer` accepts `channel` (UUID). It must belong to the team. A
+  private `#me` space is accepted only from its owner.
+- Omitting `channel` for an ordinary user task files it into the user's `#me` space.
+- Task updates cannot change `channel`.
 - `TaskSerializer` / `TaskDetailDTO` emit `channel`.
 - `GET /tasks/?channel=<uuid>` filters the list to a channel's feed.
 
@@ -128,6 +138,6 @@ Thread messages inherit the task's visibility.
 
 ## Out of scope (v1)
 
-- Channel membership / invited private channels (only team-public + personal).
+- Selected-member private spaces and channel membership.
 - Message editing and emoji reactions.
 - Real-time push for feed/thread updates (clients poll; SSE can come later).

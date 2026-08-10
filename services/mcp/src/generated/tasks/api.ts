@@ -859,7 +859,7 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .default(tasksListQueryAllTeamTasksDefault)
         .describe(
-            'Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.'
+            'Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.'
         ),
     archived: zod
         .enum(['true', 'false', 'all'])
@@ -1058,7 +1058,10 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe(
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
-        channel: zod.string().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        channel: zod
+            .string()
+            .nullish()
+            .describe('Space this task is created in. Omit it to use your private #me space.'),
         sandbox_environment_id: zod
             .string()
             .nullish()

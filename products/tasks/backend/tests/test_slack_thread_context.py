@@ -96,6 +96,17 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
             response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_other_project_member_cannot_resolve_private_slack_task(self):
+        self._create_fixture()
+        other_user = User.objects.create_user(email="bob@example.com", first_name="Bob", password="password")
+        self.organization.members.add(other_user)
+        other_client = APIClient()
+        other_client.force_authenticate(other_user)
+
+        response = other_client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_malformed_url_returns_400(self):
         response = self.client.get(self._url("https://posthog.slack.com/not/a/permalink"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST

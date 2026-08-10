@@ -632,12 +632,6 @@ class TaskWriteSerializer(serializers.Serializer):
             "takes it via the run start endpoint instead."
         ),
     )
-    channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
-        required=False,
-        allow_null=True,
-        help_text="Channel this task is owned by (the channel it was kicked off in).",
-    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -646,16 +640,6 @@ class TaskWriteSerializer(serializers.Serializer):
         cast(
             serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
         ).queryset = tasks_facade.signal_report_queryset()
-        # Channel queryset comes from the facade so presentation stays off tasks models.
-        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
-
-    def validate_channel(self, value):
-        """Personal channels are private: only their owner may file tasks into them."""
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
-            raise serializers.ValidationError("Personal channels can only be used by their owner")
-        return value
 
     def validate_github_integration(self, value):
         """Validate that the GitHub integration belongs to the same team"""
@@ -770,7 +754,21 @@ class TaskWriteSerializer(serializers.Serializer):
         return attrs
 
 
+class TaskUpdateSerializer(TaskWriteSerializer):
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        if "channel" in self.initial_data:
+            raise serializers.ValidationError({"channel": "Tasks cannot be moved to another space yet"})
+        return attrs
+
+
 class TaskCreateSerializer(TaskWriteSerializer):
+    channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=False,
+        allow_null=True,
+        help_text="Space this task is created in. Omit it to use your private #me space.",
+    )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
@@ -790,6 +788,19 @@ class TaskCreateSerializer(TaskWriteSerializer):
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
+
+    def validate_channel(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value is not None and (value.deleted or value.channel_type not in {"public", "personal"}):
+            raise serializers.ValidationError("Space not found")
+        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
+            raise serializers.ValidationError("Private spaces can only be used by their owner")
+        return value
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
@@ -1521,8 +1532,8 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Staff-only. When true, list every task on the team regardless of creator or channel, "
-            "bypassing the per-user visibility filter. Ignored for non-staff users."
+            "Local development only. With ph_debug=true, list all project tasks for debugging. "
+            "Ignored outside local development."
         ),
     )
 
@@ -1544,6 +1555,10 @@ class ChannelSerializer(DataclassSerializer):
             "created_by",
             "starred",
         ]
+
+
+class ChannelDeleteConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the space cannot be deleted.")
 
 
 class ChannelWriteSerializer(serializers.Serializer):

@@ -88,7 +88,12 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
-from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
+from products.tasks.backend.visibility import (
+    TEAM_READABLE_ORIGIN_PRODUCTS,
+    task_control_q,
+    task_run_visibility_q,
+    task_visibility_q,
+)
 
 from . import contracts
 
@@ -231,11 +236,13 @@ __all__ = [
     "start_task_run",
     "task_accessible_for_run_view",
     "task_exists",
+    "task_is_in_channel",
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
     "task_runtime",
     "task_visible",
+    "visible_tasks_q",
     "task_comment_mentions_allowed",
     "list_task_artifacts",
     "list_task_comments",
@@ -348,6 +355,35 @@ def _user_basic_info(user: "User | None") -> contracts.TaskUserBasicInfo | None:
 # Presigned log URLs are cached just under their 1-hour S3 expiry to avoid regeneration.
 _TASK_RUN_LOG_URL_CACHE_TTL = 55 * 60
 
+_TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
+    {
+        "ai_stage",
+        "auto_publish",
+        "context_window",
+        "custom_image_id",
+        "fast_mode",
+        "initial_permission_mode",
+        "mode",
+        "model",
+        "pr_authorship_mode",
+        "pr_base_branch",
+        "provider",
+        "reasoning_effort",
+        "repositories",
+        "repository",
+        "resume_from_run_id",
+        "rtk_enabled",
+        "run_source",
+        "runtime_adapter",
+        "sandbox_environment_id",
+        "slack_thread_url",
+    }
+)
+
+
+def _public_task_run_state(state: dict | None) -> dict:
+    return {key: value for key, value in (state or {}).items() if key in _TASK_RUN_PUBLIC_STATE_KEYS}
+
 
 def _task_run_log_url(run: TaskRun) -> str | None:
     """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
@@ -392,7 +428,7 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
         log_url=_task_run_log_url(run),
         error_message=run.error_message,
         output=run.output,
-        state=run.state or {},
+        state=_public_task_run_state(run.state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
         updated_at=run.updated_at,
@@ -698,7 +734,11 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
 
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
-    return Task.objects.filter(id=task_id, team_id=team_id).exists()
+    return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).exists()
+
+
+def task_is_in_channel(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
+    return Task.objects.filter(id=task_id, team_id=team_id, channel_id=channel_id, deleted=False).exists()
 
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
@@ -1047,6 +1087,8 @@ def create_and_run_task(
         # dark-launch bucket.
         enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
+    if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
+        channel = _ensure_personal_channel(team.id, user_id)
     task = Task.create_and_run(
         team=team,
         title=title,
@@ -1166,6 +1208,7 @@ def create_task_without_run(
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
+    channel = None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
     task = Task.create_without_run(
         team=team,
         title=title,
@@ -1173,6 +1216,7 @@ def create_task_without_run(
         origin_product=origin_product,
         user_id=user_id,
         repository=repository,
+        channel=channel,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
@@ -2088,16 +2132,13 @@ def task_accessible_for_run_view(
     ``for_control`` to use the narrower ``task_control_q`` — public-channel visibility lets
     teammates watch a run, not drive it.
 
-    Slack-originated tasks are the exception: those threads are multiplayer, so any same-team
-    user can already steer the run from Slack (follow-ups record them as the run's actor, with
-    sandbox credentials minted for them). The runs API mirrors that and lets team members drive
-    and watch Slack tasks' runs — otherwise a non-creator actor's sandbox 404s on every callback
-    (reply relay, log-append heartbeat, completion PATCH) and the thread dies silently.
+    Task-bound sandbox callers set ``bypass_visibility`` only after the view verifies that
+    the OAuth token's ``sandbox_task_id`` matches this task.
     """
-    task_filter = Task.objects.filter(id=task_id, team_id=team_id)
+    task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
     if not bypass_visibility:
         scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id)
-        task_filter = task_filter.filter(scope_q | Q(origin_product=Task.OriginProduct.SLACK))
+        task_filter = task_filter.filter(scope_q)
     return task_filter.exists()
 
 
@@ -4138,18 +4179,13 @@ def get_task_detail(
     return _task_detail_to_dto(task) if task is not None else None
 
 
-def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> dict[UUID, contracts.TaskDetailDTO]:
-    """Task payloads for the Max conversation API, keyed by task id.
+def get_conversation_task_dtos(
+    task_ids: Sequence[str | UUID], team_id: int, user_id: int | None
+) -> dict[UUID, contracts.TaskDetailDTO]:
+    """Visible task payloads for the Max conversation API, keyed by task id.
 
-    Intentionally team-scoped, with no ``task_visibility_q(user_id)`` gate: the conversation is the
-    read-share unit, so anyone who can ``retrieve`` a conversation may read its backing task. Broad
-    read here does not grant action — write/send to a task stays creator-gated in the conversation
-    viewset (``create``/``open``/``queue``) and at bind time (``validate_task_id``). Direct task reads
-    (``get_task_detail``) gate by creator because that is the task-enumeration path; this one is not.
-
-    ``latest_run`` (the nested run payload) stays excluded so conversation lists never presign per-row
-    log URLs; instead a single ``latest_run_id`` subquery carries the latest run id, which the frontend
-    needs to reconnect to sandbox logs.
+    ``latest_run`` stays excluded so conversation lists never presign per-row log URLs. A single
+    ``latest_run_id`` subquery carries the id that the frontend needs to reconnect to sandbox logs.
     """
     if not task_ids:
         return {}
@@ -4159,6 +4195,7 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
     )
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids)
+        .filter(task_visibility_q(user_id))
         .select_related("created_by", "team")
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
@@ -4446,6 +4483,13 @@ def create_task(
     validated_data = dict(validated_data)
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+    if (
+        validated_data.get("channel") is None
+        and user_id is not None
+        and not validated_data.get("internal", False)
+        and validated_data["origin_product"] not in TEAM_READABLE_ORIGIN_PRODUCTS
+    ):
+        validated_data["channel"] = _ensure_personal_channel(team_id, user_id)
     validated_data["client_provenance"] = client_provenance
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
@@ -4653,6 +4697,7 @@ def update_task(
     validated_data.pop("signal_report", None)
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
+    validated_data.pop("channel", None)
     validated_data.pop("branch", None)
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
@@ -5637,13 +5682,13 @@ def _slack_repo_research_dto(
 
 
 def resolve_slack_thread_context(
-    team_id: int, *, channel: str, thread_ts: str, url: str, build_url
+    team_id: int, user_id: int | None, *, channel: str, thread_ts: str, url: str, build_url
 ) -> contracts.SlackThreadContextResult:
     """Resolve a parsed Slack permalink to its task, runs, and Temporal workflow handles.
 
     Caller passes the already-parsed ``(channel, thread_ts)`` and a ``build_url`` callable
-    (``request.build_absolute_uri``) so the facade stays request-agnostic. Caller also enforces
-    the internal-debug gate before calling. Mirrors ``TaskViewSet.slack_thread_context``.
+    (``request.build_absolute_uri``) so the facade stays request-agnostic. The mapping is filtered
+    through the backing task's visibility after the caller enforces the internal-debug gate.
     """
     from posthog.storage import object_storage  # noqa: PLC0415
 
@@ -5653,7 +5698,8 @@ def resolve_slack_thread_context(
 
     mapping = (
         SlackThreadTaskMapping.objects.select_related("task", "task__created_by")
-        .filter(channel=channel, thread_ts=thread_ts)
+        .filter(channel=channel, thread_ts=thread_ts, team_id=team_id)
+        .filter(task_visibility_q(user_id, relation="task"))
         .first()
     )
     if mapping is None:
@@ -5896,7 +5942,7 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
-    elif repositories is not None and channel.created_by_id != user_id:
+    elif channel.created_by_id != user_id:
         return "not_found"
     update_fields: list[str] = []
     if name is not None:
@@ -5918,13 +5964,17 @@ def update_channel(
     return _channel_to_dto(channel)
 
 
-def delete_channel(channel_id: str | UUID, team_id: int) -> str:
-    """Soft-delete a public channel. Returns ``ok`` / ``not_found`` / ``personal``."""
+def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
+    """Soft-delete an empty public channel owned by the user."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:
-        return "personal"
+        return "personal" if channel.created_by_id == user_id else "not_found"
+    if channel.created_by_id != user_id:
+        return "not_found"
+    if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
+        return "not_empty"
     channel.deleted = True
     channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
@@ -5953,6 +6003,10 @@ def visible_channels_q(user_id: int | None, *, relation: Literal["", "channel"] 
     for the semantics. Exported for cross-product callers filtering channel-joined
     querysets. Single-object callers use ``get_channel``."""
     return Channel.visible_to_q(user_id, relation=relation)
+
+
+def visible_tasks_q(user_id: int | None, *, relation: Literal["", "task"] = "") -> Q:
+    return task_visibility_q(user_id, relation=relation)
 
 
 def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) -> bool:

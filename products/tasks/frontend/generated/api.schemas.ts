@@ -1243,6 +1243,11 @@ export interface PatchedChannelUpdateApi {
     repositories?: string[]
 }
 
+export interface ChannelDeleteConflictApi {
+    /** Why the space cannot be deleted. */
+    detail: string
+}
+
 /**
  * The task currently generating this channel's CONTEXT.md, or null.
  */
@@ -1764,7 +1769,7 @@ export interface TaskCreateApi {
      */
     auto_publish?: boolean | null
     /**
-     * Channel this task is owned by (the channel it was kicked off in).
+     * Space this task is created in. Omit it to use your private #me space.
      * @nullable
      */
     channel?: string | null
@@ -1792,7 +1797,7 @@ export interface TaskCreateApi {
  * ``validated_data`` (integration/report PK fields already resolved to instances) to the
  * facade ``create_task`` / ``update_task`` functions.
  */
-export interface TaskWriteApi {
+export interface TaskUpdateApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
      * @maxLength 255
@@ -1906,11 +1911,6 @@ export interface TaskWriteApi {
      * @nullable
      */
     auto_publish?: boolean | null
-    /**
-     * Channel this task is owned by (the channel it was kicked off in).
-     * @nullable
-     */
-    channel?: string | null
 }
 
 /**
@@ -1920,7 +1920,7 @@ export interface TaskWriteApi {
  * ``validated_data`` (integration/report PK fields already resolved to instances) to the
  * facade ``create_task`` / ``update_task`` functions.
  */
-export interface PatchedTaskWriteApi {
+export interface PatchedTaskUpdateApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
      * @maxLength 255
@@ -2034,11 +2034,6 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     auto_publish?: boolean | null
-    /**
-     * Channel this task is owned by (the channel it was kicked off in).
-     * @nullable
-     */
-    channel?: string | null
 }
 
 export interface TaskArtifactApi {
@@ -4176,7 +4171,7 @@ export type TaskMentionsListParams = {
 
 export type TasksListParams = {
     /**
-     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     * Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.
      */
     all_team_tasks?: boolean
     /**

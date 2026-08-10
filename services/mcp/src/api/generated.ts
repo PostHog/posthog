@@ -14602,6 +14602,11 @@ export namespace Schemas {
       starred?: boolean;
     }
 
+    export interface ChannelDeleteConflict {
+      /** Why the space cannot be deleted. */
+      detail: string;
+    }
+
     /**
      * * `slack_channel_message` - Channel message
      * * `slack_bot_mention` - Bot mention
@@ -16123,10 +16128,7 @@ export namespace Schemas {
     /**
      * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
      * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
-     * avoids presigning a log URL per conversation.
-     *
-     * Read access here follows the conversation (the share-by-link unit), not per-creator task
-     * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+     * avoids presigning a log URL per conversation. Task data follows the task's space visibility.
      */
     export interface ConversationTask {
       id: string;
@@ -59078,7 +59080,7 @@ export namespace Schemas {
      * ``validated_data`` (integration/report PK fields already resolved to instances) to the
      * facade ``create_task`` / ``update_task`` functions.
      */
-    export interface PatchedTaskWrite {
+    export interface PatchedTaskUpdate {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
          * @maxLength 255
@@ -59192,11 +59194,6 @@ export namespace Schemas {
          * @nullable
          */
       auto_publish?: boolean | null;
-      /**
-         * Channel this task is owned by (the channel it was kicked off in).
-         * @nullable
-         */
-      channel?: string | null;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -74612,7 +74609,7 @@ export namespace Schemas {
          */
       auto_publish?: boolean | null;
       /**
-         * Channel this task is owned by (the channel it was kicked off in).
+         * Space this task is created in. Omit it to use your private #me space.
          * @nullable
          */
       channel?: string | null;
@@ -75602,7 +75599,7 @@ export namespace Schemas {
      * ``validated_data`` (integration/report PK fields already resolved to instances) to the
      * facade ``create_task`` / ``update_task`` functions.
      */
-    export interface TaskWrite {
+    export interface TaskUpdate {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
          * @maxLength 255
@@ -75716,11 +75713,6 @@ export namespace Schemas {
          * @nullable
          */
       auto_publish?: boolean | null;
-      /**
-         * Channel this task is owned by (the channel it was kicked off in).
-         * @nullable
-         */
-      channel?: string | null;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -87874,7 +87866,7 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
-     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     * Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.
      */
     all_team_tasks?: boolean;
     /**

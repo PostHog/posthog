@@ -1,18 +1,24 @@
+from datetime import timedelta
 from typing import Any, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from rest_framework import status
+from rest_framework.test import APIClient
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
-from products.tasks.backend.models import Channel
+from products.tasks.backend.models import Channel, Task
 
 
 class InMemoryStorage:
@@ -64,6 +70,30 @@ class CanvasAPIBaseTest(APIBaseTest):
             format="json",
         )
 
+    def _sandbox_client(self, task_id) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Canvas sandbox",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_canvas_{uuid4().hex}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="canvas:read canvas:write task:read",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
 
 class TestCanvasCrud(CanvasAPIBaseTest):
     def test_missing_user_only_sees_public_channels(self):
@@ -75,10 +105,14 @@ class TestCanvasCrud(CanvasAPIBaseTest):
                 channel_type=Channel.ChannelType.PERSONAL,
                 created_by=None,
             )
+            deleted = Channel.objects.create(team=self.team, name="deleted", deleted=True)
+            unknown = Channel.objects.create(team=self.team, name="unknown", channel_type="unknown")
             visible_ids = set(Channel.objects.filter(Channel.visible_to_q(None)).values_list("id", flat=True))
 
         assert public.id in visible_ids
         assert personal.id not in visible_ids
+        assert deleted.id not in visible_ids
+        assert unknown.id not in visible_ids
 
     def test_create_lists_and_filters_by_channel(self):
         canvas_id = self._create_canvas()
@@ -142,6 +176,86 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert self.client.patch(f"{base}/", {"name": "Renamed"}, format="json").status_code == 404
         assert self.client.post(f"{base}/publish/", {"project": self._project()}, format="json").status_code == 404
         assert self.client.delete(f"{base}/").status_code == 404
+
+    def test_task_bound_sandbox_can_create_only_for_its_bound_task(self):
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Other",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        client = self._sandbox_client(bound_task.id)
+        url = f"/api/projects/{self.team.id}/canvases/"
+
+        allowed = client.post(
+            url,
+            {"name": "Bound canvas", "channel_id": str(self.channel.id)},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+        denied = client.post(
+            url,
+            {"name": "Other canvas", "channel_id": str(self.channel.id)},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(other_task.id),
+        )
+
+        assert allowed.status_code == status.HTTP_201_CREATED
+        assert Canvas.objects.unscoped().get(id=allowed.json()["id"]).generation_task_id == bound_task.id
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_task_bound_sandbox_can_read_only_its_canvases(self):
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Other",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        own_canvas = Canvas.objects.unscoped().create(
+            team=self.team,
+            channel=self.channel,
+            name="Own",
+            generation_task_id=bound_task.id,
+        )
+        other_canvas = Canvas.objects.unscoped().create(
+            team=self.team,
+            channel=self.channel,
+            name="Other",
+            generation_task_id=other_task.id,
+        )
+        client = self._sandbox_client(bound_task.id)
+
+        listing = client.get(
+            f"/api/projects/{self.team.id}/canvases/",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+        other_detail = client.get(
+            f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+
+        assert [row["id"] for row in listing.json()["results"]] == [str(own_canvas.id)]
+        assert other_detail.status_code == status.HTTP_404_NOT_FOUND
 
     def test_create_rejects_unknown_channel(self):
         response = self.client.post(
