@@ -1,9 +1,12 @@
+import time
 from typing import Any
 
 import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
+
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
@@ -13,6 +16,7 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     ThreadAction,
     ThreadComment,
     classify_thread,
+    commit_restricted_paths,
     fetch_unresolved_threads,
     github_graphql_request,
     is_restricted_fix_path,
@@ -163,6 +167,25 @@ class TestGitHubThreads:
     def test_is_restricted_fix_path(self, _name: str, path: str, expected: bool) -> None:
         assert is_restricted_fix_path(path) is expected
 
+    @parameterized.expand(
+        [
+            ("modified_restricted", {"filename": ".github/workflows/ci.yml"}, [".github/workflows/ci.yml"]),
+            # A rename out of a restricted location is one entry whose new name looks clean; the old
+            # name must still flag, or relocating a workflow file bypasses the backstop entirely.
+            (
+                "renamed_out_of_restricted",
+                {"filename": "scripts/ci.bak", "previous_filename": ".github/workflows/ci.yml"},
+                [".github/workflows/ci.yml"],
+            ),
+            ("clean", {"filename": "products/foo/backend/api.py"}, []),
+        ]
+    )
+    def test_commit_restricted_paths(self, _name: str, file_entry: dict[str, Any], expected: list[str]) -> None:
+        response = Mock()
+        response.json.return_value = {"files": [file_entry]}
+        with patch(f"{_THREADS}.github_api_request", return_value=response):
+            assert commit_restricted_paths(token="t", owner="o", repo="r", sha="abc") == expected
+
     def test_order_threads_ranks_humans_then_reviewhog_then_other_bots_oldest_first(self) -> None:
         other_bot = _thread(
             "PRRT_bot", author_login="greptile[bot]", author_is_bot=True, created_at="2026-07-01T00:00:00Z"
@@ -199,13 +222,21 @@ def _graphql_page(nodes: list[dict[str, Any]], *, has_next: bool = False, cursor
     }
 
 
-def _node(thread_id: str, *, resolved: bool = False, typename: str = "User") -> dict[str, Any]:
+def _node(
+    thread_id: str,
+    *,
+    resolved: bool = False,
+    typename: str = "User",
+    line: int | None = 12,
+    original_line: int | None = None,
+) -> dict[str, Any]:
     return {
         "id": thread_id,
         "isResolved": resolved,
         "isOutdated": True,
         "path": "f.py",
-        "line": 12,
+        "line": line,
+        "originalLine": original_line,
         "comments": {
             "nodes": [
                 {
@@ -269,6 +300,16 @@ class TestFetchUnresolvedThreads:
         assert tail_variables["id"] == "PRRT_long"
         assert tail_variables["cursor"] == "tail-c1"
 
+    def test_outdated_thread_falls_back_to_original_line(self) -> None:
+        # GitHub nulls `line` once the thread's code drifts; without the originalLine fallback every
+        # outdated thread loses its anchor in the resolution prompt.
+        pages = [_graphql_page([_node("PRRT_out", line=None, original_line=42), _node("PRRT_cur")])]
+        with patch(f"{_THREADS}.github_graphql_request", side_effect=pages):
+            threads = fetch_unresolved_threads(token="t", owner="o", repo="r", pr_number=1)
+
+        assert threads[0].line == 42
+        assert threads[1].line == 12
+
 
 class TestGithubGraphqlRequest:
     def test_raises_on_graphql_errors_despite_http_200(self) -> None:
@@ -277,6 +318,22 @@ class TestGithubGraphqlRequest:
         with patch(f"{_THREADS}.github_request", return_value=response):
             with pytest.raises(GitHubAPIError, match="Resource not accessible"):
                 github_graphql_request("query {}", {}, token="t")
+
+    def test_raises_rate_limit_error_on_200_rate_limited_graphql_error(self) -> None:
+        # GraphQL's primary rate limit is a 200 + errors[].type RATE_LIMITED — it must surface as
+        # GitHubRateLimitError (the codebase's distinct rate-limit signal), not a generic API error.
+        reset = int(time.time()) + 120
+        response = Mock(ok=True, status_code=200)
+        response.headers = {"x-ratelimit-reset": str(reset)}
+        response.json.return_value = {
+            "data": None,
+            "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for installation ID 1."}],
+        }
+        with patch(f"{_THREADS}.github_request", return_value=response):
+            with pytest.raises(GitHubRateLimitError) as exc_info:
+                github_graphql_request("query {}", {}, token="t")
+        assert exc_info.value.reset_at == reset
+        assert exc_info.value.retry_after is not None and exc_info.value.retry_after >= 1
 
     def test_returns_data_payload(self) -> None:
         response = Mock(ok=True, status_code=200)

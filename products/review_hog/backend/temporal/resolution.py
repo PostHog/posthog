@@ -288,8 +288,9 @@ def _deliver_side_effects(
     advances to our own posted reply so it doesn't re-open triage. A crash between posting the reply
     and recording it (the persist below) leaves the watermark un-advanced, so the retry re-triages the
     thread and can post a duplicate reply — the reply mutation has no idempotency key (module docstring).
-    Resolving is etiquette-gated (`should_resolve`) and best-effort — a failed resolve is redelivered by
-    the next run's pre-filter.
+    Resolving is etiquette-gated (`should_resolve`); a failed resolve raises so the run counts the
+    thread as undelivered — the reply is already persisted, so the next run's pre-filter redelivers
+    just the resolve.
     """
     token, installation_id = _delivery_auth(integration_row_id)
     updated = verdict
@@ -358,11 +359,7 @@ def _deliver_side_effects(
         )
         persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=updated)
     if should_resolve(updated) and not updated.resolved:
-        try:
-            resolved = resolve_thread(token=token, thread_id=updated.thread_id, installation_id=installation_id)
-        except Exception:
-            logger.exception("Could not resolve thread %s; the next run will retry it", updated.thread_id)
-            return updated
+        resolved = resolve_thread(token=token, thread_id=updated.thread_id, installation_id=installation_id)
         if resolved:
             updated = updated.model_copy(update={"resolved": True})
             persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=updated)

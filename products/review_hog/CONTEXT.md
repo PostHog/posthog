@@ -9,7 +9,7 @@ Vocabulary settled while working on the product. Pure vocabulary — no spec, no
 - **Structural conciseness vs compression** — _structural_: the same information content reshaped into labeled bullets (claim / trigger / evidence / impact); _compression_: dropping information to save words. The no-quality-loss constraint rules out compression of pipeline payloads; it does not rule out restructuring.
 - **Verify, don't restate** — the rule for validator argumentation: it is the _verification delta_ (what was checked, what was found with file:line evidence, confirmed impact, priority rationale), never a restatement of the finding body's claim. Safe because the full body always travels with the argumentation — every consumer, human or LLM, receives both in the same comment or payload.
 
-## Resolution stage (the "implement the fixes" flow — in design)
+## Resolution stage (the "implement the fixes" flow)
 
 - **Resolution stage** — the ReviewHog-owned stage that runs after a review turn and drives the PR toward ready-to-merge: it loads the PR's posted comments and settles each one (implement / decline / escalate). It is part of the ReviewHog pipeline but independently startable on any in-scope PR — many PRs never get a review turn (too simple, StampHog-approved), so standalone mode is first-class, not a special case.
 - **Comments-as-input invariant** — the stage's work-list is always the comments _posted on the PR_, never ReviewHog's in-memory findings. When chained after a review, ReviewHog's findings reach the stage the same way a human's do: as published comments. This keeps chained and standalone runs identical in shape.

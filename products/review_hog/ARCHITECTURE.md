@@ -67,7 +67,10 @@ and MUST land before the resolution stage runs on PRs the team does not own:
 2. **Author-permission gate** — no code rule restricts whose comment may drive a write turn; the policy is the
    hard part (review bots and external contributors both carry `author_association: NONE`, so a naive filter
    drops exactly the bot threads the stage exists to resolve). Decide which associations may drive write turns
-   and how trusted bots stay in scope.
+   and how trusted bots stay in scope. The same policy must cover **standing-verdict overrides**: today a
+   "SAFE TO FIX" reply from any non-bot account substitutes for the worth judgment with no association gate,
+   so the thread's own low-trust asker can wave their own ask through the worth bar (safety bar and hard
+   floors still apply).
 3. **Pre-push restricted-paths enforcement** — the path backstop is detection, not prevention: GitHub's
    `createCommitOnBranch` makes commit and push one atomic act, so a fix commit touching `.github/`, CODEOWNERS,
    or dependency manifests is already on the PR branch (and CI is already running it) before

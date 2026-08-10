@@ -311,7 +311,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
         assert "2 thread(s) hit delivery failures" in note.content
 
-    def test_failed_resolve_leaves_a_redeliverable_verdict(self) -> None:
+    def test_failed_resolve_raises_but_leaves_a_redeliverable_verdict(self) -> None:
         report = self._report()
         verdict = _verdict(author_is_bot=True, outcome="fixed")
         with (
@@ -321,7 +321,10 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
             patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
+            # The failure must propagate so the run counts the thread as undelivered instead of
+            # reporting a clean note over a resolve that never happened.
+            with pytest.raises(RuntimeError, match="token cannot resolve"):
+                _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature", integration_row_id=1)
         stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
         # The reply survived (posted once), the resolve stays due — exactly what the pre-filter redelivers.
         assert stored.reply_posted is True

@@ -9,12 +9,13 @@ The work-list contract (CONTEXT.md — "Work-list"): unresolved review threads o
 unit, outdated unresolved threads included, resolved threads never fetched back.
 """
 
+import time
 import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
@@ -31,6 +32,9 @@ _COMMENTS_PER_THREAD = 50
 # the thread's real newest comment and the thread would never re-open to triage (stamphog's
 # github_client.py documents the same trade: comment 51 could be a maintainer's hold).
 _MAX_COMMENT_PAGES = 20
+# Same fail-closed posture for the outer thread list: 20 pages x 100 threads = 2000. A PR past that
+# is bot spam or pathology; refuse loudly instead of paging on (stamphog caps the identical query).
+_MAX_THREAD_PAGES = 20
 
 # Source-rank tiers for triage ordering: humans first, ReviewHog's own findings next, other bots
 # last (CONTEXT.md — "Comment-loading policy"). Rank never excludes a thread, it only orders work.
@@ -120,6 +124,19 @@ def github_graphql_request(
         )
     body = response.json()
     if body.get("errors"):
+        if any(isinstance(e, dict) and e.get("type") == "RATE_LIMITED" for e in body["errors"]):
+            # GraphQL's primary rate limit is a 200 whose errors carry type RATE_LIMITED — invisible
+            # to raise_if_github_rate_limited, which only inspects 429/403 responses.
+            try:
+                reset_at: int | None = int(response.headers.get("x-ratelimit-reset", ""))
+            except (ValueError, TypeError):
+                reset_at = None
+            retry_after = max(1, reset_at - int(time.time())) if reset_at is not None else 60
+            raise GitHubRateLimitError(
+                f"GitHub GraphQL rate limit exceeded (resets at {reset_at})",
+                reset_at=reset_at,
+                retry_after=retry_after,
+            )
         first = body["errors"][0]
         message = first.get("message", "unknown GraphQL error") if isinstance(first, dict) else str(first)
         raise GitHubAPIError(f"GitHub GraphQL error: {message}", status=response.status_code, api_message=message)
@@ -139,6 +156,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $pageSize
           isOutdated
           path
           line
+          originalLine
           comments(first: $commentsPerThread) {
             pageInfo { hasNextPage endCursor }
             nodes {
@@ -233,7 +251,9 @@ def _parse_thread(node: dict[str, Any]) -> ReviewThread:
     return ReviewThread(
         thread_id=node["id"],
         path=node.get("path") or "",
-        line=node.get("line"),
+        # GitHub nulls `line` once the code under the thread drifts; the pre-drift anchor
+        # (`originalLine`) still beats none, and `is_outdated` flags it as possibly moved.
+        line=node.get("line") if node.get("line") is not None else node.get("originalLine"),
         is_outdated=bool(node.get("isOutdated")),
         comments=comments,
     )
@@ -250,7 +270,7 @@ def fetch_unresolved_threads(
     """Every unresolved review thread on the PR (outdated included), oldest page first."""
     threads: list[ReviewThread] = []
     cursor: str | None = None
-    while True:
+    for _page in range(_MAX_THREAD_PAGES):
         data = github_graphql_request(
             _THREADS_QUERY,
             {
@@ -287,6 +307,10 @@ def fetch_unresolved_threads(
         if not page_info.get("hasNextPage"):
             return threads
         cursor = page_info.get("endCursor")
+    raise GitHubAPIError(
+        f"PR {owner}/{repo}#{pr_number} has more than {_MAX_THREAD_PAGES * _THREADS_PAGE_SIZE} review threads",
+        status=0,
+    )
 
 
 def reply_to_thread(
@@ -380,7 +404,14 @@ def commit_restricted_paths(
         installation_id=installation_id,
     )
     files = response.json().get("files") or []
-    hits = [f.get("filename") or "" for f in files if is_restricted_fix_path(f.get("filename") or "")]
+    # A rename is ONE entry with filename=new path and previous_filename=old path, so both sides
+    # must be checked: renaming .github/workflows/x.yml out of place must still flag as restricted.
+    hits = [
+        path
+        for f in files
+        for path in (f.get("filename"), f.get("previous_filename"))
+        if path and is_restricted_fix_path(path)
+    ]
     if len(files) >= 300 and not hits:
         return ["(files list truncated at 300; cannot verify)"]
     return hits

@@ -2996,6 +2996,19 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    restriction gates delivery, not the audit log). **Unverified-fix reply caveat** — a FIXED reply whose commit
    failed verification used to post the model's success claim verbatim (link withheld but no visible signal); the
    reply now carries a could-not-confirm warning mirroring the restricted-path one.
+   _Same date (off the third review round):_ five more verified findings fixed. **Rename bypass (must-fix)** —
+   `commit_restricted_paths` read only each entry's `filename`, so renaming a restricted file out of place
+   (one `renamed` entry, new name clean) reported the commit clean; both `filename` and `previous_filename`
+   are checked now, matching `line_proximity`/`classify`'s rename handling. **Outdated-thread anchors** — the
+   thread query now fetches `originalLine` and falls back to it when GitHub nulls `line` on drifted threads
+   (desktop's `line ?? original_line` pattern). **GraphQL rate limits** — a 200 with `errors[].type
+RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) now raises
+   `GitHubRateLimitError` with `reset_at`/`retry_after` instead of a generic API error. **Resolve-failure
+   accounting** — `_deliver_side_effects` no longer swallows a failed `resolveReviewThread`: the failure
+   propagates into the run's `undelivered` count and the run note, so a systematic resolve-permission failure
+   can't hide behind clean-looking summaries (the reply persists first, so redelivery still only redoes the
+   resolve). **Outer paging cap** — `fetch_unresolved_threads` fails closed past 20 thread pages (2000
+   threads), the same posture as the comment-tail cap and stamphog's identical query.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on
