@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -189,7 +189,11 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // Actions on the allow list render their own not-found state, so a 404 there is
+                // expected control flow, not an exception worth reporting to error tracking.
+                const isHandledNotFound =
+                    error instanceof ApiError && error.status === 404 && ERROR_FILTER_ALLOW_LIST.includes(actionKey)
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isHandledNotFound) {
                     posthog.captureException(error)
                 }
             },
