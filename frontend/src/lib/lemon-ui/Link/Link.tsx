@@ -91,8 +91,7 @@ const isPostHogDomain = (url: string): boolean => {
 }
 
 const isDirectLink = (url: string): boolean => {
-    // file: is here so a non-web URL is never rewritten into an in-app path and routed to a 404.
-    return /^(mailto:|file:|https?:\/\/|:\/\/)/.test(url)
+    return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
 }
 
 const hasDangerousScheme = (url: string): boolean => {
