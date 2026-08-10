@@ -29,15 +29,9 @@
             "type": "string"
         },
         "user_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member."
+            "default": "",
+            "description": "Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.",
+            "type": "string"
         }
     },
     "required": ["id"],
