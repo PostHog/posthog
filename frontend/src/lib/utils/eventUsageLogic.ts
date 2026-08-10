@@ -493,15 +493,6 @@ export interface eventUsageLogicActions {
         tileType: DashboardWidgetType
         toDashboardId: number
     }
-    reportInsightResultsCopiedToClipboard: (
-        format: string,
-        insightId: number | null,
-        dashboardId: number | null
-    ) => {
-        dashboardId: number | null
-        format: string
-        insightId: number | null
-    }
     reportCorrelationInteraction: (
         correlationType: FunnelCorrelation['result_type'],
         action: string,
@@ -1490,6 +1481,15 @@ export interface eventUsageLogicActions {
     ) => {
         insightShortId: InsightShortId
         loadingMilliseconds: number
+    }
+    reportInsightResultsCopiedToClipboard: (
+        format: string,
+        insightId: number | null,
+        dashboardId: number | null
+    ) => {
+        dashboardId: number | null
+        format: string
+        insightId: number | null
     }
     reportInsightSaved: (
         insight: Partial<QueryBasedInsightModel> | null,
