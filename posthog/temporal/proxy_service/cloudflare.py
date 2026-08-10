@@ -29,25 +29,68 @@ class CloudflareAPIError(Exception):
         return any(err.get("code") == 10000 for err in self.errors) or "rate limit" in str(self).lower()
 
 
-class CustomHostnameSSLStatus(str, Enum):
+class CloudflareStatus(str, Enum):
+    """Base for Cloudflare status enums.
+
+    Cloudflare extends these sets without notice, and a status we do not model is still
+    worth reporting, so an unmodeled value becomes a member carrying the raw string
+    rather than raising and taking down the caller.
+    """
+
+    @classmethod
+    def _missing_(cls, value: object) -> t.Optional["CloudflareStatus"]:
+        if not isinstance(value, str):
+            return None
+        unmodeled = str.__new__(cls, value)
+        unmodeled._name_ = value.upper()
+        unmodeled._value_ = value
+        return unmodeled
+
+
+class CustomHostnameSSLStatus(CloudflareStatus):
     """SSL certificate status for a Custom Hostname."""
 
     INITIALIZING = "initializing"
     PENDING_VALIDATION = "pending_validation"
+    DELETED = "deleted"
     PENDING_ISSUANCE = "pending_issuance"
     PENDING_DEPLOYMENT = "pending_deployment"
-    ACTIVE = "active"
     PENDING_DELETION = "pending_deletion"
-    DELETED = "deleted"
+    PENDING_EXPIRATION = "pending_expiration"
+    EXPIRED = "expired"
+    ACTIVE = "active"
+    INITIALIZING_TIMED_OUT = "initializing_timed_out"
+    VALIDATION_TIMED_OUT = "validation_timed_out"
+    ISSUANCE_TIMED_OUT = "issuance_timed_out"
+    DEPLOYMENT_TIMED_OUT = "deployment_timed_out"
+    DELETION_TIMED_OUT = "deletion_timed_out"
+    PENDING_CLEANUP = "pending_cleanup"
+    STAGING_DEPLOYMENT = "staging_deployment"
+    STAGING_ACTIVE = "staging_active"
+    DEACTIVATING = "deactivating"
+    INACTIVE = "inactive"
+    BACKUP_ISSUED = "backup_issued"
+    HOLDING_DEPLOYMENT = "holding_deployment"
 
 
-class CustomHostnameStatus(str, Enum):
+class CustomHostnameStatus(CloudflareStatus):
     """Status for a Custom Hostname."""
 
     ACTIVE = "active"
     PENDING = "pending"
+    ACTIVE_REDEPLOYING = "active_redeploying"
     MOVED = "moved"
+    PENDING_DELETION = "pending_deletion"
     DELETED = "deleted"
+    PENDING_BLOCKED = "pending_blocked"
+    PENDING_MIGRATION = "pending_migration"
+    PENDING_PROVISIONED = "pending_provisioned"
+    TEST_PENDING = "test_pending"
+    TEST_ACTIVE = "test_active"
+    TEST_ACTIVE_APEX = "test_active_apex"
+    TEST_BLOCKED = "test_blocked"
+    TEST_FAILED = "test_failed"
+    PROVISIONED = "provisioned"
     BLOCKED = "blocked"
 
 
