@@ -213,12 +213,12 @@ export interface commentsLogicActions {
         errorObject?: any
     }
     refreshCommentsSuccess: (
-        comments: CommentType[],
+        comments: CommentType[] | null,
         payload?: {
             value: true
         }
     ) => {
-        comments: CommentType[]
+        comments: CommentType[] | null
         payload?: {
             value: true
         }
