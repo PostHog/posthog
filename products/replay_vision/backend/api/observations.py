@@ -171,7 +171,12 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
-        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.",
+        help_text="Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.",
+    )
+    backfill_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Backfill that dispatched this observation; null for live, on-demand, and retry triggers.",
     )
     triggered_by_user = UserBasicSerializer(
         read_only=True,
@@ -238,6 +243,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "scanner_result",
             "triggered_by",
             "triggered_by_user",
+            "backfill_id",
             "distinct_id",
             "recording_subject_email",
             "previous_observation_id",
@@ -513,7 +519,10 @@ class ReplayObservationFilter(django_filters.FilterSet):
     triggered_by = MultiChoiceFilter(
         field_name="triggered_by",
         valid_choices=frozenset(v for v, _ in ObservationTrigger.choices),
-        help_text="Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.",
+        help_text="Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.",
+    )
+    backfill_id = django_filters.UUIDFilter(
+        field_name="backfill_id", help_text="Only observations dispatched by this backfill."
     )
     verdict = MultiChoiceFilter(
         field_name="scanner_result__model_output__verdict",
