@@ -386,10 +386,10 @@ Diffed against the Reddit Ads v3 OpenAPI spec (`https://ads-api.reddit.com/api/v
 Have: campaigns, ad_groups, ads, campaign_report, ad_group_report, ad_report, ad_account,
 custom_audiences, saved_audiences, pixels, funding_instruments, lead_gen_forms, profiles,
 structured_posts, campaign_country_report, campaign_gender_report, campaign_placement_report,
-campaign_community_report, campaign_os_type_report.
+campaign_community_report, campaign_os_type_report, campaign_keyword_report.
 
 - [x] Creative metadata — `structured_posts`, fanned out over the account's profiles. Reddit hangs creatives off profiles, not off the ad account, and ad rows carry the `post_id` to join on.
-- [x] Breakdown dimensions on the report tables — gender, country, placement, device (`OS_TYPE`) and community, each a campaign-grain report table defaulted to `should_sync_default=False`. Reddit returns breakdowns as extra dimensions on the same `POST /reports` call, capped at three per request, so each dimension is its own table rather than a new param. Age is not shippable: `AGE` is absent from the spec's `breakdowns` enum (it appears only in a stale request example).
+- [x] Breakdown dimensions on the report tables — gender, country, placement, device (`OS_TYPE`), community and keyword, each a campaign-grain report table defaulted to `should_sync_default=False`. Reddit returns breakdowns as extra dimensions on the same `POST /reports` call, capped at three per request, so each dimension is its own table rather than a new param. Age is not shippable: `AGE` is absent from the spec's `breakdowns` enum (it appears only in a stale request example). `KEYWORD` is requested as a breakdown only: its membership of the `fields` enum was not re-checked against the spec.
 - [x] Ad account table — `ad_account`, carrying `currency` and `time_zone_id`.
 - [x] Audiences and pixel definitions — `custom_audiences`, `saved_audiences`, `pixels`. Conversion _events_ are write-only (`POST /pixels/{id}/conversion_events`), so there is nothing to sync.
 - Also added: `funding_instruments` (per-instrument currency and credit limit), `lead_gen_forms`, `profiles`.
