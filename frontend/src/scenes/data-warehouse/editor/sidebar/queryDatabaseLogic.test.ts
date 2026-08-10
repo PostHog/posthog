@@ -1,19 +1,155 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { propertyDefinitionsList } from '~/generated/core/api'
+import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
+    getSidebarPropertyDefinitionTarget,
     groupDirectConnectionTableNodesBySchema,
     queryDatabaseLogic,
     shouldInitializeDirectConnectionExpandedFolders,
 } from './queryDatabaseLogic'
 
 jest.mock('lib/utils/newInternalTab')
+jest.mock('~/generated/core/api', () => ({
+    propertyDefinitionsList: jest.fn(),
+}))
+
+const mockPropertyDefinitionsList = propertyDefinitionsList as jest.Mock
+
+const jsonField = (name = 'properties'): DatabaseSchemaField => ({
+    name,
+    hogql_value: name,
+    type: 'json',
+    schema_valid: true,
+})
 
 describe('queryDatabaseLogic', () => {
+    describe('property definition targets', () => {
+        test.each([
+            ['event properties', 'events', 'properties', jsonField(), { type: 'event' }],
+            ['AI event properties', 'ai_events', 'properties', jsonField(), { type: 'event' }],
+            ['person properties', 'persons', 'properties', jsonField(), { type: 'person' }],
+            ['person properties joined to events', 'events', 'person.properties', jsonField(), { type: 'person' }],
+            [
+                'group properties joined to events',
+                'events',
+                'group_2.properties',
+                jsonField(),
+                { type: 'group', groupTypeIndex: 2 },
+            ],
+            [
+                'physical person properties',
+                'events',
+                'person_properties',
+                jsonField('person_properties'),
+                { type: 'person' },
+            ],
+            ['ambiguous group properties', 'groups', 'properties', jsonField(), null],
+            ['warehouse-shaped JSON', 'events', 'metadata', jsonField('metadata'), null],
+            [
+                'non-JSON properties',
+                'events',
+                'properties',
+                { ...jsonField(), type: 'string' } as DatabaseSchemaField,
+                null,
+            ],
+        ])('%s map to the stored definition type', (_name, tableName, columnPath, field, expected) => {
+            expect(getSidebarPropertyDefinitionTarget(tableName, columnPath, field)).toEqual(expected)
+        })
+    })
+
+    it('loads pre-expanded properties, paginates, and filters them', async () => {
+        initKeaTests()
+        mockPropertyDefinitionsList
+            .mockReset()
+            .mockResolvedValueOnce({
+                count: 2,
+                results: [{ id: 'browser', name: '$browser', property_type: 'String' }],
+            })
+            .mockResolvedValueOnce({
+                count: 2,
+                results: [{ id: 'checkout-step', name: 'checkout.step', property_type: 'Numeric' }],
+            })
+            .mockResolvedValueOnce({
+                count: 1,
+                results: [{ id: 'browser', name: '$browser', property_type: 'String' }],
+            })
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        logic.actions.setExpandedFolders(['sources', 'property-events-properties'])
+        await expectLogic(logic, () =>
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+                tables: {
+                    events: {
+                        id: 'events',
+                        name: 'events',
+                        type: 'posthog',
+                        fields: { properties: jsonField() },
+                    },
+                },
+                joins: [],
+            })
+        ).toDispatchActions(['loadPropertyDefinitionsSuccess'])
+
+        const propertyNode = (): NonNullable<(typeof logic.values.treeData)[number]> | undefined =>
+            logic.values.treeData
+                .find((item) => item.record?.type === 'sources')
+                ?.children?.find((item) => item.name === 'PostHog')
+                ?.children?.find((item) => item.name === 'events')
+                ?.children?.find((item) => item.record?.type === 'property-field')
+
+        expect(propertyNode()?.record?.propertyDefinitionTarget).toEqual({ type: 'event' })
+        expect(mockPropertyDefinitionsList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ limit: 25, offset: 0, type: 'event' })
+        )
+        expect(propertyNode()?.children?.map((item) => item.name)).toEqual(['$browser', 'Load more'])
+
+        await expectLogic(logic, () =>
+            propertyNode()
+                ?.children?.find((item) => item.record?.type === 'property-definitions-load-more')
+                ?.onClick?.()
+        ).toDispatchActions(['loadPropertyDefinitionsSuccess'])
+
+        expect(mockPropertyDefinitionsList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ offset: 1, type: 'event' })
+        )
+        expect(propertyNode()?.children?.map((item) => item.name)).toEqual(['$browser', 'checkout.step'])
+        expect(propertyNode()?.children?.[1].record?.hogqlExpression).toEqual('properties."checkout.step"')
+
+        await expectLogic(logic, () =>
+            logic.actions.setPropertyDefinitionSearch('events:properties', { type: 'event' }, 'browser')
+        ).toDispatchActions(['loadPropertyDefinitionsSuccess'])
+
+        expect(mockPropertyDefinitionsList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ offset: 0, search: 'browser', type: 'event' })
+        )
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: {
+                events: {
+                    id: 'events',
+                    name: 'events',
+                    type: 'posthog',
+                    fields: { properties: jsonField() },
+                },
+            },
+            joins: [],
+        })
+        expect(propertyNode()?.children?.map((item) => item.name)).toEqual(['$browser'])
+        expect(propertyNode()?.record?.propertyDefinitionSearch).toEqual('browser')
+
+        logic.unmount()
+    })
+
     it('groups direct connection tables into schema folders', () => {
         const grouped = groupDirectConnectionTableNodesBySchema(
             [

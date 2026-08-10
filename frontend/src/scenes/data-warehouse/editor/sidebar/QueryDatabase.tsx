@@ -16,6 +16,7 @@ import {
     IconDatabase,
     IconExternal,
     IconPlusSmall,
+    IconSearch,
 } from '@posthog/icons'
 import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
@@ -66,6 +67,7 @@ import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsL
 import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
+import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export function getSidebarAddJoinSourceTableName(
@@ -94,6 +96,9 @@ export function getSidebarAddJoinSourceTableName(
 export function getColumnInsertText(record: Record<string, any> | undefined): string | null {
     if (record?.type !== 'column' || !record.columnName) {
         return null
+    }
+    if (typeof record.hogqlExpression === 'string') {
+        return record.hogqlExpression
     }
     return escapeDottedHogQLIdentifier(record.columnName)
 }
@@ -159,6 +164,7 @@ export const QueryDatabase = ({
         renameDraft,
         openUnsavedQuery,
         deleteUnsavedQuery,
+        setPropertyDefinitionSearch,
     } = useActions(queryDatabaseLogic)
     const {
         createDataWarehouseSavedQueryFolder,
@@ -458,14 +464,13 @@ export const QueryDatabase = ({
                                   connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined,
                           }
                         : null
-                const columnName =
-                    isColumn && typeof item.record?.columnName === 'string' ? item.record.columnName : null
+                const columnExpression = isColumn ? getColumnInsertText(item.record) : null
                 const biField: BIField | null =
-                    biFieldSource && columnName
+                    biFieldSource && columnExpression
                         ? {
-                              id: getBIFieldId(biFieldSource, columnName),
+                              id: getBIFieldId(biFieldSource, columnExpression),
                               name: item.name,
-                              expression: columnName,
+                              expression: columnExpression,
                               type: item.record?.field.type,
                               source: biFieldSource,
                           }
@@ -572,6 +577,20 @@ export const QueryDatabase = ({
                 )
             }}
             itemSideAction={(item) => {
+                if (item.record?.type === 'property-field') {
+                    const propertyDefinitionKey = item.record.propertyDefinitionKey
+                    const propertyDefinitionTarget = item.record.propertyDefinitionTarget
+
+                    return (
+                        <PropertyDefinitionFilter
+                            propertyDefinitionKey={propertyDefinitionKey}
+                            propertyDefinitionSearch={item.record.propertyDefinitionSearch ?? ''}
+                            propertyDefinitionTarget={propertyDefinitionTarget}
+                            setPropertyDefinitionSearch={setPropertyDefinitionSearch}
+                        />
+                    )
+                }
+
                 const joinMenu =
                     item.record?.field && item.record?.table
                         ? (() => {
@@ -1233,6 +1252,21 @@ export const QueryDatabase = ({
                 return undefined
             }}
             itemSideActionButton={(item) => {
+                if (item.record?.type === 'property-field') {
+                    const hasActiveSearch = !!item.record.propertyDefinitionSearch
+
+                    return (
+                        <ButtonPrimitive
+                            iconOnly
+                            isSideActionRight
+                            tooltip="Filter properties"
+                            className={cn('absolute right-0 z-10 -outline-offset-2', hasActiveSearch && 'text-accent')}
+                        >
+                            <IconSearch className={cn('size-3', hasActiveSearch ? 'text-accent' : 'text-tertiary')} />
+                        </ButtonPrimitive>
+                    )
+                }
+
                 if (item.record?.type === 'sources') {
                     return (
                         <ButtonPrimitive
@@ -1288,6 +1322,14 @@ export const QueryDatabase = ({
                 return undefined
             }}
             renderItemIcon={(item) => {
+                if (item.record?.type === 'property-field') {
+                    return (
+                        <TreeNodeDisplayIcon
+                            item={{ ...item, record: { ...item.record, type: 'table' } }}
+                            expandedItemIds={expandedItemIds}
+                        />
+                    )
+                }
                 if (item.record?.type === 'column') {
                     const icon = getFieldTypeIcon(item.record.field?.type)
                     const savedExpression =

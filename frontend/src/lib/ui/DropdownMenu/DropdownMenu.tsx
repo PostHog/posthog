@@ -13,7 +13,15 @@ import { MenuSeparator } from '../Menus/Menus'
 /*                           Open State Context                               */
 /* -------------------------------------------------------------------------- */
 
-const DropdownMenuOpenContext = React.createContext(false)
+type DropdownMenuOpenContextValue = {
+    close: () => void
+    open: boolean
+}
+
+const DropdownMenuOpenContext = React.createContext<DropdownMenuOpenContextValue>({
+    close: () => {},
+    open: false,
+})
 
 function DropdownMenu({
     children,
@@ -34,9 +42,11 @@ function DropdownMenu({
         },
         [controlledOpen, onOpenChange]
     )
+    const close = React.useCallback(() => handleOpenChange(false), [handleOpenChange])
+    const openContextValue = React.useMemo(() => ({ close, open: isOpen }), [close, isOpen])
 
     return (
-        <DropdownMenuOpenContext.Provider value={isOpen}>
+        <DropdownMenuOpenContext.Provider value={openContextValue}>
             <DropdownMenuPrimitive.Root open={isOpen} onOpenChange={handleOpenChange} {...props}>
                 {children}
             </DropdownMenuPrimitive.Root>
@@ -141,7 +151,7 @@ const DropdownMenuContent = React.forwardRef<
         },
         ref
     ): JSX.Element | null => {
-        const open = React.useContext(DropdownMenuOpenContext)
+        const { open } = React.useContext(DropdownMenuOpenContext)
 
         if (!open) {
             return null
@@ -174,6 +184,8 @@ const DropdownMenuContent = React.forwardRef<
     }
 )
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName
+
+const useCloseDropdownMenu = (): (() => void) => React.useContext(DropdownMenuOpenContext).close
 
 const DropdownMenuItem = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.Item>,
@@ -268,4 +280,5 @@ export {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    useCloseDropdownMenu,
 }
