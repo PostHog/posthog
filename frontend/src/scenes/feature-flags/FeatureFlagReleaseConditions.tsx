@@ -52,7 +52,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
-import { matchingActorsUrl } from './matchingActorsUrl'
+import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
 function PropertyValueComponent({
@@ -507,14 +507,11 @@ export function FeatureFlagReleaseConditions({
                                                 <b>~{pluralize(receivingFlag, singularName, pluralName)}</b> -{' '}
                                                 <b>{rolloutPct}%</b>
                                             </span>
-                                            <Link
-                                                to={matchingActorsUrl(group.properties, resolvedGroupTypeIndex)}
-                                                target="_blank"
-                                                className="flex items-center gap-1 w-fit mt-1"
-                                            >
-                                                View matching {pluralName}
-                                                <IconOpenInNew />
-                                            </Link>
+                                            <MatchingActorsLink
+                                                properties={group.properties}
+                                                resolvedGroupTypeIndex={resolvedGroupTypeIndex}
+                                                targetName={pluralName}
+                                            />
                                         </div>
                                     )
                                 })()}

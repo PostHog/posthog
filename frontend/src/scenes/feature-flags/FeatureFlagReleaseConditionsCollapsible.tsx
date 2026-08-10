@@ -48,7 +48,7 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -86,7 +86,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
-import { matchingActorsUrl } from './matchingActorsUrl'
+import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
@@ -749,17 +749,11 @@ const ConditionContent = ({
                                                                 </b>{' '}
                                                                 - <b className="tabular-nums">{rolloutPct}%</b>
                                                             </span>
-                                                            <Link
-                                                                to={matchingActorsUrl(
-                                                                    group.properties,
-                                                                    resolvedGroupTypeIndex
-                                                                )}
-                                                                target="_blank"
-                                                                className="flex items-center gap-1 w-fit mt-1"
-                                                            >
-                                                                View matching {resolvedTargetName}
-                                                                <IconOpenInNew />
-                                                            </Link>
+                                                            <MatchingActorsLink
+                                                                properties={group.properties}
+                                                                resolvedGroupTypeIndex={resolvedGroupTypeIndex}
+                                                                targetName={resolvedTargetName}
+                                                            />
                                                         </div>
                                                     )
                                                 })()}
