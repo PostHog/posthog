@@ -390,7 +390,9 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
         }
         self.user.save()
 
-        def build_or_fail(team, daily_rows=None):
+        # Fails with and without test account filters, like a timeout: the unfiltered
+        # fallback on the last attempts must not rescue it.
+        def build_or_fail(team, daily_rows=None, filter_test_accounts=True):
             if team.pk == self.team.pk:
                 raise Exception("ClickHouse query failed")
             return build_team_digest_data(team, daily_rows)
@@ -409,6 +411,78 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
         assert [s["team_name"] for s in sections] == [team_b.name]
         # A raising activity returns no result, so the count only reaches the workflow via details.
         assert list(exc_info.value.details) == [1]
+
+    @parameterized.expand(
+        [
+            ("before_last_two_attempts_no_fallback", 4, 0),
+            ("second_to_last_attempt_falls_back", 5, 1),
+            ("final_attempt_falls_back", 6, 1),
+        ]
+    )
+    def test_broken_test_account_filter_falls_back_to_unfiltered_on_last_two_attempts(
+        self, _name, attempt, expected_sends
+    ):
+        # RE2 rejects negative lookahead, so every filtered digest query for this team raises during
+        # HogQL preparation (the failure shape seen in production). Only the unfiltered rebuild on the
+        # last two attempts can ever deliver this team's digest, and it must disclose itself via
+        # test_account_filters_skipped; falling back any earlier would mean a transient error could
+        # ship an unfiltered digest for a team whose filters work.
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "operator": "regex", "value": "^(?!.*localhost).*$"}
+        ]
+        self.team.save()
+        _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
+        flush_persons_and_events()
+
+        self.user.partial_notification_settings = {
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.id): True}
+        }
+        self.user.save()
+
+        with patch(_WEBHOOK_POST) as mock_post:
+            if expected_sends:
+                result = self._run(attempt=attempt)
+                assert result == SendOrgDigestResult(sent=1, teams_built=1)
+            else:
+                with pytest.raises(ApplicationError, match="team builds"):
+                    self._run(attempt=attempt)
+
+        assert mock_post.call_count == expected_sends
+        if expected_sends:
+            section = mock_post.call_args.kwargs["json"]["digest"]["project_sections"][0]
+            assert section["test_account_filters_skipped"] is True
+            assert section["exception_count"] == "1"
+
+    def test_first_time_user_auto_select_survives_broken_filter_team(self):
+        # The auto-select ranking pass queries every team with exceptions. A broken-filter team
+        # raising there used to fail the whole activity before the build loop could defer or fall
+        # back, so no one in the org got any digest. The healthy team must still rank, enroll, and send.
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "operator": "regex", "value": "^(?!.*localhost).*$"}
+        ]
+        self.team.save()
+        _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
+        team_b = self._create_second_team_with_exception()
+        flush_persons_and_events()
+
+        self.user.role_at_organization = "engineering"
+        self.user.save()
+
+        with patch(_WEBHOOK_POST) as mock_post:
+            result = self._run(attempt=1)
+
+        # The broken team goes unranked, so enrollment lands on the healthy team and its digest
+        # sends. The broken team isn't enabled for anyone, so nothing needs its build and the
+        # activity completes instead of raising.
+        assert result == SendOrgDigestResult(sent=1, teams_built=1)
+        self.user.refresh_from_db()
+        project_enabled = (self.user.partial_notification_settings or {}).get(
+            "error_tracking_weekly_digest_project_enabled", {}
+        )
+        assert project_enabled == {str(team_b.pk): True}
+        sections = mock_post.call_args.kwargs["json"]["digest"]["project_sections"]
+        assert [s["team_name"] for s in sections] == [team_b.name]
+        assert sections[0]["test_account_filters_skipped"] is False
 
     def test_disabled_team_not_counted_as_excluded(self):
         _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))

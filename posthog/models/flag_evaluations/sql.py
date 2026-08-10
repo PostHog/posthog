@@ -44,7 +44,7 @@ FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
 # move together.
 FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))"
 
-# One canonical column list, rendered in a Kafka variant and a storage variant.
+# One canonical column list, rendered in a Kafka, a Distributed and a storage variant.
 #
 # The Kafka engine table must NOT carry the timestamp DEFAULTs: JSONEachRow
 # fills omitted fields with the column default, and the MV's legacy-SDK
@@ -53,24 +53,32 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 # table fills omitted columns from the Distributed table's own schema before
 # forwarding to the shard, so without them a direct insert via
 # writable_flag_evaluations would store epoch instead of the sharded table's
-# fallback. That makes the Distributed and sharded column lists identical, which
-# is also how the events family declares its CODECs.
+# fallback.
+#
+# No column carries a CODEC. The server already compresses everything with ZSTD,
+# and the delta family needs a near-sorted sequence to beat it: ORDER BY only
+# buckets timestamp to a day and then sorts on a distinct_id hash, so on disk all
+# three DateTime64 columns jump around inside a 24h window. DoubleDelta on that
+# widens its encoding to fit the largest jump and strips the byte structure ZSTD
+# would otherwise find. Revisit only with measurements, and note that a codec
+# would then belong on the sharded table alone — a Distributed table stores
+# nothing, so one there is inert metadata that invites the lists to drift.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     team_id Int64,
     uuid UUID,
-    timestamp DateTime64(6, 'UTC'){dt_codec},
-    inserted_at DateTime64(6, 'UTC'){ts_default}{dt_codec},
-    distinct_id String{codec},
-    session_id String{codec},
-    device_id String{codec},
-    flag_key String{codec},
+    timestamp DateTime64(6, 'UTC'),
+    inserted_at DateTime64(6, 'UTC'){ts_default},
+    distinct_id String,
+    session_id String,
+    device_id String,
+    flag_key String,
     response LowCardinality(String),
     flag_id UInt64,
     flag_version UInt32,
     reason LowCardinality(String),
-    request_id String{codec},
-    evaluated_at DateTime64(6, 'UTC'){ts_default}{dt_codec},
-    error String{codec},
+    request_id String,
+    evaluated_at DateTime64(6, 'UTC'){ts_default},
+    error String,
     locally_evaluated Bool,
     lib LowCardinality(String),
     lib_version LowCardinality(String),
@@ -78,26 +86,20 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     os LowCardinality(String),
     os_version LowCardinality(String),
     app_version LowCardinality(String),
-    current_url String{codec},
-    pathname String{codec},
+    current_url String,
+    pathname String,
     country_code LowCardinality(String),
     subdivision_1_code LowCardinality(String),
-    group_0 String{codec},
-    group_1 String{codec},
-    group_2 String{codec},
-    group_3 String{codec},
-    group_4 String{codec}
+    group_0 String,
+    group_1 String,
+    group_2 String,
+    group_3 String,
+    group_4 String
 """.strip()
 
-FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="", codec="", dt_codec="")
+FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="")
 
-# ZSTD on the plain String columns and DoubleDelta on the timestamps;
-# LowCardinality columns compress well on their own.
-_FLAG_EVALUATIONS_STORAGE_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
-    ts_default=" DEFAULT timestamp",
-    codec=" CODEC(ZSTD(1))",
-    dt_codec=" CODEC(DoubleDelta, ZSTD(1))",
-)
+_FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default=" DEFAULT timestamp")
 
 
 def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
@@ -128,7 +130,7 @@ FLAG_EVALUATIONS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
-    {_FLAG_EVALUATIONS_STORAGE_COLUMNS},
+    {_FLAG_EVALUATIONS_COLUMNS},
     INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -152,7 +154,7 @@ def _distributed_table_sql(table_name: str) -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
-    {_FLAG_EVALUATIONS_STORAGE_COLUMNS}
+    {_FLAG_EVALUATIONS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}

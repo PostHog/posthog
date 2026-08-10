@@ -20,7 +20,8 @@ capabilities:
 
     event_ingestion:
         description: 'Kafka-based event pipeline for event capture'
-        requires: [core_infra]
+        # The combined-mode ingestion server's AI consumer reads persons through PersonHog
+        requires: [core_infra, personhog]
         docker_profiles: []
 
     property_definitions:
@@ -146,7 +147,7 @@ capabilities:
         docker_profiles: []
 
     nodejs_realtime_cohorts:
-        description: 'Node.js Realtime Cohorts - precalculated filters and cohort membership'
+        description: 'Node.js Realtime Cohorts - cohort membership persistence'
         requires: [event_ingestion]
         docker_profiles: []
 

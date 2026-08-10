@@ -2,7 +2,7 @@ import os
 import re
 import json
 from collections.abc import Iterable
-from typing import Any, Protocol, cast
+from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -17,10 +17,11 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from slack_sdk.errors import SlackApiError
 
 from posthog.api.github_callback import state as github_callback_state
 from posthog.api.github_callback.team_services import (
@@ -103,12 +104,36 @@ from posthog.utils import is_relative_url
 
 from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+class SlackIntegrationInactiveError(APIException):
+    # Actionable 4xx (reconnect Slack) rather than a raw 500, so the channel picker can render
+    # guidance inline instead of an unhelpful "server error" toast on every retry.
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "slack_integration_inactive"
+    default_detail = (
+        "Your Slack connection is no longer active. Reconnect Slack to load channels and pick a destination."
+    )
+
+
+def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
+    """Translate an inactive-auth Slack error into an actionable 4xx; re-raise everything else.
+
+    The auth-failure codes come from the Slack auth-state cache, which already decides what
+    counts as an install that can no longer authenticate. A second list here would drift from
+    it — whatever bricks the workspace there is the same thing the user reconnects to fix.
+    """
+    error_code = error.response.get("error") if error.response is not None else None
+    if error_code in SLACK_AUTH_FAILURE_CODES:
+        raise SlackIntegrationInactiveError() from error
+    raise error
 
 
 def _github_account_type(owner_type: str | None) -> str | None:
@@ -1243,7 +1268,10 @@ class IntegrationViewSet(
                 for channel in data["channels"]:
                     if channel["id"] == channel_id:
                         return Response({"channels": [channel]})
-            channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
+            try:
+                channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
+            except SlackApiError as e:
+                _reraise_slack_api_error(e)
             if channel:
                 return Response({"channels": [self._serialize_slack_channel(channel)]})
             return Response({"channels": []})
@@ -1257,11 +1285,12 @@ class IntegrationViewSet(
         data = cache.get(key)
 
         if data is None or force_refresh:
+            try:
+                channels = slack.list_channels(should_include_private_channels, authed_user)
+            except SlackApiError as e:
+                _reraise_slack_api_error(e)
             data = {
-                "channels": [
-                    self._serialize_slack_channel(channel)
-                    for channel in slack.list_channels(should_include_private_channels, authed_user)
-                ],
+                "channels": [self._serialize_slack_channel(channel) for channel in channels],
                 "lastRefreshedAt": timezone.now().isoformat(),
             }
             cache.set(key, data, 60 * 60)  # one hour

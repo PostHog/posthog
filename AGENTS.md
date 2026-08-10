@@ -65,7 +65,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
-**Shape:** invoke `/writing-pr-descriptions` before writing the body. Cut to the facts a reviewer needs, then one fact per bullet, sentences under 25 words, active voice, no idioms. A description that got longer as bullets was not cut.
+**Shape:** invoke `/writing-pr-descriptions` before writing the body. Lead with the effect a person sees rather than the code path behind it, make the body stand alone for a reader who opens no files, and let its size track the change. Then one fact per bullet, sentences under 25 words, active voice, no idioms. A description that got longer as bullets was not cut.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
@@ -81,6 +81,12 @@ NEVER share sensitive information in a PR description. Users may share sensitive
 
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
+
+A push to this repository cannot be taken back.
+Forks, clones, mirrors, and notification emails carry it within seconds, and a later fix commit does not retract what is already in the branch's history — recovering means abandoning the branch and respinning the PR.
+That makes the first push of a branch the decision point, not a step you correct afterwards.
+So if any part of the work drew on something from your session rather than from this repository — a customer conversation, a support ticket, a log, an internal thread — check what is actually in the diff before that first push.
+See [Public open source repo guidance](#public-open-source-repo-guidance) for what has to clear the bar.
 
 #### Forcing the full CI matrix on a draft
 
@@ -131,9 +137,13 @@ Never run `gh pr merge` or click the GitHub merge button — both are blocked by
 
 ### Public open source repo guidance
 
-This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
+This repository is public, and everything you push is public with it: source, tests, fixtures and sample data, comments and docstrings, branch names, commit messages, PR titles, descriptions, and comments, and uploaded screenshots.
+Anything you were given as context that is not already in this repository — a customer conversation, a support ticket, a log, an internal thread — has to clear that bar before any of it reaches a file, a message, or a description.
 
 - Never mention internal-only systems, private incidents, customer data, Slack thread contents, unreleased roadmap details, or security-sensitive implementation details. Slack thread links and channel references are fine to include — they sit behind PostHog auth and are useful as origin context — but do not quote or paraphrase what was said in the thread.
+- **Derived is not synthetic.** Swapping out names, domains, and identifiers does not make real customer material publishable. The prose, the typos, the error IDs, and the order of events are still theirs, and still disclose what they told us. If you started from real material and edited it, it is derived, however much you changed.
+- **Sample data that has to read like the real thing gets invented, not transcribed.** List the properties a case must exercise, then write the case from that list with the real material closed. Use reserved domains (`example.com`), invented identifiers, and obviously fake tokens — customers paste credentials and cookies into support chats, and those must not survive the trip even in fragments.
+- **Do not claim a provenance you have not checked.** "Written fresh" in a commit message is a factual claim a reviewer will rely on. If you are unsure, compare your text against the source: any shared run of ~40 characters or more means derived, not fresh.
 - Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
 - If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
 - Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
@@ -142,9 +152,11 @@ Examples:
 
 - ✅ `fix(insights): handle missing series color in trend export`
 - ✅ A PR description that links to the originating Slack thread for context
+- ✅ A test fixture written from a list of the properties it has to exercise, with the real conversation closed
 - ❌ `fix: patch issue found in acme-co prod workspace after sales escalation` — references internal customer
 - ❌ `fix: will run fine on our 12 million rows there now` — leaks private operational scale
 - ❌ A PR description that quotes verbatim what a coworker said in a Slack thread
+- ❌ A test fixture adapted from a real support conversation with the names and domains replaced
 
 ## CI / GitHub Actions
 
@@ -247,6 +259,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals
+- [`ee/hogai/eval/AGENTS.md`](ee/hogai/eval/AGENTS.md) — writing eval cases or fixture data by hand anywhere (not a skill, and not covered by `/writing-evals`): where that data may come from, and why anonymizing a real conversation does not make it publishable
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy

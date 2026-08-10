@@ -2,8 +2,9 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ScoutCreateButton } from 'scenes/inbox/components/config/scouts/ScoutCreateButton'
-import type { ScoutCreateInitialValues } from 'scenes/inbox/logics/scoutCreateModalLogic'
+
+import { ScoutCreateButton } from 'products/signals/frontend/inbox/components/config/scouts/ScoutCreateButton'
+import type { ScoutCreateInitialValues } from 'products/signals/frontend/inbox/logics/scoutCreateModalLogic'
 
 const AI_OBSERVABILITY_DIGEST_SCOUT_NAME = 'signals-scout-ai-observability-daily-digest'
 

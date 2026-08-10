@@ -3,17 +3,28 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
-import type {
-  AgentConversationEvent,
-  StoredLogEntry,
-  TaskRunArtifact,
+import {
+  type AgentConversationEvent,
+  MCP_TOOL_PERMISSION_OPTIONS,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
+  mcpToolKey,
+  posthogToolMeta,
+  type StoredLogEntry,
+  serializeError,
+  type TaskRunArtifact,
 } from "@posthog/shared";
-import { serializeError } from "@posthog/shared";
 import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { OtelRunTelemetry } from "../otel-telemetry";
-import { createPiRpcClient, type PiRpcClient } from "../pi/rpc-client";
+import {
+  createPiRpcClient,
+  createRuntimeMcpServers,
+  createRuntimeMcpStdioServers,
+  type PiRpcClient,
+} from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
 import { PostHogAPIClient } from "../posthog-api";
@@ -52,6 +63,13 @@ const userMessageCommandSchema = z
     (params) => params.content || (params.artifacts?.length ?? 0) > 0,
     "Either content or artifacts are required",
   );
+
+const mcpPermissionResponseCommandSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("mcp_permission_response"),
+  requestId: z.string().min(1),
+  decision: z.enum(["allow", "allow_always", "reject"]),
+});
 
 const commandSchemas = {
   user_message: userMessageCommandSchema,
@@ -110,6 +128,10 @@ export class PiAgentServer {
   private logFlushActive = false;
   private logFlushRequested = false;
   private readonly canceledSseControllers = new WeakSet<SseController>();
+  private readonly pendingMcpPermissions = new Map<
+    string,
+    McpToolPermissionRequest
+  >();
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -217,6 +239,7 @@ export class PiAgentServer {
         );
     }
     this.session = null;
+    this.pendingMcpPermissions.clear();
     await this.flushConversationLog().catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
     );
@@ -488,11 +511,30 @@ export class PiAgentServer {
     this.lastSyncedSessionContent = persistedSessionContent;
     this.sessionContentSha256 = sessionStorage.content_sha256;
 
+    const localTools = buildLocalToolsServer(
+      { cwd },
+      {
+        environment: "cloud",
+        taskId: this.config.taskId,
+        taskRunId: this.config.runId,
+        baseBranch: this.config.baseBranch,
+      },
+    );
+    const mcpConfiguration = await this.posthogAPI.getMcpRuntimeConfiguration(
+      this.config.mcpServers ?? [],
+    );
+    const runtimeMcpServers = {
+      ...createRuntimeMcpServers(mcpConfiguration.servers),
+      ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
+    };
+
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
       cwd,
       model: this.config.model,
       sessionFile: restoredSessionFile,
+      runtimeMcpServers,
+      mcpToolPolicies: mcpConfiguration.policies,
       providerOptions: {
         apiKey: this.config.apiKey,
         baseUrl: resolveLlmGatewayUrl(
@@ -515,6 +557,9 @@ export class PiAgentServer {
           });
       }
     });
+    const unsubscribeMcpPermissions = client.onMcpToolPermissionRequest(
+      (request) => this.handleMcpToolPermissionRequest(request),
+    );
     await client.start();
     if (this.config.reasoningEffort) {
       // Pi's ThinkingLevel has no ultracode notch; run it at its xhigh equivalent.
@@ -529,6 +574,7 @@ export class PiAgentServer {
     const unsubscribe = () => {
       unsubscribeConversation();
       unsubscribeRuntime();
+      unsubscribeMcpPermissions();
     };
 
     this.session = { payload, runtime, sseController: null, unsubscribe };
@@ -560,6 +606,56 @@ export class PiAgentServer {
     }
   }
 
+  private handleMcpToolPermissionRequest(
+    request: McpToolPermissionRequest,
+  ): void {
+    this.pendingMcpPermissions.set(request.requestId, request);
+    const mcp = { server: request.serverName, tool: request.toolName };
+    this.broadcast({
+      type: "permission_request",
+      requestId: request.requestId,
+      toolCall: {
+        toolCallId: request.requestId,
+        title: `The agent wants to call ${request.toolName} (${request.serverName})`,
+        kind: "other",
+        content: request.description
+          ? [
+              {
+                type: "content",
+                content: { type: "text", text: request.description },
+              },
+            ]
+          : [],
+        rawInput: request.arguments,
+        _meta: posthogToolMeta({
+          toolName: mcpToolKey(mcp),
+          mcp,
+          mcpInstallationId: request.installationId,
+        }),
+      },
+      options: MCP_TOOL_PERMISSION_OPTIONS,
+    });
+  }
+
+  private async respondMcpToolPermission(
+    requestId: string,
+    decision: McpToolPermissionDecision,
+  ): Promise<{ resolved: true }> {
+    const request = this.pendingMcpPermissions.get(requestId);
+    if (!request) {
+      throw new Error(`No pending MCP permission ${requestId}`);
+    }
+    if (decision === "allow_always") {
+      await this.posthogAPI.approveMcpTool(
+        request.installationId,
+        request.toolName,
+      );
+    }
+    this.pendingMcpPermissions.delete(requestId);
+    this.session?.runtime.client.respondMcpToolPermission(requestId, decision);
+    return { resolved: true };
+  }
+
   private async executeCommand(
     method: PiCommandMethod,
     params: Record<string, unknown>,
@@ -581,8 +677,19 @@ export class PiAgentServer {
         runtime.clearPendingQueuedUserMessages();
         return queue;
       }
-      case "pi/rpc":
-        return runtime.sendCommand(params.command as RpcCommand);
+      case "pi/rpc": {
+        const command = params.command as RpcCommand;
+        if (
+          (command as { type?: unknown }).type === "mcp_permission_response"
+        ) {
+          const response = mcpPermissionResponseCommandSchema.parse(command);
+          return this.respondMcpToolPermission(
+            response.requestId,
+            response.decision,
+          );
+        }
+        return runtime.sendCommand(command);
+      }
     }
   }
 

@@ -180,4 +180,24 @@ describe("commandCenterStore", () => {
       expect(useCommandCenterStore.getState().hasAutofilled).toBe(true);
     });
   });
+
+  describe("pending placement", () => {
+    it("keeps the requested task available until placement is canceled", () => {
+      useCommandCenterStore.getState().requestPlacement("t1", "Fix signup");
+      expect(useCommandCenterStore.getState().pendingPlacement).toEqual({
+        taskId: "t1",
+        taskTitle: "Fix signup",
+      });
+
+      useCommandCenterStore.getState().cancelPlacement();
+      expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
+    });
+
+    it("clears the request when the task is assigned", () => {
+      useCommandCenterStore.getState().requestPlacement("t1", "Fix signup");
+      useCommandCenterStore.getState().assignTask(2, "t1");
+      expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
+      expect(useCommandCenterStore.getState().cells[2]).toBe("t1");
+    });
+  });
 });

@@ -23,19 +23,16 @@ jobs:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
-            # Desktop release drafts live on PostHog/code (the legacy update feed), so
-            # the cleanup targets that repo explicitly — never github.repository, which
-            # here is the monorepo and hosts other products' drafts.
             - name: Delete draft releases older than 24 hours
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  REPO: PostHog/code
+                  REPO: ${{ github.repository }}
               run: |
                   set -o pipefail
                   CUTOFF=$(date -u -d "24 hours ago" +%Y-%m-%dT%H:%M:%SZ)
                   echo "Cutoff (UTC): $CUTOFF"
                   gh api --paginate "repos/$REPO/releases" \
-                    --jq ".[] | select(.draft == true) | select(.created_at < \"$CUTOFF\") | .id" \
+                    --jq ".[] | select(.draft == true) | select(.tag_name | startswith(\"desktop-v\")) | select(.created_at < \"$CUTOFF\") | .id" \
                   | while read -r release_id; do
                       [ -z "$release_id" ] && continue
                       echo "Deleting draft release $release_id"

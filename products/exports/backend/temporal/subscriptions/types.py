@@ -2,7 +2,35 @@ import uuid
 import typing
 import dataclasses
 
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+
 from posthog.slo.types import SloConfig
+
+
+def safe_error_message(exc: BaseException) -> typing.Optional[str]:
+    """Owner-safe snippet of an exception, or None when the text may carry team-scoped data.
+
+    HogQL/ClickHouse error text can echo team-scoped identifiers (query data, internal
+    names), so only the query-structure error classes (which describe the field/property the
+    query referenced) are safe to surface to the subscription owner — the same trust boundary
+    the HogQL repair loop uses when forwarding to the fixer. Everything else returns None so
+    the caller falls back to a generic message. Executors often wrap a resolution/exposed
+    error in a generic Exception, so walk the __cause__/__context__ chain for a wrapped safe
+    message.
+
+    The result is persisted to Postgres jsonb columns, so NUL bytes are stripped (Postgres
+    rejects them); callers of the sibling raw "message" field already expect this scrub. The
+    walk honours ``raise ... from None`` (``__suppress_context__``) — a deliberately severed
+    chain stays severed, so an internal error the author meant to hide is never surfaced.
+    """
+    seen: set[int] = set()
+    current: typing.Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, (ExposedHogQLError, ResolutionError)):
+            return str(current).replace("\x00", "")
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+    return None
 
 
 class DeliveryStatus:
@@ -122,6 +150,8 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    available_insight_count: int = 0
+    selected_insight_count: int = 0
     status: str = ExportAssetPreparationStatus.READY
     failure_context: NoExportableInsightsContext | None = None
 
@@ -190,6 +220,9 @@ class RecipientResult:
     recipient: str
     status: RecipientResultStatus
     error: typing.Optional[dict[str, str]] = None  # {"message": str, "type": str}
+    # Owner-safe failure reason; None when the raw error may carry team-scoped/internal detail.
+    # The UI renders this (or a generic fallback), never error.message.
+    human_readable_error: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -223,6 +256,7 @@ class GenerateAIReportResult:
     failed_step_count: int = 0
     total_step_count: int = 0
     query_error_types: list[str] = dataclasses.field(default_factory=list)
+    target_type: str = ""
 
     @property
     def all_queries_failed(self) -> bool:
