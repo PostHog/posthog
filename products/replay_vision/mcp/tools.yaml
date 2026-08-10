@@ -307,13 +307,13 @@ tools:
             monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner
             sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner
             can exhaust the monthly budget on its first sweeps. Creating a scanner also creates its built-in daily
-            digest: an enabled vision action with no delivery targets that synthesizes the scanner's observations once
-            a day and spends credits of its own, on top of the observations. Disable or delete it with
+            digest: an enabled vision action with no delivery targets that synthesizes the scanner's observations once a
+            day and spends credits of its own, on top of the observations. Disable or delete it with
             `vision-actions-update` / `vision-actions-delete` if you don't want it. To get notified about what the
             scanner finds (a Slack alert or a summary on another schedule), create a further vision action bound to it
             with `vision-actions-create`. For a scanner scoped to one experiment's exposed sessions, load the
-            `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's
-            exposure criteria.
+            `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's exposure
+            criteria.
         exclude_params:
             - id
             - scanner_version
