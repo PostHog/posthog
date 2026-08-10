@@ -1,4 +1,4 @@
-import { Check, Copy } from "@phosphor-icons/react";
+import { Check, CircleNotch, Copy } from "@phosphor-icons/react";
 import {
   Heading,
   Separator,
@@ -10,7 +10,9 @@ import {
   TableRow,
   Text,
 } from "@posthog/quill";
+import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import {
+  markOpenLinkDestination,
   parseOpenFence,
   splitMarkdownBlocks,
 } from "@posthog/ui/features/editor/components/splitMarkdownBlocks";
@@ -22,11 +24,14 @@ import {
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
+import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import { IconButton } from "@radix-ui/themes";
 import { memo, type ReactNode, useMemo } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+
+const PENDING_LINK_DESTINATION = "#posthog-streaming-link";
 
 function ChatCodeBlock({
   code,
@@ -66,16 +71,36 @@ const components: Components = {
   p: ({ children }) => (
     <Text className="text-sm leading-[1.5]">{children}</Text>
   ),
-  a: ({ children, href }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="text-primary underline underline-offset-2"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ children, href }) => {
+    if (href === PENDING_LINK_DESTINATION) {
+      return (
+        <output
+          className="inline-flex items-center gap-1 text-primary underline underline-offset-2"
+          aria-label="Link loading"
+        >
+          {children}
+          <CircleNotch className="size-3 animate-spin" aria-hidden="true" />
+        </output>
+      );
+    }
+    const link = (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-primary underline underline-offset-2"
+      >
+        {children}
+      </a>
+    );
+    const artifactTarget = parseArtifactLink(href);
+    if (!artifactTarget || !href) return link;
+    return (
+      <ArtifactRefChip target={artifactTarget} href={href} fallback={link}>
+        {children}
+      </ArtifactRefChip>
+    );
+  },
   img: ({ alt }) => (
     <Text className="text-muted-foreground text-sm">
       Remote image blocked{alt ? `: ${alt}` : ""}
@@ -212,7 +237,16 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
             </div>
           );
         }
-        return <ChatMarkdown key={key} content={block} />;
+        return (
+          <ChatMarkdown
+            key={key}
+            content={
+              index === lastIndex
+                ? markOpenLinkDestination(block, PENDING_LINK_DESTINATION)
+                : block
+            }
+          />
+        );
       })}
     </div>
   );

@@ -33,6 +33,10 @@ A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
 The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
 **The `signals-scout-` name prefix is load-bearing: a skill named anything else will never run as a scout.**
 
+> **Not everything phrased as a scout is a scout.**
+> If the ask is to deliver the key numbers from an **existing dashboard or insight** to a channel on a fixed schedule ("set up a scout to post the top-line from this dashboard in #launch once a day"), a **dashboard (or insight) subscription with the AI summary enabled** is usually the better fit — scouts are for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
+> Respect a user who's certain they want a scout; when it's ambiguous, suggest the subscription and confirm first ("A dashboard subscription is a better fit for a recurring message — want me to set that up?"), and route to `managing-subscriptions`.
+
 ## The job before the writing
 
 Don't write a scout in the abstract.
@@ -121,7 +125,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Set **`full`** for a scout whose skill needs to read arbitrary external sites, e.g. documentation, papers on arxiv.org, or a vendor status page.
   Applies from the scout's next run, and changes are activity-logged.
 - `auto_pause_exempt` — defaults to `false`.
-  A scout whose reports nobody acts on is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
+  A scout whose reports nobody engages with (no open, rating, or action — the cloud web inbox records reads; other clients don't yet) is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout, and marks it exempt so the sweep never overrules a person twice.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.

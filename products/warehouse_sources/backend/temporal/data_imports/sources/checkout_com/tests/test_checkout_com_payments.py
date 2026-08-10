@@ -26,9 +26,10 @@ NOW = "2024-03-01T00:00:00Z"
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: Any = None) -> None:
+    def __init__(self, status_code: int = 200, json_data: Any = None, text: str = "") -> None:
         self.status_code = status_code
         self._json_data = json_data
+        self.text = text
 
     @property
     def ok(self) -> bool:
@@ -167,6 +168,8 @@ class TestPaymentsWindowWalking:
             ("2024-02-29T12:00:00Z", "2024-03-01T00:00:00Z"),
         ]
         assert all(s["json"]["limit"] == 2 and s["auth"] is not None for s in session.searches)
+        # The search endpoint rejects a request without a non-empty `query` as unprocessable.
+        assert all(s["json"]["query"] for s in session.searches)
         # Each completed window checkpoints its end, ascending.
         assert [state.search_window_to for state in manager.saved_states] == [
             "2024-02-29T12:00:00Z",
@@ -174,18 +177,28 @@ class TestPaymentsWindowWalking:
         ]
 
     @pytest.mark.parametrize(
-        "start_date, should_use_incremental_field, last_value, expected_from",
+        "start_date, should_use_incremental_field, last_value, expected_from, expected_search_count",
         [
-            (None, False, None, "2023-03-02T00:00:00Z"),
-            ("2024-01-01", False, None, "2024-01-01T00:00:00Z"),
-            ("2024-01-01", True, "2024-02-01T00:00:00Z", "2024-02-01T00:00:00Z"),
+            # No configured start: the default backfill reaches the ~90-day search horizon,
+            # which fits a single MAX_SEARCH_WINDOW request.
+            (None, False, None, "2023-12-02T00:00:00Z", 1),
+            ("2024-01-01", False, None, "2024-01-01T00:00:00Z", 1),
+            # A start older than the horizon clamps to it; search can't return older payments.
+            ("2023-01-01", False, None, "2023-12-02T00:00:00Z", 1),
+            ("2024-01-01", True, "2024-02-01T00:00:00Z", "2024-02-01T00:00:00Z", 1),
         ],
     )
     @mock.patch(SESSION_PATCH)
     def test_range_start_resolution(
-        self, mock_make_session, start_date, should_use_incremental_field, last_value, expected_from
+        self,
+        mock_make_session,
+        start_date,
+        should_use_incremental_field,
+        last_value,
+        expected_from,
+        expected_search_count,
     ):
-        session = _FakeSession(search_responses=[_search_page([])])
+        session = _FakeSession(search_responses=[_search_page([]) for _ in range(expected_search_count)])
         mock_make_session.side_effect = [session]
 
         rows = _rows(
@@ -198,8 +211,9 @@ class TestPaymentsWindowWalking:
         )
 
         assert rows == []
+        assert len(session.searches) == expected_search_count
         assert session.searches[0]["json"]["from"] == expected_from
-        assert session.searches[0]["json"]["to"] == NOW
+        assert session.searches[-1]["json"]["to"] == NOW
 
     @mock.patch(SESSION_PATCH)
     def test_resume_checkpoint_wins_over_watermark(self, mock_make_session):
@@ -242,6 +256,34 @@ class TestPaymentsWindowWalking:
         assert len(session.searches) == 1
         logger.error.assert_called_once()
 
+    @mock.patch(SESSION_PATCH)
+    def test_search_error_raises_and_logs_response_body(self, mock_make_session):
+        # The 4xx body carries the machine-readable reason (`error_codes`); without it in
+        # the log a rejected request is undiagnosable server-side.
+        session = _FakeSession(
+            search_responses=[
+                _FakeResponse(
+                    status_code=422,
+                    text='{"error_type":"request_invalid","error_codes":["query_required"]}',
+                )
+            ]
+        )
+        mock_make_session.side_effect = [session]
+        logger = mock.MagicMock()
+
+        response = checkout_com_payments_source(
+            environment="production",
+            client_id="ack_id",
+            client_secret="secret",
+            schema_name="payments",
+            logger=logger,
+            resumable_source_manager=_FakeManager(),
+        )
+        with pytest.raises(Exception, match="422"):
+            _rows(response)
+
+        assert "query_required" in logger.error.call_args[0][0]
+
 
 @freeze_time(NOW)
 class TestPaymentActionsFanout:
@@ -261,7 +303,7 @@ class TestPaymentActionsFanout:
         )
         mock_make_session.side_effect = [session]
 
-        rows = _rows(_source("payment_actions"))
+        rows = _rows(_source("payment_actions", start_date="2024-02-28"))
 
         assert rows == [
             {
@@ -305,6 +347,7 @@ class TestPaymentActionsFanout:
             schema_name="payment_actions",
             logger=logger,
             resumable_source_manager=manager,
+            start_date="2024-02-28",
         )
         rows = _rows(response)
 
@@ -340,7 +383,7 @@ class TestReferencedRecordFanout:
         )
         mock_make_session.side_effect = [session]
 
-        rows = _rows(_source(schema_name))
+        rows = _rows(_source(schema_name, start_date="2024-02-28"))
 
         assert rows == [{"id": record_id, "payment_requested_on": "2024-02-29T06:00:00Z"}]
         assert [lookup["url"] for lookup in session.lookups] == [url]
@@ -358,7 +401,7 @@ class TestReferencedRecordFanout:
         mock_make_session.side_effect = [session]
         manager = _FakeManager()
 
-        rows = _rows(_source("customers", manager=manager))
+        rows = _rows(_source("customers", manager=manager, start_date="2024-02-28"))
 
         assert [row["id"] for row in rows] == ["cus_2"]
         # A deleted record doesn't fail the window; it still checkpoints.
