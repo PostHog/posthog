@@ -86,8 +86,6 @@ export class PersonHogPersonOperations {
             return []
         }
 
-        // Eventual by construction — strong resolves use the identity service.
-        const readOptions = eventualReadOptions()
         const results: InternalPersonWithDistinctId[] = []
         for (let i = 0; i < teamPersons.length; i += PERSONHOG_BATCH_SIZE) {
             const batch = teamPersons.slice(i, i + PERSONHOG_BATCH_SIZE)
@@ -99,7 +97,7 @@ export class PersonHogPersonOperations {
                             distinctId,
                         })
                     ),
-                    readOptions,
+                    readOptions: eventualReadOptions(),
                 }),
                 callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )
@@ -148,18 +146,24 @@ export class PersonHogPersonOperations {
     }
 
     /**
-     * Person state by id, strong: the router sends strong GetPerson to the
-     * partition's leader, whose cache is the write-path authority — the
-     * primary lags it by writer apply lag. Returns null for a person that
-     * does not exist (deleted, or merged away).
+     * Person state by id. Eventual reads go to the replica; strong reads are
+     * routed to the partition's leader, whose cache is the write-path
+     * authority — the primary lags it by writer apply lag, so a caller that
+     * must observe its own writes asks for strong. Returns null for a person
+     * that does not exist (deleted, or merged away).
      */
-    async fetchPersonById(teamId: number, personId: string, callerTag?: string): Promise<InternalPerson | null> {
+    async fetchPersonById(
+        teamId: number,
+        personId: string,
+        callerTag?: string,
+        options?: { consistency?: 'strong' | 'eventual' }
+    ): Promise<InternalPerson | null> {
         try {
             const response = await this.client.getPerson(
                 create(GetPersonRequestSchema, {
                     teamId: BigInt(teamId),
                     personId: BigInt(personId),
-                    readOptions: strongReadOptions(),
+                    readOptions: options?.consistency === 'strong' ? strongReadOptions() : eventualReadOptions(),
                 }),
                 callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )

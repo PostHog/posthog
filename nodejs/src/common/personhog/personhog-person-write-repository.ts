@@ -57,7 +57,9 @@ export class PersonHogPersonWriteRepository {
         return withRetry(
             () =>
                 timedGrpc(this.clientLabel, method, () =>
-                    this.grpcClient.persons.fetchPersonById(teamId, personId, callerTag)
+                    this.grpcClient.persons.fetchPersonById(teamId, personId, callerTag, {
+                        consistency: 'strong',
+                    })
                 ),
             this.clientLabel,
             method
