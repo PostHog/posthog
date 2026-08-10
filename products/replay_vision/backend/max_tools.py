@@ -280,7 +280,6 @@ class DraftReplayVisionScannerPromptTool(ReplayVisionGatesMixin, MaxTool):
         return [("session_recording", "editor")]
 
     async def _arun_impl(self, prompt: str, scanner_type: str | None = None) -> tuple[str, dict[str, Any]]:
-
         cleaned = prompt.strip()
         if not cleaned:
             return "No prompt to apply. Please provide the drafted prompt text.", {"error": "empty_prompt"}
@@ -859,7 +858,6 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
         scanner_id: str | None = None,
         scanner_type: str = "monitor",
     ) -> tuple[str, dict[str, Any]]:
-        consent = await self._consent_given()
         sessions = _dedup(session_ids)
         if not sessions:
             return "No session ids to scan.", {"error": "no_sessions"}
@@ -869,7 +867,7 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
                 "Narrow the selection and try again.",
                 {"error": "too_many_sessions"},
             )
-        if not consent:
+        if not await self._consent_given():
             return self._no_ai_consent()
         return await self._start_scan(sessions, prompt, scanner_id, scanner_type)
 
@@ -1007,8 +1005,7 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
         return f"**Scan recording {observation.session_id} again**, replacing the failed result. This spends {spend}"
 
     async def _arun_impl(self, observation_id: str) -> tuple[str, dict[str, Any]]:
-        consent = await self._consent_given()
-        if not consent:
+        if not await self._consent_given():
             return self._no_ai_consent()
         return await self._retry(observation_id)
 
@@ -1198,10 +1195,9 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scale_max: float | None = None,
         length: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        consent = await self._consent_given()
         # Not gated on `enabled`: the serializer refuses to create either kind without consent, so
         # checking only for enabled ones turned the disabled path into an unhandled exception.
-        if not consent:
+        if not await self._consent_given():
             return self._no_ai_consent()
         return await self._create(
             name, prompt, scanner_type, sampling_rate, enabled, tags, scale_min, scale_max, length
@@ -1315,8 +1311,6 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
     async def _arun_impl(
         self, scanner_id: str, name: str, cadence: str = "daily", focus: str | None = None
     ) -> tuple[str, dict[str, Any]]:
-        # Actions sit behind their own flag, and the API 404s without it. Checking only the product flag
-        # would let Max create a scheduled job on a project that can't see or manage it.
         return await self._create(scanner_id, name, cadence, focus)
 
     @database_sync_to_async
@@ -1463,9 +1457,8 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         prompt: str | None = None,
         sampling_rate: float | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        consent = await self._consent_given()
         # The serializer refuses to enable without consent, so answer rather than raise.
-        if enabled is True and not consent:
+        if enabled is True and not await self._consent_given():
             return self._no_ai_consent()
         return await self._update(scanner_id, enabled, name, prompt, sampling_rate)
 
@@ -2005,8 +1998,7 @@ class RunReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         )
 
     async def _arun_impl(self, action_id: str) -> tuple[str, dict[str, Any]]:
-        consent = await self._consent_given()
-        if not consent:
+        if not await self._consent_given():
             return self._no_ai_consent()
         return await self._run_now(action_id)
 

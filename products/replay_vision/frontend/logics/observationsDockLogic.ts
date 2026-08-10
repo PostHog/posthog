@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { metricCount } from 'lib/operationalMetrics'
 import { teamLogic } from 'scenes/teamLogic'
@@ -224,6 +225,18 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.loadObservations
             )
         }
+        // Shared by every dock trigger: show the row that is coming, and re-read the quota the scan spent.
+        // Only call this when a scan actually started, or the poll window opens for work that will never land.
+        const afterScanStarted = (): void => {
+            actions.setDockOpen(true)
+            actions.loadObservations()
+            refreshVisionQuota()
+        }
+        const reportTriggerFailure = (error: unknown, metric: string, message: string): void => {
+            metricCount(metric)
+            const detail = error instanceof ApiError && error.detail ? `: ${error.detail}` : ''
+            lemonToast.error(`${message}${detail}`)
+        }
         return {
             loadObservations: async (_, breakpoint) => {
                 // Poll, observe, retry, and the SSE hook all call this; without it a slow earlier response
@@ -272,14 +285,15 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
                     lemonToast.success('Observation started')
                     actions.observeSuccess()
-                    actions.setDockOpen(true)
-                    actions.loadObservations()
-                    refreshVisionQuota()
-                } catch (error: any) {
+                    afterScanStarted()
+                } catch (error) {
                     // Counted here rather than on observeFailure, which also fires for benign
                     // paths (scanner already run, no team) that would pollute the failure rate.
-                    metricCount('replay_vision_frontend_observe_failures')
-                    lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
+                    reportTriggerFailure(
+                        error,
+                        'replay_vision_frontend_observe_failures',
+                        'Failed to start observation'
+                    )
                     actions.observeFailure()
                 } finally {
                     cache.observeInFlight = false
@@ -305,15 +319,24 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     })
                     // One session in, so one result out. The inline scanner is shared per project, so a
                     // recording somebody already summarized comes back settled instead of started.
-                    const { level, message } = summarizeOutcomeMessage(response.results?.[0]?.scan_outcome)
+                    const outcome = response.results?.[0]?.scan_outcome
+                    const { level, message } = summarizeOutcomeMessage(outcome)
                     lemonToast[level](message)
-                    actions.summarizeSuccess()
-                    actions.setDockOpen(true)
-                    actions.loadObservations()
-                    refreshVisionQuota()
-                } catch (error: any) {
-                    metricCount('replay_vision_frontend_summarize_failures')
-                    lemonToast.error(`Failed to summarize recording${error.detail ? `: ${error.detail}` : ''}`)
+                    if (outcome === 'started') {
+                        actions.summarizeSuccess()
+                        afterScanStarted()
+                    } else {
+                        // Nothing started, so the poll window would watch for a row that never arrives.
+                        // An existing summary is already in the list, so still open the dock to show it.
+                        actions.summarizeFailure()
+                        actions.setDockOpen(true)
+                    }
+                } catch (error) {
+                    reportTriggerFailure(
+                        error,
+                        'replay_vision_frontend_summarize_failures',
+                        'Failed to summarize recording'
+                    )
                     actions.summarizeFailure()
                 } finally {
                     cache.summarizeInFlight = false

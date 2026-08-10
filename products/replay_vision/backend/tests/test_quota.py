@@ -34,9 +34,6 @@ class _VisionQuotaTestCase(APIBaseTest):
             model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
-    def tearDown(self) -> None:
-        super().tearDown()
-
     def _make_observation(
         self,
         *,

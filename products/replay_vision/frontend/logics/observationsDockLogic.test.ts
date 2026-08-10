@@ -41,7 +41,14 @@ describe('observationsDockLogic', () => {
                     await new Promise<void>((resolve) => {
                         releaseInlineScan = resolve
                     })
-                    return [202, { scan_id: 'scanner-x', started: 1, results: [] }]
+                    return [
+                        202,
+                        {
+                            scan_id: 'scanner-x',
+                            started: 1,
+                            results: [{ session_id: 'sess-1', scan_outcome: 'started' }],
+                        },
+                    ]
                 },
             },
         })

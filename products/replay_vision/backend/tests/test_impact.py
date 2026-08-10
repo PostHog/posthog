@@ -21,12 +21,6 @@ from products.replay_vision.backend.tests.helpers import snapshot_for as _snapsh
 
 
 class _ImpactTestCase(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-
-    def tearDown(self) -> None:
-        super().tearDown()
-
     def _make_scanner(self, scanner_type: ScannerType = ScannerType.MONITOR) -> ReplayScanner:
         return ReplayScanner.objects.create(
             team=self.team,

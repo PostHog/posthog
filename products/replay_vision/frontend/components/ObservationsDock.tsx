@@ -110,8 +110,9 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
 
 /** One-click summary: an inline summarizer scan, so it needs no saved scanner. */
 function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
-    const { summarizing } = useValues(observationsDockLogic({ sessionId }))
-    const { summarize } = useActions(observationsDockLogic({ sessionId }))
+    const logic = observationsDockLogic({ sessionId })
+    const { summarizing } = useValues(logic)
+    const { summarize } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
 
