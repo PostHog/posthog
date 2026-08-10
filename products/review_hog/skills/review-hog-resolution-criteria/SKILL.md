@@ -43,6 +43,9 @@ declined thread with a clear reason is a good outcome, not a failure.
   area's existing tests. Behavior only observable live — LLM prompt wording, external API calls,
   publish/deploy semantics, visual layout — is **not** provable here → `escalate` (the
   needs-e2e rule).
+- **Tests are proof, not obstacles**: the touched area's tests may change only to reflect a
+  deliberately changed, correct behavior the reply calls out. Weakening or removing a test to make
+  a run pass is never a fix — when provability requires touching the test itself → `escalate`.
 - **Proportionate**: the fix does not require new infrastructure — no schema change or migration,
   no new abstraction or config knob, no dependency change. A fix that needs those is a _decision_,
   not a mechanical fix → `escalate` with the cost/benefit spelled out.

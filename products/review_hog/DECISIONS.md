@@ -3009,6 +3009,13 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    can't hide behind clean-looking summaries (the reply persists first, so redelivery still only redoes the
    resolve). **Outer paging cap** — `fetch_unresolved_threads` fails closed past 20 thread pages (2000
    threads), the same posture as the comment-tail cap and stamphog's identical query.
+   _Same date (prompt tightenings, maintainer decision — verified by the next live run on this PR):_ two
+   wording holes in the resolution prompt's safety text closed. **Tests are proof, not obstacles** — step 3
+   and the criteria skill now forbid weakening/loosening/deleting a test to make a run pass (tests change only
+   for deliberately changed behavior the reply calls out; provability requiring a test edit → `escalate`), and
+   **the security-code floor is absolute** — the "on comment guidance alone" qualifier was removable by the
+   agent's own mandated investigation ("I verified it myself, so the floor doesn't apply"); security-sensitive
+   code is now always `escalate`, regardless of who asked or what the investigation concluded.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on
