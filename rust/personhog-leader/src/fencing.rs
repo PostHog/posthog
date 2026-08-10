@@ -30,7 +30,7 @@ use std::{fmt, mem};
 
 use common_kafka::config::KafkaConfig;
 use common_kafka::transaction::{ConnectedTransactionalProducer, TransactionalProducer};
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
 use rdkafka::client::ClientContext;
@@ -135,19 +135,6 @@ struct Gate {
 /// last, which is rarer than the common case this moves.
 fn drop_fence_off_worker(fence: Arc<PartitionFence>) {
     tokio::task::spawn_blocking(move || drop(fence));
-}
-
-/// Clears a partition's preconnect-in-flight mark on drop, so the mark
-/// cannot outlive the preconnect that set it.
-struct ClearPreconnecting<'a> {
-    set: &'a DashSet<u32>,
-    partition: u32,
-}
-
-impl Drop for ClearPreconnecting<'_> {
-    fn drop(&mut self) {
-        self.set.remove(&self.partition);
-    }
 }
 
 struct PartitionFence {
@@ -452,11 +439,7 @@ pub struct FencedChangelogProducers {
     /// transactional state, so it can run ahead of the authority
     /// transition; `init_transactions` — the fencing action — still
     /// happens only inside `acquire`.
-    prepared: DashMap<u32, (Instant, ConnectedTransactionalProducer)>,
-    /// Partitions with a preconnect in flight, so converging repeatedly
-    /// through the pending-ownership window builds one client, not one
-    /// per convergence.
-    preconnecting: DashSet<u32>,
+    prepared: DashMap<u32, ConnectedTransactionalProducer>,
     /// Outcomes a test stages for the next produce on a partition.
     ///
     /// The uncertain outcomes need a broker fault landing inside a
@@ -504,7 +487,6 @@ impl FencedChangelogProducers {
             partitions: DashMap::new(),
             repair_nudge: None,
             prepared: DashMap::new(),
-            preconnecting: DashSet::new(),
             #[cfg(any(test, feature = "test-support"))]
             staged_failures: DashMap::new(),
         }
@@ -533,7 +515,7 @@ impl FencedChangelogProducers {
         // discards it.
         let mut path = "cold";
         let mut producer = None;
-        if let Some((_, (_, connected))) = self.prepared.remove(&partition) {
+        if let Some((_, connected)) = self.prepared.remove(&partition) {
             // Every failure shape of the parked client falls through to
             // the cold path — including its init task dying — because
             // the cold path is exactly the retry that replaces it.
@@ -644,25 +626,13 @@ impl FencedChangelogProducers {
     /// acquire that follows pays only the init round trip. Runs the
     /// connection on the blocking pool and parks it; a failure is only
     /// logged and counted, because the cold acquire path covers it. At
-    /// most one parked connection per partition — a racing duplicate is
-    /// discarded.
+    /// most one parked connection survives per partition — concurrent
+    /// preconnects are possible through the pending-ownership window,
+    /// and the loser is discarded and counted.
     pub async fn preconnect(&self, partition: u32) {
-        if !self.preconnecting.insert(partition) {
-            return;
-        }
-        // Checked under the guard, so two racing preconnects cannot both
-        // observe an empty slot and both build a client.
         if self.prepared.contains_key(&partition) {
-            self.preconnecting.remove(&partition);
             return;
         }
-        // Cleared however this future ends — completing, or dropped by a
-        // torn-down caller — so one abandoned preconnect cannot block
-        // the partition's preconnects for the life of the process.
-        let _clear = ClearPreconnecting {
-            set: &self.preconnecting,
-            partition,
-        };
         let kafka = self.kafka.clone();
         let tid = transactional_id(&self.topic, partition);
         let timeout = self.init_timeout;
@@ -679,27 +649,10 @@ impl FencedChangelogProducers {
         .await;
         match connected {
             Ok(Ok(connected)) => {
-                // The acquire this connect was racing may have already
-                // won cold; a partition serving on a usable fence has no
-                // consumer for a parked connection, and parking one
-                // anyway leaves it idling for the whole ownership
-                // tenure.
-                let serving = self
-                    .partitions
-                    .get(&partition)
-                    .is_some_and(|fence| fence.is_usable());
-                if serving {
-                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "superseded")
-                        .increment(1);
-                    spawn_blocking(move || drop(connected));
-                    return;
-                }
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "ok").increment(1);
                 histogram!("personhog_leader_fence_preconnect_ms")
                     .record(start.elapsed().as_secs_f64() * 1000.0);
-                if let Some((_, displaced)) =
-                    self.prepared.insert(partition, (Instant::now(), connected))
-                {
+                if let Some(displaced) = self.prepared.insert(partition, connected) {
                     // A racing preconnect parked first; one connection is
                     // as good as the other, keep the newer.
                     counter!("personhog_leader_fence_preconnect_total", "outcome" => "duplicate")
@@ -723,26 +676,24 @@ impl FencedChangelogProducers {
     /// Drop a parked connection on the blocking pool — librdkafka's
     /// client teardown blocks, same as a full fence's.
     fn discard_prepared(&self, partition: u32) {
-        if let Some((_, (_, connected))) = self.prepared.remove(&partition) {
+        if let Some((_, connected)) = self.prepared.remove(&partition) {
             spawn_blocking(move || drop(connected));
         }
     }
 
-    /// Discard parked connections older than `max_age` and publish the
-    /// map's size. A connection is normally consumed within a drain
-    /// window; one that outlives `max_age` belongs to an acquire that
-    /// went cold first or to a cancelled inbound handoff — and a
-    /// cancelled inbound handoff leaves no convergence behind to notice
-    /// it, so a periodic sweep is the only owner its lifetime has.
-    pub fn sweep_prepared(&self, max_age: Duration) {
-        let stale: Vec<u32> = self
-            .prepared
-            .iter()
-            .filter(|entry| entry.value().0.elapsed() > max_age)
-            .map(|entry| *entry.key())
-            .collect();
-        for partition in stale {
-            if let Some((_, (_, connected))) = self.prepared.remove(&partition) {
+    /// Discard every parked connection. A connection is normally
+    /// consumed within its drain window, seconds after parking; one
+    /// still here at the periodic sweep belongs to an acquire that went
+    /// cold first or to a cancelled inbound handoff — and a cancelled
+    /// inbound handoff leaves no convergence behind to notice it, so
+    /// the sweep is the only owner its lifetime has. A drain window
+    /// that happens to straddle the sweep tick loses its head start and
+    /// acquires cold, which is the behavior this whole path improves on
+    /// rather than a failure.
+    pub fn sweep_prepared(&self) {
+        let parked: Vec<u32> = self.prepared.iter().map(|entry| *entry.key()).collect();
+        for partition in parked {
+            if let Some((_, connected)) = self.prepared.remove(&partition) {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "swept")
                     .increment(1);
                 warn!(
@@ -752,22 +703,12 @@ impl FencedChangelogProducers {
                 spawn_blocking(move || drop(connected));
             }
         }
-        metrics::gauge!("personhog_leader_fence_prepared_connections")
-            .set(self.prepared.len() as f64);
     }
 
     /// Whether a parked connection exists for the partition.
     #[cfg(any(test, feature = "test-support"))]
     pub fn has_prepared(&self, partition: u32) -> bool {
         self.prepared.contains_key(&partition)
-    }
-
-    /// Backdate a parked connection, so sweep tests need no real clock.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn age_prepared_for_test(&self, partition: u32, age: Duration) {
-        if let Some(mut entry) = self.prepared.get_mut(&partition) {
-            entry.0 = Instant::now() - age;
-        }
     }
 
     /// Whether this pod holds a *usable* fence for the partition.
@@ -1585,14 +1526,7 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_failed_total").increment(0);
-    for outcome in [
-        "ok",
-        "error",
-        "duplicate",
-        "superseded",
-        "swept",
-        "init_failed",
-    ] {
+    for outcome in ["ok", "error", "duplicate", "swept", "init_failed"] {
         counter!("personhog_leader_fence_preconnect_total", "outcome" => outcome).increment(0);
     }
     // The healing counters fire exactly during the incidents an operator

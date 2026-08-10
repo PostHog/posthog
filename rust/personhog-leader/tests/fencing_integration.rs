@@ -146,22 +146,17 @@ async fn a_prepared_connection_still_fences_the_previous_owner() {
 /// cancelled inbound handoff leaves no convergence behind to discard it,
 /// so the periodic sweep is the only owner its lifetime has.
 #[tokio::test]
-async fn the_sweep_discards_only_stale_parked_connections() {
+async fn the_sweep_discards_parked_connections() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
     let producers = fenced_producers(&topic);
     producers.preconnect(6).await;
-    producers.preconnect(7).await;
-    producers.age_prepared_for_test(6, Duration::from_secs(120));
+    assert!(producers.has_prepared(6), "preconnect parks a connection");
 
-    producers.sweep_prepared(Duration::from_secs(60));
+    producers.sweep_prepared();
 
     assert!(
         !producers.has_prepared(6),
-        "a connection past the age bound must be swept"
-    );
-    assert!(
-        producers.has_prepared(7),
-        "a fresh connection must survive the sweep"
+        "the sweep must discard a parked connection"
     );
 }
 

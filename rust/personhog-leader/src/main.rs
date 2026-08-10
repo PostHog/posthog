@@ -603,9 +603,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sweep_idle_locks(&sweep_locks);
             sweep_warnings.sweep_throttle();
             if let Some(fenced) = &sweep_fenced {
-                // Far beyond any drain window, so a connection about to
-                // be consumed is never swept out from under its acquire.
-                fenced.sweep_prepared(Duration::from_secs(60));
+                fenced.sweep_prepared();
             }
         }
     });
