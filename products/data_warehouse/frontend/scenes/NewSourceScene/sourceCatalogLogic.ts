@@ -724,6 +724,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Imagga'
                       | 'ImfData'
                       | 'Impact'
+                      | 'ImpactPartner'
                       | 'Imperva'
                       | 'IncidentIo'
                       | 'Infisical'

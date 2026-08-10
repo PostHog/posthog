@@ -1364,3 +1364,33 @@ class TestOrganizationRequestAIAccessAPI(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS, second.content
         # Only the first request reached the task.
         mock_task.delay.assert_called_once()
+
+
+class TestOrganizationDataFreshnessAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.other_organization = Organization.objects.create(name="Other org")
+        self.other_team = Team.objects.create(organization=self.other_organization, name="Other team")
+        self.user.join(organization=self.other_organization, level=OrganizationMembership.Level.MEMBER)
+        # Joining recomputes available features, so grant access control only once the user is in
+        self.other_organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.other_organization.save()
+
+    @patch("posthog.api.organization.get_organization_data_freshness")
+    def test_access_control_applies_to_the_requested_organization_not_the_current_one(self, mock_freshness):
+        mock_freshness.return_value = []
+        # Admin here, plain member in the organization actually being requested
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.other_team, resource="project", resource_id=str(self.other_team.id), access_level="none"
+        )
+
+        response = self.client.get(f"/api/organizations/{self.other_organization.id}/teams/data_freshness")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_freshness.assert_called_once()
+        assert [team.id for team in mock_freshness.call_args.args[1]] == []

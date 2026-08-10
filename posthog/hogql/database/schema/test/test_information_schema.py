@@ -245,6 +245,8 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         [
             ("person_id", "UUID"),
             ("event_issue_id", "UUID"),
+            ("issue_id", "UUID"),
+            ("issue_id_v2", "UUID"),
             ("issue_first_seen", "DateTime"),
             ("$virt_is_bot", "Boolean"),
         ]

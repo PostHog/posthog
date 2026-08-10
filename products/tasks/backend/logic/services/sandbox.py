@@ -488,6 +488,9 @@ class SandboxBase(ABC):
     def create_directory_snapshot(self, path: str) -> str: ...
 
     @abstractmethod
+    def prune_snapshot_heavy_dirs(self, path: str) -> None: ...
+
+    @abstractmethod
     def destroy(self) -> None: ...
 
     @abstractmethod

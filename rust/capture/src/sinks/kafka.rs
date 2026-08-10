@@ -20,6 +20,7 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::ordering::{person_ordering, OrderingGuarantee};
+use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Output, OutputRegistry};
 use crate::sinks::Event;
@@ -39,9 +40,8 @@ use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
     /// Lifecycle handle this producer reports liveness to. `None` for a producer
-    /// whose health must not gate the pod (e.g. the non-critical side of a
-    /// `SplitKafkaSink`) — it still produces and emits metrics, it just doesn't
-    /// drive a manager component.
+    /// whose health must not gate the pod — it still produces and emits
+    /// metrics, it just doesn't drive a manager component.
     liveness: Option<lifecycle::Handle>,
 }
 
@@ -834,32 +834,23 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
-        let json = serde_json::to_string(&event).map_err(|e| {
-            error!("failed to serialize event: {e:#}");
+        // Encoding is resolved by data_type, not by the routed destination:
+        // session replay gets the lz4 envelope when configured, everything
+        // else the plain JSON contract — so a replay event redirected to the
+        // DLQ or a custom topic keeps the envelope, with its content-encoding
+        // header travelling along. See `crate::serialization` for the formats,
+        // the envelope byte layout, and the coexistence story.
+        let serializer = match (metadata.data_type, self.replay_envelope_compression) {
+            (DataType::SnapshotMain, EnvelopeCompression::Lz4) => Serializer::JSON_LZ4,
+            _ => Serializer::JSON,
+        };
+        let payload = serializer.serialize(&event).map_err(|e| {
+            error!(
+                "failed to serialize {} event payload: {e:#}",
+                metadata.event_name
+            );
             CaptureError::NonRetryableSinkError
         })?;
-
-        // Apply envelope-level compression for session replay when configured.
-        // Block format is used with a 4-byte LE uncompressed-size prefix so
-        // consumers can decompress without needing to inspect magic bytes —
-        // the `content-encoding` Kafka header signals that decompression is
-        // required. This allows compressed and uncompressed messages to coexist
-        // during rollout and rollback.
-        let payload = match (metadata.data_type, self.replay_envelope_compression) {
-            (DataType::SnapshotMain, EnvelopeCompression::Lz4) => {
-                let json_bytes = json.as_bytes();
-                let compressed = lz4::block::compress(json_bytes, None, false).map_err(|e| {
-                    error!("failed to LZ4-compress payload: {e:#}");
-                    CaptureError::NonRetryableSinkError
-                })?;
-                let uncompressed_len = json_bytes.len() as u32;
-                let mut payload = Vec::with_capacity(4 + compressed.len());
-                payload.extend_from_slice(&uncompressed_len.to_le_bytes());
-                payload.extend_from_slice(&compressed);
-                payload
-            }
-            _ => json.into_bytes(),
-        };
 
         let event_key = event.key();
 
@@ -926,10 +917,8 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             _ => {}
         }
 
-        if matches!(self.replay_envelope_compression, EnvelopeCompression::Lz4)
-            && matches!(metadata.data_type, DataType::SnapshotMain)
-        {
-            headers.set_content_encoding("lz4".to_string());
+        if let Some(encoding) = serializer.content_encoding() {
+            headers.set_content_encoding(encoding.to_string());
         }
 
         Ok(ProduceRecord {
@@ -1201,7 +1190,7 @@ mod tests {
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
             outputs_completeness_check_enabled: true,
-            capture_analytics_ai_events_topic: None,
+            capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
             capture_analytics_ai_events_overflow_topic: None,
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
@@ -2874,45 +2863,6 @@ mod tests {
                 format!("{:?}", records[0].headers),
                 format!("{:?}", records[1].headers)
             );
-        }
-
-        #[tokio::test]
-        async fn ai_events_missing_topic_falls_back_to_main() {
-            // Should be impossible in production (startup validation), but a
-            // misconfigured sink must degrade to the main topic, not error.
-            let producer = MockKafkaProducer::new();
-            let mut topics = test_topics();
-            topics.ai_events = None;
-            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
-
-            let input = EventInput {
-                data_type: DataType::AiEvents,
-                ..Default::default()
-            };
-            sink.send(create_test_event(&input)).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, MAIN_TOPIC);
-            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
-        }
-
-        #[tokio::test]
-        async fn ai_events_empty_topic_falls_back_to_main() {
-            let producer = MockKafkaProducer::new();
-            let mut topics = test_topics();
-            topics.ai_events = Some(String::new());
-            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
-
-            let input = EventInput {
-                data_type: DataType::AiEvents,
-                ..Default::default()
-            };
-            sink.send(create_test_event(&input)).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
         // ==================== RedirectToTopic ====================

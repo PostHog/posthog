@@ -8,7 +8,9 @@ use personhog_proto::personhog::{
         GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
     },
     types::v1::{
-        ConsistencyLevel, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+        ConsistencyLevel, FencePersonRequest, FencePersonResponse, LifecycleOpType, Person,
+        ReleaseFenceRequest, ReleaseOutcome, UpdatePersonPropertiesRequest,
+        UpdatePersonPropertiesResponse,
     },
 };
 use tonic::transport::Channel;
@@ -41,6 +43,46 @@ impl HarnessClient {
             .context("GetPerson failed")
     }
 
+    /// Fence a person for a delete op, returning the sealed version.
+    pub async fn fence_person(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        op_id: &uuid::Uuid,
+    ) -> Result<FencePersonResponse> {
+        self.inner
+            .fence_person(FencePersonRequest {
+                team_id,
+                person_id,
+                op_id: op_id.to_string(),
+                op_type: LifecycleOpType::Delete.into(),
+            })
+            .await
+            .context("FencePerson failed")
+    }
+
+    /// Release a fence with the aborted outcome: the person resumes life.
+    pub async fn release_fence_aborted(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        op_id: &uuid::Uuid,
+    ) -> Result<()> {
+        self.inner
+            .release_fence(ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid: String::new(),
+                op_id: op_id.to_string(),
+                outcome: ReleaseOutcome::Aborted.into(),
+                sealed_version: None,
+                created_at: 0,
+            })
+            .await
+            .context("ReleaseFence failed")?;
+        Ok(())
+    }
+
     pub async fn update_properties(
         &self,
         team_id: i64,
@@ -57,6 +99,8 @@ impl HarnessClient {
                 set_properties: serde_json::to_vec(&set_properties)?,
                 set_once_properties: serde_json::to_vec(&set_once_properties)?,
                 unset_properties,
+                is_identified: None,
+                last_seen_at: None,
             })
             .await
             .context("UpdatePersonProperties failed")

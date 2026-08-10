@@ -109,7 +109,7 @@ CUSTOM_IMAGE_BUILD_TOTAL = Counter(
 DEV_STACK_IMAGE_BAKE_TOTAL = Counter(
     "posthog_tasks_dev_stack_image_bake_total",
     "Prebaked dev-stack VM image bake lifecycle events",
-    labelnames=["outcome"],
+    labelnames=["outcome", "region", "trigger"],
 )
 
 
@@ -189,6 +189,12 @@ PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
     labelnames=["kind", "reason"],
+)
+
+PUSH_DISPATCHER_OUTCOMES_TOTAL = Counter(
+    "posthog_tasks_push_dispatcher_outcomes_total",
+    "Push-notification dispatcher decisions before the Celery delivery task",
+    labelnames=["kind", "outcome"],
 )
 
 # reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked
@@ -292,11 +298,17 @@ def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
         logger.exception("custom_image_build_metric_failed", outcome=outcome)
 
 
-def observe_dev_stack_image_bake(outcome: DevStackImageBakeOutcome) -> None:
+def observe_dev_stack_image_bake(outcome: DevStackImageBakeOutcome, *, trigger: str) -> None:
     try:
-        DEV_STACK_IMAGE_BAKE_TOTAL.labels(outcome=outcome).inc()
+        from posthog.utils import get_instance_region  # noqa: PLC0415
+
+        DEV_STACK_IMAGE_BAKE_TOTAL.labels(
+            outcome=outcome,
+            region=get_instance_region() or "unknown",
+            trigger=trigger,
+        ).inc()
     except Exception:
-        logger.exception("dev_stack_image_bake_metric_failed", outcome=outcome)
+        logger.exception("dev_stack_image_bake_metric_failed", outcome=outcome, trigger=trigger)
 
 
 def origin_product_label(task_run: "TaskRun | None") -> str:
