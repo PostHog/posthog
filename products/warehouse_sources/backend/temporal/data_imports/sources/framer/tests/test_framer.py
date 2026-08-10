@@ -38,6 +38,7 @@ class FakeFramerServer:
         self.methods = methods or {}
         self.sent: list[Any] = []
         self.closed = False
+        self.auto_respond = True
         self.incoming: deque[str] = deque()
         ready = ready_message if ready_message is not None else {"type": "ready", "requestId": "req-1"}
         if graceful_disconnect:
@@ -55,6 +56,8 @@ class FakeFramerServer:
     def send(self, text: str) -> None:
         message = devalue.parse(text)
         self.sent.append(message)
+        if not self.auto_respond:
+            return
         if message.get("type") == "pluginReadySignal":
             self.incoming.append(devalue.stringify({"type": "pluginReadyResponse", "mode": "api"}))
         elif message.get("type") == "methodInvocation":
@@ -232,7 +235,7 @@ class TestFramer:
         client = make_client(server)
         server.enqueue_raw(devalue.stringify({"type": "methodResponse", "id": 0, "error": "Node not found"}))
         # Disable the auto-responder so the queued error response is the one consumed.
-        server.send = lambda text: server.sent.append(devalue.parse(text))  # type: ignore[method-assign]
+        server.auto_respond = False
         with pytest.raises(FramerAPIError) as exc_info:
             client.call("getNode")
         assert "Node not found" in str(exc_info.value)
@@ -248,7 +251,7 @@ class TestFramer:
         client = make_client(server)
         full = devalue.stringify({"type": "methodResponse", "id": 0, "result": [{"id": "big"}]})
         middle = len(full) // 2
-        server.send = lambda text: server.sent.append(devalue.parse(text))  # type: ignore[method-assign]
+        server.auto_respond = False
         server.enqueue_raw(json.dumps({"$chunk": 1, "id": "c1", "seq": 0, "data": full[:middle]}))
         server.enqueue_raw(json.dumps({"$chunk": 1, "id": "c1", "seq": -1, "data": full[middle:]}))
         assert client.call("getCollections") == [{"id": "big"}]
