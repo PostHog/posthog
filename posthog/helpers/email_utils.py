@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-
 _URL_SCHEME_RE = re.compile(
     r"[a-z][a-z0-9+.\-]*://"
     r"|\b(?:javascript|data|vbscript|file|ftp|mailto|tel|sms):"
@@ -40,10 +39,10 @@ _BARE_DOMAIN_RE = re.compile(
     r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b",
     re.IGNORECASE,
 )
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f  ]")
-_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f  ]")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
+_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]")
 _BRACKET_RE = re.compile(r"[<>]")
-_INVISIBLE_CHAR_RE = re.compile(r"[​-‏‪-‮⁦-⁩﻿]")
+_INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
 _URL_ERROR = "URLs are not allowed in this field."
 _CONTROL_ERROR = "Line breaks and control characters are not allowed in this field."
@@ -55,7 +54,7 @@ def _check_shared(value: str) -> None:
     """
     Run the checks shared between display names and message bodies against an
     NFKC-normalized copy of `value`. Normalization folds fullwidth / compat
-    variants (e.g. `ｈｔｔｐ：／／` → `http://`) before regex matching.
+    variants (e.g. `ｈｔｔｐ：／／` \u2192 `http://`) before regex matching.
     """
     normalized = unicodedata.normalize("NFKC", value)
     if _INVISIBLE_CHAR_RE.search(normalized):
@@ -193,7 +192,6 @@ sanitize_message_body = partial(
     log_event="email_utils.message_body_sanitized",
     fallback="",
 )
-
 
 # Zero-width space inserted after `.` and `:` to break auto-link patterns.
 # We previously used `&#46;` / `&#58;` HTML entities, but Customer.io's
