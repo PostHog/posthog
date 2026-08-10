@@ -7,7 +7,7 @@ from django.shortcuts import redirect
 import requests
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -91,6 +91,45 @@ class BillingSerializer(serializers.Serializer):
     billing_limit = serializers.IntegerField()
 
 
+@extend_schema_serializer(many=False)
+class BillingOverviewResponseSerializer(serializers.Serializer):
+    customer_id = serializers.IntegerField(required=False, allow_null=True)
+    billing_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    subscription_level = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    has_active_subscription = serializers.BooleanField(required=False)
+    deactivated = serializers.BooleanField(required=False)
+    is_annual_plan_customer = serializers.BooleanField(required=False)
+    free_trial_until = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    current_total_amount_usd = serializers.FloatField(required=False)
+    current_total_amount_usd_after_discount = serializers.FloatField(required=False)
+    projected_total_amount_usd = serializers.FloatField(required=False)
+    projected_total_amount_usd_after_discount = serializers.FloatField(required=False)
+    projected_total_amount_usd_with_limit = serializers.FloatField(required=False)
+    projected_total_amount_usd_with_limit_after_discount = serializers.FloatField(required=False)
+    discount_amount_usd = serializers.FloatField(required=False)
+    discount_percent = serializers.FloatField(required=False)
+    amount_off_expires_at = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    startup_program_label = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    startup_program_label_previous = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    stripe_portal_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    external_billing_provider_invoices_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    products = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField(allow_null=True)),
+        required=False,
+        help_text="Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata.",
+    )
+    available_product_features = serializers.ListField(child=serializers.CharField(), required=False)
+    usage_summary = serializers.JSONField(required=False)
+    billing_period = serializers.JSONField(required=False, allow_null=True)
+    custom_limits_usd = serializers.JSONField(required=False)
+    next_period_custom_limits_usd = serializers.JSONField(required=False)
+    trial = serializers.JSONField(required=False, allow_null=True)
+    license = serializers.JSONField(required=False, allow_null=True)
+    account_owner = serializers.JSONField(required=False, allow_null=True)
+    customer_trust_scores = serializers.JSONField(required=False)
+    never_drop_data = serializers.BooleanField(required=False)
+
+
 class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
@@ -144,6 +183,7 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
+    pagination_class = None
     param_derived_from_user_current_team = "team_id"
 
     scope_object = "billing"
@@ -158,6 +198,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user = self.request.user if isinstance(self.request.user, User) and self.request.user.distinct_id else None
         return BillingManager(license, user, ip_address=get_trusted_client_ip(self.request))
 
+    @extend_schema(responses={200: OpenApiResponse(response=BillingOverviewResponseSerializer)})
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:

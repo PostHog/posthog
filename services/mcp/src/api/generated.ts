@@ -13461,6 +13461,52 @@ export namespace Schemas {
       PosthogSystem: 'posthog_system',
     } as const;
 
+    export type BillingOverviewResponseProductsItem = {[key: string]: unknown};
+
+    export interface BillingOverviewResponse {
+      /** @nullable */
+      customer_id?: number | null;
+      /** @nullable */
+      billing_plan?: string | null;
+      /** @nullable */
+      subscription_level?: string | null;
+      has_active_subscription?: boolean;
+      deactivated?: boolean;
+      is_annual_plan_customer?: boolean;
+      /** @nullable */
+      free_trial_until?: string | null;
+      current_total_amount_usd?: number;
+      current_total_amount_usd_after_discount?: number;
+      projected_total_amount_usd?: number;
+      projected_total_amount_usd_after_discount?: number;
+      projected_total_amount_usd_with_limit?: number;
+      projected_total_amount_usd_with_limit_after_discount?: number;
+      discount_amount_usd?: number;
+      discount_percent?: number;
+      /** @nullable */
+      amount_off_expires_at?: string | null;
+      /** @nullable */
+      startup_program_label?: string | null;
+      /** @nullable */
+      startup_program_label_previous?: string | null;
+      /** @nullable */
+      stripe_portal_url?: string | null;
+      /** @nullable */
+      external_billing_provider_invoices_url?: string | null;
+      /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
+      products?: BillingOverviewResponseProductsItem[];
+      available_product_features?: string[];
+      usage_summary?: unknown;
+      billing_period?: unknown;
+      custom_limits_usd?: unknown;
+      next_period_custom_limits_usd?: unknown;
+      trial?: unknown;
+      license?: unknown;
+      account_owner?: unknown;
+      customer_trust_scores?: unknown;
+      never_drop_data?: boolean;
+    }
+
     /**
      * * `excluded` - Excluded
      * * `credited` - Credited
@@ -49937,15 +49983,6 @@ export namespace Schemas {
       results: BillingAlertEvent[];
     }
 
-    export interface PaginatedBillingList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Billing[];
-    }
-
     export interface PaginatedBriefConfigList {
       count: number;
       /** @nullable */
@@ -83365,17 +83402,6 @@ export namespace Schemas {
       /** The span call-tree aggregation query to execute. */
       query: _TracingTreeQueryBody;
     }
-
-    export type BillingListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
 
     export type CohortsStaffListParams = {
     /**

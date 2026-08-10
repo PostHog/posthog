@@ -17,11 +17,10 @@ import type {
     BillingAlertsEventsListParams,
     BillingAlertsListParams,
     BillingApi,
-    BillingListParams,
+    BillingOverviewResponseApi,
     BillingPeriodResponseApi,
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
-    PaginatedBillingListApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
 } from './api.schemas'
@@ -43,25 +42,12 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getBillingListUrl = (params?: BillingListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0 ? `/api/billing/?${stringifiedParams}` : `/api/billing/`
+export const getBillingListUrl = () => {
+    return `/api/billing/`
 }
 
-export const billingList = async (
-    params?: BillingListParams,
-    options?: RequestInit
-): Promise<PaginatedBillingListApi> => {
-    return apiMutator<PaginatedBillingListApi>(getBillingListUrl(params), {
+export const billingList = async (options?: RequestInit): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(), {
         ...options,
         method: 'GET',
     })
