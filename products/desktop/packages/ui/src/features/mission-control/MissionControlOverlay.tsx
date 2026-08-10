@@ -7,9 +7,12 @@ import { useMissionControlStore } from "./missionControlStore";
  * Mission Control is open, so this window is easy to pick out of a grid of
  * near-identical dark windows.
  *
- * Deliberately opaque and unanimated: Mission Control shrinks the window to
- * roughly a sixth of its size, where a translucent badge is unreadable and a
- * transition reads as a rendering glitch.
+ * Translucent, with a blur behind it: the window stays recognisable as itself
+ * rather than becoming a blank branded card, and the blur keeps the logo and
+ * title legible over whatever is underneath.
+ *
+ * Unanimated on purpose. Mission Control shrinks the window to roughly a sixth
+ * of its size, where a transition reads as a rendering glitch.
  */
 export function MissionControlOverlay() {
   const active = useMissionControlStore((state) => state.active);
@@ -26,18 +29,18 @@ export function MissionControlOverlay() {
     <div
       aria-hidden="true"
       data-testid="mission-control-overlay"
-      className="pointer-events-none fixed inset-0 z-[300] flex flex-col items-center justify-center gap-[6vh] bg-(--gray-1)"
+      className="pointer-events-none fixed inset-0 z-[300] flex flex-col items-center justify-center gap-[2.5vh] bg-(--gray-1)/75 backdrop-blur-md"
     >
       {/* The logo-only variant reserves vertical room for a wordmark it isn't
           drawing, so crop to the logomark's own 52:28 box — otherwise that dead
           space reads as a lopsided gap above the title. */}
       <div
-        className="w-[min(34vw,300px)] overflow-hidden [&>svg]:h-auto [&>svg]:w-full"
+        className="w-[min(18vw,160px)] overflow-hidden [&>svg]:h-auto [&>svg]:w-full"
         style={{ aspectRatio: "52 / 28" }}
       >
         <LogosLandscape wordmark={false} />
       </div>
-      <p className="font-semibold text-(--gray-12) text-[clamp(24px,5vw,64px)] leading-none tracking-tight">
+      <p className="font-semibold text-(--gray-12) text-[clamp(16px,2.2vw,28px)] leading-none tracking-tight">
         PostHog Desktop
       </p>
     </div>,
