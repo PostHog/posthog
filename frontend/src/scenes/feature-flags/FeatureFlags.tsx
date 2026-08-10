@@ -64,6 +64,7 @@ import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
+import { FeatureFlagsUsageTab } from './FeatureFlagsUsageTab'
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
@@ -788,6 +789,11 @@ export function FeatureFlags(): JSX.Element {
                         key: FeatureFlagsTab.OVERVIEW,
                         label: 'Overview',
                         content: <OverviewTab />,
+                    },
+                    {
+                        key: FeatureFlagsTab.USAGE,
+                        label: 'Usage',
+                        content: <FeatureFlagsUsageTab />,
                     },
                     {
                         key: FeatureFlagsTab.PROJECTS,
