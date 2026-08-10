@@ -489,6 +489,25 @@ class TestNotifyAlert:
         mock_breaches.assert_not_called()
         mock_errors.assert_not_called()
 
+    async def test_error_does_not_record_notification_delivery(self, alert_with_user) -> None:
+        check = await _create_alert_check(
+            alert_with_user,
+            state=AlertState.ERRORED,
+            error={"message": "query failed"},
+        )
+
+        env = ActivityEnvironment()
+        await env.run(
+            notify_alert,
+            NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+        )
+
+        refreshed_check = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
+        assert refreshed_check.targets_notified == {}
+
+        refreshed_alert = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed_alert.last_notified_at is None
+
     async def test_sends_breach_notifications_when_firing(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
