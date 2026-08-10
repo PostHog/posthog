@@ -316,14 +316,13 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     @admin.display(description="AI training opt-in history")
     def ai_training_opt_in_history_display(self, organization: Organization):
-        if not organization.pk:
+        # UUIDT ids are assigned before save, so pk is set even on the add form's unsaved instance.
+        if organization._state.adding:
             return "-"
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/organization/ai_training_opt_in_history.html",
-                {"history": get_ai_training_opt_in_history(organization)},
-            )
+        # render_to_string already returns a SafeString, so no mark_safe is needed here.
+        return render_to_string(
+            "admin/organization/ai_training_opt_in_history.html",
+            {"history": get_ai_training_opt_in_history(organization)},
         )
 
     @admin.display(description="Sync to billing")

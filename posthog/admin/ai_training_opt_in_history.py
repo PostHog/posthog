@@ -9,13 +9,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Optional
 
+from django.db import transaction
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 
+# Matches `detail.changes[].field`, which carries the *display* name from `field_name_overrides`.
+# It equals the model field name only because Organization has no override for this field; adding
+# one would silently empty this panel, which `test_manual_opt_in_then_opt_out...` would catch.
 AI_TRAINING_OPT_IN_FIELD = "is_ai_training_opted_in"
 
-# Organizations log an ActivityLog row per changed field, so a busy org can accumulate a lot of
-# rows. The admin page only needs enough to tell the story; anything beyond this is flagged.
+# One ActivityLog row per organization save, carrying every field changed in that save, so a row
+# holds at most one opt-in change. 50 rows means 50 actual toggles; beyond that the panel says so.
 MAX_ENTRIES_SHOWN = 50
 
 
@@ -52,20 +58,26 @@ def _describe_value(value: Optional[bool]) -> str:
     return "opted in" if value else "opted out"
 
 
+def _was_system(entry: ActivityLog) -> bool:
+    # is_system is written as `user is None` and then frozen, while user is SET_NULL on delete. So a
+    # null user alone does not mean automation: it also describes a change by a since-deleted person.
+    if entry.is_system is None:
+        return entry.user_id is None
+    return entry.is_system
+
+
 def _describe_actor(entry: ActivityLog) -> str:
-    if entry.user is None:
-        return "system"
-    if entry.was_impersonated:
-        return f"{entry.user.email} (session impersonated by PostHog staff)"
-    return entry.user.email
+    if entry.user is not None:
+        if entry.was_impersonated:
+            return f"{entry.user.email} (acting-as, PostHog staff member not recorded)"
+        return entry.user.email
+    return "system" if _was_system(entry) else "user since deleted"
 
 
 def _describe_origin(entry: ActivityLog) -> str:
-    if entry.user is not None:
-        return "manual (staff impersonation)" if entry.was_impersonated else "manual"
-    trigger = (entry.detail or {}).get("trigger") or {}
-    job_type = trigger.get("job_type")
-    return f"automatic ({job_type})" if job_type else "automatic"
+    if _was_system(entry):
+        return "automatic"
+    return "manual (staff impersonation)" if entry.was_impersonated else "manual"
 
 
 def _opt_in_change_in(entry: ActivityLog) -> Optional[dict]:
@@ -95,10 +107,13 @@ def _fetch_changes(organization: Organization) -> tuple[list[OptInChange], bool]
             organization_id=organization.id,
             scope="Organization",
             item_id=str(organization.id),
-            detail__changes__contains=[{"field": AI_TRAINING_OPT_IN_FIELD}],
+            # Whole-column containment, not `detail__changes__contains`: jsonb containment is
+            # recursive so this matches the same rows, but only this form can use the GIN index on
+            # detail. Filtering on `detail -> 'changes'` scans the org's whole activity history.
+            detail__contains={"changes": [{"field": AI_TRAINING_OPT_IN_FIELD}]},
         )
         .select_related("user")
-        .order_by("-created_at")[: MAX_ENTRIES_SHOWN + 1]
+        .order_by("-created_at", "-id")[: MAX_ENTRIES_SHOWN + 1]
     )
 
     truncated = len(entries) > MAX_ENTRIES_SHOWN
@@ -127,9 +142,14 @@ def _build_headline(current: Optional[bool], changes: list[OptInChange]) -> str:
 
 def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
     try:
-        changes, truncated = _fetch_changes(organization)
+        # Savepoint so a failed query rolls back cleanly: the admin wraps change-form POSTs in a
+        # transaction, and swallowing the error without this leaves it aborted, turning a form
+        # validation error into an opaque 500 from the next unrelated query.
+        with transaction.atomic():
+            changes, truncated = _fetch_changes(organization)
     except Exception as e:
-        return OptInHistory(headline="Could not load history", changes=[], error=str(e))
+        capture_exception(e)
+        return OptInHistory(headline="Could not load opt-in history", changes=[], error=str(e))
 
     return OptInHistory(
         headline=_build_headline(organization.is_ai_training_opted_in, changes),

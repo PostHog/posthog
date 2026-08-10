@@ -1,6 +1,8 @@
 {% if history.error %}
 <div style="padding: 8px; border-left: 3px solid #dc3545;">
-    Could not load the opt-in history: {{ history.error }}
+    <strong>{{ history.headline }}</strong>
+    <p style="margin: 4px 0 0;">Reload the page. If it keeps failing, read the organization's activity log directly.</p>
+    <p style="margin: 4px 0 0;">Error: {{ history.error }}</p>
 </div>
 {% else %}
 <strong>{{ history.headline }}</strong>

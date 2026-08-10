@@ -2,8 +2,10 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
+from posthog.admin.ai_training_opt_in_history import MAX_ENTRIES_SHOWN, get_ai_training_opt_in_history
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 
 
 class TestAITrainingOptInHistory(APIBaseTest):
@@ -17,6 +19,29 @@ class TestAITrainingOptInHistory(APIBaseTest):
         # column's migration default both land in Postgres without an activity log row.
         Organization.objects.filter(pk=self.organization.pk).update(is_ai_training_opted_in=value)
         self.organization.refresh_from_db()
+
+    def _log_opt_in_change(self, *, user: User | None, before: bool, after: bool, is_system: bool) -> ActivityLog:
+        return ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            item_id=str(self.organization.id),
+            scope="Organization",
+            activity="updated",
+            user=user,
+            is_system=is_system,
+            was_impersonated=False,
+            detail={
+                "name": self.organization.name,
+                "changes": [
+                    {
+                        "type": "Organization",
+                        "action": "changed",
+                        "field": "is_ai_training_opted_in",
+                        "before": before,
+                        "after": after,
+                    }
+                ],
+            },
+        )
 
     def _patch_organization(self, updates: dict) -> None:
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", updates, format="json")
@@ -76,6 +101,28 @@ class TestAITrainingOptInHistory(APIBaseTest):
 
         self.assertEqual(len(history.changes), 1)
         self.assertEqual((history.changes[0].before, history.changes[0].after), (False, True))
+
+    def test_change_by_a_since_deleted_user_is_not_reported_as_automatic(self) -> None:
+        self._set_opt_in_without_logging(False)
+        departed = User.objects.create_and_join(self.organization, "departed@posthog.com", None)
+        self._log_opt_in_change(user=departed, before=True, after=False, is_system=False)
+        departed.delete()
+
+        history = get_ai_training_opt_in_history(self.organization)
+
+        self.assertEqual(len(history.changes), 1)
+        self.assertEqual(history.changes[0].origin, "manual")
+        self.assertEqual(history.changes[0].actor, "user since deleted")
+
+    def test_history_over_the_cap_is_flagged_as_truncated(self) -> None:
+        self._set_opt_in_without_logging(False)
+        for index in range(MAX_ENTRIES_SHOWN + 1):
+            self._log_opt_in_change(user=None, before=index % 2 == 1, after=index % 2 == 0, is_system=True)
+
+        history = get_ai_training_opt_in_history(self.organization)
+
+        self.assertTrue(history.truncated)
+        self.assertEqual(len(history.changes), MAX_ENTRIES_SHOWN)
 
     def test_changes_to_other_organization_fields_are_excluded(self) -> None:
         self._patch_organization({"name": "Renamed org"})
