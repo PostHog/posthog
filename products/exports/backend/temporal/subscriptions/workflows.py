@@ -29,6 +29,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -421,7 +422,12 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             # Capture per-recipient results for the delivery record
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
-            final_status = DeliveryStatus.COMPLETED
+            final_status = (
+                DeliveryStatus.FAILED
+                if delivery_recipient_results
+                and all(result["status"] == "failed" for result in delivery_recipient_results)
+                else DeliveryStatus.COMPLETED
+            )
 
         except Exception as e:
             # Preserve recipient outcomes carried in non-retryable delivery errors
@@ -464,6 +470,28 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     )
                     if caught_error is None:
                         raise
+
+            delivery_failed_without_exception = bool(delivery_recipient_results) and all(
+                result["status"] == "failed" for result in delivery_recipient_results
+            )
+            if (
+                delivery_id is not None
+                and temporalio.workflow.patched("subscription-delivery-failure-notification-2026-08")
+                and (caught_error is not None or delivery_failed_without_exception)
+                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+            ):
+                try:
+                    await temporalio.workflow.execute_activity(
+                        notify_subscription_delivery_failure,
+                        args=[inputs.subscription_id, str(delivery_id)],
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "process_subscription.failure_notification_failed",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
 
             # Advance schedule — always for scheduled deliveries, even on failure.
             # The activity itself no-ops when the subscription is disabled, so a
@@ -649,6 +677,25 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     )
                     if caught_error is None:
                         raise
+
+            if (
+                delivery_id is not None
+                and temporalio.workflow.patched("subscription-delivery-failure-notification-2026-08")
+                and caught_error is not None
+                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+            ):
+                try:
+                    await temporalio.workflow.execute_activity(
+                        notify_subscription_delivery_failure,
+                        args=[inputs.subscription_id, str(delivery_id)],
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "process_ai_subscription.failure_notification_failed",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
 
             # Advance schedule for scheduled deliveries even on failure — the activity
             # no-ops when the subscription is disabled, so a just-auto-disabled sub

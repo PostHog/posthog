@@ -16334,6 +16334,15 @@ class ExperimentApiExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    activation_config: ExperimentApiExposureConfig | None = Field(
+        default=None,
+        description=(
+            "Additional event (or action) an entity must emit at/after their first"
+            " default exposure event before they count as exposed; exposure time"
+            " becomes this event's timestamp. Only valid with the default exposure"
+            " event, not a custom `exposure_config`."
+        ),
+    )
     exposure_config: ExperimentApiExposureConfig | None = None
     filterTestAccounts: bool | None = None
     multiple_variant_handling: MultipleVariantHandling | None = Field(
@@ -16767,8 +16776,20 @@ class HogQLFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: BreakdownFilter | None = Field(
+        default=None,
+        description=(
+            "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
+        ),
+    )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=(
+            "Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval."
+        ),
+    )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 
@@ -24835,6 +24856,15 @@ class EventTaxonomyQuery(BaseModel):
 class ExperimentExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    activation_config: ExperimentEventExposureConfig | ActionsNode | None = Field(
+        default=None,
+        description=(
+            "Additional event (or action) an entity must emit at/after their first"
+            " default exposure event before they count as exposed; exposure time"
+            " becomes this event's timestamp. Only valid with the default exposure"
+            " event, not a custom `exposure_config`."
+        ),
     )
     exposure_config: ExperimentEventExposureConfig | ActionsNode | None = None
     filterTestAccounts: bool | None = None
