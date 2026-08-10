@@ -164,6 +164,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
+    '/ai-enrichment': ['AIEnrichment', 'aiEnrichment'],
+    '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/links': ['Links', 'links'],
@@ -678,6 +680,7 @@ export const productConfiguration: Record<string, any> = {
             'Review probable links between anonymous visitors and identified persons, recovered from first-party signals.',
         iconType: 'persons',
     },
+    AIEnrichment: { name: 'AI enrichment', instanceLevel: true },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -1245,6 +1248,7 @@ export const productUrls = {
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     identityMatching: (): string => '/identity-matching',
+    aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     links: (): string => '/links',
@@ -2082,7 +2086,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         iconType: 'persons',
         sceneKey: 'IdentityMatching',
-        sceneKeys: ['IdentityMatching'],
+        sceneKeys: ['IdentityMatching', 'AIEnrichment'],
     },
     {
         path: 'LLM analytics',
