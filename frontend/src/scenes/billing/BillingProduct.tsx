@@ -33,6 +33,7 @@ import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
+import { DesktopUsageBreakdown } from './DesktopUsageBreakdown'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlatformAddonComparison } from './PlatformAddonComparison'
 import { ProductPricingModal } from './ProductPricingModal'
@@ -528,6 +529,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 )
                             )}
                         </div>
+                    )}
+
+                    {product.type === 'posthog_code_usage' && (
+                        <DesktopUsageBreakdown summary={billing?.usage_summary} />
                     )}
 
                     {product.price_description ? (

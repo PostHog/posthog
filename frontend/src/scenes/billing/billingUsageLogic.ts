@@ -54,6 +54,22 @@ export interface BillingUsageResponse {
     next?: string
 }
 
+const DESKTOP_USAGE_SERIES_CONVERSIONS: Record<string, { divisor: number; label: string }> = {
+    'PostHog Desktop token credits': { divisor: 100, label: 'PostHog Desktop token spend (USD)' },
+    'Sandbox compute credits': { divisor: 100, label: 'Cloud compute spend (USD)' },
+    'Sandbox compute CPU millicore-seconds': { divisor: 1_000, label: 'Cloud compute CPU (core-seconds)' },
+    'Sandbox compute memory MiB-seconds': { divisor: 1_024, label: 'Cloud compute memory (GiB-seconds)' },
+}
+
+export const convertDesktopUsageSeries = (
+    series: BillingUsageResponse['results'][number]
+): BillingUsageResponse['results'][number] => {
+    const conversion = DESKTOP_USAGE_SERIES_CONVERSIONS[series.label]
+    return conversion
+        ? { ...series, label: conversion.label, data: series.data.map((value) => value / conversion.divisor) }
+        : series
+}
+
 export const DEFAULT_BILLING_USAGE_FILTERS: BillingFilters = {
     breakdowns: ['type'],
     usage_types: [],
@@ -387,7 +403,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     return []
                 }
 
-                return response.results
+                return response.results.map(convertDesktopUsageSeries)
             },
         ],
         dates: [
