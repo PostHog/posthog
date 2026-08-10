@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.errors import QueryError
 
 if TYPE_CHECKING:
     from posthog.hogql.database.models import DatabaseField
@@ -726,6 +727,40 @@ def least_common_supertype(types: Sequence[ast.ConstantType], dialect: HogQLDial
     return constant_type_from_runtime_type(least_common_runtime_type(runtime_types, dialect=dialect))
 
 
+def _branch_supertype_or_raise(
+    branch_types: list[ast.ConstantType],
+    branch_args: Sequence[Optional[ast.Expr]],
+    dialect: HogQLDialect,
+    function_name: str,
+) -> ast.ConstantType:
+    """Like least_common_supertype, but raises a user-facing error naming the conflicting branch
+    types and their source span when two or more known (non-Unknown) branches genuinely have no
+    common type, rather than silently degrading to UnknownType and failing downstream in ClickHouse."""
+    result = least_common_supertype(branch_types, dialect=dialect)
+    if not isinstance(result, ast.UnknownType) or result.unanalyzable:
+        return result
+    known = [
+        (branch_type, branch_args[index] if index < len(branch_args) else None)
+        for index, branch_type in enumerate(branch_types)
+        if not isinstance(branch_type, ast.UnknownType)
+    ]
+    if len(known) < 2:
+        return result
+    type_names = sorted({branch_type.print_type() for branch_type, _ in known})
+    positions = [
+        (expr.start, expr.end)
+        for _, expr in known
+        if expr is not None and expr.start is not None and expr.end is not None
+    ]
+    start = min((position[0] for position in positions), default=None)
+    end = max((position[1] for position in positions), default=None)
+    raise QueryError(
+        f"Cannot find a common type between `{function_name}` branches of type {' and '.join(type_names)}",
+        start=start,
+        end=end,
+    )
+
+
 def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDialect = "clickhouse") -> RuntimeType:
     nullable = any(type_.nullable for type_ in runtime_types)
     # An unanalyzable branch could be any type, so it poisons the result; a vacuous unknown
@@ -987,17 +1022,28 @@ def _infer_generic_function_type(
         return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
     if normalized_name == "if":
-        return least_common_supertype(arg_types[1:], dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+        if len(arg_types) <= 1:
+            return ast.UnknownType()
+        branch_types = arg_types[1:]
+        return _branch_supertype_or_raise(branch_types, (args or [])[1:], dialect=dialect, function_name="if")
 
     if normalized_name == "ifnull":
-        return least_common_supertype(arg_types, dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+        if len(arg_types) <= 1:
+            return ast.UnknownType()
+        return _branch_supertype_or_raise(arg_types, args or [], dialect=dialect, function_name="ifNull")
 
     if normalized_name == "multiif":
         if len(arg_types) < 3:
             return ast.UnknownType()
-        return least_common_supertype([*arg_types[1::2], arg_types[-1]], dialect=dialect)
+        branch_indices = [*range(1, len(arg_types) - 1, 2), len(arg_types) - 1]
+        branch_types = [arg_types[i] for i in branch_indices]
+        branch_args = [args[i] if args is not None and i < len(args) else None for i in branch_indices]
+        return _branch_supertype_or_raise(branch_types, branch_args, dialect=dialect, function_name="multiIf")
 
-    if normalized_name in {"coalesce", "least", "greatest"}:
+    if normalized_name == "coalesce":
+        return _branch_supertype_or_raise(arg_types, args or [], dialect=dialect, function_name="coalesce")
+
+    if normalized_name in {"least", "greatest"}:
         return least_common_supertype(arg_types, dialect=dialect)
 
     if normalized_name == "nullif" and arg_types:
