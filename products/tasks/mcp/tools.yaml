@@ -44,6 +44,25 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to read.
+    channel-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update channel instructions
+        description: >
+            Publish a complete replacement for a channel's CONTEXT.md. Read the current version with
+            channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if
+            another update changes the document.
+        param_overrides:
+            id:
+                description: ID of the channel whose instructions to update.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
     channel-list:
         operation: task_channels_list
         enabled: true

@@ -18,7 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -152,6 +152,24 @@ def build_alert_where_expr(
             ),
         ]
     )
+
+
+class _StripIndexHints(CloningVisitor):
+    """Return a copy of the expression with indexHint(...) calls replaced by true.
+
+    indexHint always evaluates to 1; it exists only so index analysis sees the
+    wrapped expression. See `BatchedAlertCheckQuery.__init__` for why the
+    hoisted predicate copies must not carry it.
+    """
+
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        if node.name == "indexHint":
+            return ast.Constant(value=True)
+        return super().visit_call(node)
+
+
+def _strip_index_hints(expr: ast.Expr) -> ast.Expr:
+    return _StripIndexHints().visit(expr)
 
 
 class AlertCheckQuery:
@@ -389,15 +407,19 @@ class BatchedAlertCheckQuery:
             },
         )
         if HOIST_BATCHED_ALERT_PREDICATES:
-            # clone_expr is required: the same expr instances sit inside the
-            # countIf select columns of the same query tree, and the resolver
-            # annotates nodes in place, so sharing one instance at two positions
-            # is an aliasing hazard.
-            hoisted = (
-                clone_expr(self._alert_where_exprs[0])
-                if len(self._alert_where_exprs) == 1
-                else ast.Or(exprs=[clone_expr(e) for e in self._alert_where_exprs])
-            )
+            # The hoisted copies must differ from the countIf copies in two ways.
+            # They must be fresh instances, because the resolver annotates nodes
+            # in place and sharing one instance at two positions in the query
+            # tree is an aliasing hazard. And they must not carry indexHint(...)
+            # wrappers: ClickHouse dedupes an expression that appears in both
+            # the WHERE clause and a countIf argument, and when that shared
+            # expression contains indexHint the filter step constant-folds one
+            # use but not the other and the query fails with ILLEGAL_COLUMN
+            # ("non constant in source stream but must be constant in result").
+            # Dropping the hint loses nothing here: the real predicate sits in
+            # the WHERE clause where the planner can use it directly.
+            hoisted_exprs = [_strip_index_hints(e) for e in self._alert_where_exprs]
+            hoisted = hoisted_exprs[0] if len(hoisted_exprs) == 1 else ast.Or(exprs=hoisted_exprs)
             self._outer_where = ast.And(exprs=[self._outer_where, hoisted])
 
     def execute_bucketed(self, interval_minutes: int, *, limit: int = 10_000) -> BatchedBucketedResult:

@@ -160,6 +160,22 @@ class SnapshotTimeoutError(ProcessTaskTransientError):
     pass
 
 
+class SnapshotFileLimitExceededError(ProcessTaskFatalError):
+    """Modal refuses to snapshot a directory/filesystem holding more than its hard file-count
+    cap (1,000,000 files). This is a permanent limit, not a transient blip, so retrying the same
+    snapshot cannot succeed — the caller must shrink the tree (prune node_modules, virtualenvs,
+    and package caches) before it can snapshot.
+
+    Non-retryable and captured to error tracking: it is a named, classified condition (not the
+    generic mystery issue this replaced), and callers with no fallback — the dev-stack image bake,
+    the standalone snapshot activity — need it visible. The resume path recovers by pruning and
+    letting Temporal retry, so it converts this into a transient error itself rather than swallowing
+    the signal.
+    """
+
+    pass
+
+
 class RepositoryCloneError(ProcessTaskTransientError):
     """Failed to clone repository."""
 

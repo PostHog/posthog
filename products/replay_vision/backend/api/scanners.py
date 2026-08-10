@@ -123,6 +123,8 @@ def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "scanner_id": str(scanner.id),
         "scanner_type": scanner.scanner_type,
         "model": scanner.model,
+        # The model's price, so experiments on the model picker can compare spend without joining a price table.
+        "credits_per_observation": observation_credits_for_model(scanner.model),
         "sampling_rate": scanner.sampling_rate,
         "sampling_mode": scanner.sampling_mode,
         "enabled": scanner.enabled,
