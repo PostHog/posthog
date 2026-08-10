@@ -433,13 +433,25 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
-    def post_thread_message(self, text: str) -> None:
-        """Post a plain message in the existing thread."""
+    def post_thread_message(self, text: str, with_footer: bool = False) -> None:
+        """Post a plain message in the existing thread.
+
+        ``with_footer`` closes the message with the provenance footer, for the last
+        chunk of a non-streamed answer — the streamed path appends its own instead.
+        Passing it only adds blocks when there is actually a footer to show, so an
+        ordinary message stays a plain-text post.
+        """
+        footer = self._footer_block() if with_footer else None
         try:
             self._get_client().chat_postMessage(
                 channel=self.context.channel,
                 thread_ts=self.context.thread_ts,
                 text=text,
+                **(
+                    {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}, footer]}
+                    if footer
+                    else {}
+                ),
             )
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
@@ -549,28 +561,6 @@ class SlackThreadHandler:
             blocks.append(footer)
 
         self._delete_progress_and_post(header, blocks)
-
-    def post_footer(self) -> bool:
-        """Post the provenance footer as its own message, returning whether it went out.
-
-        The streamed path closes its answer with the footer inline. Without streaming the
-        answer arrives as plain text spread over however many messages the agent sent, so
-        there is nothing to append to and the footer follows as a trailing message.
-        """
-        footer = self._footer_block()
-        if not footer:
-            return False
-        try:
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=footer["elements"][0]["text"],
-                blocks=[footer],
-            )
-            return True
-        except Exception as e:
-            logger.warning("slack_app_post_footer_failed", error=str(e))
-            return False
 
     def post_note(self, text: str) -> None:
         """Post a plain one-line note to the thread, replacing any progress message."""

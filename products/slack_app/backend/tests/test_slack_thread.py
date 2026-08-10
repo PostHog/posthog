@@ -367,36 +367,44 @@ class TestReplyFooterGate(SimpleTestCase):
         assert any(chunk.get("type") == "blocks" for chunk in chunks) is expected
 
 
-class TestPostFooter(SimpleTestCase):
+class TestRelayedAnswerFooter(SimpleTestCase):
     def _handler(self, provenance: RunProvenance) -> SlackThreadHandler:
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
         return SlackThreadHandler(context, provenance)
 
     @parameterized.expand(
         [
-            ("with_model", RunProvenance(model="claude-opus-5"), True),
-            ("nothing_to_say", RunProvenance(), False),
+            ("final_chunk_with_model", RunProvenance(model="claude-opus-5"), True, True),
+            ("final_chunk_nothing_to_say", RunProvenance(), True, False),
+            ("earlier_chunk", RunProvenance(model="claude-opus-5"), False, False),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
     @patch("products.slack_app.backend.slack_thread.is_slack_app_message_footer_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_trailing_footer_is_posted_only_when_it_has_content(
+    def test_footer_rides_the_last_chunk_only(
         self,
         _name: str,
         provenance: RunProvenance,
+        with_footer: bool,
         expected: bool,
         mock_get_client,
         mock_get_integration,
         _mock_flag,
         _mock_home,
     ) -> None:
-        # Without streaming there is no answer to append to, so the footer trails as its
-        # own message — but an empty one would be a stray blank post in the thread.
+        # A non-streamed answer is split only to fit Slack's length cap, so a footer on
+        # any chunk but the last would appear mid-answer.
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(config={}, integration_id="T1")
 
-        assert self._handler(provenance).post_footer() is expected
-        assert mock_client.chat_postMessage.called is expected
+        self._handler(provenance).post_thread_message("the answer", with_footer=with_footer)
+
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["text"] == "the answer"
+        # Without a footer the message stays a plain-text post, with no blocks at all.
+        assert ("blocks" in kwargs) is expected
+        if expected:
+            assert kwargs["blocks"][-1]["type"] == "context"

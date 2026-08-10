@@ -363,6 +363,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.run_links import run_provenance
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
 
     try:
@@ -416,7 +417,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         user_message_ts=input.user_message_ts,
         mentioning_slack_user_id=mapping.mentioning_slack_user_id,
     )
-    handler = SlackThreadHandler(context)
+    handler = SlackThreadHandler(context, run_provenance(task_run))
 
     # Mention resolution, most precise first: the echoed message's recorded
     # sender, then the live/mapping actors for pre-rollout runs.
@@ -443,7 +444,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     for index, chunk in enumerate(chunks_to_post):
         prefix = mention_prefix if delivered_file_count == 0 and index == 0 else ""
-        handler.post_thread_message(f"{prefix}{chunk}")
+        # This relay carries one agent answer, split only to fit Slack's length cap, so
+        # the last chunk is where the turn ends and the footer belongs.
+        handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks_to_post) - 1)
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
 

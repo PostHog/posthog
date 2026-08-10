@@ -31,7 +31,6 @@ from products.tasks.backend.models import (
     TaskRun as TaskRunModel,
 )
 from products.tasks.backend.redis import run_uses_dedicated_stream
-from products.tasks.backend.run_links import post_turn_footer
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
@@ -439,10 +438,6 @@ async def _relay_loop(
                                 final_text = final_message_tracker.end_turn()
                                 if final_text is not None and task_run is not None:
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
-                                    if not is_agent_design_enabled:
-                                        # The streamed path closes its own answer with the
-                                        # footer; here the answer is plain text, so it trails.
-                                        await asyncio.to_thread(post_turn_footer, run_id)
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
 

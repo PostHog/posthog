@@ -75,32 +75,6 @@ def load_run_provenance(run_id: str | UUID | None) -> RunProvenance:
         return RunProvenance()
 
 
-def post_turn_footer(run_id: str) -> bool:
-    """Close a non-streamed Slack turn with the provenance footer.
-
-    The streamed path appends the footer to the answer it is already writing; without
-    streaming the answer is plain text across however many messages the agent sent, so
-    the footer trails it. Best-effort and never raises — a missing footer must not
-    disturb the event relay that calls this.
-    """
-    from products.slack_app.backend.slack_thread import (  # noqa: PLC0415 — keeps Slack off this import path
-        SlackThreadContext,
-        SlackThreadHandler,
-    )
-    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — keeps the tasks ORM off this import path
-
-    try:
-        task_run = TaskRun.objects.select_related("task", "task__created_by").get(id=run_id)
-        raw_context = (task_run.state or {}).get("slack_thread_context")
-        if not raw_context:
-            return False
-        handler = SlackThreadHandler(SlackThreadContext.from_dict(raw_context), run_provenance(task_run))
-        return handler.post_footer()
-    except Exception:
-        logger.exception("slack_turn_footer_failed", run_id=str(run_id))
-        return False
-
-
 def _task_url(team_id: int, task_id: str | UUID, run_id: str | UUID) -> str:
     path = f"/project/{team_id}/tasks/{task_id}?runId={run_id}"
     # Mirrors the Slack onboarding links: in local dev the tunnel is what makes a link
