@@ -1830,6 +1830,27 @@ def test_bigquery_unsupported_region_is_non_retryable(location):
     assert all(location not in key for key in matching), "match must not depend on the volatile location"
 
 
+def test_bigquery_dataset_not_found_during_sync_is_non_retryable():
+    """A dataset deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
+    google NotFound whose str() is "... Not found: Dataset <project>:<dataset>" — this REST GET path
+    carries no "was not found in location" suffix, unlike the query-job path covered by that pattern,
+    so it must be recognised as non-retryable via the "Not found: Dataset" pattern instead of retrying
+    a dataset that can't reappear within the run."""
+    error = NotFound(
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
+        "tables/my_table?prettyPrint=false: Not found: Dataset my-proj:my_dataset"
+    )
+
+    # Mirror the substring match in `update_external_data_job_model`.
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "a dataset-not-found 404 during sync should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+    assert "was not found in location" not in error_msg
+
+
 def test_bigquery_table_not_found_during_sync_is_non_retryable():
     """A table deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
     google NotFound whose str() is "... Not found: Table <project>:<dataset>.<table>" — distinct from
