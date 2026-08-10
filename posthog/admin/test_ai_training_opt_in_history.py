@@ -102,6 +102,25 @@ class TestAITrainingOptInHistory(APIBaseTest):
         self.assertEqual(len(history.changes), 1)
         self.assertEqual((history.changes[0].before, history.changes[0].after), (False, True))
 
+    @parameterized.expand(
+        [
+            (True, True, True),
+            (True, False, False),
+            (False, True, False),
+            (True, None, False),
+        ]
+    )
+    def test_warns_only_when_a_hipaa_organization_is_opted_in(
+        self, is_hipaa: bool, opted_in: bool | None, expect_warning: bool
+    ) -> None:
+        self.organization.is_hipaa = is_hipaa
+        self.organization.save()
+        self._set_opt_in_without_logging(opted_in)
+
+        history = get_ai_training_opt_in_history(self.organization)
+
+        self.assertEqual(history.warning is not None, expect_warning)
+
     def test_change_by_a_since_deleted_user_is_not_reported_as_automatic(self) -> None:
         self._set_opt_in_without_logging(False)
         departed = User.objects.create_and_join(self.organization, "departed@posthog.com", None)

@@ -48,6 +48,7 @@ class OptInChange:
 class OptInHistory:
     headline: str
     changes: list[OptInChange]
+    warning: Optional[str] = None
     truncated: bool = False
     error: Optional[str] = None
 
@@ -142,6 +143,20 @@ def _build_headline(current: Optional[bool], changes: list[OptInChange]) -> str:
     return f"{headline} (value is null)" if current is None else headline
 
 
+def _hipaa_conflict_warning(organization: Organization) -> Optional[str]:
+    # The replay ML mirror gates on is_ai_training_opted_in alone, in
+    # nodejs/src/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step.ts, and nothing in
+    # that pipeline reads is_hipaa. Revisit this warning if that gate starts checking HIPAA.
+    if not organization.is_hipaa or organization.is_ai_training_opted_in is not True:
+        return None
+    return (
+        "HIPAA is set, but the AI training opt-in is on. The training pipeline reads the opt-in and "
+        "does not check HIPAA, so this organization's session recordings are eligible for training. "
+        "Their settings page shows them as opted out, and the API blocks them from changing it "
+        "themselves. Turn the opt-in off here if that is wrong."
+    )
+
+
 def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
     try:
         # Savepoint so a failed query rolls back cleanly: the admin wraps change-form POSTs in a
@@ -156,5 +171,6 @@ def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
     return OptInHistory(
         headline=_build_headline(organization.is_ai_training_opted_in, changes),
         changes=changes,
+        warning=_hipaa_conflict_warning(organization),
         truncated=truncated,
     )

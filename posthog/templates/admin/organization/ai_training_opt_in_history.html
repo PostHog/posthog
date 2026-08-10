@@ -5,6 +5,11 @@
     <p style="margin: 4px 0 0;">Error: {{ history.error }}</p>
 </div>
 {% else %}
+{% if history.warning %}
+<div style="margin-bottom: 12px; padding: 8px; border-left: 3px solid #dc3545;">
+    {{ history.warning }}
+</div>
+{% endif %}
 <strong>{{ history.headline }}</strong>
 
 {% if history.changes %}
