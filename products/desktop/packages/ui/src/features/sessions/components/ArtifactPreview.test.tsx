@@ -654,7 +654,7 @@ describe("ArtifactPreview", () => {
       useCommentNavigationStore.getState().focusByTask["task-1"],
     ).toMatchObject({
       threadId: "created-comment",
-      scrollTo: "none",
+      intent: "focus-only",
     });
   });
 
@@ -866,7 +866,7 @@ describe("ArtifactPreview", () => {
         threadId: "comment-1",
         nonce: expect.any(Number),
         openCommentsTab: true,
-        scrollTo: "thread",
+        intent: "reveal-thread",
       });
       expect(scrollIntoView).not.toHaveBeenCalled();
     });
@@ -1294,6 +1294,11 @@ describe("ArtifactPreview", () => {
     expect(document).not.toContain("ph-artifact-comment-outline");
     expect(document).toContain("<span>Comment</span>");
     expect(document).toContain('channel: "test-channel"');
+    expect(document).toContain("new MutationObserver");
+    expect(document).toContain("scrollIntoView");
+    expect(document).toContain("state.renderTimer");
+    expect(document).toContain('send("selection-position"');
+    expect(document).not.toMatch(/__spreadValues|cov_\w+/);
     expect(document).toMatch(/script-src &#39;nonce-[^&]+&#39;/);
     expect(document).not.toContain(
       "script-src &#39;self&#39; &#39;unsafe-inline&#39;",

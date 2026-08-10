@@ -74,7 +74,7 @@ export function CanvasSelectionCommentAction({
         useCommentNavigationStore
           .getState()
           .requestCommentFocus(taskId, target, comment.id, {
-            scrollTo: "none",
+            intent: "focus-only",
           });
       }}
     />

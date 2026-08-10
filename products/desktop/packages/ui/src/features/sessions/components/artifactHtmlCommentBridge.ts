@@ -416,7 +416,11 @@ function runArtifactHtmlCommentBridge({
     const data = event.data as Record<string, unknown> | null;
     if (!data || data.marker !== marker || data.channel !== channel) return;
     if (data.type === "comments") renderComments(data.items);
-    else if (
+    else if (data.type === "selection-dismissed") {
+      state.activeRange = null;
+      if (state.positionFrame) window.cancelAnimationFrame(state.positionFrame);
+      state.positionFrame = 0;
+    } else if (
       data.type === "locate" &&
       typeof data.id === "string" &&
       typeof data.nonce === "number" &&

@@ -5,6 +5,8 @@ import {
 import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { create } from "zustand";
 
+type CommentFocusIntent = "navigate" | "reveal-thread" | "focus-only";
+
 /** Which thread the task's comment surfaces are pointed at right now. */
 type CommentFocus = {
   target: CommentTarget;
@@ -12,7 +14,7 @@ type CommentFocus = {
   /** Bumped on every request so re-picking the same thread scrolls again. */
   nonce: number;
   openCommentsTab: boolean;
-  scrollTo?: "thread" | "none";
+  intent: CommentFocusIntent;
 };
 
 interface CommentNavigationStoreState {
@@ -27,7 +29,7 @@ interface CommentNavigationStoreActions {
     taskId: string,
     target: CommentTarget,
     threadId: string,
-    options?: { scrollTo?: "thread" | "none" },
+    options?: { intent?: CommentFocusIntent },
   ) => void;
   setCommentResolutions: (
     target: CommentTarget,
@@ -76,7 +78,7 @@ export const useCommentNavigationStore = create<CommentNavigationStore>()(
             threadId,
             nonce,
             openCommentsTab: true,
-            ...(options?.scrollTo ? { scrollTo: options.scrollTo } : {}),
+            intent: options?.intent ?? "navigate",
           },
         },
       }));

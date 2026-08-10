@@ -346,7 +346,7 @@ export function FreeformCanvasView({
       useCommentNavigationStore
         .getState()
         .requestCommentFocus(commentTaskId, commentTarget, id, {
-          scrollTo: "thread",
+          intent: "reveal-thread",
         });
     },
     [commentTaskId, commentTarget],

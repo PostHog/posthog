@@ -10,6 +10,10 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  selectionAnchor,
+  withSelectionPosition,
+} from "./artifactHtmlCommentPosition";
 import { ArtifactHtmlFrame } from "./artifactHtmlFrame";
 import {
   ARTIFACT_HTML_BRIDGE_MARKER,
@@ -32,27 +36,6 @@ function isFrameRect(value: unknown): value is ArtifactHtmlFrameRect {
     const field = (value as Record<string, unknown>)[key];
     return typeof field === "number" && Number.isFinite(field);
   });
-}
-
-function selectionAnchor(
-  frame: ArtifactHtmlFrameRect,
-  selection: ArtifactHtmlFrameRect,
-): { top: number; endX: number; bottom: number } {
-  return {
-    top: frame.top + selection.top,
-    endX: frame.left + selection.right,
-    bottom: frame.top + selection.bottom,
-  };
-}
-
-export function withSelectionPosition(
-  current: EditorSelection | null,
-  frame: ArtifactHtmlFrameRect,
-  selection: ArtifactHtmlFrameRect,
-): EditorSelection | null {
-  return current
-    ? { ...current, anchor: selectionAnchor(frame, selection) }
-    : null;
 }
 
 export function AnnotatedArtifactHtml({
@@ -112,6 +95,7 @@ export function AnnotatedArtifactHtml({
     [commentsEnabled, html, initialTheme],
   );
 
+  const selectionOpen = selection !== null;
   const bridgeItems = useMemo(
     () =>
       comments.flatMap((comment) => {
@@ -146,6 +130,13 @@ export function AnnotatedArtifactHtml({
         items: bridgeItems,
       },
     ];
+    if (!selectionOpen) {
+      next.push({
+        marker: ARTIFACT_HTML_BRIDGE_MARKER,
+        channel: channelRef.current,
+        type: "selection-dismissed",
+      });
+    }
     if (locateRequest) {
       next.push({
         marker: ARTIFACT_HTML_BRIDGE_MARKER,
@@ -156,7 +147,7 @@ export function AnnotatedArtifactHtml({
       });
     }
     return next;
-  }, [bridgeItems, commentsEnabled, locateRequest, theme]);
+  }, [bridgeItems, commentsEnabled, locateRequest, selectionOpen, theme]);
 
   const receive = useCallback(
     (value: unknown, frameBox: ArtifactHtmlFrameRect) => {

@@ -425,6 +425,7 @@ describe("TaskCommentsList", () => {
       threadId: "comment-1",
       nonce: expect.any(Number),
       openCommentsTab: true,
+      intent: "navigate",
     });
   });
 
@@ -473,7 +474,7 @@ describe("TaskCommentsList", () => {
           "task-1",
           { scope: "task_artifact", itemId: "a" },
           "comment-1",
-          { scrollTo: "thread" },
+          { intent: "reveal-thread" },
         );
     });
 
@@ -807,7 +808,7 @@ describe("TaskCommentsList", () => {
     ).toMatchObject({
       target: { scope: "task", itemId: "task-1" },
       threadId: "created-comment",
-      scrollTo: "none",
+      intent: "focus-only",
     });
   });
 

@@ -1,6 +1,6 @@
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { describe, expect, it } from "vitest";
-import { withSelectionPosition } from "./AnnotatedArtifactHtml";
+import { withSelectionPosition } from "./artifactHtmlCommentPosition";
 
 const selection = {
   text: "selected text",

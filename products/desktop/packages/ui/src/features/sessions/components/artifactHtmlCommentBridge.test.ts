@@ -237,6 +237,26 @@ describe("artifactHtmlCommentBridge", () => {
       type: "selection-position",
       rect: { top: 20, right: 110, bottom: 30 },
     });
+    const positionCount = messages.filter(
+      (message) => message.type === "selection-position",
+    ).length;
+
+    dom.window.dispatchEvent(
+      new dom.window.MessageEvent("message", {
+        data: {
+          marker: BRIDGE_MARKER,
+          channel: CHANNEL,
+          type: "selection-dismissed",
+        },
+        source: dom.window,
+      }),
+    );
+    top = 10;
+    dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
+
+    expect(
+      messages.filter((message) => message.type === "selection-position"),
+    ).toHaveLength(positionCount);
     dom.window.close();
   });
 

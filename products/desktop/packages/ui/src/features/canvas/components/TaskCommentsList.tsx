@@ -571,8 +571,8 @@ export function TaskCommentsList({
         : ALL_SOURCES,
     );
     setPulseThreadId(focus.threadId);
-    if (!focus.scrollTo) openThread(focused, false);
-    if (focus.scrollTo === "none") return;
+    if (focus.intent === "navigate") openThread(focused, false);
+    if (focus.intent === "focus-only") return;
     requestAnimationFrame(() => {
       const pane = threadListRef.current;
       const thread = pane?.querySelector<HTMLElement>(
@@ -760,7 +760,7 @@ export function TaskCommentsList({
             });
             setDraft("");
             requestCommentFocus(task.id, composerTarget, created.id, {
-              scrollTo: "none",
+              intent: "focus-only",
             });
           }}
           members={members}
