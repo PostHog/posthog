@@ -18,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     StripeAuthMethodConfig,
     StripeSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import (
+    source as stripe_source_module,
+    stripe as stripe_module,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     APPLICATION_FEE_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
@@ -69,7 +72,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     NON_PARTITIONED_ENDPOINTS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import source as stripe_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     DEFAULT_LIMIT,
@@ -1490,7 +1492,9 @@ class TestStripeSourceWebhookMethodsForwardTheVersion:
     def _config(self) -> StripeSourceConfig:
         return StripeSourceConfig(
             auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123"),
-            stripe_api_version=STRIPE_API_VERSION_ACACIA,
+            # The generated config types this as a Literal, so the label has to be spelled out here
+            # rather than referenced through the constant.
+            stripe_api_version="2024-09-30.acacia",
         )
 
     def test_create_webhook_forwards_the_configured_version(self):
