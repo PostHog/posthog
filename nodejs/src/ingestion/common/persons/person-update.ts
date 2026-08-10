@@ -252,76 +252,102 @@ export function foldOps(existing: EventOps, incoming: EventOps): EventOps | null
         }
     }
 
-    const set = { ...existing.set }
-    const setOnce = { ...existing.setOnce }
-    const unset = new Set(existing.unset)
+    const states = keyStates(existing)
+    for (const [key, op] of keyStates(incoming)) {
+        const next = foldKey(states.get(key), op)
+        if (next === null) {
+            return null
+        }
+        states.set(key, next)
+    }
 
-    const hasValue = (key: string) => key in set || key in setOnce
-    const isPair = (key: string) => unset.has(key) && hasValue(key)
-
-    const incomingUnset = new Set(incoming.unset)
-    const keys = new Set([...Object.keys(incoming.set), ...Object.keys(incoming.setOnce), ...incoming.unset])
-
-    for (const key of keys) {
-        const inSet = key in incoming.set
-        const inOnce = key in incoming.setOnce
-        const inUnset = incomingUnset.has(key)
-
-        if (inUnset && (inSet || inOnce)) {
-            // A simultaneous pair: after pending state that guarantees
-            // the key present, it resolves to gone; after a pending
-            // unset, its value applies unconditionally; over nothing it
-            // rides in whole; over another pair, segment.
-            if (isPair(key)) {
-                return null
-            }
-            if (hasValue(key)) {
-                delete set[key]
-                delete setOnce[key]
-                unset.add(key)
-            } else if (unset.has(key)) {
-                unset.delete(key)
-                set[key] = inSet ? incoming.set[key] : incoming.setOnce[key]
-            } else {
-                if (inSet) {
-                    set[key] = incoming.set[key]
-                } else {
-                    setOnce[key] = incoming.setOnce[key]
-                }
-                unset.add(key)
-            }
-        } else if (inSet) {
-            set[key] = incoming.set[key]
-            delete setOnce[key]
-            unset.delete(key)
-        } else if (inOnce) {
-            if (isPair(key)) {
-                return null
-            }
-            if (hasValue(key)) {
-                // First value wins.
-            } else if (unset.has(key)) {
-                unset.delete(key)
-                set[key] = incoming.setOnce[key]
-            } else {
-                setOnce[key] = incoming.setOnce[key]
-            }
-        } else {
-            unset.add(key)
-            delete set[key]
-            delete setOnce[key]
+    const set: Properties = {}
+    const setOnce: Properties = {}
+    const unset: string[] = []
+    for (const [key, state] of states) {
+        if (state.kind === 'unset' || state.kind === 'pair') {
+            unset.push(key)
+        }
+        if (state.kind === 'value' || state.kind === 'pair') {
+            ;(state.lane === 'set' ? set : setOnce)[key] = state.value
         }
     }
 
     return {
         set,
         setOnce,
-        unset: [...unset],
+        unset,
         denied: false,
         shouldForceUpdate: existing.shouldForceUpdate || incoming.shouldForceUpdate,
         isIdentified: existing.isIdentified || incoming.isIdentified ? true : undefined,
         lastSeenAtMs: mergeLastSeenMs(existing.lastSeenAtMs, incoming.lastSeenAtMs),
         eventName: incoming.eventName,
+    }
+}
+
+/**
+ * One key's accumulated (or incoming) state: a pending value in one of
+ * the two lanes, a pending unset, or the snapshot-dependent pair of
+ * both from a single event.
+ */
+type KeyState =
+    | { kind: 'value'; lane: 'set' | 'setOnce'; value: unknown }
+    | { kind: 'unset' }
+    | { kind: 'pair'; lane: 'set' | 'setOnce'; value: unknown }
+
+/** An EventOps decomposed per key, in set, setOnce, unset order. */
+function keyStates(ops: EventOps): Map<string, KeyState> {
+    const states = new Map<string, KeyState>()
+    const unset = new Set(ops.unset)
+    for (const [key, value] of Object.entries(ops.set)) {
+        states.set(key, { kind: unset.has(key) ? 'pair' : 'value', lane: 'set', value })
+    }
+    for (const [key, value] of Object.entries(ops.setOnce)) {
+        states.set(key, { kind: unset.has(key) ? 'pair' : 'value', lane: 'setOnce', value })
+    }
+    for (const key of ops.unset) {
+        if (!states.has(key)) {
+            states.set(key, { kind: 'unset' })
+        }
+    }
+    return states
+}
+
+/**
+ * The per-key transition table: what the accumulated state becomes when
+ * a later event's op for the same key lands on it. `null` means the
+ * composition is not representable and the caller must cut a segment.
+ *
+ * Two facts drive every row. A plain set or unset is unconditional, so
+ * it supersedes whatever is pending. A set_once and a pair are
+ * snapshot-dependent — set_once applies only where the key is absent,
+ * a pair resolves to gone where present and to its value where absent —
+ * so their outcome over pending state follows from what that state
+ * guarantees about the key: a pending value guarantees present, a
+ * pending unset guarantees absent, and a pending pair guarantees
+ * nothing, which is why a snapshot-dependent op over it must segment.
+ */
+function foldKey(state: KeyState | undefined, op: KeyState): KeyState | null {
+    if (op.kind === 'value' && op.lane === 'set') {
+        return op
+    }
+    if (op.kind === 'unset') {
+        return op
+    }
+    // op is a set_once or a pair; both resolve against the pending state.
+    switch (state?.kind) {
+        case undefined:
+            return op
+        case 'value':
+            // Present is guaranteed: a set_once loses to the first
+            // value, a pair resolves to gone.
+            return op.kind === 'value' ? state : { kind: 'unset' }
+        case 'unset':
+            // Absent is guaranteed: either op's value applies
+            // unconditionally.
+            return { kind: 'value', lane: 'set', value: op.value }
+        case 'pair':
+            return null
     }
 }
 
