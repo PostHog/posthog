@@ -34,7 +34,17 @@ export const getDesktopUsageComponents = (summary: UsageSummary): DesktopUsageCo
 const formatQuantity = (value: number, divisor: number, unit: string): string =>
     `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(value / divisor)} ${unit}`
 
-const MixLegend = ({ color, label, percent, value }: { color: string; label: string; percent: number; value: string }) => (
+const MixLegend = ({
+    color,
+    label,
+    percent,
+    value,
+}: {
+    color: string
+    label: string
+    percent: number
+    value: string
+}): JSX.Element => (
     <div className="flex items-center gap-2 text-sm">
         <span className={`size-2 rounded-full ${color}`} />
         <span>
@@ -74,7 +84,7 @@ export const DesktopUsageBreakdown = ({ summary }: { summary: UsageSummary }): J
                 {totalCredits > 0 && (
                     <>
                         <div className="bg-accent" style={{ width: `${tokenPercent}%` }} />
-                        <div className="flex-1 bg-primary-3000" />
+                        <div className="flex-1 bg-[var(--data-color-2)]" />
                     </>
                 )}
             </div>
@@ -86,7 +96,7 @@ export const DesktopUsageBreakdown = ({ summary }: { summary: UsageSummary }): J
                     value={humanFriendlyCurrency(components.tokenCredits / 100)}
                 />
                 <MixLegend
-                    color="bg-primary-3000"
+                    color="bg-[var(--data-color-2)]"
                     label="Cloud compute"
                     percent={computePercent}
                     value={humanFriendlyCurrency(components.computeCredits / 100)}
