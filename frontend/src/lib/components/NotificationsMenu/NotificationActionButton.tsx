@@ -5,8 +5,10 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 
+// Hover reveal keeps rows quiet on desktop, but a device that can't hover would never see these
+// actions at all, so they stay visible there.
 export const ROW_ACTION_REVEAL_CLASSES =
-    'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity'
+    'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 pointer-coarse:opacity-100 transition-opacity'
 
 export function ReadToggleIcon({ read }: { read: boolean }): JSX.Element {
     if (read) {
@@ -35,9 +37,11 @@ export function NotificationActionButton({
     ariaLabel?: string
     className?: string
 }): JSX.Element {
+    // Destructive actions rest at the same muted weight as the read toggle and only take on the
+    // danger tone once the pointer is on them — archive shouldn't be the loudest thing on a card.
     const toneClasses =
         tone === 'danger'
-            ? 'text-secondary hover:text-danger hover:bg-fill-error-highlight'
+            ? 'text-muted hover:text-danger hover:bg-fill-error-highlight'
             : 'text-secondary hover:text-primary hover:bg-fill-highlight-200'
 
     const button = (

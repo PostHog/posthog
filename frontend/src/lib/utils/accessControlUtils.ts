@@ -9,6 +9,20 @@ import { APIScopeObject, AccessControlLevel, AccessControlResourceType, Availabl
 /** Which iteration of the access control settings UI an interaction came from. */
 export type AccessControlUIVersion = 'v1' | 'v2'
 
+export const toAccessControlLevel = (value: string | null | undefined): AccessControlLevel => {
+    switch (value) {
+        case AccessControlLevel.None:
+        case AccessControlLevel.Viewer:
+        case AccessControlLevel.Editor:
+        case AccessControlLevel.Manager:
+        case AccessControlLevel.Member:
+        case AccessControlLevel.Admin:
+            return value
+        default:
+            return AccessControlLevel.None
+    }
+}
+
 /**
  * Capture an access control analytics event. All events are tagged with
  * `platform_feature: ACCESS_CONTROL` so usage of the feature can be grouped and
@@ -94,6 +108,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'LLM playground'
     } else if (resource === AccessControlResourceType.Workflow) {
         return 'workflows'
+    } else if (resource === AccessControlResourceType.Ticket) {
+        return 'support'
     } else if (resource === AccessControlResourceType.ReplayScanner) {
         // Covers both scanners and their scheduled summary actions — "replay vision" is the product name.
         return 'replay vision'

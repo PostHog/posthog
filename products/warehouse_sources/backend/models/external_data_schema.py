@@ -3,6 +3,7 @@ import sys
 import uuid
 import fnmatch
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -19,7 +20,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
@@ -76,7 +77,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # ignored by version-migration tooling — only the user changes it. Not available for
     # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
     api_version = models.CharField(max_length=128, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -120,6 +121,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
             # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
             # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            #
+            # These calls always target an already-persisted row. Without force_update, Django's
+            # UUID-pk-with-default fallback would silently retry a no-op UPDATE as an INSERT if the
+            # row was deleted concurrently (e.g. the source/schema deleted mid-sync) — either
+            # resurrecting deleted data, or failing with a misleading FK IntegrityError on source_id
+            # instead of a clear "no such row" error.
+            kwargs.setdefault("force_update", True)
             super(ModelActivityMixin, self).save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
@@ -438,7 +446,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partition_size_override", None)
         self.sync_type_config.pop("partition_mode_override", None)
         self.sync_type_config.pop("partitioning_keys_override", None)
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     # --- In-place repartition controller state ------------------------------------------------
     # These keys drive the automated, no-source-pull repartition that bounds per-partition memory
@@ -475,6 +485,22 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def repartition_rewrite(self) -> dict[str, Any] | None:
+        """Checkpoint of a rewrite that ran out of activity budget before finishing streaming.
+
+        Its temp table holds a scan-ordered prefix of the live table's rows. The next attempt resumes
+        appending from that offset instead of re-streaming from row 0, so a table too large to rewrite
+        in one activity converges across attempts rather than giving up terminally. Cleared once temp
+        is fully built (a swap is staged) or when the controller gives up. Shape:
+        {"temp_uri": str, "rows_written": int, "target": dict}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("repartition_rewrite", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    @property
     def repartition_claim(self) -> dict[str, Any] | None:
         """The fencing claim of the newest repartition attempt: {"token", "job_id", "claimed_at"}.
 
@@ -490,9 +516,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     def _save_sync_type_config(self) -> None:
+        # temporalio at module scope would put the Temporal client on the django.setup() path —
+        # this is a models module (see external_data_source.reload_schemas for the same pattern).
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
         # Internal bookkeeping write — skip the activity-log SELECT (see save()) since these run
         # inside the sync/repartition activity where a dropped pooler connection would fail the run.
-        self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        # These fire once per batch across every schema sync, so a transient pooler wait_timeout
+        # (the pool momentarily out of free backend connections) is worth one retry rather than
+        # losing the write silently.
+        retry_on_db_connection_drop(
+            lambda: self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
         self.sync_type_config["max_partition_bytes"] = max_partition_bytes
@@ -518,6 +553,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("repartition_swap", None)
         self._save_sync_type_config()
 
+    def set_repartition_rewrite(self, checkpoint: dict[str, Any]) -> None:
+        self.sync_type_config["repartition_rewrite"] = checkpoint
+        self._save_sync_type_config()
+
+    def clear_repartition_rewrite(self) -> None:
+        self.sync_type_config.pop("repartition_rewrite", None)
+        self._save_sync_type_config()
+
     @property
     def delta_revive_required(self) -> dict[str, Any] | None:
         """Set when the live Delta table is readable but hollow — its log references data files that
@@ -535,6 +578,31 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["delta_revive_required"] = info
         self._save_sync_type_config()
 
+    @property
+    def coarsen_requested(self) -> dict[str, Any] | None:
+        """Set by `stage_warehouse_coarsening` to nominate this table for the coarsening rewrite.
+
+        Nominating overrides the *policy* gates the automatic path applies (rollout flag, OOM history,
+        layout age, minimum partition count) because an operator has looked at the table. It never
+        overrides the *safety* checks: the controller still measures the live layout and refuses any
+        target that would not fit the memory budget, so a nomination can only ever be a no-op, never a
+        rewrite into partitions too big to merge. Consumed on the next evaluation either way.
+        Shape: {"requested_at": iso8601 str, "requested_by": str}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("coarsen_requested", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    def set_coarsen_requested(self, info: dict[str, Any]) -> None:
+        self.sync_type_config["coarsen_requested"] = info
+        self._save_sync_type_config()
+
+    def clear_coarsen_requested(self) -> None:
+        self.sync_type_config.pop("coarsen_requested", None)
+        self._save_sync_type_config()
+
     def stamp_last_repartition_at(self) -> None:
         self.sync_type_config["last_repartition_at"] = timezone.now().isoformat()
         self._save_sync_type_config()
@@ -550,7 +618,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if earliest_value is not None:
             staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
         self.sync_type_config["incremental_staged"] = staged
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         staged = self.sync_type_config.get("incremental_staged")
@@ -561,7 +631,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if "earliest_value" in staged:
             self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
         self.sync_type_config.pop("incremental_staged", None)
-        self.save()
+        self.save(skip_activity_log=True)
         return True
 
     def _serialize_incremental_value(self, value: Any) -> Any:
@@ -723,6 +793,26 @@ def _parse_datetime_string(value: str) -> datetime:
         return parser.parse(stripped)
 
 
+def _coerce_incremental_datetime(value: str) -> datetime | int:
+    """Parse a DateTime/Timestamp/Date cursor string, falling back to a raw integer.
+
+    Some drivers surface a numeric cursor as a bare digit string even though the field is
+    typed as a date/time type (e.g. a ClickHouse column Arrow can't emit natively, cast to
+    String, whose current type no longer matches the incremental field's stored type).
+    dateutil's heuristics then misread the digits as a calendar year and overflow past
+    datetime's year-9999 ceiling (`ParserError`), or raise a bare `OverflowError` for longer
+    digit runs. Legitimate compact date strings like "20240115" (YYYYMMDD) parse correctly
+    above and never reach this fallback.
+    """
+    try:
+        return _parse_datetime_string(value)
+    except (parser.ParserError, OverflowError):
+        stripped = value.strip()
+        if stripped.lstrip("-").isdigit():
+            return int(stripped)
+        raise
+
+
 def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
@@ -743,7 +833,7 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
-        return _parse_datetime_string(value)
+        return _coerce_incremental_datetime(value)
 
     if field_type == IncrementalFieldType.Date:
         if isinstance(value, datetime):
@@ -755,7 +845,8 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
-        return _parse_datetime_string(value).date()
+        parsed = _coerce_incremental_datetime(value)
+        return parsed if isinstance(parsed, int) else parsed.date()
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)
@@ -958,6 +1049,12 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SchemaSyncResult:
+    created: list[str]
+    deleted: list[str]
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -965,7 +1062,7 @@ def sync_old_schemas_with_new_schemas(
     descriptions: dict[str, str | None] | None = None,
     strict_name_match: bool = False,
     schema_metadata_by_name: dict[str, dict] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> SchemaSyncResult:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -1058,7 +1155,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return actually_created, deleted_schemas
+    return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 
 
 def schema_name_matches_auto_sync_patterns(name: str, patterns: list[str] | None) -> bool:

@@ -68,8 +68,15 @@ def forward_pending_user_message(run_id: str) -> None:
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except TaskRun.DoesNotExist:
+        # The run existed when this workflow started, so a missing row means it was
+        # hard-deleted mid-run (team/org deletion cascade). Fail the workflow rather
+        # than letting the agent session run on with no rows to report into.
         logger.warning("forward_pending_message_run_not_found", run_id=run_id)
-        return
+        raise ApplicationError(
+            f"TaskRun {run_id} no longer exists; cannot forward the pending user message",
+            non_retryable=True,
+            type="TaskRunDeletedError",
+        )
 
     retryable_delivery_error: str | None = None
 
@@ -121,6 +128,11 @@ def forward_pending_user_message(run_id: str) -> None:
                 task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
             )
 
+        from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
+            measure_task_run_cpu_attribution,
+        )
+
+        cpu_attribution = measure_task_run_cpu_attribution(run_id, task_run.team_id)
         result = send_user_message(
             task_run,
             pending_message,
@@ -195,7 +207,7 @@ def forward_pending_user_message(run_id: str) -> None:
                 record_task_run_user_activity,
             )
 
-            record_task_run_user_activity(run_id, task_run.team_id)
+            record_task_run_user_activity(run_id, task_run.team_id, cpu_attribution)
             logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
             observe_followup_delivery_failed(task_run, retryable=False)

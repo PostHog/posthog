@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.contrib.admin.widgets import AutocompleteSelect
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.test import RequestFactory
@@ -32,6 +33,14 @@ def _files(pdf: UploadedFile | None = None) -> MultiValueDict[str, UploadedFile]
     if pdf is not None:
         mvd["signed_pdf"] = pdf
     return mvd
+
+
+def _attach_messages(request) -> None:
+    # Give a RequestFactory request the messages-framework plumbing admin
+    # actions rely on. Untyped param on purpose so the attribute assignments
+    # don't trip the type checker on WSGIRequest.
+    request.session = {}
+    request._messages = FallbackStorage(request)
 
 
 class TestLegalDocumentAdminForm(APIBaseTest):
@@ -90,6 +99,9 @@ class TestLegalDocumentAdminSave(APIBaseTest):
     def _request(self) -> Any:
         request = self.request_factory.post("/admin/posthog/legaldocument/add/")
         request.user = self.user
+        # Admin actions write user-facing feedback via the messages framework,
+        # which needs a storage backend attached to the request.
+        _attach_messages(request)
         return request
 
     def _bound_form(self, document_type: str = "DPA") -> LegalDocumentAdminForm:
@@ -326,6 +338,46 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         }
         self.assertEqual(called_ids, {"doc_111", "doc_222"})
         self.assertFalse(LegalDocument.objects.filter(id__in=[first.id, second.id]).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_resend_signing_email_dispatches_only_for_unsent_rows(self, mock_pandadoc_cls: Any) -> None:
+        # The recovery action re-triggers the signing email for in-flight rows
+        # whose `document.draft` webhook was missed. It must skip signed rows
+        # (already complete) and rows with no PandaDoc envelope (nothing to
+        # send), and only call /send for the unsigned, enveloped row.
+        stranded = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+            pandadoc_document_id="doc_stranded",
+        )
+        signed = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="BAA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SIGNED,
+            pandadoc_document_id="doc_signed",
+        )
+        no_envelope = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="MSA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+            pandadoc_document_id="",
+        )
+
+        queryset = LegalDocument.objects.filter(id__in=[stranded.id, signed.id, no_envelope.id])
+        self.admin.resend_signing_email(self._request(), queryset)
+
+        mock_pandadoc_cls.return_value.send_document.assert_called_once()
+        self.assertEqual(mock_pandadoc_cls.return_value.send_document.call_args.kwargs["document_id"], "doc_stranded")
 
 
 class TestLegalDocumentAdminPermissions(APIBaseTest):

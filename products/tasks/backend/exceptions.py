@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, Optional
 
 from temporalio.exceptions import ApplicationError
@@ -55,6 +56,32 @@ class TaskRunNotReadyError(ProcessTaskTransientError):
         # Bypass ProcessTaskTransientError.__init__ to pass cause=None, which skips the
         # capture_exception() call in ProcessTaskError — avoiding error-tracking noise.
         ProcessTaskError.__init__(self, message, context, None, non_retryable=False)
+
+
+class GitHubRateLimitedError(ProcessTaskTransientError):
+    """GitHub rate-limited a call (or our egress budget shed it before it was sent).
+
+    An expected, recoverable condition rather than a fault. Kept retryable so the
+    activity's retry policy recovers once the limit window passes, but intentionally
+    not captured to error tracking — there is nothing to investigate, and capturing
+    it mints a noisy issue for something we expect to happen. ``retry_after`` (seconds)
+    drives ``next_retry_delay`` so the retry lands after the window instead of burning
+    every attempt inside it, and is folded into the message so the surfaced error names
+    a real wait instead of an empty reset time.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], retry_after: int):
+        # Bypass ProcessTaskTransientError.__init__ to pass cause=None with capture=False,
+        # skipping the capture_exception() call in ProcessTaskError (mirrors TaskRunNotReadyError).
+        ProcessTaskError.__init__(
+            self,
+            message,
+            context,
+            None,
+            capture=False,
+            non_retryable=False,
+            next_retry_delay=timedelta(seconds=retry_after),
+        )
 
 
 class TaskInvalidStateError(ProcessTaskFatalError):
@@ -129,6 +156,22 @@ class SnapshotCreationError(ProcessTaskTransientError):
 
 class SnapshotTimeoutError(ProcessTaskTransientError):
     """Transient timeout/connection error while creating a snapshot; safe to retry."""
+
+    pass
+
+
+class SnapshotFileLimitExceededError(ProcessTaskFatalError):
+    """Modal refuses to snapshot a directory/filesystem holding more than its hard file-count
+    cap (1,000,000 files). This is a permanent limit, not a transient blip, so retrying the same
+    snapshot cannot succeed — the caller must shrink the tree (prune node_modules, virtualenvs,
+    and package caches) before it can snapshot.
+
+    Non-retryable and captured to error tracking: it is a named, classified condition (not the
+    generic mystery issue this replaced), and callers with no fallback — the dev-stack image bake,
+    the standalone snapshot activity — need it visible. The resume path recovers by pruning and
+    letting Temporal retry, so it converts this into a transient error itself rather than swallowing
+    the signal.
+    """
 
     pass
 

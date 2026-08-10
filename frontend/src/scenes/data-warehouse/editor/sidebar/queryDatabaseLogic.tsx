@@ -2,7 +2,17 @@ import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { IconBolt, IconDatabase, IconDocument, IconEndpoints, IconFolder, IconPlug, IconPlus } from '@posthog/icons'
+import {
+    IconBolt,
+    IconDatabase,
+    IconDocument,
+    IconEndpoints,
+    IconFolder,
+    IconPlug,
+    IconPlus,
+    IconRefresh,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -224,7 +234,7 @@ const shouldHideFieldName = (fieldName: string): boolean => {
     return fieldName === 'team_id'
 }
 
-const shouldUseDirectConnectionTree = (connectionId: string | null): boolean => {
+const shouldUseDirectConnectionTree = (connectionId: string | null): connectionId is string => {
     return !!connectionId && connectionId !== POSTHOG_WAREHOUSE
 }
 
@@ -358,6 +368,55 @@ const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
         type: 'loading-indicator',
     }
 }
+
+// A failed schema load must not look like an empty project: say it failed and offer the retry.
+const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] => [
+    {
+        id: `${prefix}-error/`,
+        name: "Couldn't load your schema",
+        displayName: <span className="text-danger">Couldn't load your schema</span>,
+        icon: <IconWarning className="text-danger" />,
+        disableSelect: true,
+        type: 'node',
+        record: {
+            type: 'schema-load-error',
+        },
+    },
+    {
+        id: `${prefix}-error-retry/`,
+        name: 'Try again',
+        displayName: <>Try again</>,
+        icon: <IconRefresh />,
+        onClick: onRetry,
+        record: {
+            type: 'schema-load-retry',
+        },
+    },
+]
+
+const createDirectConnectionEmptyNodes = (connectionId: string): TreeDataItem[] => [
+    {
+        id: 'direct-connection-empty/',
+        name: 'No queryable tables',
+        displayName: <>No queryable tables</>,
+        icon: <IconDatabase />,
+        disableSelect: true,
+        type: 'node',
+        record: {
+            type: 'direct-connection-empty',
+        },
+    },
+    {
+        id: 'direct-connection-configure/',
+        name: 'Configure tables',
+        displayName: <>Configure tables</>,
+        icon: <IconPlus />,
+        onClick: () => newInternalTab(urls.dataWarehouseSource(`managed-${connectionId}`, 'schemas')),
+        record: {
+            type: 'direct-connection-configure',
+        },
+    },
+]
 
 const createLazyTableEmptyNode = (lazyNodeId: string): TreeDataItem => {
     return {
@@ -912,6 +971,7 @@ const createViewNode = (
             type: 'view',
             view: view,
             isSavedQuery: !isManagedView,
+            certification: schemaTable?.certification,
             ...(matches && { searchMatches: matches }),
         },
         children: viewChildren,
@@ -1304,6 +1364,41 @@ const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | n
     return path ? path[path.length - 1] : null
 }
 
+const getTreeItemDataSourceName = (item: TreeDataItem): string | null => {
+    switch (item.record?.type) {
+        case 'table':
+            return item.record.table?.name ?? item.name
+        case 'view':
+        case 'managed-view':
+            return item.record.view?.name ?? item.name
+        case 'endpoint':
+            return item.record.tableName ?? item.record.table?.name ?? item.name
+        default:
+            return null
+    }
+}
+
+const findDataSourceTreePath = (
+    items: TreeDataItem[],
+    tableName: string,
+    path: TreeDataItem[] = []
+): TreeDataItem[] | null => {
+    for (const item of items) {
+        const nextPath = [...path, item]
+        if (getTreeItemDataSourceName(item) === tableName) {
+            return nextPath
+        }
+        if (item.children) {
+            const foundPath = findDataSourceTreePath(item.children, tableName, nextPath)
+            if (foundPath) {
+                return foundPath
+            }
+        }
+    }
+
+    return null
+}
+
 const getFolderIdFromDropTarget = (items: TreeDataItem[], dropTargetId: string | null): string | null | undefined => {
     if (dropTargetId === '') {
         return null
@@ -1341,6 +1436,7 @@ export interface queryDatabaseLogicValues {
     connectionId: string | null // databaseTableListLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable> // databaseTableListLogic
+    databaseLoadError: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     latestEndpointTables: DatabaseSchemaEndpointTable[] // databaseTableListLogic
     managedViews: DatabaseSchemaManagedViewTable[] // databaseTableListLogic
@@ -1394,6 +1490,7 @@ export interface queryDatabaseLogicValues {
     selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null
     sidebarOverlayTreeItems: TreeItem[]
     syncMoreNoticeDismissed: boolean
+    tableToLocate: string | null
     treeData: TreeDataItem[]
     treeDataContext: TreeDataContext
     treeRef: EditorSidebarTreeRef
@@ -1473,6 +1570,9 @@ export interface queryDatabaseLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
+    refreshDatabaseSchema: () => {
+        value: true
+    } // databaseTableListLogic
     loadDrafts: () => any // draftsLogic
     loadMoreDrafts: () => any // draftsLogic
     renameDraft: (
@@ -1501,6 +1601,9 @@ export interface queryDatabaseLogicActions {
         value: true
     }
     clearSearch: () => {
+        value: true
+    }
+    clearTableToLocate: () => {
         value: true
     }
     deleteUnsavedQuery: (record: Record<string, any>) => {
@@ -1554,6 +1657,9 @@ export interface queryDatabaseLogicActions {
     ) => {
         queryTabState: QueryTabState | null
         payload?: any
+    }
+    locateTable: (tableName: string) => {
+        tableName: string
     }
     moveDraggedViewToDropTarget: (
         viewId: string,
@@ -1711,6 +1817,7 @@ export interface queryDatabaseLogicMeta {
         treeData: (
             treeDataContext: TreeDataContext,
             databaseLoading: boolean,
+            databaseLoadError: string | null,
             dataWarehouseSavedQueriesLoading: boolean,
             drafts: DataWarehouseSavedQueryDraft[],
             draftsResponseLoading: boolean,
@@ -1729,7 +1836,10 @@ export interface queryDatabaseLogicMeta {
                 | {
                       job_inputs?: Record<string, any>
                   }
-                | undefined
+                | undefined,
+            databaseLoading: boolean,
+            databaseLoadError: string | null,
+            allTablesMap: Record<string, DatabaseSchemaTable>
         ) => TreeDataItem[]
         activeExpandedFolderIds: (
             searchTerm: string,
@@ -1777,6 +1887,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
+        clearTableToLocate: true,
+        locateTable: (tableName: string) => ({ tableName }),
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
         setEditingDraft: (draftId: string) => ({ draftId }),
@@ -1808,6 +1920,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'viewsMapById',
                 'managedViews',
                 'databaseLoading',
+                'databaseLoadError',
                 'systemTables',
                 'systemTablesMap',
                 'allTablesMap',
@@ -1845,6 +1958,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
+            databaseTableListLogic,
+            ['refreshDatabaseSchema'],
         ],
     })),
     reducers({
@@ -1889,6 +2004,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             null as EditorSidebarTreeRef,
             {
                 setTreeRef: (_, { ref }) => ref,
+            },
+        ],
+        tableToLocate: [
+            null as string | null,
+            {
+                locateTable: (_, { tableName }) => tableName,
+                clearTableToLocate: () => null,
             },
         ],
 
@@ -1985,6 +2107,40 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             actions.clearPendingViewFolderOverrides()
         },
     })),
+    listeners(({ actions, values }) => {
+        const revealLocatedTable = (tableName: string): void => {
+            actions.clearSearch()
+            const path = findDataSourceTreePath(values.displayedTreeData, tableName)
+            if (!path) {
+                return
+            }
+
+            const tableId = path[path.length - 1].id
+            actions.setExpandedFolders(
+                Array.from(new Set([...values.expandedFolders, ...path.map((item) => item.id)])),
+                values.connectionId
+            )
+
+            if (values.treeRef?.current) {
+                values.treeRef.current.focusItem(tableId, {
+                    scrollPosition: 'top-third',
+                    behavior: 'smooth',
+                })
+                actions.clearTableToLocate()
+            }
+        }
+
+        return {
+            locateTable: ({ tableName }) => {
+                revealLocatedTable(tableName)
+            },
+            setTreeRef: ({ ref }) => {
+                if (ref?.current && values.tableToLocate) {
+                    revealLocatedTable(values.tableToLocate)
+                }
+            },
+        }
+    }),
     loaders(({ values }) => ({
         queryTabState: [
             null as QueryTabState | null,
@@ -2472,6 +2628,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (s) => [
                 s.treeDataContext,
                 s.databaseLoading,
+                s.databaseLoadError,
                 s.dataWarehouseSavedQueriesLoading,
                 s.drafts,
                 s.draftsResponseLoading,
@@ -2484,6 +2641,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (
                 treeDataContext: TreeDataContext,
                 databaseLoading: boolean,
+                databaseLoadError: string | null,
                 dataWarehouseSavedQueriesLoading: boolean,
                 drafts: DataWarehouseSavedQueryDraft[],
                 draftsResponseLoading: boolean,
@@ -2515,9 +2673,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
                 const tableNodeOptions = { expandedLazyNodeIds }
+                const schemaFailedWithNoTables =
+                    !!databaseLoadError && !databaseLoading && Object.keys(allTablesMap).length === 0
 
-                // Add loading indicator for sources if still loading
-                if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
+                if (schemaFailedWithNoTables) {
+                    sourcesChildren.push(...createSchemaErrorNodes('sources', () => actions.refreshDatabaseSchema()))
+                } else if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
                     sourcesChildren.push({
                         id: 'sources-loading/',
                         name: 'Loading...',
@@ -2639,6 +2800,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 viewsChildren.sort((a, b) => a.name.localeCompare(b.name))
                 managedViewsChildren.sort((a, b) => a.name.localeCompare(b.name))
 
+                // Managed views come from the same schema request as sources, so they're missing for
+                // the same reason. Replaces the saved-query spinner, which tracks a different request.
+                if (schemaFailedWithNoTables && managedViews.length === 0) {
+                    managedViewsChildren.length = 0
+                    managedViewsChildren.push(
+                        ...createSchemaErrorNodes('managed-views', () => actions.refreshDatabaseSchema())
+                    )
+                }
+
                 const states = queryTabState?.state?.editorModelsStateKey
                 const unsavedChildren: TreeDataItem[] = []
                 let i = 1
@@ -2725,13 +2895,25 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         displayedTreeData: [
-            (s) => [s.searchTerm, s.searchTreeData, s.treeData, s.connectionId, s.selectedDirectSource],
+            (s) => [
+                s.searchTerm,
+                s.searchTreeData,
+                s.treeData,
+                s.connectionId,
+                s.selectedDirectSource,
+                s.databaseLoading,
+                s.databaseLoadError,
+                s.allTablesMap,
+            ],
             (
                 searchTerm: string,
                 searchTreeData: TreeDataItem[],
                 treeData: TreeDataItem[],
                 connectionId: string | null,
-                selectedDirectSource: { job_inputs?: Record<string, any> } | undefined
+                selectedDirectSource: { job_inputs?: Record<string, any> } | undefined,
+                databaseLoading: boolean,
+                databaseLoadError: string | null,
+                allTablesMap: Record<string, DatabaseSchemaTable>
             ): TreeDataItem[] => {
                 const sourceData = searchTerm ? searchTreeData : treeData
 
@@ -2774,6 +2956,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                     additionalItems.push(item)
                 })
+
+                const hasLoadedTables = Object.keys(allTablesMap).length > 0
+                if (!databaseLoading && databaseLoadError) {
+                    return [
+                        ...createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema()),
+                        ...additionalItems,
+                    ]
+                }
+                if (!databaseLoading && !hasLoadedTables) {
+                    return [...createDirectConnectionEmptyNodes(connectionId), ...additionalItems]
+                }
 
                 return [
                     ...groupDirectConnectionTableNodesBySchema(flattenedTables, !!searchTerm, defaultSchemaName),

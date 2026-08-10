@@ -14,6 +14,7 @@ const POSTHOG_EVENT_DISPLAY_NAMES: Record<string, string> = {
     $capture_metrics: 'Capture metrics',
     $conversation_message_received: 'Conversation message received',
     $conversation_message_sent: 'Conversation message sent',
+    $conversation_private_message_sent: 'Conversation private message sent',
     $conversation_ticket_assigned: 'Conversation ticket assigned',
     $conversation_ticket_created: 'Conversation ticket created',
     $conversation_ticket_priority_changed: 'Conversation ticket priority changed',

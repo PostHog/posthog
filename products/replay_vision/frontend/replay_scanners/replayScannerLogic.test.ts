@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -15,8 +17,15 @@ import {
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
+import { readScannerDraft } from './scannerDraft'
+import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
+
+jest.mock('lib/forms/scrollToFormError', () => ({
+    scrollToFormError: jest.fn(),
+}))
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
@@ -34,6 +43,11 @@ describe('replayScannerLogic', () => {
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
                 '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
+                '/api/projects/:team/vision/scanners/:id/observations/stats/': {
+                    status_counts: { total: 0, succeeded: 0, failed: 0, ineligible: 0, in_flight: 0 },
+                    coverage: { recent_sessions: 0, total_sessions: 0, recent_days: 14 },
+                    available_tags: [],
+                },
             },
             post: {
                 '/api/projects/:team/vision/scanners/': createSpy,
@@ -42,13 +56,19 @@ describe('replayScannerLogic', () => {
                 '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
             },
         })
+        // The draft layer persists form edits to localStorage; without a reset, one test's edits
+        // restore into the next test's freshly mounted wizard.
+        localStorage.clear()
         initKeaTests()
         logic = replayScannerLogic({ id: 'new' })
         logic.mount()
+        // The submit handler reads the wizard step from scannerEditorSceneLogic, so mount it too.
+        scannerEditorSceneLogic.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
+        scannerEditorSceneLogic.unmount()
     })
 
     describe('form defaults', () => {
@@ -241,6 +261,127 @@ describe('replayScannerLogic', () => {
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
+
+        it('advances from the step the editor scene reports, even when the URL matches no step', async () => {
+            router.actions.push('/replay-vision/new/not-a-step')
+            scannerEditorSceneLogic.actions.setStep('configure')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+        })
+
+        it('routes a rejected submit to the step that renders the errored fields', async () => {
+            // Defaults leave name and prompt empty, both configure-owned.
+            router.actions.push('/replay-vision/new/triggers')
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+    })
+
+    describe('new scanner draft', () => {
+        beforeEach(() => {
+            teamLogic.mount()
+        })
+
+        it('restores drafted values when the wizard remounts, still diverging from the saved scanner', async () => {
+            logic.actions.setScannerValues({ name: 'Half done', scanner_config: { prompt: 'Find rage clicks' } })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.scanner?.name).toBe('Half done')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it.each([
+            ['scannerSaved', () => logic.actions.scannerSaved(logic.values.scanner!)],
+            ['startFromTemplate', () => logic.actions.startFromTemplate(null)],
+            ['discardScannerDraft', () => logic.actions.discardScannerDraft()],
+        ])('clears the draft on %s', async (_label, act) => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+            act()
+            expect(readScannerDraft(teamId)).toBeNull()
+        })
+
+        it('persists a type switch, so a reload does not restore the old type', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.setScannerType('summarizer')
+            expect(readScannerDraft(teamId)?.scanner.scanner_type).toBe('summarizer')
+        })
+
+        it('keeps the draft on resetScanner, so leaving the editor stays resumable', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.resetScanner()
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
+        it('discards back to the loaded baseline, so the leave guard stays disarmed', async () => {
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { template: 'dead_end' })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const baseline = logic.values.scanner!.name
+
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.discardScannerDraft()
+            expect(logic.values.scanner!.name).toBe(baseline)
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+        })
+
+        it('does not restamp the draft when restoring it, so it still ages out', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Half done' })
+            const savedAt = readScannerDraft(teamId)!.savedAt
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(readScannerDraft(teamId)!.savedAt).toBe(savedAt)
+        })
+
+        it('announces the draft on the way out, once an edit has been saved', async () => {
+            const info = jest.spyOn(lemonToast, 'info')
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.unmount()
+            expect(info).toHaveBeenCalledWith(
+                'Draft saved',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Resume' }) })
+            )
+            info.mockRestore()
+        })
+
+        it('stays quiet on the way out when the draft was only restored', async () => {
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const info = jest.spyOn(lemonToast, 'info')
+            logic.unmount()
+            expect(info).not.toHaveBeenCalled()
+            info.mockRestore()
+        })
+
+        it('clears a resumed draft when its edits are undone back to the starting point', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            const original = logic.values.scanner!.name
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setScannerValues({ name: original })
+            expect(readScannerDraft(teamId)).toBeNull()
+        })
     })
 
     describe('validation errors', () => {
@@ -374,12 +515,19 @@ describe('replayScannerLogic', () => {
             observationSubjectFilter: '',
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
+            observationBackfillFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }
 
         it('returns empty params when no filters, sort, or pagination', () => {
             expect(buildObservationListParams({ ...emptyValues })).toEqual({})
+        })
+
+        it('passes the backfill filter as backfill_id', () => {
+            expect(buildObservationListParams({ ...emptyValues, observationBackfillFilter: 'bf-1' })).toEqual({
+                backfill_id: 'bf-1',
+            })
         })
 
         it('passes limit and offset only when offset is positive', () => {
@@ -604,13 +752,21 @@ describe('replayScannerLogic', () => {
         const configure = urls.replayVisionScannerConfigure(scannerId)
         const triggers = urls.replayVisionScannerTriggers(scannerId)
         const template = urls.replayVisionScannerTemplate(scannerId)
+        const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
         const detail = urls.replayVision(scannerId)
-        const base = { hasUnsavedChanges: true, isSubmitting: false, scannerId, currentPathname: configure }
+        const base = {
+            hasUnsavedChanges: true,
+            isSubmitting: false,
+            hasSavedDraft: false,
+            scannerId,
+            currentPathname: configure,
+        }
 
         it.each([
             // Nothing to lose, or the editor is mid-submit (save / step advance redirects itself).
             ['no unsaved changes', { ...base, hasUnsavedChanges: false, nextPathname: '/insights' }, false],
             ['mid-submit redirect to detail', { ...base, isSubmitting: true, nextPathname: detail }, false],
+            ['edits already saved as a draft', { ...base, hasSavedDraft: true, nextPathname: '/insights' }, false],
             // Moving between the wizard's own steps keeps the same draft mounted.
             ['forward to triggers step', { ...base, nextPathname: triggers }, false],
             ['back to template step', { ...base, currentPathname: triggers, nextPathname: template }, false],
@@ -624,6 +780,18 @@ describe('replayScannerLogic', () => {
                 'over to a different scanner’s editor',
                 { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
                 true,
+            ],
+            ['out from the self-driving step', { ...base, currentPathname: selfDriving, nextPathname: detail }, true],
+            // The router stores pathnames with the `/project/:id` prefix; `urls.*` are unprefixed.
+            [
+                'out to settings from a project-prefixed URL',
+                { ...base, currentPathname: `/project/123${triggers}`, nextPathname: '/settings/environment' },
+                true,
+            ],
+            [
+                'between steps with project-prefixed URLs',
+                { ...base, currentPathname: `/project/123${configure}`, nextPathname: `/project/123${triggers}` },
+                false,
             ],
         ])('%s', (_label, params, expected) => {
             expect(shouldGuardScannerNavigation(params)).toBe(expected)
@@ -695,6 +863,29 @@ describe('replayScannerLogic', () => {
                 expect(persisted.values.observationsLoading).toBe(true)
             } finally {
                 persisted.unmount()
+            }
+        })
+    })
+
+    describe('observations drill-down round-trip', () => {
+        // Guards the URL contract between the Overview chart drill-down and this logic's urlToAction:
+        // a param rename on either side breaks the drill-down silently.
+        it('restores the drill-down search params into the observations table filters', async () => {
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            try {
+                const params = observationsDrilldownSearchParams({
+                    day: '2026-05-04',
+                    interval: 'day',
+                    scannerType: 'monitor',
+                })
+                router.actions.push(urls.replayVision('sid'), params!)
+                await expectLogic(sidLogic).toFinishAllListeners()
+                expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
+                expect(sidLogic.values.observationDateTo).toBe('2026-05-04')
+                expect(sidLogic.values.observationVerdictFilter).toEqual(['yes'])
+            } finally {
+                sidLogic.unmount()
             }
         })
     })
