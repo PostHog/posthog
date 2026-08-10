@@ -7,12 +7,16 @@ import uuid
 import shlex
 import base64
 import shutil
+import signal
 import socket
 import hashlib
 import logging
 import tempfile
+import threading
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
@@ -98,6 +102,11 @@ _DOCKER_URL_ENV_KEYS = frozenset(
 # Temporal then discards the real error in favor of an opaque "Failure exceeds size
 # limit." Keep the tail — Docker prints the failing step and error there.
 _MAX_CAPTURED_OUTPUT_CHARS = 8000
+_SUBPROCESS_CANCEL_POLL_SECONDS = 0.1
+_SUBPROCESS_TERMINATE_TIMEOUT_SECONDS = 5
+_subprocess_cancel_event: ContextVar[threading.Event | None] = ContextVar(
+    "docker_sandbox_subprocess_cancel_event", default=None
+)
 
 
 def _truncate_output(output: str | None) -> str:
@@ -106,6 +115,59 @@ def _truncate_output(output: str | None) -> str:
     if len(output) <= _MAX_CAPTURED_OUTPUT_CHARS:
         return output
     return f"...[truncated {len(output) - _MAX_CAPTURED_OUTPUT_CHARS} chars]...\n{output[-_MAX_CAPTURED_OUTPUT_CHARS:]}"
+
+
+def _terminate_subprocess(process: subprocess.Popen[str]) -> tuple[str, str]:
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    try:
+        return process.communicate(timeout=_SUBPROCESS_TERMINATE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        return process.communicate()
+
+
+def _run_cancellable_subprocess(
+    args: list[str], cancel_event: threading.Event, timeout: int | None
+) -> subprocess.CompletedProcess[str]:
+    if cancel_event.is_set():
+        raise subprocess.SubprocessError("Docker subprocess cancelled before launch")
+
+    process = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    started_at = time.monotonic()
+
+    while True:
+        if cancel_event.is_set():
+            _terminate_subprocess(process)
+            raise subprocess.SubprocessError("Docker subprocess cancelled")
+
+        remaining = None if timeout is None else timeout - (time.monotonic() - started_at)
+        if remaining is not None and remaining <= 0:
+            stdout, stderr = _terminate_subprocess(process)
+            assert timeout is not None
+            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
+
+        poll_timeout = (
+            _SUBPROCESS_CANCEL_POLL_SECONDS if remaining is None else min(_SUBPROCESS_CANCEL_POLL_SECONDS, remaining)
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=poll_timeout)
+            return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            continue
 
 
 class DockerSandbox(SandboxBase):
@@ -122,6 +184,18 @@ class DockerSandbox(SandboxBase):
     needs that socket to create() containers — runs unsandboxed by default (see
     _SANDBOX_DEFAULT_EXCLUDES in the devenv generator). No extra config needed.
     """
+
+    supports_creation_cancellation = True
+    creation_timeout_seconds = 30 * 60
+
+    @staticmethod
+    @contextmanager
+    def creation_cancellation_scope(cancel_event: threading.Event) -> Iterator[None]:
+        token = _subprocess_cancel_event.set(cancel_event)
+        try:
+            yield
+        finally:
+            _subprocess_cancel_event.reset(token)
 
     id: str
     config: SandboxConfig
@@ -154,7 +228,13 @@ class DockerSandbox(SandboxBase):
     def _run(args: list[str], check: bool = False, timeout: int | None = None) -> subprocess.CompletedProcess:
         """Run a subprocess command with logging."""
         logger.debug(f"Running: {redact_sandbox_command(' '.join(args))}")
-        result = subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
+        cancel_event = _subprocess_cancel_event.get()
+        if cancel_event is None:
+            result = subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
+        else:
+            result = _run_cancellable_subprocess(args, cancel_event, timeout)
+            if check:
+                result.check_returncode()
         if result.stdout:
             logger.debug(f"stdout: {result.stdout[:500]}")
         if result.stderr:
