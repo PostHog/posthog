@@ -1,4 +1,3 @@
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { BillingType } from '~/types'
@@ -35,63 +34,66 @@ export const getDesktopUsageComponents = (summary: UsageSummary): DesktopUsageCo
 const formatQuantity = (value: number, divisor: number, unit: string): string =>
     `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(value / divisor)} ${unit}`
 
-const ComponentCard = ({ label, value }: { label: string; value: string | null }): JSX.Element => (
-    <div className="border rounded p-4 bg-bg-light">
-        <div className="text-sm text-secondary">{label}</div>
-        <div className="font-semibold text-lg">{value ?? 'Unavailable'}</div>
+const MixLegend = ({ color, label, percent, value }: { color: string; label: string; percent: number; value: string }) => (
+    <div className="flex items-center gap-2 text-sm">
+        <span className={`size-2 rounded-full ${color}`} />
+        <span>
+            <strong>{percent}%</strong> {label}
+            <span className="text-secondary"> · {value}</span>
+        </span>
     </div>
 )
 
-export const DesktopUsageBreakdown = ({ summary }: { summary: UsageSummary }): JSX.Element => {
+export const DesktopUsageBreakdown = ({ summary }: { summary: UsageSummary }): JSX.Element | null => {
     const components = getDesktopUsageComponents(summary)
+    if (components?.tokenCredits == null || components.computeCredits == null) {
+        return null
+    }
+
+    const totalCredits = components.tokenCredits + components.computeCredits
+    const tokenPercent = totalCredits > 0 ? (components.tokenCredits / totalCredits) * 100 : 0
+    const roundedTokenPercent = Math.round(tokenPercent)
+    const computePercent = totalCredits > 0 ? 100 - roundedTokenPercent : 0
+    const resourceDetails = [
+        components.cpuMillicoreSeconds == null
+            ? 'CPU unavailable'
+            : formatQuantity(components.cpuMillicoreSeconds, 1_000, 'core-seconds'),
+        components.memoryMibSeconds == null
+            ? 'Memory unavailable'
+            : formatQuantity(components.memoryMibSeconds, 1_024, 'GiB-seconds'),
+    ].join(' · ')
 
     return (
-        <div className="mt-4 space-y-3">
-            <div>
-                <h4 className="mb-1">Usage breakdown</h4>
-                <p className="text-sm text-secondary mb-0">Usage reporting may be delayed by 15–20 minutes.</p>
+        <div className="mt-4 rounded bg-bg-light p-4 space-y-3">
+            <h4 className="mb-0">Usage mix</h4>
+            <div
+                role="img"
+                aria-label={`${roundedTokenPercent}% tokens and ${computePercent}% cloud compute`}
+                className="flex h-3 w-full overflow-hidden rounded-full bg-border"
+            >
+                {totalCredits > 0 && (
+                    <>
+                        <div className="bg-accent" style={{ width: `${tokenPercent}%` }} />
+                        <div className="flex-1 bg-primary-3000" />
+                    </>
+                )}
             </div>
-            {components ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <ComponentCard
-                        label="Tokens"
-                        value={
-                            components.tokenCredits == null
-                                ? null
-                                : humanFriendlyCurrency(components.tokenCredits / 100)
-                        }
-                    />
-                    <ComponentCard
-                        label="Cloud compute"
-                        value={
-                            components.computeCredits == null
-                                ? null
-                                : humanFriendlyCurrency(components.computeCredits / 100)
-                        }
-                    />
-                    <ComponentCard
-                        label="CPU usage"
-                        value={
-                            components.cpuMillicoreSeconds == null
-                                ? null
-                                : formatQuantity(components.cpuMillicoreSeconds, 1_000, 'core-seconds')
-                        }
-                    />
-                    <ComponentCard
-                        label="Memory usage"
-                        value={
-                            components.memoryMibSeconds == null
-                                ? null
-                                : formatQuantity(components.memoryMibSeconds, 1_024, 'GiB-seconds')
-                        }
-                    />
-                </div>
-            ) : (
-                <LemonBanner type="info">
-                    Detailed usage is awaiting data. Combined Desktop spend and the organization limit remain available
-                    above.
-                </LemonBanner>
-            )}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                <MixLegend
+                    color="bg-accent"
+                    label="Tokens"
+                    percent={roundedTokenPercent}
+                    value={humanFriendlyCurrency(components.tokenCredits / 100)}
+                />
+                <MixLegend
+                    color="bg-primary-3000"
+                    label="Cloud compute"
+                    percent={computePercent}
+                    value={humanFriendlyCurrency(components.computeCredits / 100)}
+                />
+            </div>
+            <p className="mb-0 text-xs text-secondary">Compute resources: {resourceDetails}</p>
+            <p className="mb-0 text-xs text-secondary">Usage reporting may be delayed by 15–20 minutes.</p>
         </div>
     )
 }

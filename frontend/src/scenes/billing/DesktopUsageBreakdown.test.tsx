@@ -14,28 +14,32 @@ describe('DesktopUsageBreakdown', () => {
                 }}
             />
         )
-        expect(screen.getByText('$12.34')).toBeTruthy()
-        expect(screen.getByText('$2.66')).toBeTruthy()
-        expect(screen.getByText('1.5 core-seconds')).toBeTruthy()
-        expect(screen.getByText('4.5 GiB-seconds')).toBeTruthy()
+        expect(screen.getByRole('img', { name: '82% tokens and 18% cloud compute' })).toBeTruthy()
+        expect(screen.getByText(/\$12\.34/)).toBeTruthy()
+        expect(screen.getByText(/\$2\.66/)).toBeTruthy()
+        expect(screen.getByText(/1\.5 core-seconds · 4\.5 GiB-seconds/)).toBeTruthy()
     })
 
-    it('shows missing data as unavailable and preserves explicit zero', () => {
+    it('preserves explicit zero', () => {
         render(
             <DesktopUsageBreakdown
                 summary={{
                     posthog_code_token_credits: { usage: 0 },
-                    sandbox_compute_credits: { usage: null },
+                    sandbox_compute_credits: { usage: 0 },
                 }}
             />
         )
-        expect(screen.getByText('$0.00')).toBeTruthy()
-        expect(screen.getAllByText('Unavailable')).toHaveLength(3)
+        expect(screen.getByRole('img', { name: '0% tokens and 0% cloud compute' })).toBeTruthy()
+        expect(screen.getAllByText(/\$0\.00/)).toHaveLength(2)
+        expect(screen.getByText(/CPU unavailable · Memory unavailable/)).toBeTruthy()
     })
 
-    it('shows an awaiting-data state when the breakdown is absent', () => {
-        render(<DesktopUsageBreakdown summary={undefined} />)
-        expect(screen.getByText(/awaiting data/i)).toBeTruthy()
+    it('hides the breakdown when credit components are absent or incomplete', () => {
+        const { container, rerender } = render(<DesktopUsageBreakdown summary={undefined} />)
+        expect(container).toBeEmptyDOMElement()
         expect(getDesktopUsageComponents(undefined)).toBeNull()
+
+        rerender(<DesktopUsageBreakdown summary={{ posthog_code_token_credits: { usage: 0 } }} />)
+        expect(container).toBeEmptyDOMElement()
     })
 })
