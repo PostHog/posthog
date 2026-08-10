@@ -7,6 +7,8 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -49,9 +51,9 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `organization` determines the host the stored token is sent to;
-        # retargeting it must re-require the token.
-        return ["organization"]
+        # `organization` and `domain` together determine the host the stored token is
+        # sent to; retargeting either must re-require the token.
+        return ["organization", "domain"]
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.canonical_descriptions import (
@@ -74,7 +76,7 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
 
-Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversation and contact timestamps tables come from Gladly's reports instead and reach back 90 days on their first sync.""",
+Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Leave the domain on Production unless you are connecting a Gladly sandbox, which is served on `gladly.qa`. Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversation and contact timestamps tables come from Gladly's reports instead and reach back 90 days on their first sync.""",
             iconPath="/static/services/gladly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gladly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -104,6 +106,16 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="domain",
+                        label="Gladly domain",
+                        required=True,
+                        defaultValue="gladly.com",
+                        options=[
+                            SourceFieldSelectConfigOption(label="Production (gladly.com)", value="gladly.com"),
+                            SourceFieldSelectConfigOption(label="Sandbox (gladly.qa)", value="gladly.qa"),
+                        ],
                     ),
                 ],
             ),
@@ -136,7 +148,7 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_gladly_credentials(config.organization, config.agent_email, config.api_token)
+        return validate_gladly_credentials(config.organization, config.agent_email, config.api_token, config.domain)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GladlyResumeConfig]:
         return ResumableSourceManager[GladlyResumeConfig](inputs, GladlyResumeConfig)
@@ -158,4 +170,5 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            domain=config.domain,
         )
