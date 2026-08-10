@@ -42,11 +42,11 @@ export interface inviteSignupLogicValues {
     invite: PrevalidatedInvite | null
     inviteId: string | null
     inviteLoading: boolean
-    newInviteRequested: boolean
-    newInviteRequestedLoading: boolean
     isPasskeyRegistering: boolean
     isSignupSubmitting: boolean
     isSignupValid: boolean
+    newInviteRequested: boolean
+    newInviteRequestedLoading: boolean
     passkeyError: string | null
     passkeyRegistered: boolean
     showSignupErrors: boolean
@@ -82,24 +82,6 @@ export interface inviteSignupLogicActions {
         payload?: any
     }
     prevalidateInvite: (id: string) => string
-    requestNewInvite: () => any
-    requestNewInviteFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    requestNewInviteSuccess: (
-        newInviteRequested: boolean,
-        payload?: any
-    ) => {
-        newInviteRequested: boolean
-        payload?: any
-    }
-    setInviteId: (id: string) => {
-        id: string
-    }
     prevalidateInviteFailure: (
         error: string,
         errorObject?: any
@@ -117,6 +99,21 @@ export interface inviteSignupLogicActions {
     registerPasskey: () => {
         value: true
     }
+    requestNewInvite: () => any
+    requestNewInviteFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    requestNewInviteSuccess: (
+        newInviteRequested: boolean,
+        payload?: any
+    ) => {
+        newInviteRequested: boolean
+        payload?: any
+    }
     resetChallenge: () => {
         value: true
     }
@@ -131,6 +128,9 @@ export interface inviteSignupLogicActions {
     }
     setError: (payload: ErrorInterface) => {
         payload: ErrorInterface
+    }
+    setInviteId: (id: string) => {
+        id: string
     }
     setPasskeyError: (error: string | null) => {
         error: string | null
@@ -314,8 +314,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         newInviteRequested: [
             false,
             {
-                requestNewInvite: async (_, breakpoint) => {
-                    breakpoint()
+                requestNewInvite: async () => {
                     if (!values.inviteId) {
                         return false
                     }

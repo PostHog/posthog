@@ -469,6 +469,7 @@ class SignupRequestInviteViewset(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         invite_id = serializer.validated_data["invite_id"]
+        # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
         invite = OrganizationInvite.objects.select_related("created_by").filter(id=invite_id).first()
         requested = False
         if invite is not None and invite.created_by is not None and is_email_available():
