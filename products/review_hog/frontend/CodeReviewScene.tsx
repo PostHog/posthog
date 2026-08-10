@@ -112,12 +112,12 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
         hint: 'settle the review comments',
         steps: [
             {
-                number: '10',
+                number: '09',
                 title: 'Triage threads',
                 caption: 'every unresolved comment thread is judged against your resolution criteria',
             },
             {
-                number: '11',
+                number: '10',
                 title: 'Fix & reply',
                 caption: 'worth-and-safe asks land on the branch, and every thread gets a reply',
             },
