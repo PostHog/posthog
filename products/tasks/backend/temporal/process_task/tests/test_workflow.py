@@ -4,6 +4,7 @@ import uuid
 import random
 import asyncio
 import dataclasses
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -1512,6 +1513,7 @@ class TestProcessTaskWorkflowUnit:
             shallow_clone=True,
             image_source="base_image",
             image_source_label="published sandbox base image",
+            sandbox_creation_timeout_seconds=30 * 60,
         )
         created = CreateSandboxForRepositoryOutput(
             sandbox_id="sandbox-123",
@@ -1519,12 +1521,14 @@ class TestProcessTaskWorkflowUnit:
             connect_token="connect-token",
         )
         activity_calls: list[object] = []
+        create_activity_kwargs: dict[str, Any] = {}
 
         async def fake_execute_activity(activity_fn, *args, **kwargs):
             activity_calls.append(activity_fn)
             if activity_fn is prepare_sandbox_for_repository:
                 return prepared
             if activity_fn is create_sandbox_for_repository:
+                create_activity_kwargs.update(kwargs)
                 return created
             if activity_fn is emit_progress_activity:
                 return None
@@ -1536,8 +1540,61 @@ class TestProcessTaskWorkflowUnit:
 
         assert result.sandbox_id == "sandbox-123"
         assert workflow._sandbox_id_for_cleanup == "sandbox-123"
+        assert create_activity_kwargs["start_to_close_timeout"] == timedelta(minutes=30)
         assert clone_repository_in_sandbox not in activity_calls
         assert checkout_branch_in_sandbox not in activity_calls
+
+    async def test_sandbox_creation_stops_when_task_completes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        process_workflow = ProcessTaskWorkflow()
+        process_workflow._context = _build_context(github_integration_id=None)
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository=None,
+            github_token="",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=True,
+            shallow_clone=True,
+            image_source="docker_base_image",
+            image_source_label="local Docker sandbox image",
+            sandbox_creation_timeout_seconds=30 * 60,
+            sandbox_creation_cancellable=True,
+        )
+        creation_cancelled = asyncio.Event()
+        start_activity_kwargs: dict[str, Any] = {}
+
+        async def blocked_creation() -> CreateSandboxForRepositoryOutput:
+            try:
+                await asyncio.Event().wait()
+                raise AssertionError("sandbox creation unexpectedly completed")
+            finally:
+                creation_cancelled.set()
+
+        def fake_start_activity(*args: Any, **kwargs: Any) -> asyncio.Task[CreateSandboxForRepositoryOutput]:
+            start_activity_kwargs.update(kwargs)
+            return asyncio.create_task(blocked_creation())
+
+        async def fake_wait_condition(predicate: Callable[[], bool]) -> None:
+            process_workflow._task_completed = True
+            assert predicate()
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _patch_id: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "start_activity", fake_start_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
+
+        with pytest.raises(process_task_workflow_module._TaskCompletedDuringSandboxCreation):
+            await process_workflow._run_sandbox_creation_activity(prepared)
+
+        assert creation_cancelled.is_set()
+        assert start_activity_kwargs["start_to_close_timeout"] == timedelta(minutes=30)
+        assert start_activity_kwargs["heartbeat_timeout"] == timedelta(seconds=30)
+        assert (
+            start_activity_kwargs["cancellation_type"]
+            == process_task_workflow_module.workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
+        )
 
     async def test_get_sandbox_for_repository_injects_fresh_tokens_on_resume(self, monkeypatch):
         workflow = ProcessTaskWorkflow()

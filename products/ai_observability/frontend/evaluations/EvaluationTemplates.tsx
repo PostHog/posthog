@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -21,9 +21,11 @@ import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { useOpenAi } from '~/scenes/max/useOpenAi'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 
 import { getEvaluationBackTarget, getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
 import { EvaluationTemplate, defaultEvaluationTemplates } from './templates'
@@ -145,12 +147,15 @@ function TemplateRow({ template }: TemplateRowProps): JSX.Element {
 }
 
 function StartWithAiRow(): JSX.Element {
-    const { openAi } = useOpenAi()
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const handleClick = (): void => {
         posthog.capture('llm evaluation template selected', { template_key: 'start_with_ai' })
-        openAi(
-            'Create an online evaluation for me. First explore my recent AI traces to find failure modes worth evaluating, then set one up to catch the most important one.'
+        openSidePanel(
+            SidePanelTab.Max,
+            autoRunMaxPrompt(
+                'Explore my recent AI traces to identify failure modes worth evaluating. Recommend the online evaluations I should create, then ask me which ones to set up.'
+            )
         )
     }
 
