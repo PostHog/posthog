@@ -40,8 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    PAYMENT_METHOD_HISTORY_MAPPING_KEY,
     PRODUCT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
@@ -50,8 +52,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
+    DEFAULT_OFF_ENDPOINTS as STRIPE_DEFAULT_OFF_ENDPOINTS,
     ENDPOINTS as STRIPE_ENDPOINTS,
     WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
+    WEBHOOK_SYNC_ONLY_ENDPOINTS as STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
@@ -128,6 +132,14 @@ class StripeSource(
     @property
     def webhook_resource_map(self) -> dict[str, str]:
         return RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+    def webhook_mapping_key(self, schema_name: str) -> str:
+        # The history table consumes the same `payment_method` events as CustomerPaymentMethod,
+        # but `schema_mapping` routes one schema per key — so it registers under a suffixed key
+        # that the webhook template fans out to alongside the object-type routing.
+        if schema_name == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
+            return PAYMENT_METHOD_HISTORY_MAPPING_KEY
+        return super().webhook_mapping_key(schema_name)
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -348,10 +360,19 @@ If automatic creation failed due to a permissions error and you're using a restr
                 supports_webhooks=(
                     endpoint in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS
                 ),
-                webhook_only=endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS,
+                # Two flavors restrict the UI to the webhook sync method: resources with no list
+                # API at all (WEBHOOK_ONLY_ENDPOINTS — their poll yields nothing), and history
+                # tables (WEBHOOK_SYNC_ONLY_ENDPOINTS) whose non-webhook sync would truncate the
+                # captured history on every run. Only the former sets `webhook_only` on the
+                # SourceResponse (`stripe_source`): history tables still poll once, to seed from
+                # the currently-attached sweep before webhook events take over.
+                webhook_only=(
+                    endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS or endpoint in STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS
+                ),
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
+                should_sync_default=endpoint not in STRIPE_DEFAULT_OFF_ENDPOINTS,
             )
             for endpoint in STRIPE_ENDPOINTS
         ]
