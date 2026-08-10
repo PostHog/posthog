@@ -50,12 +50,10 @@ CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
 
-# Failures where something outside the query stopped it: it was refused admission, could not reach
-# the cluster, or we killed it. The test to apply before adding a marker here is "was the query
-# denied the chance to fail on its own merits", NOT "was this our fault" - a query that exhausts
-# memory or wall-clock is one we do want suspended, however much the cluster's load contributed.
+# The test before adding a marker is "was the query denied the chance to fail on its own merits",
+# NOT "was this our fault" - a query that exhausts memory is one we do want suspended.
 EXTERNALLY_ABORTED_MARKERS = (
-    "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES - refused admission, never executed
+    "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES
     "Cannot connect to host",
     "Connection refused",
     "QueueEmpty",  # no root node to start from, so the graph was refused rather than the query
@@ -157,8 +155,6 @@ def _count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | N
     rows = jobs.order_by("-created_at").values_list("status", "error")[:CONSECUTIVE_FAILURES_TO_SUSPEND]
     count = 0
     for status, error in rows:
-        # A run that was blocked or killed says nothing about the query, so counting it would
-        # suspend a model on evidence it never produced.
         if status != DataModelingJobStatus.FAILED or is_externally_aborted(error or ""):
             break
         count += 1

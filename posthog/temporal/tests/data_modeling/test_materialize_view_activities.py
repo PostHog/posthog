@@ -492,7 +492,6 @@ class TestNodeSuspension:
 
         assert suspended is True
         await database_sync_to_async(anode.refresh_from_db)()
-        # the marker is recorded either way, so widening the flag later still finds the node
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
         assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
         await database_sync_to_async(job.refresh_from_db)()
