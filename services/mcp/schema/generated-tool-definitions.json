@@ -9692,7 +9692,7 @@
         "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
         "feature": "tasks",
-        "summary": "List tasks",
+        "summary": "Search and list tasks",
         "title": "Search and list tasks",
         "required_scopes": ["task:read"],
         "annotations": {
