@@ -56,7 +56,9 @@ COPY tools/openapi-codegen/ tools/openapi-codegen/
 # so the whole `products/` tree needs to be in the build context.
 COPY products/ products/
 WORKDIR /code/services/mcp
-RUN pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
+# Pin UI app build concurrency: this builder is memory-constrained, and unbounded
+# concurrent Vite processes OOM-kill it. Other environments scale with CPU count.
+RUN pnpm exec tsx scripts/build-hono.ts && UI_APPS_BUILD_CONCURRENCY=4 pnpm run build:ui-apps
 
 #
 # Runtime stage — minimal slim image with just the bundle.

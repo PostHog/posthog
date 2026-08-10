@@ -19,7 +19,11 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run UI Apps checks
         outputs:
-            ui-apps: ${{ steps.filter.outputs.ui-apps || 'true' }}
+            # Rebuild the app bundles only when a real build input changed.
+            build: ${{ steps.filter.outputs.build || 'true' }}
+            # Regenerate and diff-check when a generator input changed, to catch
+            # stale committed generated files. Cheap — no bundling.
+            generate: ${{ steps.filter.outputs.generate || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -35,25 +39,76 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
-                      ui-apps:
+                      build:
                         - 'services/mcp/src/ui-apps/**'
                         - 'services/mcp/src/resources/ui-apps.generated.ts'
                         - 'services/mcp/vite.ui-apps.config.ts'
                         - 'services/mcp/scripts/build-ui-apps.ts'
-                        - 'services/mcp/scripts/generate-ui-apps.ts'
                         - 'services/mcp/scripts/post-ui-apps-size-section.mjs'
-                        - 'services/mcp/scripts/yaml-config-schema.ts'
-                        - 'products/*/mcp/**'
-                        - 'services/mcp/definitions/*.yaml'
+                        - 'products/*/mcp/apps/**'
                         - 'common/mosaic/**'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
+                      generate:
+                        - 'products/*/mcp/tools.yaml'
+                        - 'services/mcp/definitions/*.yaml'
+                        - 'services/mcp/scripts/generate-ui-apps.ts'
+                        - 'services/mcp/scripts/yaml-config-schema.ts'
+                        - '.github/workflows/ci-mcp-ui-apps.yml'
+
+    generate-check:
+        name: Check generated UI Apps are up to date
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: changes
+        # Skip when the build runs — build-and-report already diff-checks the
+        # generated files, so we would just repeat that work.
+        if: needs.changes.outputs.generate == 'true' && needs.changes.outputs.build != 'true'
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install uv # Needed for formatting generated code and running scripts
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Check generated UI apps are up to date
+              run: |
+                  cd services/mcp && pnpm run generate:ui-apps
+                  if ! git diff --exit-code -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts; then
+                    echo ""
+                    echo "::warning::The following generated files are out of date:"
+                    git diff --name-only -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts
+                    echo ""
+                    echo "::error::Generated UI app files are out of date. Run 'pnpm --filter=@posthog/mcp run generate:ui-apps' and commit the result."
+                    exit 1
+                  fi
 
     build-and-report:
         name: Build and validate UI Apps
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
-        if: needs.changes.outputs.ui-apps == 'true'
+        if: needs.changes.outputs.build == 'true'
         steps:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -137,7 +192,7 @@ jobs:
                   fi
 
     ci_mcp_ui_apps:
-        needs: [changes, build-and-report]
+        needs: [changes, generate-check, build-and-report]
         name: MCP UI Apps CI
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -145,15 +200,15 @@ jobs:
         steps:
             - name: Check results
               run: |
-                  # Block cancelled too: outputs are empty then, so the exit below would report green.
+                  # Block cancelled too: outputs are empty then, so the exits below would report green.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.changes.outputs.ui-apps }}" != "true" ]]; then
-                    echo "UI Apps checks were skipped (no relevant changes)."
-                    exit 0
+                  if [[ "${{ needs.generate-check.result }}" != "success" && "${{ needs.generate-check.result }}" != "skipped" ]]; then
+                    echo "Generated UI apps check failed."
+                    exit 1
                   fi
 
                   if [[ "${{ needs.build-and-report.result }}" != "success" && "${{ needs.build-and-report.result }}" != "skipped" ]]; then

@@ -14,6 +14,7 @@
 import { exec } from 'child_process'
 import { config as dotenvConfig } from 'dotenv'
 import { existsSync, rmSync } from 'fs'
+import { availableParallelism } from 'os'
 import { join, resolve } from 'path'
 
 import { discoverApps, MCP_ROOT_DIR, ROOT_DIR } from './utils'
@@ -70,12 +71,23 @@ function buildAppAsync(appName: string): Promise<void> {
     })
 }
 
+// Each Vite build peaks at a few hundred MB, so we cap parallelism. The summed
+// peak of an unbounded run (one process per app) OOM-kills memory-constrained
+// builders — e.g. the Docker image build, where 27 concurrent Vite processes
+// saturated the builder. The constraint is memory, which scales with CPU count on
+// the runners we use, so we default to the available CPU count. Memory-constrained
+// builders pin UI_APPS_BUILD_CONCURRENCY to keep the old safe ceiling; CI runners
+// with more cores build wider.
+function resolveConcurrency(appCount: number): number {
+    const override = Number(process.env.UI_APPS_BUILD_CONCURRENCY)
+    if (Number.isInteger(override) && override > 0) {
+        return Math.min(appCount, override)
+    }
+    return Math.min(appCount, Math.max(4, availableParallelism()))
+}
+
 async function buildAllAppsParallel(apps: string[]): Promise<void> {
-    // Each Vite build peaks at a few hundred MB, so cap parallelism: the summed
-    // peak of an unbounded run (one process per app) OOM-kills memory-constrained
-    // builders — e.g. the Docker image build, where 27 concurrent Vite processes
-    // saturated the builder. The constraint is memory, not which environment we run in.
-    const concurrency = Math.min(apps.length, 4)
+    const concurrency = resolveConcurrency(apps.length)
 
     if (concurrency < apps.length) {
         console.info(`\n📦 Building ${apps.length} apps (concurrency: ${concurrency})...`)
