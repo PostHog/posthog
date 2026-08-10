@@ -61,7 +61,7 @@ import {
     validateFeatureFlagKey,
     validateFeatureFlagVariantKey,
 } from './featureFlagLogic'
-import { featureFlagsLogic } from './featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 jest.mock('posthog-js')
 
@@ -873,6 +873,132 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic, () => {
                 router.actions.push(urls.featureFlag(1))
             }).toDispatchActions(['loadFeatureFlag'])
+        })
+    })
+
+    describe('active tab syncs with the URL', () => {
+        it.each([
+            ['?tab=usage', FeatureFlagsTab.USAGE],
+            ['?tab=schedule', FeatureFlagsTab.SCHEDULE],
+            // An unknown tab shouldn't strand the user on a blank page
+            ['?tab=not-a-tab', FeatureFlagsTab.OVERVIEW],
+            // The activity deep link belongs to the history tab
+            ['?activity=42', FeatureFlagsTab.HISTORY],
+        ])('opens %s on the %s tab', async (query, expectedTab) => {
+            await expectLogic(logic, () => {
+                router.actions.push(`${urls.featureFlag(1)}${query}`)
+            }).toMatchValues({ activeTab: expectedTab })
+        })
+
+        it('opens the history tab when the page loads with ?activity already in the URL', async () => {
+            logic.unmount()
+            router.actions.push(`${urls.featureFlag(1)}?activity=42`)
+
+            logic = featureFlagLogic({ id: 1 })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: FeatureFlagsTab.HISTORY })
+        })
+
+        it('clamps a deep link to a tab the flag does not offer', async () => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/99/`]: () => [
+                        200,
+                        { ...MOCK_FEATURE_FLAG, id: 99, can_edit: false },
+                    ],
+                },
+            })
+            const readOnlyLogic = featureFlagLogic({ id: 99 })
+            readOnlyLogic.mount()
+
+            try {
+                await expectLogic(readOnlyLogic, () => {
+                    router.actions.push(`${urls.featureFlag(99)}?tab=permissions`)
+                })
+                    .toFinishAllListeners()
+                    // The request is kept in selectedTab, so the tab appears if can_edit flips
+                    .toMatchValues({
+                        selectedTab: FeatureFlagsTab.PERMISSIONS,
+                        activeTab: FeatureFlagsTab.OVERVIEW,
+                    })
+                // The URL keeps the requested tab too, so a reload re-requests it
+                expect(router.values.searchParams.tab).toEqual('permissions')
+            } finally {
+                readOnlyLogic.unmount()
+            }
+        })
+
+        it('defaults the schedule form against the loaded flag when deep-linking ?tab=schedule', async () => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/99/`]: () => [
+                        200,
+                        { ...MOCK_FEATURE_FLAG, id: 99, active: false },
+                    ],
+                },
+            })
+            router.actions.push(`${urls.featureFlag(99)}?tab=schedule`)
+            const inactiveFlagLogic = featureFlagLogic({ id: 99 })
+            inactiveFlagLogic.mount()
+
+            try {
+                await expectLogic(inactiveFlagLogic)
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        activeTab: FeatureFlagsTab.SCHEDULE,
+                        // The default is the opposite of the flag's real state, not the
+                        // NEW_FLAG placeholder the tab listener saw before the flag loaded
+                        schedulePayload: partial({ active: true }),
+                    })
+            } finally {
+                inactiveFlagLogic.unmount()
+            }
+        })
+
+        it('falls back to overview instead of keeping the current tab when the URL names an unknown tab', async () => {
+            router.actions.push(`${urls.featureFlag(1)}?tab=usage`)
+            await expectLogic(logic).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+
+            await expectLogic(logic, () => {
+                router.actions.push(`${urls.featureFlag(1)}?tab=not-a-tab`)
+            }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        })
+
+        it('writes the tab to the URL so it can be shared and survives a reload', async () => {
+            router.actions.push(urls.featureFlag(1))
+
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedTab(FeatureFlagsTab.USAGE)
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).toEqual(partial({ tab: 'usage' }))
+
+            // Overview is the default, so it stays out of the URL
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedTab(FeatureFlagsTab.OVERVIEW)
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.tab).toBeUndefined()
+        })
+
+        it('drops ?activity= from the URL when leaving the history tab', async () => {
+            router.actions.push(`${urls.featureFlag(1)}?activity=42`)
+            await expectLogic(logic).toMatchValues({ activeTab: FeatureFlagsTab.HISTORY })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedTab(FeatureFlagsTab.USAGE)
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.activity).toBeUndefined()
+        })
+
+        it('leaves the URL alone when the flag scene is not the current page', async () => {
+            router.actions.push(urls.projectHomepage())
+
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedTab(FeatureFlagsTab.USAGE)
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.tab).toBeUndefined()
         })
     })
 

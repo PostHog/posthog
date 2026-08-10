@@ -25,6 +25,7 @@ import { createElement } from 'react'
 import api, { PaginatedResponse } from 'lib/api'
 import { isAccessDeniedError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
+import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -33,12 +34,14 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -120,6 +123,8 @@ import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
+
+const TAB_SEARCH_PARAM = 'tab'
 
 export function hasDirectFlagDependency(featureFlag: FeatureFlagType): boolean {
     const groups = featureFlag.filters?.groups
@@ -704,6 +709,7 @@ export interface featureFlagLogicValues {
     activeTab: FeatureFlagsTab
     aggregationTargetName: string
     areVariantRolloutsValid: boolean
+    availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
     canCreateEarlyAccessFeature: boolean
     canCreatePairedSchedule: boolean
@@ -883,6 +889,7 @@ export interface featureFlagLogicValues {
     scheduledChangeOperation: ScheduledChangeOperationType
     scheduledChanges: ScheduledChangeType[]
     scheduledChangesLoading: boolean
+    selectedTab: FeatureFlagsTab
     showFeatureFlagErrors: boolean
     showImplementation: boolean
     sidePanelContext: SidePanelSceneContext | null
@@ -1356,9 +1363,6 @@ export interface featureFlagLogicActions {
     setAccessDeniedToFeatureFlag: () => {
         value: true
     }
-    setActiveTab: (tab: FeatureFlagsTab) => {
-        tab: FeatureFlagsTab
-    }
     setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => {
         bucketingIdentifier: FeatureFlagBucketingIdentifier | null
     }
@@ -1541,6 +1545,9 @@ export interface featureFlagLogicActions {
     }
     setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => {
         changeType: ScheduledChangeOperationType
+    }
+    setSelectedTab: (tab: FeatureFlagsTab) => {
+        tab: FeatureFlagsTab
     }
     setShowImplementation: (show: boolean) => {
         show: boolean
@@ -1859,6 +1866,8 @@ export interface featureFlagLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
+        availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
+        activeTab: (selectedTab: FeatureFlagsTab, availableTabs: FeatureFlagsTab[]) => FeatureFlagsTab
         hasUnsavedChanges: (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null) => boolean
         isFormDirty: (
             originalFeatureFlag: FeatureFlagType | null,
@@ -1978,7 +1987,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
-        setActiveTab: (tab: FeatureFlagsTab) => ({ tab }),
+        setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -2343,10 +2352,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
-        activeTab: [
+        selectedTab: [
             FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
             {
-                setActiveTab: (_, { tab }) => tab,
+                setSelectedTab: (_, { tab }) => tab,
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
@@ -3618,6 +3627,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
+            // A ?tab=schedule deep link selects the tab before this load finishes, so the
+            // schedule form's default was computed against the NEW_FLAG placeholder and the
+            // scheduled-changes fetch ran without a flag id. Redo both against the loaded flag.
+            if (featureFlag && values.selectedTab === FeatureFlagsTab.SCHEDULE) {
+                actions.setSchedulePayload(NEW_FLAG.filters, !featureFlag.active, {}, null, null)
+                actions.loadScheduledChanges()
+            }
             if (values.copyDestinationProject) {
                 actions.loadCopyDependencyRequirements()
             }
@@ -3804,7 +3820,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
             }
         },
-        setActiveTab: ({ tab }) => {
+        setSelectedTab: ({ tab }) => {
             // Reset payload when opening schedule tab. The default operation is UpdateStatus,
             // so default active to the opposite of the current flag state.
             if (tab === FeatureFlagsTab.SCHEDULE) {
@@ -4014,6 +4030,34 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        // Which tabs the flag offers; FeatureFlag.tsx renders exactly this set
+        availableTabs: [
+            (s) => [s.featureFlag, s.props],
+            (featureFlag: FeatureFlagType, props: FeatureFlagLogicProps): FeatureFlagsTab[] => {
+                const tabs = [FeatureFlagsTab.OVERVIEW]
+                if (props.id) {
+                    tabs.push(FeatureFlagsTab.USAGE, FeatureFlagsTab.PROJECTS, FeatureFlagsTab.SCHEDULE)
+                }
+                if (featureFlag.id) {
+                    tabs.push(FeatureFlagsTab.HISTORY)
+                }
+                if (featureFlag.can_edit) {
+                    tabs.push(FeatureFlagsTab.PERMISSIONS)
+                }
+                tabs.push(FeatureFlagsTab.FEEDBACK, FeatureFlagsTab.EXPERIMENTS)
+                if (props.id) {
+                    tabs.push(FeatureFlagsTab.TESTING)
+                }
+                return tabs
+            },
+        ],
+        // Clamped in a selector rather than in urlToAction so it re-derives when the flag
+        // loads (a deep-linked tab can arrive before `can_edit` is known)
+        activeTab: [
+            (s) => [s.selectedTab, s.availableTabs],
+            (selectedTab: FeatureFlagsTab, availableTabs: FeatureFlagsTab[]): FeatureFlagsTab =>
+                availableTabs.includes(selectedTab) ? selectedTab : FeatureFlagsTab.OVERVIEW,
+        ],
         hasUnsavedChanges: [
             (s) => [s.featureFlag, s.originalFeatureFlag],
             (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null): boolean => {
@@ -4410,6 +4454,32 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ],
         ],
     }),
+    trackedActionToUrl(({ props, values }) => ({
+        setSelectedTab: () => {
+            // The logic outlives the scene in places (e.g. the flag is embedded elsewhere),
+            // so only rewrite the URL while we're actually on this flag's page
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.featureFlag(props.id ?? 'new')) {
+                return
+            }
+
+            // The URL carries selectedTab (the requested tab), not the clamped activeTab, so the
+            // write round-trips with what urlToAction reads and never depends on availableTabs,
+            // which is provisional until the flag loads. A deep link to a tab the user cannot see
+            // yet (e.g. permissions before `can_edit` is known) stays in the URL this way.
+            const searchParams = { ...router.values.searchParams }
+            if (values.selectedTab === FeatureFlagsTab.OVERVIEW) {
+                delete searchParams[TAB_SEARCH_PARAM]
+            } else {
+                searchParams[TAB_SEARCH_PARAM] = values.selectedTab
+            }
+            // `activity` deep-links to one activity item, which only exists on the history tab
+            if (values.selectedTab !== FeatureFlagsTab.HISTORY) {
+                delete searchParams[ACTIVITY_SEARCH_PARAM]
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+    })),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method, initial }) => {
             // Don't disturb in-progress edits when a same-pathname PUSH slips through
@@ -4429,9 +4499,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
 
-            // Open the History tab when deep-linking to a specific activity item
-            if (searchParams.activity != null) {
-                actions.setActiveTab(FeatureFlagsTab.HISTORY)
+            // The URL is the source of truth for the selected tab, so `?tab=usage` deep-links
+            // and survives a reload. `?activity=` still implies the history tab.
+            const tabFromUrl = searchParams[TAB_SEARCH_PARAM]
+            const targetTab = isFeatureFlagsTab(tabFromUrl)
+                ? tabFromUrl
+                : searchParams[ACTIVITY_SEARCH_PARAM] != null
+                  ? FeatureFlagsTab.HISTORY
+                  : FeatureFlagsTab.OVERVIEW
+            if (targetTab !== values.selectedTab) {
+                actions.setSelectedTab(targetTab)
             }
 
             if (method === 'PUSH') {
@@ -4488,11 +4565,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
 
     afterMount(({ props, actions }) => {
-        // Open the History tab when deep-linking to a specific activity item on initial page load
-        if (router.values.searchParams.activity != null) {
-            actions.setActiveTab(FeatureFlagsTab.HISTORY)
-        }
-
         if (
             props.id === 'new' &&
             (router.values.searchParams.sourceId ||
