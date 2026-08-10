@@ -15,41 +15,36 @@ const DEFAULT_DATE_FROM = '-7d'
 const BREAKDOWN_LIMIT = 10
 
 /**
- * `$feature_flag_called` fires once per flag read, but a single `/flags` request can serve many
- * flags at once — so evaluation count and request count are different numbers. Grouping by
- * `$feature_flag_request_id` recovers that fan-out.
+ * One `/flags` request can serve many flags, so counting `$feature_flag_called` rows would report
+ * evaluations rather than requests. `uniq($feature_flag_request_id)` collapses each request to one
+ * per flag per day.
  *
- * A request that served exactly one flag was caused by that flag: remove the flag and the request
- * goes away. A request that served many is shared, and there is no non-arbitrary way to split it —
- * reading one more flag off an existing response costs nothing. Bucketing keeps those two cases
- * visibly separate instead of averaging them into a per-flag number that would imply the wrong
- * optimization.
- *
- * Locally evaluated reads issue no `/flags` request at all, so they carry no request id and drop
- * out via the `notEmpty` filter rather than needing a `locally_evaluated` predicate.
+ * A request shared across flags is counted once for every flag it returned, so the series do not
+ * sum to the project's request total. Locally evaluated reads issue no request and carry no request
+ * id, so `notEmpty` drops them without needing a `locally_evaluated` predicate.
  */
-const FLAGS_PER_REQUEST_QUERY = `
-SELECT
-    multiIf(
-        flags_in_request = 1, '1 flag',
-        flags_in_request <= 5, '2-5 flags',
-        flags_in_request <= 20, '6-20 flags',
-        '21+ flags'
-    ) AS flags_served_per_request,
-    count() AS flags_requests,
-    sum(flags_in_request) AS flag_evaluations
-FROM (
-    SELECT
-        properties.$feature_flag_request_id AS request_id,
-        count() AS flags_in_request
+const FLAG_REQUESTS_BY_FLAG_QUERY = `
+WITH top_flags AS (
+    SELECT properties.$feature_flag AS flag
     FROM events
     WHERE event = '$feature_flag_called'
       AND {filters}
       AND notEmpty(toString(properties.$feature_flag_request_id))
-    GROUP BY request_id
+    GROUP BY flag
+    ORDER BY uniq(properties.$feature_flag_request_id) DESC
+    LIMIT ${BREAKDOWN_LIMIT}
 )
-GROUP BY flags_served_per_request
-ORDER BY min(flags_in_request)
+SELECT
+    toStartOfDay(timestamp) AS period,
+    properties.$feature_flag AS flag,
+    uniq(properties.$feature_flag_request_id) AS flags_requests
+FROM events
+WHERE event = '$feature_flag_called'
+  AND {filters}
+  AND notEmpty(toString(properties.$feature_flag_request_id))
+  AND properties.$feature_flag IN (SELECT flag FROM top_flags)
+GROUP BY period, flag
+ORDER BY period, flags_requests DESC
 `
 
 export function FeatureFlagsUsageTab(): JSX.Element {
@@ -105,23 +100,30 @@ export function FeatureFlagsUsageTab(): JSX.Element {
             </div>
 
             <div>
-                <h3>Flags served per /flags request</h3>
+                <h3>Requests by flag</h3>
                 <p className="text-secondary">
-                    How many flag evaluations each <code>/flags</code> request produced. Requests serving a single flag
-                    are attributable to that flag; requests serving many are shared across them, because reading an
-                    extra flag off a response already fetched costs nothing. Locally evaluated reads make no{' '}
-                    <code>/flags</code> request and are excluded.{' '}
+                    How many <code>/flags</code> requests included each flag. One request can serve several flags, and
+                    it counts once for each flag it returned, so the series do not add up to your total request count.
+                    Locally evaluated reads make no <code>/flags</code> request, so they are not counted here. Top{' '}
+                    {BREAKDOWN_LIMIT} flags shown.{' '}
                     <Link to="https://posthog.com/docs/feature-flags/local-evaluation">Local evaluation docs</Link>
                 </p>
                 <Query
+                    uniqueKey="feature-flags-usage-requests-by-flag"
                     query={{
-                        kind: NodeKind.DataTableNode,
+                        kind: NodeKind.DataVisualizationNode,
                         source: {
                             kind: NodeKind.HogQLQuery,
-                            query: FLAGS_PER_REQUEST_QUERY,
+                            query: FLAG_REQUESTS_BY_FLAG_QUERY,
                             filters: { dateRange: { date_from: dateFrom, date_to: dateTo } },
                         },
-                        full: false,
+                        display: ChartDisplayType.ActionsLineGraph,
+                        chartSettings: {
+                            xAxis: { column: 'period' },
+                            yAxis: [{ column: 'flags_requests' }],
+                            seriesBreakdownColumn: 'flag',
+                            showLegend: true,
+                        },
                     }}
                 />
             </div>
