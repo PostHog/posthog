@@ -410,6 +410,38 @@ class TestFramer:
         assert rows[0]["id"] == "ext-1"
         assert rows[0]["nodeId"] == "n1"
 
+    def test_collection_items_keep_field_whose_name_matches_another_field_id(self) -> None:
+        rows = self._run_endpoint(
+            "CollectionItems",
+            {
+                "getCollections": [{"id": "c1", "name": "Blog"}],
+                # "f1" displays as "f2", which is also the raw id of the second (unnamed) field.
+                "getCollectionFields2": [{"id": "f1", "name": "f2", "type": "string"}],
+                "getCollectionItems2": [
+                    {
+                        "nodeId": "n1",
+                        "fieldData": {
+                            "f1": {"type": "string", "value": "named"},
+                            "f2": {"type": "string", "value": "unnamed"},
+                        },
+                    }
+                ],
+            },
+        )
+        assert rows[0]["fieldData"] == {"f2": "named", "f2_2": "unnamed"}
+
+    def test_collection_items_fail_on_missing_node_id(self) -> None:
+        # A row with a null primary key component must fail the sync, not merge silently.
+        with pytest.raises(KeyError):
+            self._run_endpoint(
+                "CollectionItems",
+                {
+                    "getCollections": [{"id": "c1", "name": "Blog"}],
+                    "getCollectionFields2": [],
+                    "getCollectionItems2": [{"externalId": None, "slug": "s", "fieldData": {}}],
+                },
+            )
+
     def test_deployments_rows_paginate(self) -> None:
         pages = {
             None: {"deployments": [{"id": "d1"}], "hasNextPage": True, "cursor": "cur-1"},

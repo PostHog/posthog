@@ -276,10 +276,8 @@ def _project_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
 
 
 def _pages_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
-    root = client.call("getCanvasRoot")
-    root_id = root.get("id") if isinstance(root, dict) else None
-    if not root_id:
-        return
+    # Direct access so a malformed root fails the sync instead of yielding an empty table.
+    root_id = client.call("getCanvasRoot")["id"]
     nodes = _as_dict_rows(client.call("getNodesWithType", root_id, "WebPageNode"))
     rows = [_without_class_marker(node) for node in nodes]
     if rows:
@@ -289,43 +287,56 @@ def _pages_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
 def _collections_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
     rows = []
     for collection in _as_dict_rows(client.call("getCollections")):
-        fields = _as_dict_rows(client.call("getCollectionFields2", collection.get("id"), True))
+        fields = _as_dict_rows(client.call("getCollectionFields2", collection["id"], True))
         rows.append({**collection, "fields": fields})
     if rows:
         yield rows
 
 
+def _readable_field_data(field_data: Any, field_names: dict[Any, str]) -> dict[str, Any]:
+    """Key field values by display name, keeping every entry when names collide.
+
+    A colliding display name falls back to the unique field id; if that id in turn matches
+    another field's display name, a numeric suffix disambiguates so no value is overwritten.
+    """
+    readable: dict[str, Any] = {}
+    if not isinstance(field_data, dict):
+        return readable
+    for field_id, entry in field_data.items():
+        key = field_names.get(field_id) or str(field_id)
+        if key in readable:
+            key = str(field_id)
+            suffix = 2
+            while key in readable:
+                key = f"{field_id}_{suffix}"
+                suffix += 1
+        readable[key] = entry.get("value") if isinstance(entry, dict) else entry
+    return readable
+
+
 def _collection_item_row(
     item: dict[str, Any], collection: dict[str, Any], field_names: dict[Any, str]
 ) -> dict[str, Any]:
-    field_data = item.get("fieldData")
-    readable_field_data: dict[str, Any] = {}
-    if isinstance(field_data, dict):
-        for field_id, entry in field_data.items():
-            key = field_names.get(field_id) or str(field_id)
-            if key in readable_field_data:
-                # Two fields sharing a display name: keep the unique field id instead.
-                key = str(field_id)
-            readable_field_data[key] = entry.get("value") if isinstance(entry, dict) else entry
     return {
-        "id": item.get("externalId") or item.get("id") or item.get("nodeId"),
-        "nodeId": item.get("nodeId"),
-        "collectionId": collection.get("id"),
+        # `externalId` is only set on plugin-managed items; `nodeId` is the required
+        # identifier, accessed directly so a malformed record fails the sync instead of
+        # writing a null primary key component.
+        "id": item.get("externalId") or item["nodeId"],
+        "nodeId": item["nodeId"],
+        "collectionId": collection["id"],
         "collectionName": collection.get("name"),
         "slug": item.get("slug"),
         "slugByLocale": item.get("slugByLocale"),
         "draft": item.get("draft", False),
         "createdAt": item.get("createdAt"),
         "updatedAt": item.get("updatedAt"),
-        "fieldData": readable_field_data,
+        "fieldData": _readable_field_data(item.get("fieldData"), field_names),
     }
 
 
 def _collection_items_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
     for collection in _as_dict_rows(client.call("getCollections")):
-        collection_id = collection.get("id")
-        if not collection_id:
-            continue
+        collection_id = collection["id"]
         fields = _as_dict_rows(client.call("getCollectionFields2", collection_id, True))
         field_names = {field.get("id"): str(field.get("name")) for field in fields if field.get("name")}
         items = _as_dict_rows(client.call("getCollectionItems2", collection_id))
