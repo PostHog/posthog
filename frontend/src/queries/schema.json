@@ -48461,6 +48461,10 @@
                 "label": {
                     "type": "string"
                 },
+                "multiple": {
+                    "description": "Allow selecting multiple values; the field's payload value becomes string[].",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
