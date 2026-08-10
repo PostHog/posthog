@@ -18,6 +18,7 @@ export const SURFACE_KEYS = [
     'workflows.create',
     'data_warehouse_sources.create',
     'data_warehouse_sources.update',
+    'ai_observability_evaluations.create',
 ] as const
 
 export type SurfaceKey = (typeof SURFACE_KEYS)[number]
@@ -162,6 +163,12 @@ export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
             '"Update the credentials on my Stripe source"',
             '"Resync the orders table on my Postgres source"',
             '"Switch my Stripe source to sync hourly"',
+        ],
+    },
+    'ai_observability_evaluations.create': {
+        toast: '"Use the connected PostHog MCP server and this project\'s AI observability data to inspect recent traces. Identify and rank real failure modes, recommend one online evaluation per distinct failure mode, then ask which evaluations I want you to create before creating anything."',
+        examples: [
+            '"Use the connected PostHog MCP server and this project\'s AI observability data to inspect recent traces. Identify and rank real failure modes, recommend one online evaluation per distinct failure mode, then ask which evaluations I want you to create before creating anything."',
         ],
     },
 }

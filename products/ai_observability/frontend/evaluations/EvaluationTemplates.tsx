@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -10,7 +10,6 @@ import {
     IconEye,
     IconPlus,
     IconSearch,
-    IconSparkles,
     IconTarget,
     IconThumbsUp,
     IconWarning,
@@ -19,13 +18,10 @@ import {
 import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { SceneExport } from 'scenes/sceneTypes'
-
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
 
 import { getEvaluationBackTarget, getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
 import { EvaluationTemplate, defaultEvaluationTemplates } from './templates'
@@ -146,31 +142,6 @@ function TemplateRow({ template }: TemplateRowProps): JSX.Element {
     )
 }
 
-function StartWithAiRow(): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-
-    const handleClick = (): void => {
-        posthog.capture('llm evaluation template selected', { template_key: 'start_with_ai' })
-        openSidePanel(
-            SidePanelTab.Max,
-            autoRunMaxPrompt(
-                'Explore my recent AI traces to identify failure modes worth evaluating. Recommend the online evaluations I should create, then ask me which ones to set up.'
-            )
-        )
-    }
-
-    return (
-        <PickerRow
-            dataAttr="start-with-ai-evaluation-template"
-            description="Let PostHog AI explore your traces and build an evaluation for you"
-            icon={<IconSparkles className="w-5 h-5 text-primary-3000" />}
-            onClick={handleClick}
-            tag={{ label: 'Beta', type: 'completion' }}
-            title="Start with AI"
-        />
-    )
-}
-
 interface TemplatePickerProps {
     title: string
     description: string
@@ -224,8 +195,11 @@ function TemplatePicker({
                         </p>
                     </div>
 
+                    {showStartWithAi && (
+                        <MCPUseCaseCard surfaceKey="ai_observability_evaluations.create" className="!mt-0" />
+                    )}
+
                     <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
-                        {showStartWithAi && <StartWithAiRow />}
                         <TemplateRow template="blank" />
                         {defaultEvaluationTemplates.map((template) => (
                             <TemplateRow key={template.key} template={template} />
