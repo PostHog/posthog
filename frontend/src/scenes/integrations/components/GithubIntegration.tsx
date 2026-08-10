@@ -96,8 +96,10 @@ export function GitHubInstallationLink({
     }
 
     if (installations.length === 1) {
+        // Always name the installation, even when there's only one to pick. Omitting it asks the
+        // backend to auto-resolve from a sibling project, which an orphan installation has none of.
         return (
-            <LemonButton type="secondary" loading={loading} onClick={() => onLink()}>
+            <LemonButton type="secondary" loading={loading} onClick={() => onLink(installations[0].installation_id)}>
                 Link existing installation
             </LemonButton>
         )
