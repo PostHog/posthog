@@ -77,22 +77,20 @@ const BACKEND_ONLY_ROUTES = [
     '/toolbar_oauth/check',
 ]
 
+const PROJECT_PATH_PREFIX = '/project/'
+
 // True when the path targets a project other than the one we're currently in. A client-side
 // history replace can't switch the active project, so `AutoProjectMiddleware` never runs and any
-// team-scoped scene resolves against the wrong project and 404s. The project segment can be a
-// numeric team id or a token — a `phc_` project key or a legacy api_token from the middleware's
-// switching allowlist. Only the server can resolve a token to a team, so any non-numeric segment
-// always takes the full load; a numeric id only needs one when it differs from the current team.
+// team-scoped scene resolves against the wrong project and 404s. The project segment is either a
+// numeric team id or a token (a `phc_` project key, or a legacy api_token from the middleware's
+// switching allowlist), and only the server can resolve a token to a team, so anything that isn't
+// literally the current team id takes the full load.
 function pointsToDifferentProject(path: string): boolean {
-    const match = path.match(/^\/project\/([^/?#]+)/)
-    if (!match) {
+    if (!path.startsWith(PROJECT_PATH_PREFIX)) {
         return false
     }
-    const identifier = match[1]
-    if (!/^\d+$/.test(identifier)) {
-        return true
-    }
-    return String(getCurrentTeamIdOrNone()) !== identifier
+    const identifier = path.slice(PROJECT_PATH_PREFIX.length).split('/')[0]
+    return !!identifier && identifier !== String(getCurrentTeamIdOrNone())
 }
 
 export function handleLoginRedirect(): void {
