@@ -27013,17 +27013,24 @@ export namespace Schemas {
       includeSparkline?: boolean;
     }
 
+    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
+
+
+    export const ErrorTrackingIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
     export interface ErrorTrackingIssueRead {
       id: string;
       status: string;
-      /**
-         * Issue severity, or null when no severity is assigned.
-         * @nullable
-         */
-      severity: string | null;
+      /** Issue severity, or null when no severity is assigned. */
+      severity: ErrorTrackingIssueSeverity | null;
       /** @nullable */
       name: string | null;
       /** @nullable */
@@ -27034,16 +27041,6 @@ export namespace Schemas {
       external_issues: ErrorTrackingExternalReferenceResult[];
       cohort: ErrorTrackingIssueCohortRead | null;
     }
-
-    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
-
-
-    export const ErrorTrackingIssueSeverity = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Critical: 'critical',
-    } as const;
 
     export interface ErrorTrackingIssueSplitFingerprint {
       /** Fingerprint to split into a new issue. */
@@ -53575,11 +53572,8 @@ export namespace Schemas {
     export interface PatchedErrorTrackingIssueRead {
       id?: string;
       status?: string;
-      /**
-         * Issue severity, or null when no severity is assigned.
-         * @nullable
-         */
-      severity?: string | null;
+      /** Issue severity, or null when no severity is assigned. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /** @nullable */
       name?: string | null;
       /** @nullable */

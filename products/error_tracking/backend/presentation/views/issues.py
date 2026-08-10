@@ -67,7 +67,11 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
 
     id = serializers.UUIDField()
     status = serializers.CharField()
-    severity = serializers.CharField(allow_null=True, help_text="Issue severity, or null when no severity is assigned.")
+    severity = ErrorTrackingIssueSeverityField(
+        choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,
+        allow_null=True,
+        help_text="Issue severity, or null when no severity is assigned.",
+    )
     name = serializers.CharField(allow_null=True)
     description = serializers.CharField(allow_null=True)
     first_seen = serializers.DateTimeField(allow_null=True)

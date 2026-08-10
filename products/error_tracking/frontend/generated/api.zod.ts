@@ -260,7 +260,10 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid().optional(),
         status: zod.string().optional(),
-        severity: zod.string().nullish().describe('Issue severity, or null when no severity is assigned.'),
+        severity: zod
+            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+            .optional()
+            .describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullish(),
         description: zod.string().nullish(),
         first_seen: zod.iso.datetime({ offset: true }).nullish(),
@@ -317,7 +320,9 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         status: zod.string(),
-        severity: zod.string().nullable().describe('Issue severity, or null when no severity is assigned.'),
+        severity: zod
+            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+            .describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullable(),
         description: zod.string().nullable(),
         first_seen: zod.iso.datetime({ offset: true }).nullable(),
@@ -391,7 +396,9 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         status: zod.string(),
-        severity: zod.string().nullable().describe('Issue severity, or null when no severity is assigned.'),
+        severity: zod
+            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+            .describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullable(),
         description: zod.string().nullable(),
         first_seen: zod.iso.datetime({ offset: true }).nullable(),
