@@ -32,10 +32,10 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
-    DeltaTableRef,
-    is_transient_object_store_error,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_maintenance_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
@@ -197,10 +197,12 @@ def _maybe_flag_pre_extraction(
     except Exception as e:
         # Detection is best-effort; a failure here must not block the sync. `get_delta_table` re-raises
         # transient object-store blips (S3/credential-provider timeouts) rather than swallowing them —
-        # see its own docstring — so this is the layer that must apply is_transient_object_store_error
-        # before reporting, same as the other best-effort call sites around this table.
-        if is_transient_object_store_error(e):
-            logger.warning("repartition: pre-extraction detection failed with a transient object-store error")
+        # see its own docstring — and resolving `job.folder_path()` on a pooled app-DB connection can
+        # raise OperationalError/InterfaceError the same way. `is_transient_maintenance_error` covers
+        # both, so this is the layer that must apply it before reporting, same as the other best-effort
+        # call sites around this table.
+        if is_transient_maintenance_error(e):
+            logger.warning("repartition: pre-extraction detection failed with a transient infra error")
         else:
             logger.warning("repartition: pre-extraction detection failed", exc_info=True)
             capture_exception(e)
@@ -400,6 +402,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # daily instead.
         schema.refresh_from_db(fields=["sync_type_config"])
         schema.clear_repartition_pending()
+        schema.clear_repartition_rewrite()
         schema.stamp_last_repartition_at()
         props = base_event_props(schema, schema.source, inputs.job_id)
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
@@ -541,6 +544,9 @@ def _handle_failure(
         props["final"] = True
         schema.clear_repartition_pending()
         schema.clear_repartition_swap()
+        # Drop any partial-rewrite checkpoint too: leaving it set would make the next flag cycle
+        # resume the same doomed temp instead of giving up, so the give-up would never take effect.
+        schema.clear_repartition_rewrite()
         # Engage the cooldown as well, or the give-up never takes effect: the trigger that queued
         # this rewrite (the largest partition is over budget) is just as true on the next sync and
         # the layout is unchanged, so detection re-flags the table immediately with `attempts` back

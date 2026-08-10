@@ -20,6 +20,7 @@ import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconGoogleAnalytics from 'public/services/google_analytics.png'
 import IconGoogleCalendar from 'public/services/google_calendar.png'
 import IconHubspot from 'public/services/hubspot.png'
+import IconInstagram from 'public/services/instagram.png'
 import IconIntercom from 'public/services/intercom.png'
 import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
@@ -61,6 +62,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     github: IconGitHub,
     gitlab: IconGitLab,
     'meta-ads': IconMetaAds,
+    instagram: IconInstagram,
     twilio: IconTwilio,
     clickup: IconClickUp,
     'reddit-ads': IconReddit,

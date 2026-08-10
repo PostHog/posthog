@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconEye, IconPlay, IconRefresh } from '@posthog/icons'
+import { IconCopy, IconEye, IconPlay, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -24,6 +24,7 @@ import {
     replayScannerLogic,
 } from '../replayScannerLogic'
 import { OBSERVATION_TRIGGER_TAG } from '../types'
+import { shortBackfillId } from './ScannerBackfillsTab'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -92,6 +93,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationSubjectFilter,
         observationDateFrom,
         observationDateTo,
+        observationBackfillFilter,
         hasActiveObservationFilters,
         observationDetailLinkParams,
         availableTags,
@@ -112,6 +114,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationTagFilter,
         setObservationSubjectFilter,
         setObservationDateRange,
+        setObservationBackfillFilter,
         clearObservationFilters,
         copyAllObservations,
     } = useActions(logic)
@@ -288,6 +291,25 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         onChange={setObservationTagFilter}
                                         searchable
                                     />
+                                )}
+                                {observationBackfillFilter && (
+                                    // Same secondary/small button the FilterPills next to it render, so
+                                    // the row stays visually uniform. It carries a clear action rather
+                                    // than a dropdown, because this filter arrives from a link and has
+                                    // nothing to choose between.
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        tooltip={`Backfill ${observationBackfillFilter}`}
+                                        sideAction={{
+                                            icon: <IconX />,
+                                            onClick: () => setObservationBackfillFilter(null),
+                                            tooltip: 'Clear backfill filter',
+                                        }}
+                                        data-attr="vision-observations-backfill-filter"
+                                    >
+                                        Backfill {shortBackfillId(observationBackfillFilter)}
+                                    </LemonButton>
                                 )}
                                 <LemonButton
                                     type="tertiary"
