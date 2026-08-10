@@ -232,10 +232,14 @@ class TestBudgetExhaustion:
             schema.clear_repartition_pending.assert_called_once()
             schema.stamp_last_repartition_at.assert_called_once()
             schema.set_repartition_pending.assert_not_called()
+            # The rewrite checkpoint must be dropped too, or the next flag cycle would resume the same
+            # doomed temp and the give-up would never take effect.
+            schema.clear_repartition_rewrite.assert_called_once()
         else:
             assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
             schema.clear_repartition_pending.assert_not_called()
             schema.stamp_last_repartition_at.assert_not_called()
+            schema.clear_repartition_rewrite.assert_not_called()
 
 
 class TestFeatureFlagGate:

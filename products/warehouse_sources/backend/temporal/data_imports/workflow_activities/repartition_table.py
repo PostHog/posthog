@@ -402,6 +402,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # daily instead.
         schema.refresh_from_db(fields=["sync_type_config"])
         schema.clear_repartition_pending()
+        schema.clear_repartition_rewrite()
         schema.stamp_last_repartition_at()
         props = base_event_props(schema, schema.source, inputs.job_id)
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
@@ -543,6 +544,9 @@ def _handle_failure(
         props["final"] = True
         schema.clear_repartition_pending()
         schema.clear_repartition_swap()
+        # Drop any partial-rewrite checkpoint too: leaving it set would make the next flag cycle
+        # resume the same doomed temp instead of giving up, so the give-up would never take effect.
+        schema.clear_repartition_rewrite()
         # Engage the cooldown as well, or the give-up never takes effect: the trigger that queued
         # this rewrite (the largest partition is over budget) is just as true on the next sync and
         # the layout is unchanged, so detection re-flags the table immediately with `attempts` back
