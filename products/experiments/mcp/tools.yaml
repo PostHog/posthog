@@ -705,8 +705,8 @@ tools:
 
             Start a fresh calculation of every metric on this experiment against the latest data. Use this when the user
             asks to refresh, recalculate, or re-run results, or when results returned by
-            experiment-metrics-recalculation-latest look stale. Reading results does NOT trigger a new run, this tool is
-            the only way to start one.
+            experiment-metrics-recalculation-latest-retrieve look stale. Reading results does NOT trigger a new run,
+            this tool is the only way to start one.
 
 
             This queues background work that can take minutes on large experiments. Safe to call more than once: if a
@@ -715,9 +715,9 @@ tools:
 
 
             The response has no results array, the run has only just been queued. Take the returned id and poll
-            experiment-metrics-recalculation-retrieve with it, or call experiment-metrics-recalculation-latest, until
-            status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a tight
-            loop; wait a few seconds between checks.
+            experiment-metrics-recalculation-retrieve with it, or call experiment-metrics-recalculation-latest-retrieve,
+            until status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a
+            tight loop; wait a few seconds between checks.
         exclude_params:
             - trigger
         param_overrides:
@@ -789,11 +789,11 @@ tools:
         description: >
             Get one specific metrics recalculation run by its UUID, for the experiment it belongs to. Use this to poll a
             run you started with experiment-metrics-recalculation-create, or the active_run.id returned by
-            experiment-metrics-recalculation-latest.
+            experiment-metrics-recalculation-latest-retrieve.
 
 
             To read an experiment's current results without a specific run id, use
-            experiment-metrics-recalculation-latest instead.
+            experiment-metrics-recalculation-latest-retrieve instead.
 
 
             Returns the run's status (pending, in_progress, completed, failed), progress counters (completed_metrics and
@@ -1125,7 +1125,7 @@ tools:
         description: >
             Only for the day-by-day history of a SINGLE metric — how its results moved over the course of the
             experiment. For an experiment's current results across all metrics, which is what "how is this experiment
-            doing" almost always means, use experiment-metrics-recalculation-latest instead.
+            doing" almost always means, use experiment-metrics-recalculation-latest-retrieve instead.
 
 
             Requires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array
