@@ -4,11 +4,11 @@ import hashlib
 import calendar
 from datetime import datetime, timedelta
 from typing import TypedDict, cast
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
-from django.db import OperationalError
+from django.db import DatabaseError, OperationalError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
@@ -1038,16 +1038,29 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
     def _capture_authorization_granted(
         request,
         application: OAuthApplication,
-        granted_scopes: str,
+        requested_scopes: str,
         grant_path: str,
-        scoped_organizations: list | None = None,
-        scoped_teams: list | None = None,
+        redirect_uri: str,
     ) -> None:
         """Closes the funnel opened by `oauth_authorization_requested`. Every path that
         mints an authorization code reports here — `grant_path` separates the consent
         screen from the two that bypass it (first-party apps, auto-approval) — so a
         client that completes authorization and then fails downstream is distinguishable
-        from one that never got past `/authorize`."""
+        from one that never got past `/authorize`.
+
+        Scopes and scoping dimensions are read back from the minted grant (via the code
+        in `redirect_uri`) rather than from the request, so the event reports what was
+        actually stored: `validate_scopes` clamps out-of-ceiling scopes (and `*`) to the
+        app's ceiling, and the first-party path injects scoped organizations after the
+        request is parsed, so the request-side values drift from the grant on both
+        paths."""
+        grant = None
+        codes = parse_qs(urlparse(redirect_uri).query).get("code")
+        if codes:
+            grant = (
+                OAuthGrant.objects.filter(code=codes[0]).only("scope", "scoped_organizations", "scoped_teams").first()
+            )
+        granted_scopes = (grant.scope if grant else requested_scopes) or ""
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="oauth_authorization_granted",
@@ -1056,8 +1069,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 "grant_path": grant_path,
                 "granted_scopes": granted_scopes,
                 "granted_scope_count": len(granted_scopes.split()),
-                "has_scoped_organizations": bool(scoped_organizations),
-                "has_scoped_teams": bool(scoped_teams),
+                "has_scoped_organizations": bool(grant.scoped_organizations) if grant else False,
+                "has_scoped_teams": bool(grant.scoped_teams) if grant else False,
                 **(get_region_info() or {}),
             },
         )
@@ -1195,7 +1208,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     request=request, scopes=scope_str, credentials=credentials, allow=True
                 )
                 self._capture_scopes_clamped(request, application, scope_str)
-                self._capture_authorization_granted(request, application, scope_str, "first_party")
+                self._capture_authorization_granted(request, application, scope_str, "first_party", uri)
                 return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
@@ -1227,7 +1240,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
                         self._capture_scopes_clamped(request, application, scope_str)
-                        self._capture_authorization_granted(request, application, scope_str, "auto_approval")
+                        self._capture_authorization_granted(request, application, scope_str, "auto_approval", uri)
                         return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
@@ -1380,20 +1393,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         logger.debug("Success url for the request: %s", uri)
 
-        if serializer.validated_data["allow"]:
-            self._capture_scopes_clamped(request, application, scopes)
-
         redirect = self.redirect(uri, application)
 
         if serializer.validated_data["allow"]:
-            self._capture_authorization_granted(
-                request,
-                application,
-                scopes,
-                "consent",
-                scoped_organizations=serializer.validated_data.get("scoped_organizations"),
-                scoped_teams=serializer.validated_data.get("scoped_teams"),
-            )
+            self._capture_scopes_clamped(request, application, scopes)
+            self._capture_authorization_granted(request, application, scopes, "consent", uri)
 
         return Response(
             {
@@ -1521,7 +1525,11 @@ class OAuthTokenView(TokenView):
     def _capture_token_rejected(grant_type: str, client_id: str, error: str) -> None:
         """The token exchange has no authenticated user, so this keys on the client id —
         enough to tell "the client never came back for a token" apart from "it came back
-        and we refused", which the authorization events alone cannot distinguish."""
+        and we refused", which the authorization events alone cannot distinguish.
+
+        The application lookup is best-effort enrichment: the rejection being reported may
+        itself be a database failure, so a lookup error must drop the client identity from
+        the event rather than replace the mapped error response with a 500."""
         properties: dict = {
             "grant_type": grant_type,
             "error": error,
@@ -1532,7 +1540,7 @@ class OAuthTokenView(TokenView):
         }
         try:
             application = get_application_by_client_id(client_id)
-        except OAuthApplication.DoesNotExist:
+        except (OAuthApplication.DoesNotExist, DatabaseError):
             pass
         else:
             properties.update(_oauth_app_event_properties(application))
@@ -1550,6 +1558,9 @@ class OAuthTokenView(TokenView):
         `posthog.api.id_jag.issue_access_token`."""
         assertion = request.POST.get("assertion")
         if not assertion or not isinstance(assertion, str):
+            self._capture_token_rejected(
+                id_jag.JWT_BEARER_GRANT_TYPE, request.POST.get("client_id") or "", "invalid_request"
+            )
             return JsonResponse(
                 {"error": "invalid_request", "error_description": "assertion is required"},
                 status=400,
@@ -1603,6 +1614,7 @@ class OAuthTokenView(TokenView):
                 for key, value in json_data.items():
                     request.POST[key] = value
             except (json.JSONDecodeError, ValueError):
+                self._capture_token_rejected("unknown", "", "invalid_request")
                 return JsonResponse(
                     {"error": "invalid_request", "error_description": "Invalid JSON payload"},
                     status=400,
@@ -1684,7 +1696,9 @@ class OAuthTokenView(TokenView):
                 access_token_value = response_data.get("access_token")
 
                 if access_token_value:
-                    access_token = OAuthAccessToken.objects.get(token=access_token_value)
+                    access_token = OAuthAccessToken.objects.select_related("application", "user").get(
+                        token=access_token_value
+                    )
                     scoped_teams = list(access_token.scoped_teams or [])
                     scoped_organizations = list(access_token.scoped_organizations or [])
 
