@@ -54,6 +54,7 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "background",
             "run_source": "manual",
+            "task_runtime": "acp",
             "runtime_adapter": "codex",
             "prewarmed": "false",
         }
@@ -72,6 +73,7 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "other",
             "run_source": "other",
+            "task_runtime": "acp",
             "runtime_adapter": "other",
             "prewarmed": "false",
         }
@@ -91,7 +93,8 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "interactive",
             "run_source": "unknown",
-            "runtime_adapter": "unknown",
+            "task_runtime": "acp",
+            "runtime_adapter": "claude",
             "prewarmed": "true",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
@@ -171,7 +174,8 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "background",
             "run_source": "unknown",
-            "runtime_adapter": "unknown",
+            "task_runtime": "acp",
+            "runtime_adapter": "claude",
             "prewarmed": "false",
         }
         labels_by_outcome = [
@@ -296,6 +300,7 @@ class TestTaskRunMetrics(TestCase):
             "origin_product": "user_created",
             "mode": "interactive",
             "run_source": "manual",
+            "task_runtime": "acp",
             "runtime_adapter": "codex",
         }
         before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
@@ -309,6 +314,44 @@ class TestTaskRunMetrics(TestCase):
             )
 
         assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta
+
+    @parameterized.expand(
+        [
+            ("acp_default", Task.Runtime.ACP, {"model": "claude-opus-5"}, "acp", "claude"),
+            ("pi", Task.Runtime.PI, {}, "pi", "pi"),
+        ]
+    )
+    def test_agent_turn_failure_counter_uses_effective_runtime(
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        extra_state: dict,
+        expected_task_runtime: str,
+        expected_runtime_adapter: str,
+    ) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        self.task.runtime = runtime
+        self.task.save(update_fields=["runtime"])
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD, extra_state=extra_state)
+        labels = {
+            "origin_product": "user_created",
+            "mode": "background" if runtime == Task.Runtime.ACP else "unknown",
+            "run_source": "unknown",
+            "task_runtime": expected_task_runtime,
+            "runtime_adapter": expected_runtime_adapter,
+        }
+        before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": "failed", "error_message": "boom"},
+            )
+
+        assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + 1
 
     @parameterized.expand(
         [
