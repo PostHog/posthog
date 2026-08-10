@@ -30,22 +30,22 @@ describe('EvaluationTemplates', () => {
 
     afterEach(cleanup)
 
-    it('shows the MCP setup command before a copyable evaluation prompt', () => {
+    it('shows its single evaluation example as a copyable prompt', () => {
         const { container } = render(<EvaluationTemplatesEmptyState />)
 
-        expect(screen.getByText('Create evaluations with your AI agent')).toBeInTheDocument()
+        expect(screen.getByText('Or do it from your agent')).toBeInTheDocument()
         expect(screen.getByText(MCP_INSTALL_COMMAND)).toBeInTheDocument()
 
         const installCommand = screen.getByLabelText('Copy MCP install command')
         const prompt = screen.getByText(/Use the connected PostHog MCP server/)
-        expect(installCommand.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(prompt.compareDocumentPosition(installCommand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         expect(prompt).toHaveTextContent('ask which evaluations I want you to create before creating anything')
 
         fireEvent.click(container.querySelector('[data-attr="copy-code-button"]')!)
 
         expect(copyToClipboard).toHaveBeenCalledWith(
             "Use the connected PostHog MCP server and this project's AI observability data to inspect recent traces. Identify and rank real failure modes, recommend one online evaluation per distinct failure mode, then ask which evaluations I want you to create before creating anything.",
-            'evaluation prompt'
+            'prompt'
         )
         expect(screen.queryByText('Start with AI')).not.toBeInTheDocument()
     })
