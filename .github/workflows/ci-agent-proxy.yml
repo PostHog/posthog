@@ -15,12 +15,10 @@ permissions:
     pull-requests: read
 
 jobs:
-    changes:
+    agent-proxy:
+        name: Agent Proxy checks
         runs-on: ubuntu-latest
-        timeout-minutes: 5
-        name: Determine need to run agent-proxy checks
-        outputs:
-            agent_proxy: ${{ steps.filter.outputs.agent_proxy || 'true' }}
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -30,9 +28,12 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+            # Runs on push too: base defaults to master, so the action compares
+            # github.event.before..github.sha and a master commit that misses the
+            # paths skips the checks, like an unaffected PR already does.
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -40,19 +41,12 @@ jobs:
                         - 'services/agent-proxy/**'
                         - '.github/workflows/ci-agent-proxy.yml'
 
-    agent-proxy:
-        name: Agent Proxy checks
-        needs: changes
-        if: needs.changes.outputs.agent_proxy == 'true'
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
             - name: Install pnpm
+              if: steps.filter.outputs.agent_proxy == 'true'
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
+              if: steps.filter.outputs.agent_proxy == 'true'
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
@@ -60,9 +54,12 @@ jobs:
 
             - name: Get pnpm store path
               id: pnpm-store
+              if: steps.filter.outputs.agent_proxy == 'true'
               run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
             - name: Restore pnpm cache
+              id: pnpm-cache
+              if: steps.filter.outputs.agent_proxy == 'true'
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
@@ -70,49 +67,49 @@ jobs:
                   restore-keys: pnpm-${{ runner.os }}-
 
             - name: Install dependencies
+              if: steps.filter.outputs.agent_proxy == 'true'
               run: pnpm install --frozen-lockfile --filter @posthog/agent-proxy...
 
             - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
+              if: steps.filter.outputs.agent_proxy == 'true' && github.ref == 'refs/heads/master' && steps.pnpm-cache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Typecheck
+              if: steps.filter.outputs.agent_proxy == 'true'
               working-directory: services/agent-proxy
               run: pnpm typecheck
 
             - name: Test
+              if: steps.filter.outputs.agent_proxy == 'true'
               working-directory: services/agent-proxy
               run: pnpm exec vitest run
 
             - name: Lint
+              if: steps.filter.outputs.agent_proxy == 'true'
               working-directory: services/agent-proxy
               run: pnpm exec oxlint
 
             - name: Format check
+              if: steps.filter.outputs.agent_proxy == 'true'
               working-directory: services/agent-proxy
               run: pnpm exec oxfmt --check 'src/**/*.ts' 'tests/**/*.ts' 'scripts/**/*.ts'
 
     agent_proxy_ci:
-        needs: [changes, agent-proxy]
+        needs: [agent-proxy]
         name: Agent Proxy CI Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
         # always(), not !cancelled(): a skipped required check is treated as a pass by
         # branch protection, so on cancellation the gate must run and emit an explicit
         # result rather than skip into a green. A cancelled or timed-out job is caught
-        # by the != success && != skipped checks below; a legitimate no-change skip passes.
+        # by the != success && != skipped check below; a legitimate no-change skip passes.
         if: always()
         steps:
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
-                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
-                    exit 1
-                  fi
-
                   if [[ "${{ needs.agent-proxy.result }}" != "success" && "${{ needs.agent-proxy.result }}" != "skipped" ]]; then
                     echo "Agent Proxy checks did not succeed (result: ${{ needs.agent-proxy.result }})."
                     exit 1
