@@ -21,6 +21,7 @@ import { preloadHighlighter } from "@pierre/diffs";
 import { boot } from "@posthog/di/contribution";
 import { assertHostCapabilities } from "@posthog/di/hostCapabilities";
 import { ServiceProvider } from "@posthog/di/react";
+import { MissionControlOverlay } from "@posthog/ui/features/mission-control/MissionControlOverlay";
 import App from "@posthog/ui/shell/App";
 import { logger } from "@posthog/ui/shell/logger";
 import { initializePostHog } from "@posthog/ui/shell/posthogAnalyticsImpl";
@@ -113,6 +114,11 @@ try {
         <ServiceProvider container={container}>
           <Providers>
             <App devToolbar={<DevToolbarHost />} />
+            {/* Mounted beside the app rather than inside a route. The overlay is
+                chrome for the OS window, so it has to outlive every branch the
+                app renders instead of the router — the loading, auth and
+                onboarding gates, and __root's separate settings shell. */}
+            <MissionControlOverlay />
           </Providers>
         </ServiceProvider>
       </BootErrorBoundary>

@@ -103,7 +103,10 @@ export function DevToolbar() {
   };
 
   return (
-    <div className="relative h-10 shrink-0 border-(--gray-6) border-t bg-(--gray-2)">
+    // Above the Mission Control overlay (z-300). That overlay covers the whole
+    // window, so with the dev toggle forcing it on the toolbar would be hidden
+    // and the button to turn it back off unfindable.
+    <div className="relative z-[400] h-10 shrink-0 border-(--gray-6) border-t bg-(--gray-2)">
       {openPanel && (
         <PanelChrome
           openPanel={openPanel}
