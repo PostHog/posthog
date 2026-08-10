@@ -122,6 +122,124 @@ SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT = (
 )
 
 
+class SyncFrequencyBlockerSerializer(serializers.Serializer):
+    """The node holding a cadence back, named so a refusal points at something a person can open."""
+
+    id = serializers.CharField(help_text="Data modeling node ID of the source or view.")
+    name = serializers.CharField(help_text="Node name, as it appears in the data modeling graph.")
+
+
+class SyncFrequencyBoundSerializer(serializers.Serializer):
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        help_text="The bounding cadence in plain English, for example '6 hours'. Matches the wording "
+        "used in the error raised when an out-of-bounds cadence is written. Prose rather than a "
+        "`sync_frequency` value because a source can deliver on a cadence no `sync_frequency` names."
+    )
+    blocker = SyncFrequencyBlockerSerializer(
+        allow_null=True, help_text="Node that set this bound. Null when nothing identifiable set it."
+    )
+
+
+class SyncFrequencyOptionSerializer(serializers.Serializer):
+    cadence = serializers.ChoiceField(choices=MATERIALIZE_SYNC_FREQUENCY_CHOICES, help_text="A `sync_frequency` value.")
+    allowed = serializers.BooleanField(help_text="False when writing this cadence would be rejected.")
+    blocked_by = serializers.ChoiceField(
+        choices=[("source", "source"), ("consumer", "consumer")],
+        allow_null=True,
+        help_text="Which side withholds this cadence: 'source' when no upstream source delivers data "
+        "that often, 'consumer' when a downstream view or endpoint needs data fresher than this. "
+        "Null when the cadence is allowed.",
+    )
+    blocker = SyncFrequencyBlockerSerializer(
+        allow_null=True, help_text="The source or consumer named in `blocked_by`. Null when allowed."
+    )
+
+
+class SyncFrequencyBoundsSerializer(serializers.Serializer):
+    frequency_mode = serializers.ChoiceField(
+        choices=[
+            ("tiered", "tiered"),
+            ("dag_schedule", "dag_schedule"),
+            ("managed_viewset", "managed_viewset"),
+            ("legacy", "legacy"),
+            ("no_node", "no_node"),
+        ],
+        help_text="What governs this view's cadence. 'tiered' is the only mode where `options` is "
+        "meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single "
+        "DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 "
+        "backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has "
+        "no data modeling node to store a cadence on.",
+    )
+    options = SyncFrequencyOptionSerializer(
+        many=True,
+        help_text="Every cadence a picker may show, coarsest-last, each marked allowed or blocked with "
+        "its cause. Empty outside 'tiered' mode.",
+    )
+    floor = SyncFrequencyBoundSerializer(
+        allow_null=True,
+        help_text="The fastest bound: no cadence finer than this is allowed, because the source named "
+        "here does not deliver more often. Null when no source withholds a cadence.",
+    )
+    ceiling = SyncFrequencyBoundSerializer(
+        allow_null=True,
+        help_text="The slowest bound: no cadence coarser than this is allowed, because the consumer "
+        "named here needs data fresher than that. Null when no consumer withholds a cadence.",
+    )
+    best_effort_sources = SyncFrequencyBlockerSerializer(
+        many=True,
+        help_text="Upstream sources with no sync schedule, so the floor is a guess: these arrive when "
+        "someone runs them, and a cadence finer than their real delivery will serve stale data.",
+    )
+
+
+SYNC_FREQUENCY_BOUNDS_HELP_TEXT = (
+    "Which cadences this view can actually be set to, and what withholds the rest. Computed from the "
+    "view's data modeling lineage: upstream source sync frequencies set a floor, downstream freshness "
+    "targets set a ceiling. Read-only, and present on retrieve, create and update responses only."
+)
+
+
+def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
+    """The payload for a view whose cadence no lineage governs, so there is nothing to withhold."""
+    return {
+        "frequency_mode": mode,
+        "options": [],
+        "floor": None,
+        "ceiling": None,
+        "best_effort_sources": [],
+    }
+
+
+def _frequency_bounds_payload(resolved: Any) -> dict[str, Any]:
+    from products.data_modeling.backend.facade.api import humanize_cadence
+
+    def blocker(node_id: str | None) -> dict[str, str] | None:
+        if node_id is None:
+            return None
+        return {"id": node_id, "name": resolved.names.get(node_id, node_id)}
+
+    def bound(value: Any) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return {"label": humanize_cadence(value.value), "blocker": blocker(value.blocker)}
+
+    return {
+        "frequency_mode": "tiered",
+        "options": [
+            {
+                "cadence": sync_frequency_interval_to_sync_frequency(option.value),
+                "allowed": option.allowed,
+                "blocked_by": option.blocked_by,
+                "blocker": blocker(option.blocker),
+            }
+            for option in resolved.bounds.options
+        ],
+        "floor": bound(resolved.bounds.floor),
+        "ceiling": bound(resolved.bounds.ceiling),
+        "best_effort_sources": [blocker(node_id) for node_id in sorted(resolved.best_effort_source_ids)],
+    }
+
+
 def _node_frequency_targets(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> dict[str, timedelta]:
     """Declared node targets for every view the root serializer renders, fetched once.
 
@@ -261,6 +379,21 @@ class DataWarehouseSavedQuerySerializerMixin:
     def get_sync_frequency_managed_by_dag(self, view: DataWarehouseSavedQuery) -> bool:
         return bool(self.context.get("sync_frequency_managed_by_dag", False))  # type: ignore[attr-defined]
 
+    @extend_schema_field(SyncFrequencyBoundsSerializer())
+    def get_sync_frequency_bounds(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
+        from products.data_modeling.backend.facade.api import saved_query_target_bounds
+
+        team_mode = self.context.get("team_frequency_mode", "legacy")  # type: ignore[attr-defined]
+        if view.managed_viewset is not None:
+            return _unbounded_frequency_payload("managed_viewset")
+        if team_mode != "tiered":
+            return _unbounded_frequency_payload(team_mode)
+
+        resolved = saved_query_target_bounds(view.team_id, view.pk)
+        if resolved is None:
+            return _unbounded_frequency_payload("no_node")
+        return _frequency_bounds_payload(resolved)
+
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
         return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
@@ -381,6 +514,7 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_managed_by_dag = serializers.SerializerMethodField(
         read_only=True, help_text=SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT
     )
+    sync_frequency_bounds = serializers.SerializerMethodField(read_only=True, help_text=SYNC_FREQUENCY_BOUNDS_HELP_TEXT)
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
@@ -429,6 +563,7 @@ class DataWarehouseSavedQuerySerializer(
             "description",
             "sync_frequency",
             "sync_frequency_managed_by_dag",
+            "sync_frequency_bounds",
             "columns",
             "status",
             "last_run_at",
@@ -456,6 +591,7 @@ class DataWarehouseSavedQuerySerializer(
             "last_run_at",
             "managed_viewset_kind",
             "sync_frequency_managed_by_dag",
+            "sync_frequency_bounds",
             "folder_name",
             "latest_error",
             "latest_history_id",
@@ -1043,16 +1179,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         if should_include_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
-        context["sync_frequency_managed_by_dag"] = self._sync_frequency_managed_by_dag()
+        context["team_frequency_mode"] = self._team_frequency_mode()
+        context["sync_frequency_managed_by_dag"] = context["team_frequency_mode"] == "dag_schedule"
         return context
 
-    def _sync_frequency_managed_by_dag(self) -> bool:
-        """Whether the DAG's single schedule owns cadence for this team.
+    def _team_frequency_mode(self) -> str:
+        """Which backend owns materialization cadence for this team.
 
-        On single-schedule v2 the DAG's one schedule owns cadence, so per-view frequency writes are
-        rejected; per-node (tiered) schedules and the v1 backend both accept them. This covers only
-        that one of `update()`'s rejections — it is team-scoped, so the per-view managed-viewset
-        rejection is not and cannot be reflected here.
+        Mirrors the branch `update()` takes on a `sync_frequency` write: `legacy` writes the interval
+        column, `tiered` writes the DAG node's freshness target and is the only mode with bounds, and
+        `dag_schedule` rejects the write because the team's one DAG schedule owns cadence. Team-scoped,
+        so the per-view rejections (managed viewsets, views with no node) are not reflected here.
         """
         from products.data_modeling.backend.facade.api import tiered_schedules_enabled
 
@@ -1062,7 +1199,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
             send_feature_flag_events=False,
         )
-        return bool(v2_enabled) and not tiered_schedules_enabled(self.team)
+        if not v2_enabled:
+            return "legacy"
+        return "tiered" if tiered_schedules_enabled(self.team) else "dag_schedule"
 
     def get_serializer_class(self):
         if self.action == "list":

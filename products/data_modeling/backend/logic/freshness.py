@@ -188,6 +188,23 @@ def _finest(bounds: list[Bound]) -> Bound:
     return min(bounds, key=_bound_sort_key)
 
 
+def ancestors_of(node_id: str, edges: list[tuple[str, str]]) -> set[str]:
+    """Every node upstream of `node_id`, however far — the cone whose delivery it inherits."""
+    parents: dict[str, list[str]] = defaultdict(list)
+    for upstream, downstream in edges:
+        parents[downstream].append(upstream)
+
+    seen: set[str] = set()
+    queue = deque(parents[node_id])
+    while queue:
+        current = queue.popleft()
+        if current in seen:
+            continue
+        seen.add(current)
+        queue.extend(parents[current])
+    return seen
+
+
 def all_source_floor_bounds(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, Bound]:
     """Every node's source floor, with the source that set it, in one forward pass.
 

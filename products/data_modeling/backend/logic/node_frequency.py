@@ -15,7 +15,15 @@ from datetime import timedelta
 from django.db.models import Q, QuerySet
 
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
-from products.data_modeling.backend.logic.freshness import STREAMING, all_source_floors, normalize_seed_target
+from products.data_modeling.backend.logic.freshness import (
+    STREAMING,
+    TargetBounds,
+    all_source_floors,
+    ancestors_of,
+    compute_target_bounds,
+    intersect_target_bounds,
+    normalize_seed_target,
+)
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -211,6 +219,57 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
         names={str(node.id): node.name for node in nodes},
+    )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class SavedQueryFrequencyBounds:
+    """A saved query's selectable cadences, plus what a caller needs to name the blockers."""
+
+    bounds: TargetBounds
+    names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
+    best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
+
+
+def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
+    """Every cadence this saved query may be set to, folded across each DAG holding a node for it.
+
+    The read-side twin of `apply_saved_query_frequency_target`: same nodes, same per-DAG graphs,
+    same validator input, so a cadence offered here cannot be refused by the write that follows.
+
+    None means no DAG node carries this saved query, which is not "anything goes" — it is a target
+    with nowhere to be stored, and the caller owes the reader a different answer than a picker.
+    """
+    nodes = list(Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).select_related("dag"))
+    if not nodes:
+        return None
+
+    per_dag: list[TargetBounds] = []
+    names: dict[str, str] = {}
+    best_effort: set[str] = set()
+    graphs: dict[str, FrequencyGraph] = {}
+    for node in nodes:
+        # a saved query can hold two nodes in one DAG, and that DAG's graph is the same for both
+        dag_key = str(node.dag_id)
+        if dag_key not in graphs:
+            graphs[dag_key] = build_frequency_graph(node.dag)
+        graph = graphs[dag_key]
+        per_dag.append(
+            compute_target_bounds(
+                node_id=str(node.id),
+                edges=graph.edges,
+                declared_targets=graph.declared_targets,
+                source_intervals=graph.source_intervals,
+            )
+        )
+        names.update(graph.names)
+        # a best-effort source elsewhere in the DAG says nothing about this node's freshness
+        best_effort |= graph.best_effort_source_ids & ancestors_of(str(node.id), graph.edges)
+
+    return SavedQueryFrequencyBounds(
+        bounds=intersect_target_bounds(per_dag),
+        names=names,
+        best_effort_source_ids=best_effort,
     )
 
 

@@ -263,8 +263,11 @@ class TestIntersectTargetBounds(TestCase):
         )
         return bounds, {option.value: option for option in bounds.options}
 
-    SLOW_SOURCE = ([("src", "a")], {}, {"src": H6})
-    FAST_CONSUMER = ([("a", "ep")], {"ep": H12}, {})
+    # (edges, declared targets, source intervals) for one DAG the saved query has a node in
+    OneDag = tuple[list[tuple[str, str]], dict[str, timedelta], dict[str, timedelta]]
+
+    SLOW_SOURCE: OneDag = ([("src", "a")], {}, {"src": H6})
+    FAST_CONSUMER: OneDag = ([("a", "ep")], {"ep": H12}, {})
 
     def test_the_tightest_bound_from_any_dag_wins(self):
         bounds, options = self._fold(self.SLOW_SOURCE, self.FAST_CONSUMER)

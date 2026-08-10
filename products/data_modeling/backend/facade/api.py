@@ -12,6 +12,7 @@ _B = "products.data_modeling.backend."
 _LAZY = {
     "UnsatisfiableFrequencyError": "logic.freshness",
     "UnsupportedFrequencyTargetError": "logic.freshness",
+    "humanize_cadence": "logic.freshness",
     "HasDependentsError": "logic.saved_query_dag_sync",
     "delete_node_from_dag": "logic.saved_query_dag_sync",
     "promote_view_nodes_to_matview": "logic.saved_query_dag_sync",
@@ -30,6 +31,7 @@ _LAZY = {
     "tiered_schedules_enabled": "logic.schedule_reconcile",
     "declared_targets_by_saved_query": "logic.node_frequency",
     "get_declared_target": "logic.node_frequency",
+    "saved_query_target_bounds": "logic.node_frequency",
     "clear_node_suspension": "logic.node_suspension",
     "is_node_suspended": "logic.node_suspension",
     "mark_node_suspended": "logic.node_suspension",
