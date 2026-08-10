@@ -166,6 +166,15 @@ describe('accountsLogic', () => {
         expect(logic.values.metricsQuery?.kind).toBe('AccountsQuery')
     })
 
+    it('keeps the DataTable data node on the active Postgres source for refreshes', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+
+        expect(logic.values.accountsDataTableQuery.source.kind).toBe('AccountsTableQuery')
+        expect(logic.values.accountsDataTableQuery.columns).toEqual(logic.values.querySelectColumns)
+    })
+
     it('keeps the previous positional response stable while switching runners', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,

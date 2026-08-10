@@ -218,6 +218,7 @@ export interface accountsLogicValues {
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     accountIdFilter: string | null
+    accountsDataTableQuery: DataTableNode
     accountsQuerySource: AccountsQuery | AccountsTableQuery | null
     accountsTableQueryPlan: AccountsTableQueryPlan | null
     activeFilterCount: number
@@ -453,7 +454,7 @@ export interface accountsLogicMeta {
             sortOrder: AccountSortOrder,
             visibleColumnNames: string[]
         ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
-        postgresAccountsEnabled: (featureFlags: any) => boolean
+        postgresAccountsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         accountsTableQueryPlan: (
             querySelectColumns: string[],
             visibleColumnNames: string[],
@@ -486,13 +487,17 @@ export interface accountsLogicMeta {
         ) => DataTableNode
         accountsQuerySource: (
             hogqlQuery: DataTableNode,
-            accountsTableQueryPlan: any,
-            postgresAccountsEnabled: any,
+            accountsTableQueryPlan: AccountsTableQueryPlan | null,
+            postgresAccountsEnabled: boolean,
             relationshipDefinitionsLoaded: boolean
         ) => AccountsQuery | AccountsTableQuery | null
+        accountsDataTableQuery: (
+            hogqlQuery: DataTableNode,
+            accountsQuerySource: AccountsQuery | AccountsTableQuery | null
+        ) => DataTableNode
         tableRowsTransformer: (
-            accountsQuerySource: AccountsQuery | null,
-            accountsTableQueryPlan: any,
+            accountsQuerySource: AccountsQuery | AccountsTableQuery | null,
+            accountsTableQueryPlan: AccountsTableQueryPlan | null,
             sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         metricsQuery: (
@@ -976,6 +981,17 @@ export const accountsLogic = kea<accountsLogicType>([
                     ? accountsTableQueryPlan.query
                     : (hogqlQuery.source as AccountsQuery)
             },
+        ],
+        accountsDataTableQuery: [
+            (s) => [s.hogqlQuery, s.accountsQuerySource],
+            (
+                hogqlQuery: DataTableNode,
+                accountsQuerySource: AccountsQuery | AccountsTableQuery | null
+            ): DataTableNode => ({
+                ...hogqlQuery,
+                columns: (hogqlQuery.source as AccountsQuery).select ?? [],
+                source: accountsQuerySource ?? hogqlQuery.source,
+            }),
         ],
         tableRowsTransformer: [
             (s) => [s.accountsQuerySource, s.accountsTableQueryPlan, s.sortedRowsTransformer],

@@ -615,7 +615,7 @@ function AccountsHogQLSkeleton(): JSX.Element {
 }
 
 export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery, accountsQuerySource, tableRowsTransformer } = useValues(accountsLogic)
+    const { accountsDataTableQuery, accountsQuerySource, tableRowsTransformer } = useValues(accountsLogic)
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
@@ -628,7 +628,7 @@ export function AccountsHogQLTable(): JSX.Element {
         <div className="@container">
             <DataTable
                 uniqueKey="customer-analytics-accounts-hogql"
-                query={hogqlQuery}
+                query={accountsDataTableQuery}
                 setQuery={() => {
                     // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
                 }}
