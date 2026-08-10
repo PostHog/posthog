@@ -900,7 +900,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     memberships_to_email = [
         membership
         for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
-        if membership.user.notification_settings.get("materialized_view_sync_failed_frequency", "daily") != "immediate"
+        if membership.user.notification_settings.get("materialized_view_sync_failed_daily", True)
     ]
     if not memberships_to_email:
         return
@@ -978,7 +978,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_id: str) -> None:
-    """Email members who chose immediate materialization-failure emails over the daily digest.
+    """Email members who asked for a materialization failure email as it happens.
 
     Dispatched on the first failure of a streak only; the job-scoped campaign key
     makes redelivery idempotent per recipient.
@@ -1003,7 +1003,7 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
     memberships_to_email = [
         membership
         for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
-        if membership.user.notification_settings.get("materialized_view_sync_failed_frequency", "daily") == "immediate"
+        if membership.user.notification_settings.get("materialized_view_sync_failed_immediate", False)
     ]
     if not memberships_to_email:
         return

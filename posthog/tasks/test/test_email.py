@@ -2374,24 +2374,33 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @parameterized.expand(
         [
             (
-                "immediate_user_gets_email",
-                {"materialized_view_sync_failed": True, "materialized_view_sync_failed_frequency": "immediate"},
+                "immediate_on",
+                {"materialized_view_sync_failed": True, "materialized_view_sync_failed_immediate": True},
                 True,
             ),
             (
-                "daily_user_does_not",
-                {"materialized_view_sync_failed": True, "materialized_view_sync_failed_frequency": "daily"},
+                "immediate_off",
+                {"materialized_view_sync_failed": True, "materialized_view_sync_failed_immediate": False},
                 False,
             ),
-            ("unset_frequency_defaults_to_daily", {"materialized_view_sync_failed": True}, False),
+            ("immediate_unset_defaults_off", {"materialized_view_sync_failed": True}, False),
             (
-                "setting_off_wins_over_frequency",
-                {"materialized_view_sync_failed": False, "materialized_view_sync_failed_frequency": "immediate"},
+                "both_deliveries_on",
+                {
+                    "materialized_view_sync_failed": True,
+                    "materialized_view_sync_failed_daily": True,
+                    "materialized_view_sync_failed_immediate": True,
+                },
+                True,
+            ),
+            (
+                "master_off_wins",
+                {"materialized_view_sync_failed": False, "materialized_view_sync_failed_immediate": True},
                 False,
             ),
         ]
     )
-    def test_send_matview_failure_immediate_email_respects_frequency_preference(
+    def test_send_matview_failure_immediate_email_respects_immediate_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
         from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
@@ -2419,15 +2428,39 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         else:
             assert len(mocked_email_messages) == 0
 
-    def test_send_matview_failure_digest_skips_immediate_users(self, MockEmailMessage: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            ("daily_on", {"materialized_view_sync_failed": True, "materialized_view_sync_failed_daily": True}, True),
+            ("daily_off", {"materialized_view_sync_failed": True, "materialized_view_sync_failed_daily": False}, False),
+            ("daily_unset_defaults_on", {"materialized_view_sync_failed": True}, True),
+            (
+                "both_deliveries_on",
+                {
+                    "materialized_view_sync_failed": True,
+                    "materialized_view_sync_failed_daily": True,
+                    "materialized_view_sync_failed_immediate": True,
+                },
+                True,
+            ),
+            (
+                "immediate_only_still_skips_digest",
+                {
+                    "materialized_view_sync_failed": True,
+                    "materialized_view_sync_failed_daily": False,
+                    "materialized_view_sync_failed_immediate": True,
+                },
+                False,
+            ),
+        ]
+    )
+    def test_send_matview_failure_digest_respects_daily_preference(
+        self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
+    ) -> None:
         from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        self.user.partial_notification_settings = {
-            "materialized_view_sync_failed": True,
-            "materialized_view_sync_failed_frequency": "immediate",
-        }
+        self.user.partial_notification_settings = notification_settings
         self.user.save()
 
         sq = DataWarehouseSavedQuery.objects.create(
@@ -2446,4 +2479,4 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         send_matview_failure_digest()
 
-        assert len(mocked_email_messages) == 0
+        assert len(mocked_email_messages) == (1 if expect_email else 0)

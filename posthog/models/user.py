@@ -45,7 +45,8 @@ class Notifications(TypedDict, total=False):
     )
     project_api_key_exposed: bool
     materialized_view_sync_failed: bool
-    materialized_view_sync_failed_frequency: str  # "daily" (digest) or "immediate" (per failure streak)
+    materialized_view_sync_failed_daily: bool  # One digest a day covering every failing view
+    materialized_view_sync_failed_immediate: bool  # One email each time a view starts failing
     web_analytics_weekly_digest: bool
     web_analytics_weekly_digest_project_enabled: dict[str, bool]
     organization_member_join_email_disabled: dict[
@@ -69,7 +70,8 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
-    "materialized_view_sync_failed_frequency": "daily",  # Daily digest unless the user opts into immediate emails
+    "materialized_view_sync_failed_daily": True,  # Digest is the default delivery once failures are turned on
+    "materialized_view_sync_failed_immediate": False,
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
