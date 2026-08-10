@@ -553,7 +553,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     person_id: null,
                 },
             ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.wakeRows = [
+                {
+                    ...matcher.findRows[0],
+                    state: stateBuffer({ currentAction: { id: 'wait_node' }, flowVersion: 1 }),
+                },
+            ]
             matcher.updateRowCount = 1
             matcher.setHogFlows({ 'flow-1': flow })
 
@@ -570,7 +575,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // The conversion is also counted as a metric exactly once.
             expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
             expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
+                expect.objectContaining({
+                    app_source_id: 'flow-1',
+                    metric_name: 'conversion',
+                    count: 1,
+                    app_source_version: { id: expect.any(String), version: 1 },
+                }),
                 'hog_flow'
             )
             // ...and emitted once as a billable $workflows_conversion event for the converting person.
@@ -582,9 +592,74 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     distinct_id: 'user-1',
                     properties: expect.objectContaining({
                         $workflow_id: 'flow-1',
+                        $workflow_version: 1,
                         $workflow_conversion_type: 'event',
                         $workflow_conversion_event: 'wuc_cancelled',
                     }),
+                })
+            )
+        })
+
+        // The whole point of the versioned series: "did conversion rate drop after we changed the
+        // email?" is only answerable if a conversion is credited to the version that sent to that
+        // person. Reading it off the freshly loaded flow credits whatever is live when they convert,
+        // so a broadcast under v1 followed by a republish silently moves all of v1's conversions to v2.
+        it.each([
+            {
+                name: 'the version the run started under, not the one live at conversion time',
+                parkedState: { currentAction: { id: 'wait_node' }, flowVersion: 1 },
+                expectedVersion: { id: 'flow-1', version: 1 },
+                expectedEventVersion: 1,
+            },
+            {
+                name: 'no version at all when the run predates the stamp',
+                parkedState: { currentAction: { id: 'wait_node' } },
+                expectedVersion: undefined,
+                expectedEventVersion: undefined,
+            },
+        ])('attributes a conversion to $name', async ({ parkedState, expectedVersion, expectedEventVersion }) => {
+            // The published flow has moved on to v2 since this run started.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                version: 2,
+                exit_condition: 'exit_on_conversion',
+                conversion: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('wuc_cancelled'),
+                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                            },
+                        },
+                    ],
+                } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer(parkedState) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    metric_name: 'conversion',
+                    app_source_version: expectedVersion,
+                }),
+                'hog_flow'
+            )
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    properties: expect.objectContaining({ $workflow_version: expectedEventVersion }),
                 })
             )
         })
@@ -778,7 +853,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     person_id: null,
                 },
             ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({}) }]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ flowVersion: 2 }) }]
             matcher.updateRowCount = 1
             matcher.setHogFlows({ 'flow-1': flow })
 
@@ -791,6 +866,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     instance_id: 'flow-1',
                     metric_name: 'conversion',
                     count: 1,
+                    // The run id keys app_source_id, but the versioned mirror keys on the flow —
+                    // otherwise every batch run mints its own key and a broadcast's versions never
+                    // aggregate.
+                    app_source_version: { id: 'flow-1', version: 2 },
                 }),
                 'hog_flow'
             )
@@ -1351,11 +1430,16 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 }])
         })
 
-        it('drops version-0 inserts, deletions, missing-id and malformed messages', () => {
+        it('admits a version-0 first mapping, which a wait parked with no person needs', () => {
+            const result = (matcher as any)._parsePersonDistinctIdBatch([rawMove({ version: 0 })])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 0 }])
+        })
+
+        it('drops deletions, missing-id, versionless and malformed messages', () => {
             const result = (matcher as any)._parsePersonDistinctIdBatch([
-                rawMove({ version: 0 }), // brand-new distinct_id (person creation), not a repoint
                 rawMove({ is_deleted: 1 }), // distinct_id being deleted
-                rawMove({ person_id: '' }), // no survivor to point at
+                rawMove({ person_id: '' }), // no person to point at
+                rawMove({ version: null }), // no version to order against
                 { value: Buffer.from('not json') }, // malformed
                 rawMove(),
             ])
@@ -1457,6 +1541,81 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 c.sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')
             )!
             expect(select.params[3]).toEqual(['wait_node'])
+        })
+
+        it('anchors a wait that parked before its distinct_id had a person', async () => {
+            // The gap this closes: person wakes are keyed on person_id alone, so a wait parked with a null
+            // anchor is unwakeable by any person-property change and only the polling re-check advances it.
+            // The distinct_id's first mapping (version 0) is the one chance to give it an anchor.
+            // currentAction is populated so the rekeyWake assertion below exercises the gate rather than
+            // passing because there was no action to flag.
+            matcher.moveRows = [
+                parkedWaitRow({
+                    person_id: null,
+                    state: Buffer.from(JSON.stringify({ state: { currentAction: { id: 'wait_node' } } })),
+                }),
+            ]
+
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'first-person-uuid', version: 0 },
+            ])
+
+            const update = lastUpdate()
+            expect(update).toBeDefined()
+            expect(update!.params[1]).toEqual(['first-person-uuid'])
+            const newState = parseJSON((update!.params[2][0] as Buffer).toString('utf-8')) as any
+            expect(newState.state.personId).toBe('first-person-uuid')
+            // Waking it here is the point: it re-checks against the now-resolvable person immediately, and
+            // re-parks with an anchor that later person updates can address.
+            expect(update!.sql).toContain('scheduled = NOW()')
+            // Not attributed as a merge re-key: counterHogflowRekeyWake measures whether waking on a merge
+            // is wasted churn, so a first-mapping fill must stay out of that ratio.
+            expect(newState.state.currentAction?.rekeyWake).toBeUndefined()
+        })
+
+        it('scopes a first mapping to jobs with no anchor, leaving anchored waits alone', async () => {
+            // A first mapping says "this distinct_id now has a person". That tells us nothing about a job
+            // already anchored elsewhere, so it must not rewrite one — and the null-anchor scope is also
+            // what keeps this off the insert firehose.
+            matcher.moveRows = [parkedWaitRow({ person_id: null, state: Buffer.from(JSON.stringify({ state: {} })) })]
+
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'first-person-uuid', version: 0 },
+            ])
+
+            const select = matcher.calls.find(
+                (c) =>
+                    c.sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state') &&
+                    c.sql.includes('person_id IS NULL')
+            )
+            expect(select).toBeDefined()
+        })
+
+        it('keeps a repoint able to rewrite an existing anchor', async () => {
+            // The complement of the scoping above: a merge must still move an anchored wait, so the
+            // null-anchor restriction has to apply to first mappings only.
+            matcher.moveRows = [
+                parkedWaitRow({
+                    state: Buffer.from(
+                        JSON.stringify({ state: { personId: 'old-uuid', currentAction: { id: 'wait_node' } } })
+                    ),
+                }),
+            ]
+
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
+            ])
+
+            const select = matcher.calls.find((c) =>
+                c.sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')
+            )!
+            expect(select.sql).not.toContain('person_id IS NULL')
+            const update = lastUpdate()!
+            expect(update.params[1]).toEqual(['survivor-uuid'])
+            // And a merge still is attributed as a re-key wake, so the gate above didn't cost the
+            // merge-churn signal the counter exists to provide.
+            const newState = parseJSON((update.params[2][0] as Buffer).toString('utf-8')) as any
+            expect(newState.state.currentAction.rekeyWake).toBe(true)
         })
     })
 

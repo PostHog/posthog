@@ -9,9 +9,20 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
+from posthog.models.integration import Integration
+
+from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.batch_exports.backend.tests.api.fixtures import (
+    create_batch_export,
+    create_destination,
+    create_organization,
+    create_run,
+    create_team,
+    create_user,
+)
 from products.batch_exports.backend.tests.api.operations import (
     backfill_batch_export_ok,
+    cancel_batch_export_run,
     cancel_batch_export_run_ok,
     create_batch_export_ok,
     get_batch_export,
@@ -26,9 +37,12 @@ pytestmark = [
 ]
 
 
-def test_can_get_export_runs_for_your_organizations(client: HttpClient, temporal, organization, team, user):
+def test_can_get_export_runs_for_your_organizations(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -55,9 +69,12 @@ def test_can_get_export_runs_for_your_organizations(client: HttpClient, temporal
     assert response.status_code == status.HTTP_200_OK, response.json()
 
 
-def test_cannot_get_exports_for_other_organizations(client: HttpClient, temporal, organization, team, user):
+def test_cannot_get_exports_for_other_organizations(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -87,13 +104,16 @@ def test_cannot_get_exports_for_other_organizations(client: HttpClient, temporal
     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, organization, team, user):
+def test_batch_exports_are_partitioned_by_team(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     """
     You shouldn't be able to fetch a BatchExport by id, via a team that it
     doesn't belong to.
     """
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -110,6 +130,15 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
     }
 
     another_team = create_team(organization)
+    # Integrations are team-scoped, so the other team's export needs its own.
+    another_team_integration = Integration.objects.create(
+        team=another_team,
+        kind=Integration.IntegrationKind.AWS_S3,
+        integration_id="prod-aws",
+        config={"name": "prod-aws", "aws_account_id": "123456789012"},
+        sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+        created_by=user,
+    )
     client.force_login(user)
     batch_export = create_batch_export_ok(
         client,
@@ -124,7 +153,7 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
     batch_export = create_batch_export_ok(
         client,
         another_team.pk,
-        batch_export_data,
+        {**batch_export_data, "destination": {**destination_data, "integration": another_team_integration.id}},
     )
 
     response = get_batch_export(client, team.pk, batch_export["id"])
@@ -132,10 +161,11 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
 
 
 @pytest.mark.django_db(transaction=True)
-def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organization, team, user):
+def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
     """Test cancelling a BatchExportRun."""
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -197,4 +227,21 @@ def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organizatio
         assert run["status"] == "Cancelled"
 
 
-# TODO - add a test to ensure we can't cancel a completed run?
+def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user):
+    destination = create_destination()
+    batch_export = create_batch_export(team, destination)
+    run = create_run(
+        batch_export,
+        status=BatchExportRun.Status.COMPLETED,
+        data_interval_start=dt.datetime(2023, 10, 23, tzinfo=dt.UTC),
+        data_interval_end=dt.datetime(2023, 10, 24, tzinfo=dt.UTC),
+    )
+    client.force_login(user)
+
+    response = cancel_batch_export_run(client, team.pk, batch_export.id, run.id)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Cannot cancel a run that is in 'Completed' status"
+
+    run.refresh_from_db()
+    assert run.status == BatchExportRun.Status.COMPLETED

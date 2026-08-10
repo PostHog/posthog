@@ -1,5 +1,3 @@
-import { SupportTicketTargetArea, TARGET_AREA_OPTIONS } from 'lib/components/Support/supportLogic'
-
 import type { BillingType } from '~/types'
 
 import { ThreadMessage } from './maxLogic'
@@ -33,7 +31,6 @@ export interface TicketSummaryData {
     summary?: string
     discarded?: boolean
     messageIndex: number
-    targetArea?: SupportTicketTargetArea | null
 }
 
 export interface TicketPromptData {
@@ -41,29 +38,17 @@ export interface TicketPromptData {
     initialText?: string
 }
 
+const TICKET_CONFIRMATION_LEAD = "I've created a support ticket for you"
+
 /**
- * Parses the "Topic: <area>" line the /ticket summarizer appends, returning the
- * target area only if it matches a known support target area.
+ * Builds the confirmation message shown once a ticket is created. The target response time is left
+ * out when the plan has none, so a customer is never promised a reply their plan doesn't cover.
  */
-export function parseTicketTargetArea(content: string): SupportTicketTargetArea | null {
-    for (const rawLine of content.split('\n')) {
-        const line = rawLine.replace(/\*/g, '').trim()
-        const match = line.match(/^topic:\s*(.+)$/i)
-        if (match) {
-            // Keys are single whitespace-free tokens, so take the first token and strip trailing
-            // punctuation — the model sometimes appends a period or parenthetical
-            const area = match[1]
-                .trim()
-                .split(/\s+/)[0]
-                .replace(/[.,;:!?)\]]+$/, '')
-                .toLowerCase()
-            if (TARGET_AREA_OPTIONS.some((option) => option.value === area)) {
-                return area as SupportTicketTargetArea
-            }
-            return null
-        }
-    }
-    return null
+export function formatTicketConfirmationMessage(ticketId: string, responseTime: string | null): string {
+    const closingLine = responseTime
+        ? `Our support team aims to get back to you within ${responseTime}.`
+        : 'Our support team will get back to you soon!'
+    return `${TICKET_CONFIRMATION_LEAD}.\nYour ticket ID is #${ticketId}.\n${closingLine}`
 }
 
 /**
@@ -102,8 +87,7 @@ export function getTicketPromptData(threadGrouped: ThreadMessage[], streamingAct
     // If a ticket confirmation already exists, don't show the form
     if (isInitialTicketPrompt) {
         const hasConfirmationMessage = threadGrouped.some(
-            (msg) =>
-                msg?.type === 'ai' && 'content' in msg && msg.content?.includes("I've created a support ticket for you")
+            (msg) => msg?.type === 'ai' && 'content' in msg && msg.content?.includes(TICKET_CONFIRMATION_LEAD)
         )
         if (!hasConfirmationMessage) {
             const initialText =
@@ -142,7 +126,6 @@ export function getTicketSummaryData(
 
     // If /ticket is NOT the first human message, and there's an AI response after it
     if (ticketCommandIndex > 0 && ticketCommandIndex < threadGrouped.length - 1) {
-        const ticketCommandMessage = threadGrouped[ticketCommandIndex]
         const responseMessage = threadGrouped[ticketCommandIndex + 1]
         if (
             responseMessage?.type === 'ai' &&
@@ -156,10 +139,7 @@ export function getTicketSummaryData(
             const messagesAfterSummary = threadGrouped.slice(ticketCommandIndex + 2)
             const userContinuedConversation = messagesAfterSummary.some((msg) => msg?.type === 'human')
             const hasConfirmationMessage = messagesAfterSummary.some(
-                (msg) =>
-                    msg?.type === 'ai' &&
-                    'content' in msg &&
-                    msg.content?.includes("I've created a support ticket for you")
+                (msg) => msg?.type === 'ai' && 'content' in msg && msg.content?.includes(TICKET_CONFIRMATION_LEAD)
             )
 
             if (hasConfirmationMessage) {
@@ -172,19 +152,11 @@ export function getTicketSummaryData(
                 }
             }
 
-            // Extract any user-provided text from the /ticket command
-            const userText =
-                'content' in ticketCommandMessage
-                    ? extractTicketText(ticketCommandMessage.content as string)
-                    : undefined
-
-            // Combine user text with AI summary if both exist
-            const summary = userText ? `User notes: ${userText}\n\n${responseMessage.content}` : responseMessage.content
-
+            // The summarizer quotes the customer's own words, including any text they put after
+            // /ticket, so repeating that text above the summary only duplicates it
             return {
-                summary,
+                summary: responseMessage.content,
                 messageIndex: ticketCommandIndex + 1,
-                targetArea: parseTicketTargetArea(responseMessage.content),
             }
         }
     }
@@ -200,7 +172,7 @@ export function getTicketSummaryData(
 export function composeTicketBody({ note, summary }: { note: string; summary?: string }): string {
     const trimmedNote = note.trim()
     if (summary) {
-        return trimmedNote ? `${trimmedNote}\n\n----\nPostHog AI's analysis:\n${summary}` : summary
+        return trimmedNote ? `${trimmedNote}\n\n----\n${summary}` : summary
     }
     return trimmedNote
 }
@@ -231,6 +203,6 @@ export function isTicketConfirmationMessage(message: ThreadMessage): boolean {
         message.type !== 'human' &&
         'content' in message &&
         typeof message.content === 'string' &&
-        message.content.includes("I've created a support ticket for you")
+        message.content.includes(TICKET_CONFIRMATION_LEAD)
     )
 }

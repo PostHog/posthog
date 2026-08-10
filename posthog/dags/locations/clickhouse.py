@@ -10,7 +10,6 @@ from posthog.dags import (
     deletes,
     drop_materialized_column,
     export_query_log_archive_to_s3,
-    export_query_logs_to_s3,
     fix_missing_person_overrides,
     fix_person_id_overrides,
     orm_examples,
@@ -36,7 +35,6 @@ defs = dagster.Definitions(
         create_materialized_column.create_materialized_column,
         drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
-        export_query_logs_to_s3.export_query_logs_to_s3,
         export_query_log_archive_to_s3.export_query_log_archive_to_s3,
         backfill_materialized_column.backfill_materialized_column,
         fix_missing_person_overrides.fix_missing_person_overrides_job,
@@ -54,7 +52,6 @@ defs = dagster.Definitions(
         part_breaker.break_oversized_parts,
     ],
     schedules=[
-        export_query_logs_to_s3.query_logs_export_schedule,
         export_query_log_archive_to_s3.query_log_archive_export_schedule,
         person_overrides.squash_schedule,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_hourly_schedule,

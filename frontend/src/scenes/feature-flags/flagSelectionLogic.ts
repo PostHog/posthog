@@ -234,7 +234,7 @@ export interface flagSelectionLogicActions {
         flagCount: number
         projectCount: number
     } // eventUsageLogic
-    loadFeatureFlags: () => any // featureFlagsLogic
+    loadFeatureFlags: (_?: void | undefined) => void // featureFlagsLogic
     bulkCopyFlags: () => {
         value: true
     }

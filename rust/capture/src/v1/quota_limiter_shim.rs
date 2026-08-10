@@ -171,7 +171,8 @@ mod tests {
                 kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
                 kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
                 kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-                capture_analytics_ai_events_topic: None,
+                outputs_completeness_check_enabled: true,
+                capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
                 capture_analytics_ai_events_overflow_topic: None,
                 kafka_traces_topic: "ingestion_traces".to_string(),
                 kafka_metrics_topic: "ingestion_metrics".to_string(),
@@ -238,15 +239,6 @@ mod tests {
             ai_s3_access_key_id: None,
             ai_s3_secret_access_key: None,
             ai_gateway_signing_secret: None,
-            ai_sink_mode: crate::config::AiSinkMode::Primary,
-            ai_secondary_allowlist_tokens: None,
-            ai_secondary_kafka_hosts: None,
-            ai_secondary_kafka_topic: None,
-            ai_secondary_kafka_tls: false,
-            ai_secondary_kafka_client_id: String::new(),
-            capture_analytics_ai_events_mode: crate::config::AiSinkMode::Primary,
-            capture_analytics_ai_events_allowlist_tokens: None,
-            capture_analytics_ai_events_percentage: None,
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
@@ -263,6 +255,9 @@ mod tests {
             capture_ingestion_warnings_enabled: false,
             capture_ingestion_warnings_kafka_queue_mib: 16,
             capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
+            capture_ingestion_warnings_kafka_topic: String::new(),
+            capture_ingestion_warnings_kafka_hosts: String::new(),
+            capture_ingestion_warnings_kafka_tls: false,
         }
     }
 
@@ -338,6 +333,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         }
     }

@@ -22,6 +22,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+from posthog.products import is_product_module
 
 from products.feature_flags.backend.types import PropertyFilterType
 
@@ -241,7 +242,18 @@ class StringPropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        choices=[
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
+            "regex",
+            "not_regex",
+        ],
         default="exact",
         required=False,
         help_text="String comparison operator.",
@@ -339,6 +351,10 @@ class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropert
             "is_not",
             "icontains",
             "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
             "regex",
             "not_regex",
             "gt",
@@ -684,7 +700,7 @@ _PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
 def _get_product_from_module(module: str) -> str | None:
     """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
-    if module.startswith("products."):
+    if is_product_module(module):
         parts = module.split(".")
         if len(parts) >= 2:
             return parts[1]

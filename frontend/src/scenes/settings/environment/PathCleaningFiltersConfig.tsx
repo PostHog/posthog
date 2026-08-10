@@ -11,6 +11,7 @@ import { PathCleaningRulesDebugger } from 'lib/components/PathCleanFilters/PathC
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { isValidRegexp } from 'lib/utils/regexp'
+import { PathCleaningSuggestionsBanner } from 'scenes/settings/environment/PathCleaningSuggestionsBanner'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -72,6 +73,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
 
     return (
         <>
+            <PathCleaningSuggestionsBanner />
             <div className="flex flex-col gap-4">
                 <PathCleanFiltersTable filters={currentTeam.path_cleaning_filters || []} setFilters={updateFilters} />
                 <div>

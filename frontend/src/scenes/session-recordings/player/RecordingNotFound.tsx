@@ -15,6 +15,7 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
         <div className="flex flex-col items-center w-full overflow-y-auto">
             <NotFound
                 object="Recording"
+                className="shrink-0"
                 caption={
                     <>
                         The requested recording could not be found. See the diagnosis below for likely reasons, or refer
@@ -56,7 +57,7 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
                 }
             />
             {sessionRecordingId && (
-                <div className="-mt-16 mb-12 w-full max-w-xl px-4">
+                <div className="-mt-16 mb-12 w-full max-w-xl shrink-0 px-4">
                     <ReplayCaptureDiagnosticsPanel sessionId={sessionRecordingId} />
                 </div>
             )}

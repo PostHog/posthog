@@ -3,7 +3,6 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -14,6 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import (
     TEMPO_ENDPOINTS,
     TempoEndpointConfig,
@@ -46,9 +47,9 @@ def _headers(api_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_token}", "Accept": "application/json"}
 
 
-def _plans_window() -> tuple[str, str]:
+def _plans_window() -> SyncWindow[str]:
     end = date.today() + timedelta(days=365 * PLANS_WINDOW_YEARS_AHEAD)
-    return PLANS_WINDOW_START, end.isoformat()
+    return SyncWindow(start=PLANS_WINDOW_START, end=end.isoformat())
 
 
 def _format_updated_from(value: Any) -> str:
@@ -84,9 +85,9 @@ def _build_initial_params(
     if config.paginated:
         params["limit"] = PAGE_SIZE
     if config.requires_date_window:
-        window_from, window_to = _plans_window()
-        params["from"] = window_from
-        params["to"] = window_to
+        window = _plans_window()
+        params["from"] = window.start
+        params["to"] = window.end
     if config.order_by:
         params["orderBy"] = config.order_by
 

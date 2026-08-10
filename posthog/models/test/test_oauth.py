@@ -4,20 +4,23 @@ from freezegun import freeze_time
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import Organization, User
 from posthog.models.oauth import (
+    UNNORMALIZABLE_CIMD_URL,
     OAuthAccessToken,
     OAuthApplication,
     OAuthGrant,
     OAuthRefreshToken,
+    normalize_cimd_url,
     revoke_application_sessions,
     revoke_oauth_session,
 )
+from posthog.models.oauth_provisioning import ProvisioningConfig
 
 
 class TestOAuthModels(TestCase):
@@ -549,3 +552,76 @@ class TestOAuthModels(TestCase):
         other_app.refresh_from_db()
         self.assertEqual(app.sessions_revoked_at, timezone.now())
         self.assertIsNone(other_app.sessions_revoked_at)
+
+
+class TestCarriesProvisioningConfig(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The backfill writes a config to every row, so an ordinary OAuth app ends up with a
+            # populated blob. Owing a partner quota has to key on what the config says, or every
+            # OAuth app's refresh starts consuming the partner token-exchange bucket.
+            ("all_default_config", {"is_provisioning_partner": False, "config": ProvisioningConfig()}, False),
+            ("partner_flag", {"is_provisioning_partner": True, "config": ProvisioningConfig()}, True),
+            # An admin disabling a partner clears the flag, and its outstanding tokens must stay
+            # throttled rather than being exempted by the same action.
+            (
+                "disabled_partner",
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(disabled=True)},
+                True,
+            ),
+            (
+                "quota_recorded",
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limit_source="admin")},
+                True,
+            ),
+        ]
+    )
+    def test_carries_provisioning_config(self, _name: str, fields: dict, expected: bool) -> None:
+        app = OAuthApplication(
+            is_provisioning_partner=fields["is_provisioning_partner"],
+            _provisioning_config=fields["config"].model_dump(mode="json"),
+        )
+        assert app.carries_provisioning_config is expected
+
+
+class TestNormalizeCimdUrl(SimpleTestCase):
+    # `CIMDVerificationToken.cimd_url` stores this function's output directly, and migration
+    # 1296_backfill_cimd_verification_token_url keeps a frozen copy of the same logic. Changing
+    # what any of these inputs normalize to silently unverifies every stored token bound to a
+    # URL of that shape, with no test failure elsewhere — that's what this table pins.
+    @parameterized.expand(
+        [
+            ("trailing_slash", "https://a.example.com/cimd.json/", "https://a.example.com/cimd.json"),
+            ("multiple_trailing_slashes", "https://a.example.com/cimd.json///", "https://a.example.com/cimd.json"),
+            ("uppercase_host", "https://A.Example.COM/cimd.json", "https://a.example.com/cimd.json"),
+            ("uppercase_scheme", "HTTPS://a.example.com/cimd.json", "https://a.example.com/cimd.json"),
+            ("default_port_443", "https://a.example.com:443/cimd.json", "https://a.example.com/cimd.json"),
+            ("port_zero", "https://a.example.com:0/cimd.json", "https://a.example.com/cimd.json"),
+            ("path_params_stripped", "https://a.example.com/cimd.json;evil", "https://a.example.com/cimd.json"),
+            ("surrounding_space", "  https://a.example.com/cimd.json  ", "https://a.example.com/cimd.json"),
+        ]
+    )
+    def test_equivalent_spellings_collapse(self, _name, raw, expected):
+        self.assertEqual(normalize_cimd_url(raw), expected)
+
+    @parameterized.expand(
+        [
+            ("non_default_port", "https://a.example.com:8443/cimd.json"),
+            ("path_case_is_significant", "https://a.example.com/CIMD.json"),
+            ("different_path", "https://a.example.com/other.json"),
+        ]
+    )
+    def test_distinct_documents_stay_distinct(self, _name, other):
+        self.assertNotEqual(normalize_cimd_url(other), normalize_cimd_url("https://a.example.com/cimd.json"))
+
+    @parameterized.expand(
+        [
+            ("non_numeric_port", "https://a.example.com:abc/cimd.json"),
+            ("out_of_range_port", "https://a.example.com:99999/cimd.json"),
+            # urlparse() itself raises "Invalid IPv6 URL" here, not just the .port accessor —
+            # the case that reached _token_is_bound_to_url as an uncaught 500 on /authorize.
+            ("invalid_ipv6_literal", "https://[::1/x.json"),
+        ]
+    )
+    def test_unparseable_url_returns_sentinel_instead_of_raising(self, _name, raw):
+        self.assertEqual(normalize_cimd_url(raw), UNNORMALIZABLE_CIMD_URL)

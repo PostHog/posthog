@@ -36,9 +36,10 @@ export interface ProductPushCampaignApi {
  * * `medium` - medium
  * * `low` - low
  */
-export type TierEnumApi = (typeof TierEnumApi)[keyof typeof TierEnumApi]
+export type IdentityMatchingLinkTierEnumApi =
+    (typeof IdentityMatchingLinkTierEnumApi)[keyof typeof IdentityMatchingLinkTierEnumApi]
 
-export const TierEnumApi = {
+export const IdentityMatchingLinkTierEnumApi = {
     High: 'high',
     Medium: 'medium',
     Low: 'low',
@@ -146,7 +147,7 @@ export interface IdentityMatchingLinkApi {
      * * `high` - high
      * * `medium` - medium
      * * `low` - low */
-    tier: TierEnumApi
+    tier: IdentityMatchingLinkTierEnumApi
     /** When the link was computed (UTC). */
     computed_at: string
     /** Distinct (IP, day) combinations both sides were seen on. */
@@ -246,9 +247,10 @@ export const OverallHealthEnumApi = {
  * * `warning` - warning
  * * `danger` - danger
  */
-export type HealthEnumApi = (typeof HealthEnumApi)[keyof typeof HealthEnumApi]
+export type SdkHealthReportHealthEnumApi =
+    (typeof SdkHealthReportHealthEnumApi)[keyof typeof SdkHealthReportHealthEnumApi]
 
-export const HealthEnumApi = {
+export const SdkHealthReportHealthEnumApi = {
     Success: 'success',
     Warning: 'warning',
     Danger: 'danger',
@@ -408,7 +410,7 @@ export interface SdkHealthReportApi {
      * * `success` - success
      * * `warning` - warning
      * * `danger` - danger */
-    health: HealthEnumApi
+    health: SdkHealthReportHealthEnumApi
     /** Number of SDKs that need updating. */
     needs_updating_count: number
     /** Number of distinct PostHog SDKs the project is actively using. */

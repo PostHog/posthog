@@ -108,6 +108,8 @@ pub enum PinnedParticipationState {
 pub enum PinnedDropReason {
     ActionKeyed,
     AbsentFromFrozenCatalog,
+    /// Person runs only: the frozen catalog resolves the hash to a non-person-property leaf.
+    VariantMismatch,
 }
 
 impl PinnedDropReason {
@@ -115,6 +117,7 @@ impl PinnedDropReason {
         match self {
             Self::ActionKeyed => "action_keyed",
             Self::AbsentFromFrozenCatalog => "absent_from_frozen_catalog",
+            Self::VariantMismatch => "variant_mismatch",
         }
     }
 }
@@ -161,6 +164,12 @@ pub enum PinnedError {
     Filters(#[from] FilterError),
     #[error("frozen catalog metadata is incomplete for condition {0}")]
     IncompleteMetadata(ConditionHash),
+    #[error("person run has no pinned person_scan_since")]
+    MissingPersonScanSince,
+    #[error("no pinned person condition survived validation; nothing would be seeded")]
+    NoSurvivingPersonConditions,
+    #[error("surviving person conditions exceed the per-seed hash cap: {0}")]
+    PersonConditionsOverCap(usize),
 }
 
 #[derive(Debug, Deserialize)]
@@ -271,7 +280,7 @@ fn parse_payload(pinned: Value) -> Result<PinnedPayload, PinnedError> {
     Ok(payload)
 }
 
-fn resolve_timezone(configured: &str, warnings: &mut Vec<PinnedWarning>) -> Tz {
+pub(super) fn resolve_timezone(configured: &str, warnings: &mut Vec<PinnedWarning>) -> Tz {
     let tz = resolve_tz_or_utc(configured);
     if configured.parse::<Tz>().is_err() {
         warnings.push(PinnedWarning::TimezoneFallback {
@@ -282,14 +291,14 @@ fn resolve_timezone(configured: &str, warnings: &mut Vec<PinnedWarning>) -> Tz {
 }
 
 /// The participations of a run, indexed for dedup-checked lookup with the frozen filter catalog
-/// already built from the active cohorts.
-struct ParticipationSet {
+/// already built from the active cohorts. Shared with the sibling person-run validation.
+pub(super) struct ParticipationSet {
     states: HashMap<CohortId, PinnedParticipationState>,
     filters: TeamFilters,
 }
 
 impl ParticipationSet {
-    fn build(
+    pub(super) fn build(
         team_id: TeamId,
         participations: Vec<PinnedParticipation>,
         tz: Tz,
@@ -319,8 +328,12 @@ impl ParticipationSet {
         })
     }
 
-    fn state(&self, cohort_id: CohortId) -> Option<PinnedParticipationState> {
+    pub(super) fn state(&self, cohort_id: CohortId) -> Option<PinnedParticipationState> {
         self.states.get(&cohort_id).copied()
+    }
+
+    pub(super) fn filters(&self) -> &TeamFilters {
+        &self.filters
     }
 
     /// The active cohorts no surviving condition references, ascending. Conditions drop per cohort
@@ -330,6 +343,11 @@ impl ParticipationSet {
             .iter()
             .map(|condition| condition.cohort_id)
             .collect();
+        self.uncovered_from(&covered)
+    }
+
+    /// The active cohorts absent from `covered`, ascending.
+    pub(super) fn uncovered_from(&self, covered: &HashSet<CohortId>) -> Vec<CohortId> {
         let mut uncovered = self
             .states
             .iter()

@@ -24,10 +24,13 @@ class TestIntercomSource:
 
     def test_default_version_is_latest(self):
         # New sources are stamped with the default; keep it on the newest supported version.
-        assert self.source.default_version == "2.15"
+        assert self.source.default_version == "2.16"
         assert self.source.default_version in self.source.supported_versions
 
-    @pytest.mark.parametrize("pinned,expected", [(None, "2.15"), ("", "2.15"), ("2.13", "2.13"), ("2.15", "2.15")])
+    @pytest.mark.parametrize(
+        "pinned,expected",
+        [(None, "2.16"), ("", "2.16"), ("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16")],
+    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
@@ -115,6 +118,17 @@ class TestIntercomSource:
             assert schema.supports_incremental is expected, name
             assert schema.supports_append is expected, name
 
+    def test_canonical_descriptions_cover_every_endpoint(self):
+        # Endpoints missing from the curated map fall back to LLM enrichment, which is
+        # both slower and less accurate than the vendor's own docs. Adding a table
+        # without its description is the easy thing to forget.
+        descriptions = self.source.get_canonical_descriptions()
+
+        assert set(descriptions) == set(INTERCOM_ENDPOINTS)
+        for name, entry in descriptions.items():
+            assert entry.get("description"), name
+            assert entry.get("columns"), name
+
     def test_get_schemas_names_filter(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "companies"])
 
@@ -136,9 +150,9 @@ class TestIntercomSource:
         assert error is None
         mock_get_integration.assert_called_once_with(self.config.intercom_integration_id, self.team_id)
         # No pin passed (pre-creation), so the probe runs on default_version.
-        mock_validate.assert_called_once_with("token", schema_name=None, api_version="2.15")
+        mock_validate.assert_called_once_with("token", schema_name=None, api_version="2.16")
 
-    @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), (None, "2.15")])
+    @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), (None, "2.16")])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.validate_intercom_credentials"
     )
