@@ -3558,8 +3558,10 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         - May 01: Ad with missing campaign but valid source
         - Jun 01: Purchase
 
-        Expected: Should handle gracefully with appropriate fallbacks
-        Tests data quality handling for incomplete UTM parameters
+        Expected: utm_source alone marks a paid touchpoint (campaign optional). The May 01
+        source-only pageview is the last touch before the purchase, so the conversion is
+        credited to paid (facebook → meta). The Apr 01 pageview has a campaign but no source
+        and no click id, so it is not a touchpoint.
         """
         with freeze_time("2023-03-01"):
             _create_person(distinct_ids=["malformed_utm_user"], team=self.team)
@@ -3622,10 +3624,10 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
         campaign_name, source_name, conversion_count = first_result[1], first_result[3], first_result[4]
-        # Should handle gracefully - could attribute to last valid campaign or show Unknown
-        assert campaign_name is not None, "Should handle malformed UTM without crashing"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
-        assert source_name == "organic", f"Expected organic source, got {source_name}"
+        # Source-only touchpoint attributes to paid; the empty campaign falls back to organic.
+        assert source_name == "meta", f"Expected meta source, got {source_name}"
+        assert campaign_name == "organic", f"Expected organic campaign, got {campaign_name}"
 
     def test_duplicate_events_same_timestamp_but_first_event_id_is_first(self):
         """
