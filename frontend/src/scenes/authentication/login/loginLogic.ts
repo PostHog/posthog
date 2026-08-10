@@ -13,6 +13,7 @@ import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginU
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
@@ -76,6 +77,22 @@ const BACKEND_ONLY_ROUTES = [
     '/toolbar_oauth/check',
 ]
 
+// True when the path targets a project other than the one we're currently in. A client-side
+// history replace can't switch the active project, so `AutoProjectMiddleware` never runs and any
+// team-scoped scene resolves against the wrong project and 404s. Both a numeric team id and a
+// `phc_` token are treated as a project prefix; a token can't be compared to the numeric current
+// id, so it always needs the server to resolve it.
+function pointsToDifferentProject(path: string): boolean {
+    const match = path.match(/^\/project\/(\d+|phc_[A-Za-z0-9]+)/)
+    if (!match) {
+        return false
+    }
+    if (match[1].startsWith('phc_')) {
+        return true
+    }
+    return String(getCurrentTeamIdOrNone()) !== match[1]
+}
+
 export function handleLoginRedirect(): void {
     let nextURL = '/'
     try {
@@ -93,6 +110,14 @@ export function handleLoginRedirect(): void {
 
     // Check if this is a backend-only route that shouldn't go through the React router
     if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
+        window.location.href = nextURL
+        return
+    }
+
+    // A cross-project deep link needs a full page load so `AutoProjectMiddleware` can switch the
+    // active project before the scene mounts. A client-side replace would strip the project id and
+    // resolve the scene against the project we were last in, 404ing a resource that really exists.
+    if (pointsToDifferentProject(nextURL)) {
         window.location.href = nextURL
         return
     }
