@@ -54,6 +54,7 @@ import {
 } from 'products/conversations/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import { SignalSourceProductApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
@@ -668,10 +669,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     try {
                         const response = await signalsReportsList(getCurrentTeamId().toString(), {
                             source_id: ticketUuid,
-                            source_product: 'conversations',
+                            source_product: SignalSourceProductApi.Conversations,
+                            // A teammate answering a customer needs to know an investigation was
+                            // dismissed just as much as that one is running.
                             include_all_statuses: true,
                         })
-                        return response.results || []
+                        return response.results
                     } catch (error) {
                         // Supplementary context: a signals or ClickHouse hiccup must not break the ticket.
                         console.error('Failed to load linked reports:', error)
