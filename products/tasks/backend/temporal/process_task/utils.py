@@ -66,6 +66,10 @@ class RunSource(StrEnum):
     SIGNAL_REPORT = "signal_report"
 
 
+# Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
+USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack")
+
+
 class RuntimeAdapter(StrEnum):
     CLAUDE = "claude"
     CODEX = "codex"
@@ -1290,11 +1294,80 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     if task.origin_product == TaskModel.OriginProduct.SIGNAL_REPORT:
         return PrAuthorshipMode.BOT
 
-    return (
-        PrAuthorshipMode.USER
-        if task.origin_product in (TaskModel.OriginProduct.USER_CREATED, TaskModel.OriginProduct.SLACK)
-        else PrAuthorshipMode.BOT
+    return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
+
+
+def actor_personal_github_is_usable(actor_user: User | None) -> bool:
+    """Whether the actor's personal GitHub connection can still mint a token.
+
+    Asked on every follow-up turn to notice a connection revoked mid-run, so it stays a
+    local read and deliberately ignores repository scope: whether that install reaches a
+    particular repo is the rebind path's question, and answering it here would fail every
+    turn for anyone whose cached repo list is merely incomplete.
+    """
+    return user_github_integration_is_usable(get_user_github_integration(actor_user, allow_refresh=False))
+
+
+def upgrade_run_to_user_authorship(
+    task_run: TaskRun, actor_user: User | None, state: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """Promote a run that fell back to bot authorship once its actor has a usable install.
+
+    A run started by someone with no personal GitHub is created as `BOT` and that value is
+    frozen in run state, so connecting GitHub mid-thread would otherwise never take effect —
+    the agent asks for the connection precisely when it needs the code, and the next turn has
+    to honor it. Only the fallback is promoted: a run that is bot-authored by design (signal
+    reports) or pinned to a caller-supplied token keeps the identity it was given.
+
+    There is no mirror image of this. A disconnection leaves the run on `USER` and lets token
+    resolution fail, which logs the sandbox out; falling back to the team installation would
+    hand broader access to someone who just revoked their own, and silently move PR authorship
+    onto the bot.
+
+    Returns the run's new persisted state when it was promoted, and None when nothing changed.
+    The state passed in is left untouched.
+    """
+    from products.tasks.backend.models import TaskRun as TaskRunModel
+
+    if actor_user is None:
+        return None
+    task = task_run.task
+    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        return None
+    # `github_user_integration` is a single FK on the task, shared by all of its runs, so only the
+    # creator's install may land there — a thread participant's would become the identity other
+    # runs of this task resolve. The cloud path refuses the same case outright.
+    if task.created_by_id != actor_user.id:
+        return None
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
+        return None
+    if is_caller_token_run(str(task_run.id), state):
+        return None
+
+    user_github_integration = resolve_user_github_integration_for_task(task, actor_user=actor_user, allow_refresh=False)
+    if not user_github_integration_is_usable(user_github_integration):
+        return None
+
+    # One transaction: a task pointed at an install while its run is still bot-authored would let
+    # the bot fallback mint from that install before the mode catches up.
+    with transaction.atomic():
+        # Point the task at the install before the mode flips: token resolution reads the FK, and
+        # a run left as USER with no recorded integration resolves nothing.
+        if (
+            user_github_integration is not None
+            and task.github_user_integration_id != user_github_integration.integration.id
+        ):
+            task.github_user_integration = user_github_integration.integration
+            task.save(update_fields=["github_user_integration", "updated_at"])
+
+        promoted_state = TaskRunModel.update_state_atomic(
+            task_run.id, updates={"pr_authorship_mode": PrAuthorshipMode.USER.value}
+        )
+    logger.info(
+        "run_promoted_to_user_authorship",
+        extra={"run_id": str(task_run.id), "task_id": str(task.id), "user_id": actor_user.id},
     )
+    return promoted_state
 
 
 def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -> dict[str, str]:
