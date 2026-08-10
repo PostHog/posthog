@@ -663,7 +663,7 @@ export interface BillingTimeSeriesPointApi {
 export interface BillingTimeSeriesResponseApi {
     status?: string
     type?: string
-    customer_id?: string
+    customer_id?: number
     results: BillingTimeSeriesPointApi[]
     team_id_options?: number[]
     next?: string

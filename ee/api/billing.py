@@ -260,7 +260,7 @@ class BillingTimeSeriesPointSerializer(serializers.Serializer):
 class BillingTimeSeriesResponseSerializer(serializers.Serializer):
     status = serializers.CharField(required=False)
     type = serializers.CharField(required=False)
-    customer_id = serializers.CharField(required=False)
+    customer_id = serializers.IntegerField(required=False)
     results = BillingTimeSeriesPointSerializer(many=True)
     team_id_options = serializers.ListField(child=serializers.IntegerField(), required=False)
     next = serializers.CharField(required=False, allow_blank=True)
