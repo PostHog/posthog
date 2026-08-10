@@ -19,7 +19,7 @@ import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/q
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { isDefaultExposureConfig } from '../exposureContract'
+import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 import { buildExposureSeries } from './exposuresTransforms'
@@ -108,6 +108,11 @@ function getExposureCriteriaLabel(
     exposureCriteria: ExperimentExposureCriteria | undefined,
     defaultEvent: string
 ): string {
+    const activationConfig = getActivationConfig(exposureCriteria)
+    if (activationConfig) {
+        return `Default (${defaultEvent}) + activation (${getExposureConfigDisplayName(activationConfig)})`
+    }
+
     const exposureConfig = exposureCriteria?.exposure_config
     if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
         return `Default (${defaultEvent})`

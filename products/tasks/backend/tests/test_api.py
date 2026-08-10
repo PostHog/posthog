@@ -31,7 +31,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -332,6 +332,53 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_retrieve_includes_passive_slack_thread_references(self):
+        task = self.create_task()
+        task.state = {
+            "slack_thread_references": [
+                {
+                    "channel": "C123",
+                    "thread_ts": "1234.5678",
+                    "created_at": "2026-08-09T10:00:00+00:00",
+                }
+            ]
+        }
+        task.save(update_fields=["state"])
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["slack_thread_references"],
+            [
+                {
+                    "url": "https://slack.com/archives/C123/p12345678",
+                    "channel": "C123",
+                    "created_at": "2026-08-09T10:00:00+00:00",
+                }
+            ],
+        )
+
+    def test_passive_slack_thread_references_keep_latest_thirty(self):
+        task = self.create_task()
+
+        for index in range(31):
+            tasks_facade.attach_slack_thread_reference(
+                task_id=task.id,
+                team_id=self.team.id,
+                slack_workspace_id="T123",
+                channel="C123",
+                thread_ts=f"{index}.000",
+                shared_by_slack_user_id="U123",
+            )
+
+        task.refresh_from_db()
+        references = (task.state or {}).get("slack_thread_references")
+        assert isinstance(references, list)
+        self.assertEqual(len(references), 30)
+        self.assertEqual(references[0]["thread_ts"], "1.000")
+        self.assertEqual(references[-1]["thread_ts"], "30.000")
 
     def test_retrieve_signal_report_task_owned_by_another_user_is_visible(self):
         # Signals-generated tasks are team-scoped artifacts; the pipeline picks
@@ -1437,7 +1484,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
         self.assertEqual(task.create_run().state["repositories"], task.repositories)
-        mock_find_warm_run.assert_not_called()
+        mock_find_warm_run.assert_called_once_with(
+            self.team.id,
+            self.user.id,
+            repository="posthog/posthog",
+            repositories=["posthog/posthog", "posthog/code"],
+            github_integration_id=integration.id,
+            branch="main",
+            runtime_adapter=None,
+            model=None,
+            reasoning_effort=None,
+            sandbox_environment_id=None,
+            custom_image_id=None,
+        )
 
         update = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/",
@@ -3172,6 +3231,29 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_a_gated_model_the_caller_cannot_access(self, mock_workflow, mock_feature_enabled):
+        # The Desktop picker hides gated models, but a stored preference or a direct API
+        # call reaches this endpoint without one, so the entitlement is re-checked here.
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "moonshotai/kimi-k3",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_context_window_and_fast_mode(self, mock_workflow):
         task = self.create_task()
@@ -3779,6 +3861,31 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
             "attr": "reasoning_effort",
         }
+        mock_workflow.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_resume_rejects_inherited_gated_model(self, mock_workflow, mock_feature_enabled):
+        # A resume omits `model`, so the serializer sees None and passes. The inherited
+        # model is the one that actually runs, so entitlement is re-checked after it lands.
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"runtime_adapter": "claude", "model": "moonshotai/kimi-k3"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
         mock_workflow.assert_not_called()
 
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
@@ -4693,6 +4800,37 @@ _OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    def _sandbox_oauth_client(
+        self,
+        task_id: uuid.UUID,
+        *,
+        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
+        bound: bool = True,
+        internal_scope: bool = False,
+    ) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task artifact uploader",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id if bound else None,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
     def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
@@ -4999,6 +5137,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "sandbox_gone": False,
                 "ai_stage": "research",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
@@ -5015,7 +5154,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # decisions, change Modal resume snapshot metadata, repoint the run at another
         # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
         # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
-        # routed to an unbilled gateway product is free spend). Non-protected keys still merge.
+        # routed to an unbilled gateway product is free spend). Nor can a caller stamp a
+        # workflow-owned terminal reason marker, which would make a genuine FAILED run read as a
+        # timeout and skip its Slack error card. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -5045,6 +5186,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    "timed_out_inactivity": True,
+                    "timed_out_wall_clock": True,
+                    "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
@@ -5079,6 +5223,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
+        assert "timed_out_wall_clock" not in run.state
+        assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"
@@ -5105,6 +5252,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_dispatch",
                     "pending_external_followups",
                     "pending_external_followups_generation",
+                    "sandbox_gone",
                     "runtime_adapter",
                     "provider",
                     "model",
@@ -5128,6 +5276,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["sandbox_gone"] is False  # protected key survives removal
         # Dropping the model posture is as good as repointing it: the processing context reads these
         # back with .get(), so an absent key silently falls back to the runtime's default rather than
         # the pin the server chose.
@@ -5911,9 +6060,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_write.assert_called_once()
         mock_tag.assert_called_once()
 
+        returned = response.json()["artifacts"][0]
+        self.assertEqual(
+            returned["url"],
+            absolute_uri(
+                f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/{returned['id']}/download/"
+            ),
+        )
+
         run.refresh_from_db()
         self.assertEqual(len(run.artifacts), 1)
         artifact = run.artifacts[0]
+        self.assertNotIn("url", artifact)
         self.assertIn("id", artifact)
         self.assertEqual(artifact["name"], "plan.md")
         self.assertEqual(artifact["type"], "plan")
@@ -6575,6 +6733,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         "source": "user_attachment",
                         "storage_path": storage_path,
                         "content_type": "application/pdf",
+                        "uploaded_by": "agent",
+                        "uploaded_by_user_id": 999999,
                     }
                 ]
             },
@@ -6584,6 +6744,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_head_object.assert_called_once_with(storage_path)
         mock_tag.assert_called_once()
+
+        returned = response.json()["artifacts"][0]
+        self.assertEqual(
+            returned["url"],
+            absolute_uri(
+                f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+            ),
+        )
 
         run.refresh_from_db()
         self.assertEqual(len(run.artifacts), 1)
@@ -6595,6 +6763,94 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["size"], 4096)
         self.assertEqual(artifact["content_type"], "application/pdf")
         self.assertEqual(artifact["storage_path"], storage_path)
+        self.assertEqual(artifact["uploaded_by"], "user")
+        self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
+
+    @parameterized.expand(
+        [
+            ("bound_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, True, False, "agent"),
+            ("legacy_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, False, True, "agent"),
+            ("posthog_ai_sandbox", POSTHOG_AI_APP_CLIENT_ID_DEV, True, False, "agent"),
+            ("interactive_code_oauth", ARRAY_APP_CLIENT_ID_DEV, False, False, "user"),
+            ("third_party_oauth", "artifact-client", False, False, "user"),
+        ]
+    )
+    @patch("posthog.storage.object_storage.head_object")
+    @patch("posthog.storage.object_storage.tag")
+    def test_finalize_artifact_uploads_attributes_oauth_from_server_provenance(
+        self,
+        _name: str,
+        client_id: str,
+        bound: bool,
+        internal_scope: bool,
+        expected_uploader: str,
+        mock_tag,
+        mock_head_object,
+    ) -> None:
+        mock_head_object.return_value = {"ContentLength": 4096, "ContentType": "text/markdown"}
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact_id = uuid.uuid4().hex
+        storage_path = f"{run.get_artifact_s3_prefix()}/{artifact_id[:8]}_report.md"
+        client = self._sandbox_oauth_client(
+            task.id,
+            client_id=client_id,
+            bound=bound,
+            internal_scope=internal_scope,
+        )
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
+            {
+                "artifacts": [
+                    {
+                        "id": artifact_id,
+                        "name": "report.md",
+                        "type": "output",
+                        "source": "agent_output",
+                        "storage_path": storage_path,
+                        "content_type": "text/markdown",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_head_object.assert_called_once_with(storage_path)
+        mock_tag.assert_called_once()
+        run.refresh_from_db()
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["uploaded_by"], expected_uploader)
+        if expected_uploader == "agent":
+            self.assertNotIn("uploaded_by_user_id", artifact)
+        else:
+            self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
+
+    def test_retrieve_run_accepts_legacy_artifacts_without_upload_attribution(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            artifacts=[
+                {
+                    "id": "legacy-artifact",
+                    "name": "report.md",
+                    "type": "output",
+                    "storage_path": "tasks/artifacts/legacy/report.md",
+                    "uploaded_at": "2026-01-01T00:00:00+00:00",
+                }
+            ],
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        artifact = response.json()["artifacts"][0]
+        self.assertEqual(artifact["id"], "legacy-artifact")
+        self.assertNotIn("uploaded_by", artifact)
+        self.assertNotIn("uploaded_by_user_id", artifact)
 
     @patch("posthog.storage.object_storage.head_object")
     def test_finalize_artifact_uploads_rejects_invalid_storage_path(self, mock_head_object):
@@ -6713,7 +6969,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         returned_artifacts = response.json()["artifacts"]
-        # The finalize response augments each entry with a presigned download URL that is not
+        # The finalize response augments each entry with a download URL that is not
         # persisted on the manifest, so compare the stored fields separately from the URL.
         self.assertEqual([{k: v for k, v in a.items() if k != "url"} for a in returned_artifacts], run.artifacts)
         self.assertTrue(all(a.get("url") for a in returned_artifacts))
@@ -6845,6 +7101,39 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["url"], "https://example.com/artifact?sig=123")
         self.assertIn("expires_in", response.json())
+
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_download_artifact_by_id_redirects_to_presigned_url(self, mock_presign):
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        task = self.create_task()
+        artifact_id = uuid.uuid4().hex
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "report.pdf",
+                    "type": "output",
+                    "content_type": "application/pdf",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/report.pdf",
+                }
+            ],
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://example.com/artifact?sig=123")
+        self.assertEqual(mock_presign.call_args.kwargs["content_disposition"], 'attachment; filename="report.pdf"')
+
+        missing = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{uuid.uuid4().hex}/download/"
+        )
+        self.assertEqual(missing.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_presign_artifact_not_found(self):
         task = self.create_task()
@@ -10711,6 +11000,60 @@ class TestCloudUsageGate(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_warm_repo_less_over_limit_returns_429_and_does_not_provision(
+        self, mock_gate, _mock_warm_enabled, mock_warm
+    ):
+        mock_gate.return_value = self.OVER_LIMIT
+
+        response = self.client.post("/api/projects/@current/tasks/warm/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        mock_warm.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    def test_warm_rejects_a_gated_model_the_caller_cannot_access(
+        self, mock_feature_enabled, _mock_warm_enabled, mock_warm
+    ):
+        # Warming boots a sandbox and starts the agent on this model, so it bills like a run.
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"runtime_adapter": "claude", "model": "moonshotai/kimi-k3"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        mock_warm.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    def test_create_rejects_a_gated_model_hint(self, mock_feature_enabled):
+        # The create hint is write-only, but it is what selects a warm Run to activate,
+        # so a gated value here would run the gated model without ever reaching run_task.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Gated",
+                "description": "Gated",
+                "runtime_adapter": "claude",
+                "model": "moonshotai/kimi-k3",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "model"
+        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert not Task.objects.filter(title="Gated").exists()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")

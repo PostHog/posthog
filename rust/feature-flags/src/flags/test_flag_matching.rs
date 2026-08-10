@@ -1658,6 +1658,126 @@ mod tests {
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
     }
 
+    /// Regression test: when person-property DB prep never ran (`PersonPropertyState::Pending`,
+    /// the matcher's default), a negative operator like `is_not` must not treat the missing
+    /// key as a match. Fetch misses are transient, so failing open here would let a flag
+    /// intermittently grant access to exactly the users a negative condition should exclude.
+    #[tokio::test]
+    async fn test_is_condition_match_is_not_fails_closed_when_person_properties_pending() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let flag = mock!(FeatureFlag);
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "tenant".to_string(),
+                value: Some(json!("mecklenburgische")),
+                operator: Some(OperatorType::IsNot),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        // Left at its default `Pending` state: DB prep never ran for this matcher.
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        // Mirrors what `get_person_properties` returns for a Pending state with no
+        // overrides: an empty map, since the fetch miss is swallowed into a default.
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(!is_match, "a missing property must not satisfy is_not");
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    /// Regression test: when DB prep is deliberately skipped because request overrides
+    /// cover every property the batch needs (`PersonPropertyState::Skipped`), a negative
+    /// operator must still evaluate normally against the override-supplied value — the
+    /// fail-closed handling for `Pending` must not make this legitimate path inconclusive.
+    #[tokio::test]
+    async fn test_is_condition_match_is_not_evaluates_normally_when_person_properties_skipped() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let flag = mock!(FeatureFlag);
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "tenant".to_string(),
+                value: Some(json!("mecklenburgische")),
+                operator: Some(OperatorType::IsNot),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        matcher.flag_evaluation_state.skip_person_properties();
+        assert!(!matcher.flag_evaluation_state.person_properties_pending());
+
+        // Mirrors what `get_person_properties` returns for a Skipped state: the
+        // override value is merged in and present under the filter's key.
+        let mut overridden_person = HashMap::new();
+        overridden_person.insert("tenant".to_string(), json!("acme"));
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&overridden_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(
+            is_match,
+            "acme is not mecklenburgische, so is_not should match"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
     fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
         mock!(FeatureFlag,
             team_id: team_id,

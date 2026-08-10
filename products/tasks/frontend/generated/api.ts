@@ -1689,6 +1689,32 @@ export const tasksRunsArtifactsCreate = async (
     })
 }
 
+export const getTasksRunsArtifactsDownloadRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/${artifactId}/download/`
+}
+
+/**
+ * Redirects to a short-lived presigned URL for the artifact, so callers can share a stable link instead of a raw presigned URL.
+ * @summary Download a task run artifact by id
+ */
+export const tasksRunsArtifactsDownloadRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getTasksRunsArtifactsDownloadRetrieveUrl(projectId, taskId, id, artifactId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTasksRunsArtifactsDismissCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/dismiss/`
 }
@@ -2507,7 +2533,7 @@ export const getTasksWarmCreateUrl = (projectId: string) => {
  */
 export const tasksWarmCreate = async (
     projectId: string,
-    warmTaskRequestApi: WarmTaskRequestApi,
+    warmTaskRequestApi?: WarmTaskRequestApi,
     options?: RequestInit
 ): Promise<WarmTaskResponseApi> => {
     return apiMutator<WarmTaskResponseApi>(getTasksWarmCreateUrl(projectId), {

@@ -24,6 +24,7 @@ import {
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '~/logs/outputs/producers'
 import { createLogsOutputsRegistry } from '~/logs/outputs/registry'
+import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
@@ -125,6 +126,7 @@ export class IngestionLogsServer implements NodeServer {
         const metricsEmitter = this.config.LOGS_METRICS_RULES_EXPORT_URL
             ? new LogsMetricsEmitter(this.config.LOGS_METRICS_RULES_EXPORT_URL)
             : undefined
+        const retentionRulesCache = new RetentionRulesCache(this.postgres)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -160,6 +162,7 @@ export class IngestionLogsServer implements NodeServer {
                 metricRulesCache,
                 metricsEmitter,
                 logsTransformer,
+                retentionRulesCache,
             })
             await consumer.start()
             return consumer.service

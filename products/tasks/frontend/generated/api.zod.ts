@@ -3063,6 +3063,10 @@ export const TasksSummariesCreateBody = /* @__PURE__ */ zod.object({
  */
 export const tasksWarmCreateBodyRepositoryMax = 255
 
+export const tasksWarmCreateBodyRepositoriesItemMax = 255
+
+export const tasksWarmCreateBodyRepositoriesMax = 3
+
 export const tasksWarmCreateBodyBranchMax = 255
 
 export const TasksWarmCreateBody = /* @__PURE__ */ zod
@@ -3070,8 +3074,17 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         repository: zod
             .string()
             .max(tasksWarmCreateBodyRepositoryMax)
-            .describe('Target GitHub repository to clone, in `organization\/repo` format (e.g. `posthog\/posthog`).'),
-        github_integration: zod.number().describe("Primary key of the team's GitHub integration to clone with."),
+            .nullish()
+            .describe('Optional GitHub repository to clone, in `organization\/repo` format (e.g. `posthog\/posthog`).'),
+        repositories: zod
+            .array(zod.string().max(tasksWarmCreateBodyRepositoriesItemMax))
+            .max(tasksWarmCreateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories to clone into the warm sandbox, each in `organization\/repo` format.'),
+        github_integration: zod
+            .number()
+            .nullish()
+            .describe("Primary key of the team's GitHub integration to clone with when a repository is selected."),
         branch: zod
             .string()
             .max(tasksWarmCreateBodyBranchMax)
@@ -3116,5 +3129,5 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Request body for warming a full idling Run while composing a Code-app cloud task.\n\nCollection-level: no task exists yet at typing time. The warmer births a draft Task and an\ninteractive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting\nthe first message. `github_integration` is a plain integration PK (an integer); the view re-scopes\nit to the caller's team before use."
+        "Request body for warming a full idling Run while composing a Code-app cloud task.\n\nCollection-level: no task exists yet at typing time. The warmer births a draft Task and an\ninteractive Run that boots and starts the agent, optionally cloning and checking out a repository,\nthen idles awaiting the first message. `github_integration` is a plain integration PK (an integer);\nthe view re-scopes it to the caller's team before use."
     )
