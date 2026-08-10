@@ -503,6 +503,17 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
+# Graph API version the Instagram OAuth dialog, token exchange and refresh are pinned to. Kept in
+# step with the warehouse Instagram source's `default_version`, which calls the same Graph version.
+INSTAGRAM_GRAPH_API_VERSION = "v23.0"
+
+# Instagram API with Facebook Login: the professional account is reached through the Facebook Page
+# it is linked to, so the grant needs the page permissions as well as the Instagram ones.
+# https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login
+INSTAGRAM_OAUTH_SCOPE = (
+    "instagram_basic instagram_manage_insights instagram_manage_comments pages_show_list pages_read_engagement"
+)
+
 
 class IntegrationQuerySet(models.QuerySet["Integration"]):
     def for_github_installation_id(self, installation_id: str | int) -> Self:
@@ -562,6 +573,7 @@ class Integration(models.Model):
         GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
         HUBSPOT = "hubspot"
+        INSTAGRAM = "instagram"
         INTERCOM = "intercom"
         JIRA = "jira"
         LINEAR = "linear"
@@ -840,6 +852,7 @@ class OauthIntegration:
         "tiktok-ads",
         "bing-ads",
         "meta-ads",
+        "instagram",
         "intercom",
         "linear",
         "clickup",
@@ -1165,6 +1178,24 @@ class OauthIntegration:
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
                 scope="ads_read",
+                id_path="id",
+                name_path="name",
+            )
+        elif kind == "instagram":
+            if not settings.INSTAGRAM_APP_CLIENT_ID or not settings.INSTAGRAM_APP_CLIENT_SECRET:
+                raise NotImplementedError("Instagram app not configured")
+
+            # Same Facebook Login endpoints as Meta Ads, and the credentials may even be the same
+            # Meta app, but the two grants request different scopes so they stay separate kinds.
+            # The token response carries no account identifier, so id/name come from `/me`.
+            return OauthConfig(
+                authorize_url=f"https://www.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/me",
+                token_info_config_fields=["id", "name"],
+                client_id=settings.INSTAGRAM_APP_CLIENT_ID,
+                client_secret=settings.INSTAGRAM_APP_CLIENT_SECRET,
+                scope=INSTAGRAM_OAUTH_SCOPE,
                 id_path="id",
                 name_path="name",
             )
@@ -3983,13 +4014,21 @@ class GitLabIntegration:
         return {"issue_id": issue["iid"]}
 
 
-class MetaAdsIntegration:
+class MetaGraphIntegration:
+    """Token handling shared by the Meta Graph OAuth kinds (Meta Ads, Instagram).
+
+    Meta issues no refresh token: a long-lived user access token is swapped for a fresh one
+    through the `fb_exchange_token` grant, which is why these kinds sit outside the generic
+    `OauthIntegration` refresh sweep and refresh on use instead.
+    """
+
     integration: Integration
+    kind: str = ""
     api_version: str = "v25.0"
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "meta-ads":
-            raise Exception("MetaAdsIntegration init called with Integration with wrong 'kind'")
+        if integration.kind != self.kind:
+            raise Exception(f"{type(self).__name__} init called with Integration with wrong 'kind'")
         self.integration = integration
 
     def refresh_access_token(self):
@@ -4039,6 +4078,15 @@ class MetaAdsIntegration:
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
         self.integration.save()
+
+
+class MetaAdsIntegration(MetaGraphIntegration):
+    kind = "meta-ads"
+
+
+class InstagramIntegration(MetaGraphIntegration):
+    kind = "instagram"
+    api_version = INSTAGRAM_GRAPH_API_VERSION
 
 
 class TwilioIntegration:
