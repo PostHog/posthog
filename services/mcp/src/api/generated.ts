@@ -40615,6 +40615,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40695,6 +40700,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40822,6 +40832,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40910,6 +40925,8 @@ export namespace Schemas {
     export interface LLMSkillVersionSummary {
       readonly id: string;
       readonly version: number;
+      /** @nullable */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly is_latest: boolean;
@@ -55247,6 +55264,11 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+      /**
+         * Optional note describing what changed in this version. Shown in the version history.
+         * @maxLength 400
+         */
+      version_description?: string;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
