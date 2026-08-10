@@ -31,9 +31,12 @@ function makeReport(overrides: Partial<SignalReportApi> = {}): SignalReportApi {
     } as SignalReportApi
 }
 
-/** The right pane is about 700px at the default split, and the section runs its full width. */
+/**
+ * A width harness only. The section in its real pane, next to the exception card, is covered by the
+ * `Scenes-App/ErrorTracking` story "Issue scene with self-driving".
+ */
 function Pane({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="w-[700px] border rounded overflow-hidden bg-surface-primary">{children}</div>
+    return <div className="w-[700px]">{children}</div>
 }
 
 export const FixProposed: Story = {
@@ -76,7 +79,7 @@ export const SeveralReportsAcrossStates: Story = {
 /** The narrowest the pane gets, where the title and the fix state compete for width. */
 export const NarrowPane: Story = {
     render: () => (
-        <div className="w-[375px] border rounded overflow-hidden bg-surface-primary">
+        <div className="w-[375px]">
             <LinkedReportsSection reports={[makeReport()]} />
         </div>
     ),
