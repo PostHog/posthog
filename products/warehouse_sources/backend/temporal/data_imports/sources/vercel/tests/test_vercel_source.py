@@ -108,7 +108,16 @@ class TestVercelSource:
         assert [s.name for s in schemas] == ["deployments"]
 
     @parameterized.expand(
-        [("valid", (True, None)), ("invalid", (False, "Invalid or unauthorized Vercel access token"))]
+        [
+            ("valid", (True, None)),
+            (
+                "invalid",
+                (
+                    False,
+                    "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
+                ),
+            ),
+        ]
     )
     def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
         with mock.patch.object(vercel_source_module, "validate_vercel_credentials", lambda token: result):
