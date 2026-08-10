@@ -222,7 +222,10 @@ def _fetch_comment_tail(
         if not page_info.get("hasNextPage"):
             return comments
         cursor = page_info.get("endCursor")
-    raise GitHubAPIError(f"Thread {thread_id} has more than {_MAX_COMMENT_PAGES * _COMMENTS_PER_THREAD} comments")
+    # status=0: a client-side refusal, no HTTP exchange failed.
+    raise GitHubAPIError(
+        f"Thread {thread_id} has more than {_MAX_COMMENT_PAGES * _COMMENTS_PER_THREAD} comments", status=0
+    )
 
 
 def _parse_thread(node: dict[str, Any]) -> ReviewThread:
