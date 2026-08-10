@@ -1,18 +1,40 @@
 import { cn } from "@posthog/quill";
+import logoLoading from "@posthog/ui/assets/images/logo-loading.gif";
+import logoStatic from "@posthog/ui/assets/images/logo-static.png";
+import { useThemeStore } from "@posthog/ui/shell/themeStore";
+import { useReducedMotion } from "framer-motion";
 
-// The animated GIF this replaced drew the mark inset in a square canvas, so the mark
-// covered 72% of the requested size. Keep that ratio so the loading screen looks the
-// same, and derive the height from the 52x28 viewBox.
+// Dark mode gets the static monochrome mark instead, because the animation draws the
+// head in near-black and it disappears against a dark background. The mark covers 72%
+// of the animation's square canvas, so reuse that ratio to hold the on-screen size
+// steady across themes, and derive the height from the 52x28 viewBox.
 const MARK_WIDTH_RATIO = 0.72;
 const MARK_ASPECT_RATIO = 52 / 28;
 
 interface LoadingLogoProps {
-  /** Box the logo used to be drawn into, in pixels. */
+  /** Box the logo is drawn into, in pixels. */
   size?: number;
   className?: string;
 }
 
 export function LoadingLogo({ size = 96, className }: LoadingLogoProps) {
+  const isDarkMode = useThemeStore((state) => state.isDarkMode);
+  const reducedMotion = useReducedMotion();
+
+  if (!isDarkMode) {
+    return (
+      <img
+        src={reducedMotion ? logoStatic : logoLoading}
+        alt=""
+        data-testid="app-loading-logo"
+        width={size}
+        height={size}
+        draggable={false}
+        className={cn("pointer-events-none select-none", className)}
+      />
+    );
+  }
+
   const width = size * MARK_WIDTH_RATIO;
   return (
     <svg
@@ -23,7 +45,7 @@ export function LoadingLogo({ size = 96, className }: LoadingLogoProps) {
       aria-hidden="true"
       data-testid="app-loading-logo"
       className={cn(
-        "pointer-events-none select-none fill-[#111] dark:fill-[#FAFAFA]",
+        "pointer-events-none select-none fill-[#FAFAFA]",
         className,
       )}
     >
