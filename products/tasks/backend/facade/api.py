@@ -48,9 +48,11 @@ from products.tasks.backend.constants import (
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
+    get_required_model_flag,
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import get_model_access_error
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -406,6 +408,93 @@ class _LatestRunUnset:
 _LATEST_RUN_UNSET = _LatestRunUnset()
 
 
+def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadReferenceDTO]:
+    references: list[contracts.SlackThreadReferenceDTO] = []
+    for item in (task.state or {}).get("slack_thread_references", []):
+        if not isinstance(item, dict):
+            continue
+        channel = item.get("channel")
+        thread_ts = item.get("thread_ts")
+        if not isinstance(channel, str) or not isinstance(thread_ts, str):
+            continue
+        references.append(
+            contracts.SlackThreadReferenceDTO(
+                url=f"https://slack.com/archives/{channel}/p{thread_ts.replace('.', '')}",
+                channel=channel,
+                created_at=item.get("created_at") if isinstance(item.get("created_at"), str) else None,
+            )
+        )
+    return references
+
+
+def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -> contracts.TaskSlackUnfurlDTO | None:
+    task = (
+        _visible_task_qs(team_id, user_id)
+        .filter(id=task_id, internal=False)
+        .only("id", "title", "created_by_id")
+        .first()
+    )
+    if task is None:
+        return None
+    latest_run = task.runs.order_by("-created_at").only("status").first()
+    return contracts.TaskSlackUnfurlDTO(
+        id=task.id,
+        title=task.title,
+        created_by_id=task.created_by_id,
+        latest_run_status=latest_run.get_status_display() if latest_run else None,
+    )
+
+
+def attach_slack_thread_reference(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    slack_workspace_id: str,
+    channel: str,
+    thread_ts: str,
+    shared_by_slack_user_id: str,
+) -> None:
+    reference = {
+        "slack_workspace_id": slack_workspace_id,
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "shared_by_slack_user_id": shared_by_slack_user_id,
+        "created_at": django_timezone.now().isoformat(),
+    }
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
+        state = dict(task.state or {})
+        references = list(state.get("slack_thread_references") or [])
+        if any(
+            item.get("slack_workspace_id") == slack_workspace_id
+            and item.get("channel") == channel
+            and item.get("thread_ts") == thread_ts
+            for item in references
+            if isinstance(item, dict)
+        ):
+            return
+        references.append(reference)
+        # Keep a rolling window to bound task state and API response size.
+        state["slack_thread_references"] = references[-30:]
+        task.state = state
+        task.save(update_fields=["state", "updated_at"])
+
+
+def has_slack_thread_reference(
+    *, task_id: str | UUID, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str
+) -> bool:
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    if task is None:
+        return False
+    return any(
+        item.get("slack_workspace_id") == slack_workspace_id
+        and item.get("channel") == channel
+        and item.get("thread_ts") == thread_ts
+        for item in (task.state or {}).get("slack_thread_references", [])
+        if isinstance(item, dict)
+    )
+
+
 def _task_detail_to_dto(
     task: Task,
     *,
@@ -447,6 +536,7 @@ def _task_detail_to_dto(
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
+        slack_thread_references=_task_slack_thread_references(task),
     )
 
 
@@ -5300,6 +5390,20 @@ def run_task(
             )
         )
 
+    # A resume inherits the previous run's model, so the serializer's check saw `None` and
+    # passed. Re-check the model that will actually run. Only a gated model pays the lookup.
+    if get_required_model_flag(model) is not None:
+        actor_distinct_id = (
+            User.objects.filter(pk=user_id).values_list("distinct_id", flat=True).first() if user_id else None
+        )
+        model_access_error = get_model_access_error(model, distinct_id=actor_distinct_id)
+        if model_access_error is not None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="validation_error", code="invalid_input", detail=model_access_error, attr="model"
+                )
+            )
+
     pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
         task,
         pr_authorship_mode=pr_authorship_mode,
@@ -6010,6 +6114,24 @@ def list_channel_instruction_versions(
         .order_by("-version", "-created_at", "-id")[:200]
     )
     return [_instructions_to_dto(row) for row in versions]
+
+
+def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("origin_product").first()
+    if task is None:
+        return False
+    if task.origin_product != Task.OriginProduct.LOOP:
+        return True
+
+    run_state = (
+        TaskRun.objects.filter(task_id=task.id, team_id=team_id)
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
+    outputs = context_target.get("outputs") or {}
+    return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
 
 
 def publish_channel_instructions(

@@ -8,6 +8,7 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
@@ -82,6 +83,13 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
+
+    @staticmethod
+    def _sandbox_task_id(request: Request) -> UUID | None:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return None
+        return authenticator.access_token.sandbox_task_id
 
     @extend_schema(
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
@@ -170,6 +178,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(**PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS)
     @instructions.mapping.put
     def publish_instructions(self, request, pk=None, **kwargs):
+        sandbox_task_id = self._sandbox_task_id(request)
+        if sandbox_task_id is not None and not tasks_facade.task_can_publish_channel_instructions(
+            sandbox_task_id, self.team_id, pk
+        ):
+            raise PermissionDenied("This loop can update only the CONTEXT.md configured for this run.")
+
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

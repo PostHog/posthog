@@ -1530,6 +1530,13 @@ export interface TaskRunDetailDTOApi {
     completed_at?: string | null
 }
 
+export interface SlackThreadReferenceDTOApi {
+    url: string
+    channel: string
+    /** @nullable */
+    created_at?: string | null
+}
+
 /**
  * @nullable
  */
@@ -1582,6 +1589,7 @@ export interface TaskDetailDTOApi {
     ci_prompt: string | null
     /** @nullable */
     channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
 }
 
 export interface PaginatedTaskDetailDTOListApi {

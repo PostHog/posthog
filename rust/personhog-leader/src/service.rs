@@ -6,9 +6,10 @@ use dashmap::DashMap;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, GetPersonRequest, GetPersonResponse, LifecycleOpType,
-    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseOutcome,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
+    GetPersonRequest, GetPersonResponse, LifecycleOpType, Person, ReleaseFenceRequest,
+    ReleaseFenceResponse, ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
 use tokio::sync::Mutex;
@@ -24,7 +25,10 @@ use crate::cache::{
     PersonCacheKey,
 };
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
-use crate::fence::{fenced_status, mark_status, FenceHealer, FenceMap, FenceState};
+use crate::fence::{
+    fenced_status, mark_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap,
+    FenceState,
+};
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
@@ -33,7 +37,8 @@ use crate::pg::{load_person_from_pg, PgFallback};
 use crate::recovery::ChangelogRecovery;
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
-    jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size, TrimResult,
+    can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
+    trim_properties_with_candidates, SanitizeStats, TrimResult,
 };
 
 /// Mirrors the config's `fence_map_max_entries` default; production
@@ -758,6 +763,98 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
     }
 }
 
+/// Parse a JSON-map wire field (empty bytes mean an empty map), refusing
+/// anything that is not a JSON object.
+// See `partition_from_metadata` for why `result_large_err` is allowed.
+#[allow(clippy::result_large_err)]
+fn parse_json_object_field(bytes: &[u8], field: &str) -> Result<serde_json::Value, Status> {
+    if bytes.is_empty() {
+        return Ok(serde_json::Value::Object(serde_json::Map::new()));
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|e| Status::invalid_argument(format!("invalid {field} JSON: {e}")))?;
+    if !value.is_object() {
+        return Err(Status::invalid_argument(format!(
+            "{field} must be a JSON object"
+        )));
+    }
+    Ok(value)
+}
+
+/// A sealed source snapshot after admission: identity-checked against the
+/// fold's target, JSON-parsed, and sanitized.
+#[derive(Debug)]
+struct SealedSnapshot {
+    ordinal: i32,
+    properties: serde_json::Value,
+    version: i64,
+    created_at: i64,
+    last_seen_at: Option<i64>,
+}
+
+/// Admit the fold request's sealed snapshots: validate, parse, and
+/// sanitize each, returning them in ordinal order plus what sanitization
+/// rewrote. Every refusal is a deterministic `InvalidArgument`: each
+/// snapshot must be a plausible living source of the target — same team,
+/// a different person, not a death document — and ordinals must be
+/// unique, or precedence would be ambiguous. A mismatch can only be a
+/// saga bug, and folding it silently would launder it into the target.
+// See `partition_from_metadata` for why `result_large_err` is allowed.
+#[allow(clippy::result_large_err)]
+fn parse_sealed_snapshots(
+    sealed_snapshots: &[SealedSourceSnapshot],
+    team_id: i64,
+    person_id: i64,
+) -> Result<(Vec<SealedSnapshot>, SanitizeStats), Status> {
+    let mut stats = SanitizeStats::default();
+    let mut seen_ordinals = std::collections::HashSet::with_capacity(sealed_snapshots.len());
+    let mut snapshots: Vec<SealedSnapshot> = Vec::with_capacity(sealed_snapshots.len());
+    for snapshot in sealed_snapshots {
+        let Some(person) = &snapshot.person else {
+            return Err(Status::invalid_argument(
+                "sealed snapshot is missing its person",
+            ));
+        };
+        if person.team_id != team_id {
+            return Err(Status::invalid_argument(
+                "sealed snapshot belongs to a different team than the target",
+            ));
+        }
+        if person.id == person_id {
+            return Err(Status::invalid_argument(
+                "sealed snapshot is the merge target itself",
+            ));
+        }
+        if person.is_deleted {
+            return Err(Status::invalid_argument(
+                "sealed snapshot is a death document; only living sealed state folds",
+            ));
+        }
+        if !seen_ordinals.insert(snapshot.ordinal) {
+            return Err(Status::invalid_argument(
+                "sealed snapshots carry a duplicate ordinal; precedence would be ambiguous",
+            ));
+        }
+        let mut properties =
+            parse_json_object_field(&person.properties, "sealed snapshot properties")?;
+        let snapshot_stats = sanitize_for_jsonb(&mut properties);
+        stats.nul_strings += snapshot_stats.nul_strings;
+        stats.clamped_numbers += snapshot_stats.clamped_numbers;
+        snapshots.push(SealedSnapshot {
+            ordinal: snapshot.ordinal,
+            properties,
+            version: person.version,
+            created_at: person.created_at,
+            last_seen_at: person.last_seen_at,
+        });
+    }
+    // Precedence comes from the recorded pair order, not from the
+    // request: a re-drive that lists sources differently must fold the
+    // same document.
+    snapshots.sort_by_key(|snapshot| snapshot.ordinal);
+    Ok((snapshots, stats))
+}
+
 /// Extract the routing partition from the `x-partition` request-metadata
 /// header. The router stamps this on every leader call after hashing
 /// `(team_id, person_id)`; its absence means a misrouted or malformed
@@ -1143,6 +1240,328 @@ impl PersonHogLeader for PersonHogLeaderService {
         }))
     }
 
+    async fn fold_person_document(
+        &self,
+        request: Request<FoldPersonDocumentRequest>,
+    ) -> Result<Response<FoldPersonDocumentResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+        self.check_authority(partition)?;
+        let op_id = Uuid::parse_str(&req.op_id)
+            .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
+        if req.sealed_snapshots.is_empty() {
+            return Err(Status::invalid_argument(
+                "sealed_snapshots must be non-empty: a merge with no sealed sources has nothing \
+                 to fold",
+            ));
+        }
+
+        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is fenced for handoff; writes are rejected"
+            )));
+        };
+
+        // Parse and sanitize every JSON input before taking the per-key
+        // lock. Snapshot properties were sanitized when the source's
+        // leader cached them, but they crossed the wire since; sanitizing
+        // again keeps the fold's admission guarantee self-contained.
+        let mut sanitize_totals = SanitizeStats::default();
+        let mut track = |stats: SanitizeStats| {
+            sanitize_totals.nul_strings += stats.nul_strings;
+            sanitize_totals.clamped_numbers += stats.clamped_numbers;
+        };
+        let mut event_set = parse_json_object_field(&req.event_set, "event_set")?;
+        let mut event_set_once = parse_json_object_field(&req.event_set_once, "event_set_once")?;
+        track(sanitize_for_jsonb(&mut event_set));
+        track(sanitize_for_jsonb(&mut event_set_once));
+        let (snapshots, snapshot_stats) =
+            parse_sealed_snapshots(&req.sealed_snapshots, req.team_id, req.person_id)?;
+        track(snapshot_stats);
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let lock_wait = std::time::Instant::now();
+        let _guard = mutex.lock().await;
+        histogram!("personhog_leader_person_lock_wait_ms")
+            .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
+
+        if !self.dirty_index.can_admit(&cache_key) {
+            counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                .increment(1);
+            return Err(Status::resource_exhausted(
+                "dirty index at capacity: the writer is behind and this fold cannot be tracked; \
+                 retry later",
+            ));
+        }
+
+        // The merge target is marked, never fenced, so a fence here is
+        // either a ghost from a settled op (the healer clears it and the
+        // saga's retry goes through) or a bug. Same-op tolerance mirrors
+        // FencePerson's re-seal semantics.
+        if let Some(fence) = self.check_fence(&cache_key) {
+            if fence.op_id != op_id {
+                counter!("personhog_leader_writes_fenced_total").increment(1);
+                if let Some(healer) = &self.fence_healer {
+                    healer.maybe_heal(cache_key.clone(), fence);
+                }
+                return Err(fenced_status(&fence));
+            }
+        }
+
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
+
+        // The mark row — the fence's source of truth — must vouch for the
+        // op holding this person as its live merge target before the fold
+        // may write. The fence check above proves nothing here (the target
+        // is marked, never fenced), and without this a superseded or
+        // settled saga runner's late fold would still land. Mirrors
+        // ReleaseFence: unverifiable requests are refused — fail closed.
+        let Some(fallback) = &self.fallback else {
+            return Err(semantic_refusal(
+                "no lifecycle database configured; refusing to fold",
+                "no-lifecycle-db",
+            ));
+        };
+        match target_mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await {
+            Ok(Some(status)) if status == "marked" => {}
+            Ok(_) => {
+                counter!("personhog_leader_fences_total", "action" => "fold_unverified")
+                    .increment(1);
+                return Err(semantic_refusal(
+                    "op holds no live target mark for this person; refusing to fold",
+                    "fold-unverified",
+                ));
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "target mark verification failed; rejecting (fail closed)");
+                return Err(Status::unavailable(
+                    "could not verify the lifecycle op against its target mark; retry",
+                ));
+            }
+        }
+
+        // The fold: the target wins every key it has; snapshots fill
+        // still-absent keys in request order; then the merge event's $set
+        // overrides and $set_once fills. All inputs are sanitized, so the
+        // merged document is measured in stored form.
+        let mut target_properties = if person.properties.is_object() {
+            person.properties.clone()
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        };
+        // The cached state is an input like any other: rows loaded from
+        // Postgres or warmed from records that predate sanitization can
+        // carry dirt the wire inputs cannot.
+        track(sanitize_for_jsonb(&mut target_properties));
+        if sanitize_totals.nul_strings > 0 {
+            counter!("personhog_leader_properties_nul_sanitized_total")
+                .increment(sanitize_totals.nul_strings);
+        }
+        if sanitize_totals.clamped_numbers > 0 {
+            counter!("personhog_leader_properties_numbers_clamped_total")
+                .increment(sanitize_totals.clamped_numbers);
+        }
+        let target_map = target_properties
+            .as_object()
+            .expect("target_properties was just normalized to an object");
+        let mut folded = target_properties.clone();
+        let folded_map = folded
+            .as_object_mut()
+            .expect("folded clones the normalized target");
+        for snapshot in &snapshots {
+            if let Some(map) = snapshot.properties.as_object() {
+                for (key, value) in map {
+                    if !folded_map.contains_key(key) {
+                        folded_map.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        if let Some(map) = event_set.as_object() {
+            for (key, value) in map {
+                folded_map.insert(key.clone(), value.clone());
+            }
+        }
+        if let Some(map) = event_set_once.as_object() {
+            for (key, value) in map {
+                if !folded_map.contains_key(key) {
+                    folded_map.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
+        // Unlike a property update, a fold cannot be rejected for size:
+        // the saga would re-drive it forever, so trimming is the only
+        // completing behavior. Trim candidates are the fold's own
+        // contribution — keys the target did not already hold — so a
+        // within-limit target never loses a key it had to a fold. The
+        // target's own keys join the candidates only when its stored
+        // document already exceeded the limit (the remediation the update
+        // path applies to already-oversized rows). The trim aims for the
+        // hysteresis target first and, when that is unreachable, retries
+        // against the hard ceiling: any document at or under the
+        // threshold is still applyable by the writer. When neither bound
+        // is reachable, the fold keeps the target's properties,
+        // discarding its contribution.
+        let jsonb_size = jsonb_column_size(&folded);
+        let mut fold_outcome = "folded";
+        if jsonb_size > self.size_limits.threshold {
+            let target_size = jsonb_column_size(&target_properties);
+            let target_oversized = target_size >= self.size_limits.threshold;
+            let mut candidates: Vec<String> = folded
+                .as_object()
+                .expect("folded is an object")
+                .keys()
+                .filter(|k| !target_map.contains_key(*k) && can_trim_property(k))
+                .cloned()
+                .collect();
+            candidates.sort();
+            if target_oversized {
+                let mut own: Vec<String> = target_map
+                    .keys()
+                    .filter(|k| can_trim_property(k))
+                    .cloned()
+                    .collect();
+                own.sort();
+                candidates.extend(own);
+            }
+            let trim_result = match trim_properties_with_candidates(
+                &folded,
+                self.size_limits.trim_target,
+                candidates.clone(),
+            ) {
+                TrimResult::CannotFit => {
+                    trim_properties_with_candidates(&folded, self.size_limits.threshold, candidates)
+                }
+                result => result,
+            };
+            match trim_result {
+                TrimResult::Trimmed(trimmed) => {
+                    counter!("personhog_leader_properties_trimmed_total").increment(1);
+                    self.warnings.emit(&SizeViolationWarning {
+                        team_id: cache_key.team_id,
+                        person_uuid: person.uuid.clone(),
+                        message: "Merged person properties exceeded the size limit and were \
+                                  trimmed to fit"
+                            .to_string(),
+                    });
+                    folded = trimmed;
+                }
+                TrimResult::Fits => {}
+                TrimResult::CannotFit => {
+                    self.warnings.emit(&SizeViolationWarning {
+                        team_id: cache_key.team_id,
+                        person_uuid: person.uuid.clone(),
+                        message: "Merged person properties exceed the size limit and could not \
+                                  be trimmed; the merged-in properties were discarded"
+                            .to_string(),
+                    });
+                    if target_oversized {
+                        // No applyable document exists: the stored one
+                        // itself violates the size constraint (protected
+                        // keys alone exceed the ceiling). Producing it
+                        // anyway would halt the writer — admission
+                        // promises every acked record applies verbatim,
+                        // and the writer fail-stops on a violation rather
+                        // than skip — and rejecting would wedge the
+                        // saga's re-drive loop. The fold completes
+                        // without producing: this person's fold effects
+                        // (properties and scalars) are skipped. Accepted
+                        // residual — README, "Admission".
+                        counter!("personhog_leader_folds_total", "outcome" => "unapplyable")
+                            .increment(1);
+                        tracing::error!(
+                            team_id = cache_key.team_id,
+                            person_uuid = %person.uuid,
+                            stored_size = target_size,
+                            threshold = self.size_limits.threshold,
+                            "fold target's stored properties exceed the size constraint; \
+                             skipping the fold's document write"
+                        );
+                        return Ok(Response::new(FoldPersonDocumentResponse {
+                            person: Some(cached_person_to_proto(&person)),
+                        }));
+                    }
+                    fold_outcome = "unremediable";
+                    folded = target_properties.clone();
+                }
+            }
+        }
+
+        // Scalars: created_at is the min over the target and every
+        // snapshot (ignoring non-positive values a malformed snapshot
+        // could carry); is_identified is unconditionally true — a merge
+        // is an identify; last_seen_at max-merges like the update path —
+        // the merged person was last seen whenever any constituent was
+        // (snapshot values were already hour-floored when stored).
+        let created_at = snapshots
+            .iter()
+            .map(|snapshot| snapshot.created_at)
+            .filter(|ts| *ts > 0)
+            .chain(std::iter::once(person.created_at))
+            .min()
+            .unwrap_or(person.created_at);
+        let last_seen_at = snapshots
+            .iter()
+            .filter_map(|snapshot| snapshot.last_seen_at)
+            .chain(person.last_seen_at)
+            .max();
+
+        // The version is a max-merge over the target's floor and every
+        // sealed version, plus one: at or above every source's death
+        // document, which derives from the same sealed + 1 (equal when
+        // the highest sealed version dominates — harmless, the streams
+        // are per-person), and re-applying the fold only bumps it again
+        // — convergent under at-least-once delivery.
+        let base_version = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
+        let max_sealed = snapshots
+            .iter()
+            .map(|snapshot| snapshot.version)
+            .max()
+            .unwrap_or(0);
+        let version = base_version.max(max_sealed).checked_add(1).ok_or_else(|| {
+            Status::invalid_argument("sealed versions leave no room for the folded version")
+        })?;
+
+        let approx_bytes = approx_person_bytes(jsonb_column_size(&folded));
+        let folded_person = CachedPerson {
+            id: person.id,
+            uuid: person.uuid.clone(),
+            team_id: person.team_id,
+            properties: folded,
+            created_at,
+            version,
+            is_identified: true,
+            is_deleted: false,
+            last_seen_at,
+            approx_bytes,
+        };
+
+        let proto = self
+            .commit_document(partition, &cache_key, folded_person)
+            .await?;
+        counter!("personhog_leader_folds_total", "outcome" => fold_outcome).increment(1);
+
+        Ok(Response::new(FoldPersonDocumentResponse {
+            person: Some(proto),
+        }))
+    }
+
     async fn fence_person(
         &self,
         request: Request<FencePersonRequest>,
@@ -1326,8 +1745,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // would rewrite the row's identity on its way out.
                 if let Some(person) = &current {
                     if person.uuid != req.person_uuid {
-                        return Err(Status::failed_precondition(
+                        return Err(semantic_refusal(
                             "person_uuid does not match the person being released",
+                            "uuid-mismatch",
                         ));
                     }
                 }
@@ -1340,8 +1760,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // document. Unverifiable requests are refused — fail
                 // closed.
                 let Some(fallback) = &self.fallback else {
-                    return Err(Status::failed_precondition(
+                    return Err(semantic_refusal(
                         "no lifecycle database configured; refusing to produce a death document",
+                        "no-lifecycle-db",
                     ));
                 };
                 match mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await {
@@ -1357,9 +1778,10 @@ impl PersonHogLeader for PersonHogLeaderService {
                     Ok(_) => {
                         counter!("personhog_leader_fences_total", "action" => "release_unverified")
                             .increment(1);
-                        return Err(Status::failed_precondition(
+                        return Err(semantic_refusal(
                             "op holds no live mark for this person; \
                              refusing to produce a death document",
+                            "release-unverified",
                         ));
                     }
                     Err(e) => {
@@ -1474,6 +1896,118 @@ mod tests {
 
     fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
         PersonCacheKey { team_id, person_id }
+    }
+
+    fn wire_snapshot(person: Person, ordinal: i32) -> SealedSourceSnapshot {
+        SealedSourceSnapshot {
+            person: Some(person),
+            ordinal,
+        }
+    }
+
+    fn source_person(id: i64, properties: &serde_json::Value) -> Person {
+        Person {
+            id,
+            team_id: 7,
+            properties: serde_json::to_vec(properties).unwrap(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn sealed_snapshot_admission_rejects_implausible_sources() {
+        let valid = serde_json::json!({});
+        let cases: Vec<(&str, Vec<SealedSourceSnapshot>)> = vec![
+            (
+                "missing person",
+                vec![SealedSourceSnapshot {
+                    person: None,
+                    ordinal: 0,
+                }],
+            ),
+            (
+                "wrong team",
+                vec![wire_snapshot(
+                    Person {
+                        team_id: 8,
+                        ..source_person(2, &valid)
+                    },
+                    0,
+                )],
+            ),
+            (
+                "snapshot is the target",
+                vec![wire_snapshot(source_person(1, &valid), 0)],
+            ),
+            (
+                "death document",
+                vec![wire_snapshot(
+                    Person {
+                        is_deleted: true,
+                        ..source_person(2, &valid)
+                    },
+                    0,
+                )],
+            ),
+            (
+                "duplicate ordinal",
+                vec![
+                    wire_snapshot(source_person(2, &valid), 0),
+                    wire_snapshot(source_person(3, &valid), 0),
+                ],
+            ),
+            (
+                "non-object properties",
+                vec![wire_snapshot(
+                    Person {
+                        properties: b"[1]".to_vec(),
+                        ..source_person(2, &valid)
+                    },
+                    0,
+                )],
+            ),
+        ];
+        for (label, sealed) in cases {
+            let status = parse_sealed_snapshots(&sealed, 7, 1).expect_err(label);
+            assert_eq!(status.code(), Code::InvalidArgument, "{label}");
+        }
+    }
+
+    #[test]
+    fn sealed_snapshot_admission_sorts_by_ordinal_and_counts_sanitization() {
+        let nul_dirty = serde_json::json!({"a": "x\u{0000}y"});
+        let float_dirty = serde_json::json!({"b": 1e308});
+        let (snapshots, stats) = parse_sealed_snapshots(
+            &[
+                wire_snapshot(
+                    Person {
+                        version: 9,
+                        ..source_person(2, &nul_dirty)
+                    },
+                    1,
+                ),
+                wire_snapshot(
+                    Person {
+                        version: 4,
+                        ..source_person(3, &float_dirty)
+                    },
+                    0,
+                ),
+            ],
+            7,
+            1,
+        )
+        .expect("plausible snapshots admit");
+        assert_eq!(
+            snapshots
+                .iter()
+                .map(|snapshot| snapshot.version)
+                .collect::<Vec<_>>(),
+            vec![4, 9],
+            "returned in ordinal order, not request order"
+        );
+        assert_eq!(stats.nul_strings, 1);
+        assert_eq!(stats.clamped_numbers, 1);
     }
 
     /// A service with no PG pool and a producer that never connects —

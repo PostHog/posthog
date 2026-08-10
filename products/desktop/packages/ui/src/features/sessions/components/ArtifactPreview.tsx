@@ -122,19 +122,42 @@ export function ArtifactPreview({
     null,
   );
   const activeArtifactId = selectedVersionId ?? artifactId;
-  const versionIndex = versions.findIndex(
+  const activeVersionIndex = versions.findIndex(
     (version) => version.id === activeArtifactId,
   );
   const activeRunId =
-    versionIndex >= 0 ? (versions[versionIndex]?.runId ?? runId) : runId;
+    activeVersionIndex >= 0
+      ? (versions[activeVersionIndex]?.runId ?? runId)
+      : runId;
   const markdownRootRef = useRef<HTMLDivElement>(null);
   const markdownContainerRef = useRef<HTMLDivElement>(null);
   const [imageError, setImageError] = useState(false);
   const [imageCommenting, setImageCommenting] = useState(false);
   const authIdentity = useAuthStateValue(getAuthIdentity);
+  const {
+    artifactResult,
+    previewData,
+    previewUrl,
+    isLoading,
+    isError,
+    isPlaceholderData,
+  } = useArtifactPreviewData({
+    sessionService,
+    authIdentity,
+    taskId,
+    runId: activeRunId,
+    artifactId: activeArtifactId,
+    name,
+  });
+  const displayedArtifactId = artifactResult?.artifact.id ?? activeArtifactId;
+  const versionIndex = versions.findIndex(
+    (version) => version.id === displayedArtifactId,
+  );
+  const displayedRunId =
+    versionIndex >= 0 ? (versions[versionIndex]?.runId ?? runId) : runId;
   const commentTarget = useMemo<CommentTarget>(
-    () => ({ scope: "task_artifact", itemId: activeArtifactId }),
-    [activeArtifactId],
+    () => ({ scope: "task_artifact", itemId: displayedArtifactId }),
+    [displayedArtifactId],
   );
   const commentsQuery = useCommentsQuery(commentTarget, taskId, {
     enabled: commentsEnabled,
@@ -159,24 +182,15 @@ export function ArtifactPreview({
     }
     setSelectedVersionId(focus.target.itemId);
   }, [activeArtifactId, focus, versions]);
-  const { artifactResult, previewData, previewUrl, isLoading, isError } =
-    useArtifactPreviewData({
-      sessionService,
-      authIdentity,
-      taskId,
-      runId: activeRunId,
-      artifactId: activeArtifactId,
-      name,
-    });
   const editing = useArtifactEditing({
     sessionService,
     artifactResult,
     versions:
       versions.length > 0 ? versions : (artifactResult?.artifacts ?? []),
-    versionsLoading: runsLoading,
+    versionsLoading: runsLoading || isPlaceholderData,
     refreshVersions,
     taskId,
-    runId: activeRunId,
+    runId: displayedRunId,
     name,
     authIdentity,
     openArtifactTab,
@@ -215,7 +229,7 @@ export function ArtifactPreview({
   const [locateRequest, setLocateRequest] =
     useState<CommentLocateRequest | null>(null);
   useEffect(() => {
-    if (!focus || !focusedThreadId) return;
+    if (!focus || !focusedThreadId || focus.intent !== "navigate") return;
     if (!threads.some((thread) => thread.root.id === focusedThreadId)) return;
     setLocateRequest((current) =>
       current?.nonce === focus.nonce
@@ -223,9 +237,19 @@ export function ArtifactPreview({
         : { id: focusedThreadId, nonce: focus.nonce },
     );
   }, [focus, focusedThreadId, threads]);
+  const currentLocateRequest =
+    focus &&
+    focus.intent === "navigate" &&
+    focusedThreadId &&
+    locateRequest?.nonce === focus.nonce
+      ? locateRequest
+      : null;
 
   const activateThread = useCallback(
-    (id: string) => requestCommentFocus(taskId, commentTarget, id),
+    (id: string) =>
+      requestCommentFocus(taskId, commentTarget, id, {
+        intent: "reveal-thread",
+      }),
     [requestCommentFocus, taskId, commentTarget],
   );
   const onResolutionsChange = useCallback(
@@ -240,9 +264,11 @@ export function ArtifactPreview({
         context: { anchor },
         mentions,
       });
-      activateThread(created.id);
+      requestCommentFocus(taskId, commentTarget, created.id, {
+        intent: "focus-only",
+      });
     },
-    [createComment, activateThread],
+    [commentTarget, createComment, requestCommentFocus, taskId],
   );
 
   const versionNav =
@@ -252,7 +278,7 @@ export function ArtifactPreview({
           size="icon"
           variant="default"
           aria-label="Older version"
-          disabled={versionIndex >= versions.length - 1}
+          disabled={isPlaceholderData || versionIndex >= versions.length - 1}
           onClick={() => {
             const older = versions[versionIndex + 1];
             if (older?.id) setSelectedVersionId(older.id);
@@ -267,7 +293,7 @@ export function ArtifactPreview({
           size="icon"
           variant="default"
           aria-label="Newer version"
-          disabled={versionIndex <= 0}
+          disabled={isPlaceholderData || versionIndex <= 0}
           onClick={() => {
             const newer = versions[versionIndex - 1];
             if (newer?.id) setSelectedVersionId(newer.id);
@@ -328,7 +354,7 @@ export function ArtifactPreview({
       markdownContainerRef={markdownContainerRef}
       annotationComments={annotationComments}
       focusedThreadId={focusedThreadId}
-      locateRequest={locateRequest}
+      locateRequest={currentLocateRequest}
       members={members}
       activateThread={activateThread}
       createAnchoredComment={createAnchoredComment}
