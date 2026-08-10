@@ -26,7 +26,8 @@ import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generate
  * Build a property filter for a breakdown value. When the value is the
  * BREAKDOWN_NULL_DISPLAY placeholder ("(none)"), the property isn't literally
  * set to "(none)" — it just isn't set — so use IsNotSet instead of an exact
- * match.
+ * match. Otherwise `exactMatchOperatorFor` decides which exact match handles a
+ * path-cleaned value.
  */
 const buildBreakdownPropertyFilter = (
     key: string,
