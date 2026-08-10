@@ -579,36 +579,31 @@ function NativeEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <>
-                        <LemonField name="html" className="flex relative flex-col">
-                            {({ value }: ChildFunctionProps) => (
-                                <>
-                                    <div
-                                        className={clsx(
-                                            'flex absolute inset-0 justify-center items-center p-2 transition-opacity',
-                                            // Persistent start buttons while empty; hover-reveal once there is content
-                                            value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
-                                        )}
-                                    >
-                                        <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                        {/* A plain-text-only email has no html, so content is judged on every shape */}
-                                        <EmailPreviewOverlayButtons
-                                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                                        />
-                                    </div>
-
-                                    <iframe
-                                        srcDoc={value}
-                                        sandbox=""
-                                        title="Email template preview"
-                                        className="flex-1"
+                    <LemonField name="html" className="flex relative flex-col">
+                        {({ value }: ChildFunctionProps) => (
+                            <>
+                                <div
+                                    className={clsx(
+                                        'flex absolute inset-0 justify-center items-center p-2 transition-opacity',
+                                        // Persistent start buttons while empty; hover-reveal once there is content
+                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+                                    )}
+                                >
+                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
+                                    <EmailPreviewOverlayButtons
+                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
                                     />
-                                </>
-                            )}
-                        </LemonField>
-                        <FieldErrorMessage error={logicProps.fieldErrors?.body} />
-                    </>
+                                </div>
+
+                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
+                            </>
+                        )}
+                    </LemonField>
                 )}
+                {/* Rendered in both modes so the message stays visible while the body is edited in
+                    the full editor, not just in the preview */}
+                <FieldErrorMessage error={logicProps.fieldErrors?.body} />
             </Form>
         </>
     )

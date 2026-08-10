@@ -149,7 +149,6 @@ export interface workflowLogicValues {
     currentSchedule: HogFlowSchedule | null
     edgesByActionId: Record<string, HogFlowEdge[]>
     externallyEdited: boolean
-    hasAttemptedSave: boolean
     hasUnsavedChanges: boolean
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
     hogFunctionTemplatesByIdLoading: boolean
@@ -172,6 +171,7 @@ export interface workflowLogicValues {
           }
         | false
         | null
+    saveAttemptedActionIds: string[] | null
     saveBaseUpdatedAt: string | null
     scheduleConfigSources: {
         natural_language: boolean
@@ -1836,6 +1836,9 @@ export interface workflowLogicActions {
     markAutoSave: (isAutoSave: boolean) => {
         isAutoSave: boolean
     }
+    markSaveAttempted: (actionIds: string[]) => {
+        actionIds: string[]
+    }
     partialSetWorkflowActionConfig: (
         actionId: string,
         config: Partial<HogFlowAction['config']>
@@ -2546,7 +2549,7 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
             hogFunctionTemplatesByIdLoading: boolean,
             scheduleStartsAt: string | null,
-            hasAttemptedSave: boolean
+            saveAttemptedActionIds: string[] | null
         ) => Record<string, HogFlowActionValidationResult | null>
         workflowHasActionErrors: (
             workflow: HogFlow,
@@ -2709,6 +2712,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
+        markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
             variables,
         }),
@@ -2932,15 +2936,16 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
-        // Gates when per-field step messages become visible. A freshly opened step is still
-        // validated (so the node badge and enable-gate work), but its messages only appear once
-        // the user tries to save or enable — the point where they can act on them.
-        hasAttemptedSave: [
-            false as boolean,
+        // Gates when per-field step messages become visible: the action ids that were present at
+        // the last save/enable attempt. Every step is validated the whole time (so the node badge
+        // and enable-gate work), but a step only shows its messages once the user has tried to
+        // save or enable with that step in place, which is the point where they can act on them.
+        // A step added later stays quiet until the next attempt.
+        saveAttemptedActionIds: [
+            null as string[] | null,
             {
-                submitWorkflow: () => true,
-                saveWorkflowPartial: () => true,
-                loadWorkflowSuccess: () => false,
+                markSaveAttempted: (_, { actionIds }) => actionIds,
+                loadWorkflowSuccess: () => null,
             },
         ],
         // Set when another channel (another UI tab, MCP, or the API) saved this workflow while we had
@@ -3071,14 +3076,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 s.hogFunctionTemplatesById,
                 s.hogFunctionTemplatesByIdLoading,
                 s.scheduleStartsAt,
-                s.hasAttemptedSave,
+                s.saveAttemptedActionIds,
             ],
             (
                 workflow: HogFlow,
                 hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
                 hogFunctionTemplatesByIdLoading: boolean,
                 scheduleStartsAt: string | null,
-                hasAttemptedSave: boolean
+                saveAttemptedActionIds: string[] | null
             ): Record<string, HogFlowActionValidationResult | null> => {
                 // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
                 // step types make no sense without a person, so we block them at save time.
@@ -3144,9 +3149,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             if (hasEmailErrors) {
                                 result.valid = false
                                 // Placed on each input by the templater, not joined into one blob under
-                                // the whole field. Held back until a save/enable attempt so opening a
-                                // template-started step (which always lacks a sender) reads as clean.
-                                if (hasAttemptedSave) {
+                                // the whole field. Held back until a save/enable attempt made with this
+                                // step present, so opening or adding a template-started step (which
+                                // always lacks a sender) reads as clean.
+                                if (saveAttemptedActionIds?.includes(action.id)) {
                                     result.emailErrors = emailErrors
                                 }
                             }
@@ -3336,7 +3342,13 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setExternallyEdited(false)
         },
+        submitWorkflow: () => {
+            actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
+        },
         saveWorkflowPartial: async ({ workflow }) => {
+            // Recorded before the error guard: an enable attempt on an invalid draft must still
+            // reveal the per-field step messages even though the save itself is aborted.
+            actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
             const merged = { ...values.workflow, ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 lemonToast.error('Fix all errors before enabling')
