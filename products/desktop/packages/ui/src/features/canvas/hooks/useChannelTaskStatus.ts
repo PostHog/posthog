@@ -1,4 +1,5 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { useAwaitingInputTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelTaskData } from "@posthog/ui/features/canvas/hooks/useChannelTaskData";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
@@ -30,6 +31,10 @@ export function useChannelTaskStatus(
   const task = item.task ?? undefined;
   const taskData = useChannelTaskData(task);
   const workspace = useWorkspace(task?.id);
+  // `deriveTaskData` reads the prompt off a live session, so a row whose session
+  // is cold reported nothing and stayed grey until you opened it. The backend
+  // recorded the same stop, and this set carries it.
+  const awaitingInput = useAwaitingInputTaskIds();
   const { prState, hasDiff } = useTaskPrStatus({
     // An empty id is the hook's own "nothing to look up", so this asks for no
     // query rather than one it throws away.
@@ -47,7 +52,8 @@ export function useChannelTaskStatus(
     isUnread: taskData.isUnread,
     isPinned: taskData.isPinned,
     isSuspended: taskData.isSuspended,
-    needsPermission: taskData.needsPermission,
+    needsPermission:
+      taskData.needsPermission || (!!task && awaitingInput.has(task.id)),
     taskRunStatus: taskData.taskRunStatus,
     runMode: taskData.runMode,
     originProduct: taskData.originProduct,

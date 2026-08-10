@@ -6,7 +6,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
-import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
+import { useAwaitingInputTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import {
   type TaskTimestamps,
   wantsAttention,
@@ -150,7 +150,7 @@ export function useRecentSpaceTasks(
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds } = usePinnedTasks();
   const { timestamps: viewedAt } = useTaskViewed();
-  const blockedTaskIds = useBlockedTaskIds();
+  const blockedTaskIds = useAwaitingInputTaskIds();
 
   const pagePerSpace = useQueries({
     queries: spaceIds.map((spaceId) => ({
