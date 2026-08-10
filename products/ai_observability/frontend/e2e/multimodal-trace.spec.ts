@@ -15,7 +15,10 @@ const FIXTURE = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'generation-ev
 const SCREENSHOT_BYTES = fs.readFileSync(path.join(FIXTURE_DIR, 'screenshot.png'))
 const POINTER_RE = /phaiblob:\/\/v1\/sha256\/(?<hash>[0-9a-f]{64})\?mime=(?<mime>[^&]+)&size=(?<size>\d+)/
 
-test.describe('AI observability multimodal trace', () => {
+// Skipped: the dev stack's combined ingestion consumer has no AI_BLOB_* config, so the offload
+// step is disabled and the payload stays inline base64 — this spec's phaiblob:// pointer never
+// appears. Re-enable once https://github.com/PostHog/posthog/pull/80799 lands.
+test.describe.skip('AI observability multimodal trace', () => {
     test('a screenshot sent through ingestion renders in the trace view', async ({
         page,
         request,
