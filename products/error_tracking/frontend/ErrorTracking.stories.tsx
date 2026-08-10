@@ -149,6 +149,9 @@ const meta: Meta = {
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/spike_events': [200, { results: [] }],
+                // The issue scene's side panel looks up inbox reports for the issue. Empty keeps this
+                // story's snapshot unchanged; the populated section has its own story.
+                '/api/projects/:team_id/signals/reports/': [200, { next: null, results: [] }],
                 '/api/environments/:team_id/session_recordings/:id/capture_diagnostics/': [
                     200,
                     { properties: { $has_recording: true, $recording_status: 'active' } },

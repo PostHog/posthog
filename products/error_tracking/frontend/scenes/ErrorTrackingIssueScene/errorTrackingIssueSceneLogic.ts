@@ -26,6 +26,7 @@ import {
 } from 'lib/components/Errors/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -40,6 +41,9 @@ import {
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
+
+import { signalsReportsList } from 'products/signals/frontend/generated/api'
+import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type {
     ErrorTrackingExternalReference,
@@ -95,6 +99,8 @@ export interface errorTrackingIssueSceneLogicValues {
     issueId: string
     issueLoading: boolean
     lastSeen: Dayjs | null
+    linkedReports: SignalReportApi[]
+    linkedReportsLoading: boolean
     listDateRange: DateRange | null
     maxContext: MaxContextInput[]
     mobileDetailOpen: boolean
@@ -253,6 +259,21 @@ export interface errorTrackingIssueSceneLogicActions {
         payload?: {
             value: true
         }
+    }
+    loadLinkedReports: () => any
+    loadLinkedReportsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLinkedReportsSuccess: (
+        linkedReports: SignalReportApi[],
+        payload?: any
+    ) => {
+        linkedReports: SignalReportApi[]
+        payload?: any
     }
     loadSpikeEvents: () => any
     loadSpikeEventsFailure: (
@@ -726,6 +747,34 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
             },
         ],
+        linkedReports: [
+            [] as SignalReportApi[],
+            {
+                // The lookup runs on the signals endpoint, which already matches a report by the
+                // signals that fed it. Error tracking tags its signals with the issue id as
+                // `source_id`, so the same filter walks the link back the other way.
+                loadLinkedReports: async (): Promise<SignalReportApi[]> => {
+                    try {
+                        // No `include_all_statuses`: the endpoint's default already hides deleted and
+                        // dismissed reports, and a report someone dismissed in the inbox shouldn't
+                        // come back as an open thread on the issue.
+                        const response = await signalsReportsList(getCurrentTeamId().toString(), {
+                            source_id: props.id,
+                            source_product: 'error_tracking',
+                            // The endpoint's default ordering leads with the viewer's own review
+                            // queue, which is an inbox concern. Here the question is what happened to
+                            // this error most recently.
+                            ordering: '-updated_at',
+                        })
+                        return response.results || []
+                    } catch (error) {
+                        // Supplementary context: a signals or ClickHouse hiccup must not break the issue.
+                        console.error('Failed to load linked reports:', error)
+                        return []
+                    }
+                },
+            },
+        ],
         spikeEvents: [
             [] as ErrorTrackingSpikeEvent[],
             {
@@ -911,6 +960,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.loadSummary()
             actions.loadIssueFingerprints()
             actions.loadSpikeEvents()
+            actions.loadLinkedReports()
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),

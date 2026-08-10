@@ -26,6 +26,7 @@ import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { IssueCohort } from './IssueCohort'
+import { LinkedReports } from './LinkedReports'
 
 export const ErrorTrackingIssueScenePanel = ({
     issue,
@@ -40,6 +41,7 @@ export const ErrorTrackingIssueScenePanel = ({
                 <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
                 <IssueExternalReference />
                 <IssueCohort issue={issue} />
+                <LinkedReports />
             </ScenePanelInfoSection>
             <ScenePanelDivider />
             <ScenePanelActionsSection>
