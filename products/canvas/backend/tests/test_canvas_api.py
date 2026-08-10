@@ -635,12 +635,24 @@ class TestCanvasDraftBuilds(CanvasAPIBaseTest):
         builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
         assert builds["current_version_id"] == head_id
 
-        versions = {
-            row["id"]: row
+        # A draft stays out of the published-history timeline (undo/revert), so
+        # only the head shows there and the draft is not revertable onto.
+        version_ids = [
+            row["id"]
             for row in self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/versions/").json()["results"]
-        }
-        assert versions[body["version_id"]]["draft"] is True
-        assert versions[head_id]["draft"] is False
+        ]
+        assert version_ids == [head_id]
+
+    def test_draft_is_not_revertable(self):
+        canvas_id, head_id = self._published_canvas()
+        draft_version_id = self._draft(canvas_id).json()["version_id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/revert/",
+            {"version_id": draft_version_id, "expected_current_version_id": head_id},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_draft_reports_capability_widening_over_head(self):
         canvas_id, head_id = self._published_canvas()

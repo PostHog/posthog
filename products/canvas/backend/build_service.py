@@ -524,15 +524,20 @@ def revert_to_version(
     user: User | None = None,
     was_impersonated: bool = False,
 ) -> tuple[Canvas, CanvasBuild]:
-    """Move the canvas's head back to an existing version and rebuild it.
+    """Move the canvas's head back to an existing published version and rebuild it.
 
-    Raises CanvasSourceVersion.DoesNotExist for a version that isn't this
-    canvas's, and CanvasBuildCapacityExceeded when the team cap is reached.
+    Drafts are not revertable: a draft reaches the head only through
+    promote_draft_version, which surfaces its capability widening first.
+    Raises CanvasSourceVersion.DoesNotExist for a version that isn't one of this
+    canvas's published versions, and CanvasBuildCapacityExceeded when the team
+    cap is reached.
     """
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(canvas, has_expected_version=True, expected_version_id=expected_current_version_id)
         previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
-        version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=version_id, canvas_id=canvas.id)
+        version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
+            pk=version_id, canvas_id=canvas.id, draft=False
+        )
         canvas.current_source_version = version
         canvas.save(update_fields=["current_source_version", "updated_at"])
         build = _queue_build(version)

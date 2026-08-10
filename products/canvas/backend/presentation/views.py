@@ -290,9 +290,18 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET"], detail=True)
     def versions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """The canvas's source-version history, newest first (metadata only)."""
+        """The canvas's published source-version history, newest first (metadata only).
+
+        Drafts are excluded: they are staged versions that have never been the
+        head, so they are not part of the undo/revert timeline. Fetch a draft's
+        files with `source?version_id=` to preview it before promoting.
+        """
         canvas = self.get_object()
-        versions = canvas.source_versions.select_related("created_by").order_by("-created_at")[:VERSIONS_WINDOW]
+        versions = (
+            canvas.source_versions.filter(draft=False)
+            .select_related("created_by")
+            .order_by("-created_at")[:VERSIONS_WINDOW]
+        )
         page = self.paginate_queryset(versions)
         if page is not None:
             return self.get_paginated_response(CanvasVersionSerializer(page, many=True).data)
