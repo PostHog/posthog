@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { NotFound } from 'lib/components/NotFound'
@@ -525,6 +533,12 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
             {actionFormErrors?.min_score ? (
                 <span className="text-xs text-danger">{String(actionFormErrors.min_score)}</span>
             ) : null}
+            <LemonCheckbox
+                checked={actionForm.alert_include_reasoning}
+                onChange={(checked) => setActionFormValue('alert_include_reasoning', checked)}
+                label="Include the scanner's reasoning in the message"
+                data-attr="vision-action-alert-include-reasoning"
+            />
             <span className="text-xs text-muted">
                 {everyMatch
                     ? 'Checked every few minutes; each notification covers the new matches since the last check.'
