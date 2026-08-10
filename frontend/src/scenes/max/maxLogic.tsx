@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -150,6 +151,16 @@ export interface MaxLogicProps {
 
 function shouldSyncMaxUrl(props: MaxLogicProps): boolean {
     return props.syncUrl !== false && props.panelId !== SIDE_PANEL_PANEL_ID
+}
+
+// Whether `/ai` is the route the user is currently looking at. Ownership of `/ai` is not static: while
+// a turn streams, maxThreadLogic holds a mount lock that keeps this scene logic alive after the user
+// navigates away, and the homepage inline chat reuses a scene tab id on another route. In both cases the
+// prop check passes but writing the URL would drag the user back to `/ai`, so the actionToUrl callbacks
+// also check this at the moment they fire.
+function maxRouteIsActive(): boolean {
+    const pathname = removeProjectIdIfPresent(router.values.location.pathname)
+    return pathname === urls.ai() || pathname.startsWith(`${urls.ai()}/`)
 }
 
 // Only real scene tabs carry per-tab drafts and tab badges. Embedded panels, the side panel, and bare scene don't.
@@ -948,6 +959,9 @@ export const maxLogic = kea<maxLogicType>([
         }
         return {
             toggleConversationHistory: () => {
+                if (!maxRouteIsActive()) {
+                    return undefined
+                }
                 if (values.conversationHistoryVisible) {
                     return [urls.aiHistory(), {}, router.values.location.hash]
                 } else if (values.conversationId) {
@@ -956,12 +970,21 @@ export const maxLogic = kea<maxLogicType>([
                 return [urls.ai(), {}, router.values.location.hash]
             },
             startNewConversation: () => {
+                if (!maxRouteIsActive()) {
+                    return undefined
+                }
                 return [urls.ai(), {}, router.values.location.hash]
             },
             openConversation: ({ conversationId }) => {
+                if (!maxRouteIsActive()) {
+                    return undefined
+                }
                 return [urls.ai(conversationId), {}, router.values.location.hash]
             },
             setConversationId: ({ conversationId }) => {
+                if (!maxRouteIsActive()) {
+                    return undefined
+                }
                 // Only set the URL parameter if this is a new conversation (using frontendConversationId)
                 if (conversationId && conversationId === values.frontendConversationId) {
                     return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]

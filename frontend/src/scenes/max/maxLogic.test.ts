@@ -321,9 +321,9 @@ describe('maxLogic', () => {
         expect(router.values.location.pathname).toContain('/notebooks/notebook-short-id')
     })
 
-    it.each(routeActions)('scene chat navigates to /ai on $name', async ({ act }) => {
+    it.each(routeActions)('scene chat syncs to /ai on $name while /ai is the active route', async ({ act }) => {
         useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
-        router.actions.push('/insights/abc123')
+        router.actions.push(urls.ai())
 
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
@@ -332,6 +332,25 @@ describe('maxLogic', () => {
 
         expect(router.values.location.pathname).toContain(urls.ai())
     })
+
+    // A streaming turn keeps this scene logic mounted (via maxThreadLogic's mount lock) even after the
+    // user navigates away, and the homepage inline chat reuses a scene tab id on another route. In both
+    // cases a route-affecting action (notably setConversationId, which mints the id mid-stream) must not
+    // rewrite the URL. Otherwise the user is pulled back to /ai.
+    it.each(routeActions)(
+        'scene chat leaves the current route alone on $name when /ai is not active',
+        async ({ act }) => {
+            useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+            router.actions.push('/insights/abc123')
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => act()).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toContain('/insights/abc123')
+        }
+    )
 
     it('uses threadLogicKey correctly with frontendConversationId', async () => {
         logic = maxLogic({ panelId: 'test' })
