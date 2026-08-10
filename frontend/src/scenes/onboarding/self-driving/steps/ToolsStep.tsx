@@ -16,11 +16,6 @@ import {
 } from '../../shared/useCases'
 import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
 
-/**
- * Shows the use case's tool collection, already turned on by use-case selection - transparency,
- * not a decision. The inline "Turn on" button appears only when an auto-enable call failed (e.g.
- * the toggle is admin-gated), so that failure path keeps a home without a screen per product.
- */
 export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { selectedUseCase } = useValues(useCaseSelectionLogic)
 
@@ -30,7 +25,7 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
     const tools = [
         ...setupTools.map((tool) => ({
             productKey: tool.productKey,
-            name: tool.productPath,
+            name: tool.displayName ?? tool.productPath,
             description: tool.benefit,
             docsUrl: DOCS_URL_BY_PRODUCT_PATH[tool.productPath],
             iconType: toolIconType(tool),

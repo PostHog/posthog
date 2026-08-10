@@ -7,12 +7,8 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ONBOARDING_USE_CASES } from '../../shared/useCases'
 import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
 
-/**
- * One declared use case, so the rest of the flow can drive toward it as fast as possible. Picking
- * a row advances; "set up everything" is the no-use-case path (the flow's skip, so funnels see it).
- */
 export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }): JSX.Element {
-    const { selectUseCase } = useActions(useCaseSelectionLogic)
+    const { clearUseCase, selectUseCase } = useActions(useCaseSelectionLogic)
 
     return (
         <div className="flex flex-col gap-4 py-1">
@@ -55,10 +51,11 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
                     type="tertiary"
                     size="small"
                     onClick={() => {
+                        clearUseCase()
                         onSkip()
                     }}
                 >
-                    Not sure yet, set up everything
+                    Continue without choosing a goal
                 </LemonButton>
             </div>
         </div>

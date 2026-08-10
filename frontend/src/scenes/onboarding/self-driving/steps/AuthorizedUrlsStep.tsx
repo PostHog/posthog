@@ -30,9 +30,10 @@ export function AuthorizedUrlsStep({
     return (
         <div className="flex flex-col gap-5">
             <p className="text-secondary text-center m-0">
-                Add each domain your site runs on. Web analytics uses these to show where your traffic comes from.
+                Add each full URL where your site runs. Web analytics uses these URLs to show where your traffic comes
+                from.
             </p>
-            <LemonBanner type="info">Use exact URLs, not wildcards.</LemonBanner>
+            <LemonBanner type="info">Include https:// in each URL. Wildcards are not supported.</LemonBanner>
             <AuthorizedUrlList
                 type={AuthorizedUrlListType.WEB_ANALYTICS}
                 allowWildCards={false}

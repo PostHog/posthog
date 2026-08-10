@@ -34,9 +34,8 @@ export type OnboardingToolKey =
     | 'ai_observability'
 
 export interface OnboardingTool {
-    /** `path` of the tool's entry in the products registry (`getTreeItemsProducts()`) - the
-     * display name, and where icon, docs, and sidebar item resolve from. */
     productPath: string
+    displayName?: string
     productKey: ProductKey
     /** One line: what the tool contributes to the self-driving loop. */
     benefit: string
@@ -70,7 +69,8 @@ export const ONBOARDING_TOOLS: Record<OnboardingToolKey, OnboardingTool> = {
         options: ['web_vitals', 'heatmaps', 'network_performance'],
     },
     ai_observability: {
-        productPath: 'AI Observability',
+        productPath: 'LLM analytics',
+        displayName: 'AI observability',
         productKey: ProductKey.AI_OBSERVABILITY,
         benefit: 'Traces, costs, and failures from your LLM features.',
         options: [],
@@ -247,7 +247,6 @@ export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
     },
 ]
 
-/** The "set up everything" path (no declared use case). */
 const DEFAULT_SETUP: OnboardingSetup = {
     primaryProduct: ProductKey.PRODUCT_ANALYTICS,
     tools: ['product_analytics', 'session_replay', 'error_tracking'],

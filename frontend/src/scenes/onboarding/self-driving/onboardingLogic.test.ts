@@ -1,14 +1,17 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { onboardingLogic } from './onboardingLogic'
+import { useCaseSelectionLogic } from './useCaseSelectionLogic'
 
 describe('onboardingLogic', () => {
     let logic: ReturnType<typeof onboardingLogic.build>
@@ -16,6 +19,9 @@ describe('onboardingLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         useMocks({
+            get: {
+                '/api/environments/:team_id/user_product_list': async () => [200, { results: [], count: 0 }],
+            },
             patch: {
                 '/api/environments/:team_id/': async ({ request }) => [
                     200,
@@ -94,26 +100,50 @@ describe('onboardingLogic', () => {
         )
     })
 
-    it('registers the selected use case primary and secondary intents when onboarding completes', async () => {
+    it('records each selected product once and persists completion last', async () => {
+        let addIntentRequests = 0
+        let customProductLoads = 0
         const intents: { intent_context: ProductIntentContext; product_type: ProductKey }[] = []
+        const writes: string[] = []
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, surveys_opt_in: true })
         useMocks({
+            get: {
+                '/api/environments/:team_id/user_product_list': () => {
+                    customProductLoads++
+                    return [200, { results: [], count: 0 }]
+                },
+            },
             patch: {
-                '/api/environments/:team_id/': async ({ request }) => [
-                    200,
-                    { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, unknown>) },
-                ],
-                '/api/environments/:team_id/add_product_intent/': async ({ request }) => {
-                    intents.push(
-                        (await request.json()) as { intent_context: ProductIntentContext; product_type: ProductKey }
-                    )
+                '/api/environments/:team_id/': async ({ request }) => {
+                    const update = (await request.json()) as Record<string, unknown>
+                    if (update.completed_snippet_onboarding) {
+                        writes.push('completion')
+                    }
+                    return [200, { ...MOCK_DEFAULT_TEAM, ...update }]
+                },
+                '/api/environments/:team_id/add_product_intent/': () => {
+                    addIntentRequests++
                     return [200, { product_intents: [] }]
                 },
-                '/api/environments/:team_id/complete_product_onboarding': async () => [200, { product_intents: [] }],
+                '/api/environments/:team_id/complete_product_onboarding': async ({ request }) => {
+                    const intent = (await request.json()) as {
+                        intent_context: ProductIntentContext
+                        product_type: ProductKey
+                    }
+                    intents.push(intent)
+                    writes.push(`intent:${intent.product_type}`)
+                    return [200, { ...MOCK_DEFAULT_TEAM, product_intents: [] }]
+                },
             },
         })
+        useCaseSelectionLogic.actions.selectUseCase('find_problems')
 
         await logic.asyncActions.completeOnboarding('find_problems')
 
+        expect(addIntentRequests).toBe(0)
+        expect(intents).toHaveLength(6)
+        expect(new Set(intents.map(({ product_type }) => product_type)).size).toBe(6)
+        expect(intents).not.toContainEqual(expect.objectContaining({ product_type: ProductKey.SURVEYS }))
         expect(intents).toEqual(
             expect.arrayContaining([
                 {
@@ -130,5 +160,50 @@ describe('onboardingLogic', () => {
                 },
             ])
         )
+        expect(customProductLoads).toBe(1)
+        expect(writes.at(-1)).toBe('completion')
+        expect(useCaseSelectionLogic.values.selectedUseCase).toBeNull()
+    })
+
+    it('reports onboarding completion once with the shared event schema', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+
+        await logic.asyncActions.completeOnboarding('find_problems')
+
+        expect(capture.mock.calls.filter(([event]) => event === 'onboarding completed')).toEqual([
+            [
+                'onboarding completed',
+                {
+                    product_key: ProductKey.ERROR_TRACKING,
+                    version: 2,
+                    flow_variant: 'context_first',
+                },
+            ],
+        ])
+        capture.mockRestore()
+    })
+
+    it('does not persist completion when a product intent request fails', async () => {
+        let completionUpdates = 0
+        silenceKeaLoadersErrors()
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/': async ({ request }) => {
+                    const update = (await request.json()) as Record<string, unknown>
+                    if (update.completed_snippet_onboarding) {
+                        completionUpdates++
+                    }
+                    return [200, { ...MOCK_DEFAULT_TEAM, ...update }]
+                },
+                '/api/environments/:team_id/complete_product_onboarding': () => [500, {}],
+            },
+        })
+
+        try {
+            await logic.asyncActions.completeOnboarding('find_problems')
+            expect(completionUpdates).toBe(0)
+        } finally {
+            resumeKeaLoadersErrors()
+        }
     })
 })

@@ -23,7 +23,7 @@ function ProductsBeingInstalled(): JSX.Element {
     const tools = resolveSetup(selectedUseCase).tools.map((key) => ONBOARDING_TOOLS[key])
     return (
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted">
-            <span>Installing:</span>
+            <span>Tools for your setup:</span>
             {tools.map((tool) => (
                 <Link
                     key={tool.productPath}
@@ -34,7 +34,7 @@ function ProductsBeingInstalled(): JSX.Element {
                     <span className="flex text-sm group/colorful-product-icons colorful-product-icons-true">
                         {iconForType(toolIconType(tool))}
                     </span>
-                    {tool.productPath}
+                    {tool.displayName ?? tool.productPath}
                 </Link>
             ))}
         </div>
@@ -43,9 +43,9 @@ function ProductsBeingInstalled(): JSX.Element {
 
 /** What the self-driving run wires up, so the command isn't a leap of faith. */
 const WIZARD_SETS_UP = [
-    'Connects your GitHub, so agents can open pull requests',
-    'Picks the signal sources and scouts worth watching',
-    'Sends findings to your inbox as they land',
+    'Connects GitHub so agents can open pull requests',
+    'Chooses signal sources and scouts to watch',
+    'Sends findings to the Inbox',
 ]
 
 // The self-driving run is interactive: it asks about your issue tracker, walks you through the
@@ -78,7 +78,8 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
     return (
         <div className="flex flex-col gap-4">
             <p className="text-sm text-muted text-center m-0">
-                Run this in your project. It sets everything up and hands back an inbox that's already working.
+                Run this command in your project. The setup agent connects GitHub, chooses signal sources, and
+                configures scouts.
             </p>
             <WizardInstallOptions
                 hideHog

@@ -30,17 +30,6 @@ import { UseCasesStep } from './steps/UseCasesStep'
 import { WelcomeStep } from './steps/WelcomeStep'
 import { useCaseSelectionLogic } from './useCaseSelectionLogic'
 
-/**
- * The self-driving onboarding: run the wizard, turn on the built-in signal sources, pick a plan,
- * land in the inbox.
- *
- * The wizard's `self-driving` program does the repo-side configuration — GitHub, signal sources,
- * scouts. Team-level tool opt-ins (session replay, error tracking) live here instead: the wizard's
- * API key deliberately never gets the product_enablement scope, so the app is the only place that
- * turns tools on. Everything else this flow shows — the command, the run's progress, payment — it
- * streams rather than owns.
- */
-
 interface StepDef {
     id: SelfDrivingOnboardingStepId
     title: string
@@ -70,17 +59,10 @@ const EXTRA_STEPS: Record<OnboardingExtraStepId, StepDef> = {
     },
 }
 
-/**
- * Say what this is, run the wizard, turn on the sources the wizard can't, pick a plan. The wizard
- * does the repo-side configuration (sources, scouts, GitHub); the team-level opt-ins are enabled
- * here because only the signed-in app carries the product_enablement scope.
- */
 function buildSteps(useCase: OnboardingUseCaseKey | null): StepDef[] {
     return [
         { id: 'welcome', title: '', Content: WelcomeStep },
-        // One declared use case so the rest of the flow can drive toward it. Picking a card
-        // advances; "set up everything" is the step's skip. The step id stays 'goals' so the
-        // funnel's history is unbroken.
+        // The step id stays 'goals' so existing funnel queries continue to work.
         {
             id: 'goals',
             title: 'What do you want to get done first?',
@@ -114,7 +96,7 @@ function buildSteps(useCase: OnboardingUseCaseKey | null): StepDef[] {
 // The card: chrome (sm+ panel; full-bleed on mobile) plus the content flex-column. Width varies per
 // step via StepDef.maxWidth — SelfDrivingOnboarding just provides the backdrop + logo.
 const CARD_CLASSES =
-    'relative w-full flex flex-col gap-5 overflow-hidden p-0 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-[#f6f5f0] sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(30_50_10_/_25%)] sm:border sm:border-primary'
+    'relative w-full flex flex-col gap-5 overflow-hidden p-0 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(30_50_10_/_25%)] sm:border sm:border-primary'
 
 export function SelfDrivingOnboardingFlow(): JSX.Element {
     const { claimInlinePanel, releaseInlinePanel } = useActions(wizardSyncUiLogic)

@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import type { SourceToolStatus } from '../../signalSourcesLogic'
+import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterSource } from './agentRosterMeta'
@@ -66,6 +66,75 @@ interface AgentCardProps {
     enablingTool: boolean
     onToggle: (source: AgentRosterSource) => void
     onEnableTool: (tool: SourceToolStatus) => void
+    onRetryData: () => void
+}
+
+function ToolDataStatus({
+    agent,
+    status,
+    onRetry,
+}: {
+    agent: AgentRosterDefinition
+    status: SourceToolDataStatus
+    onRetry: () => void
+}): JSX.Element | null {
+    if (status === 'unavailable') {
+        return null
+    }
+
+    if (status === 'loading') {
+        return (
+            <div className="flex items-center gap-1.5 mt-2 ml-11 text-xs text-muted">
+                <Spinner className="text-xs" />
+                Checking for recent data
+            </div>
+        )
+    }
+
+    if (status === 'error') {
+        return (
+            <div className="flex items-center gap-2 mt-2 ml-11 text-xs text-muted">
+                <span>Couldn't check recent data.</span>
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        onRetry()
+                    }}
+                >
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (status === 'recent') {
+        return (
+            <div className="flex items-center gap-1.5 mt-2 ml-11 text-xs text-muted">
+                <span className="size-1.5 rounded-full bg-success" />
+                Data received in the last 30 days
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex items-center gap-2 mt-2 ml-11 text-xs text-muted">
+            <span className="size-1.5 rounded-full bg-border-bold" />
+            <span>No data received in the last 30 days.</span>
+            {agent.docsUrl && (
+                <Link
+                    to={agent.docsUrl}
+                    target="_blank"
+                    className="inline-flex items-center gap-1"
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    Check setup
+                    <IconArrowUpRight />
+                </Link>
+            )}
+        </div>
+    )
 }
 
 const AgentCard = memo(function AgentCard({
@@ -75,11 +144,12 @@ const AgentCard = memo(function AgentCard({
     enablingTool,
     onToggle,
     onEnableTool,
+    onRetryData,
 }: AgentCardProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus } = state
     const status = resolveAgentStatus(armed, syncStatus)
     const statusTag = STATUS_TAG[status]
-    const toolOff = !!tool && !tool.enabled
+    const toolOff = tool?.enabled === false
     // An off tool blocks arming (the source would watch nothing), never disarming.
     const armingBlocked = toolOff && !armed
     const isInteractive = !loading && !armingBlocked
@@ -176,11 +246,8 @@ const AgentCard = memo(function AgentCard({
                         </LemonButton>
                     )}
                 </div>
-            ) : tool?.receivingData !== null && tool?.receivingData !== undefined ? (
-                <div className="flex items-center gap-1.5 mt-2 ml-11 text-xs text-muted">
-                    <span className={`size-1.5 rounded-full ${tool.receivingData ? 'bg-success' : 'bg-border-bold'}`} />
-                    {tool.receivingData ? 'Receiving data' : 'No data yet'}
-                </div>
+            ) : tool ? (
+                <ToolDataStatus agent={agent} status={tool.dataStatus} onRetry={onRetryData} />
             ) : null}
 
             {armed && agent.source === 'session_replay' && status === 'syncing' && (
@@ -232,6 +299,7 @@ export function AgentsRoster(): JSX.Element {
         toggleHealthChecks,
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
+        loadToolDataEvents,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -396,6 +464,7 @@ export function AgentsRoster(): JSX.Element {
                                     }
                                     onToggle={handleToggle}
                                     onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
+                                    onRetryData={loadToolDataEvents}
                                 />
                             ))}
                     </div>
