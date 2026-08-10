@@ -143,12 +143,14 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type AccountProperties = {
       /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
       email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -198,7 +200,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: AccountProperties;
@@ -4656,8 +4658,12 @@ export namespace Schemas {
     }
 
     export interface HogQLFilters {
+      /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
+      breakdownFilter?: BreakdownFilter | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
+      interval?: IntervalType | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
@@ -10316,6 +10322,47 @@ export namespace Schemas {
       AzureBlob: 'AzureBlob',
     } as const;
 
+    export interface BackfillEstimateResponse {
+      /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
+      total_sessions: number;
+      /** Cost ceiling in credits (1 credit = $0.01): total_sessions x credits_per_observation. Actual spend lands under it: sessions already tried, expired recordings, and failures are not billed. */
+      total_credits: number;
+      /** Per-observation credit price at the scanner's current model. */
+      credits_per_observation: number;
+      /**
+         * Credits left in the org's monthly quota; null when the org is uncapped.
+         * @nullable
+         */
+      credits_remaining: number | null;
+      /** The window lower bound the estimate covered. */
+      window_start: string;
+      /** The window upper bound after clamping to now. */
+      window_end: string;
+    }
+
+    /**
+     * * `running` - Running
+     * * `paused_quota` - Paused (quota)
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     */
+    export type BackfillStatusEnum = typeof BackfillStatusEnum[keyof typeof BackfillStatusEnum];
+
+
+    export const BackfillStatusEnum = {
+      Running: 'running',
+      PausedQuota: 'paused_quota',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface BackfillWindow {
+      /** Inclusive lower bound of the historical window to scan. */
+      window_start: string;
+      /** Exclusive upper bound of the window; clamped server-side to now. */
+      window_end: string;
+    }
+
     /**
      * * `AED` - AED
      * * `AFN` - AFN
@@ -13273,16 +13320,43 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * Read shape for list/retrieve/create-response. `cimd_url` is nullable here for
+     * tokens issued before URL binding; the write serializers below require a value.
+     */
     export interface CIMDVerificationToken {
       readonly id: string;
-      /** @maxLength 40 */
-      label: string;
+      /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+      readonly label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+         * @maxLength 2048
+         * @nullable
+         */
+      readonly cimd_url: string | null;
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
       readonly last_used_at: string | null;
+    }
+
+    /**
+     * Write shape for `create`. `cimd_url` is required and non-null: only tokens
+     * issued before URL binding existed are nullable, not new ones.
+     */
+    export interface CIMDVerificationTokenCreate {
+      /**
+         * Human-readable name to identify this token later, e.g. 'Production CIMD partner'.
+         * @maxLength 40
+         */
+      label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this URL, so a copy hosted anywhere else is rejected. Host case, an explicit :443 and a trailing slash are normalized away; the path is case-sensitive.
+         * @maxLength 2048
+         */
+      cimd_url: string;
     }
 
     /**
@@ -13293,8 +13367,14 @@ export namespace Schemas {
      */
     export interface CIMDVerificationTokenWithValue {
       readonly id: string;
-      /** @maxLength 40 */
-      label: string;
+      /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+      readonly label: string;
+      /**
+         * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+         * @maxLength 2048
+         * @nullable
+         */
+      readonly cimd_url: string | null;
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_by: UserBasic;
@@ -13438,6 +13518,52 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    /**
+     * Sync state of one connected calendar (read-only).
+     */
+    export interface CalendarSyncStatus {
+      /** Id of the google-calendar integration. */
+      readonly integration_id: number;
+      /**
+         * When the last sync run completed; null before the first sync.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+      /** Whether a sync run is currently in flight. */
+      readonly is_syncing: boolean;
+    }
+
+    /**
+     * Request body of the calendar sync-now trigger.
+     */
+    export interface CalendarSyncTrigger {
+      /** Id of the google-calendar integration to sync. */
+      integration_id: number;
+    }
+
+    /**
+     * * `started` - started
+     * * `already_running` - already_running
+     */
+    export type CalendarSyncTriggerResponseStatusEnum = typeof CalendarSyncTriggerResponseStatusEnum[keyof typeof CalendarSyncTriggerResponseStatusEnum];
+
+
+    export const CalendarSyncTriggerResponseStatusEnum = {
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Response of the calendar sync-now trigger.
+     */
+    export interface CalendarSyncTriggerResponse {
+      /** 'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).
+       *
+       * * `started` - started
+       * * `already_running` - already_running */
+      status: CalendarSyncTriggerResponseStatusEnum;
     }
 
     /**
@@ -15649,6 +15775,145 @@ export namespace Schemas {
       readonly diff: string;
       /** True when the diff was too large to return in full and has been truncated. */
       readonly truncated: boolean;
+    }
+
+    /**
+     * Arbitrary key-value metadata carried from the skill's frontmatter.
+     */
+    export type CommunitySkillMetadata = { [key: string]: unknown };
+
+    /**
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     */
+    export type TrustTierEnum = typeof TrustTierEnum[keyof typeof TrustTierEnum];
+
+
+    export const TrustTierEnum = {
+      Official: 'official',
+      Verified: 'verified',
+      Community: 'community',
+    } as const;
+
+    export interface CommunitySkillFileManifest {
+      /** @maxLength 500 */
+      path: string;
+      /** @maxLength 100 */
+      content_type?: string;
+    }
+
+    export interface CommunitySkill {
+      readonly id: string;
+      /** Stable identifier matching the skill's directory in the community-skills repo. */
+      readonly slug: string;
+      /** Display name of the skill. */
+      readonly name: string;
+      /** What the skill does and when to use it. */
+      readonly description: string;
+      /** The SKILL.md instruction content (markdown). */
+      readonly body: string;
+      /** License name or reference. */
+      readonly license: string;
+      /** Environment requirements declared by the skill. */
+      readonly compatibility: string;
+      /** Tools the skill declares it may use. Surface these to the user before install. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+      metadata?: CommunitySkillMetadata;
+      /** Free-form tags used for filtering and discovery. */
+      tags?: string[];
+      /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+       *
+       * * `official` - Official
+       * * `verified` - Verified
+       * * `community` - Community */
+      trust_tier: TrustTierEnum;
+      /** GitHub handle (or name) of the contributor who published the skill. */
+      readonly author_handle: string;
+      /** Link to the skill's source directory on GitHub. */
+      readonly github_url: string;
+      /** Bundled files manifest — path and content_type only. File contents are copied in on install. */
+      readonly files: readonly CommunitySkillFileManifest[];
+      /** Number of times this skill has been installed into a team. */
+      readonly install_count: number;
+      /** Total number of upvotes this skill has received. */
+      readonly vote_count: number;
+      /** Whether the requesting user has upvoted this skill. */
+      readonly has_voted: boolean;
+      /**
+         * When the skill was first published to the community repo.
+         * @nullable
+         */
+      readonly published_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface CommunitySkillInstall {
+      /**
+         * Name for the installed skill in your team. Defaults to the community skill's slug.
+         * @maxLength 64
+         */
+      new_name?: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata carried from the skill's frontmatter.
+     */
+    export type CommunitySkillListMetadata = { [key: string]: unknown };
+
+    /**
+     * List serializer that omits body and file manifest — progressive disclosure.
+     */
+    export interface CommunitySkillList {
+      readonly id: string;
+      /** Stable identifier matching the skill's directory in the community-skills repo. */
+      readonly slug: string;
+      /** Display name of the skill. */
+      readonly name: string;
+      /** What the skill does and when to use it. */
+      readonly description: string;
+      /** License name or reference. */
+      readonly license: string;
+      /** Environment requirements declared by the skill. */
+      readonly compatibility: string;
+      /** Tools the skill declares it may use. Surface these to the user before install. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+      metadata?: CommunitySkillListMetadata;
+      /** Free-form tags used for filtering and discovery. */
+      tags?: string[];
+      /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+       *
+       * * `official` - Official
+       * * `verified` - Verified
+       * * `community` - Community */
+      trust_tier: TrustTierEnum;
+      /** GitHub handle (or name) of the contributor who published the skill. */
+      readonly author_handle: string;
+      /** Link to the skill's source directory on GitHub. */
+      readonly github_url: string;
+      /** Number of times this skill has been installed into a team. */
+      readonly install_count: number;
+      /** Total number of upvotes this skill has received. */
+      readonly vote_count: number;
+      /** Whether the requesting user has upvoted this skill. */
+      readonly has_voted: boolean;
+      /**
+         * When the skill was first published to the community repo.
+         * @nullable
+         */
+      readonly published_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface CommunitySkillVoteResponse {
+      /** Total upvotes after applying the toggle. */
+      vote_count: number;
+      /** Whether the requesting user is now an upvoter. */
+      has_voted: boolean;
     }
 
     export interface CompareItem {
@@ -17948,6 +18213,7 @@ export namespace Schemas {
      * * `Completed` - Completed
      * * `Failed` - Failed
      * * `Running` - Running
+     * * `Skipped` - Skipped
      */
     export type DataModelingJobStatusEnum = typeof DataModelingJobStatusEnum[keyof typeof DataModelingJobStatusEnum];
 
@@ -17957,6 +18223,7 @@ export namespace Schemas {
       Completed: 'Completed',
       Failed: 'Failed',
       Running: 'Running',
+      Skipped: 'Skipped',
     } as const;
 
     export interface DataModelingJob {
@@ -20015,6 +20282,7 @@ export namespace Schemas {
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
      * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -21302,6 +21570,7 @@ export namespace Schemas {
       Wix: 'Wix',
       Sevalla: 'Sevalla',
       Motion: 'Motion',
+      ImpactPartner: 'ImpactPartner',
     } as const;
 
     /**
@@ -22602,7 +22871,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -24591,7 +24861,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -27589,6 +27860,8 @@ export namespace Schemas {
       estimated_credits_per_month: number;
       /** Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
       other_enabled_scanners_monthly_credits: number;
+      /** Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own segment instead of adding it to a per-month total. */
+      active_backfill_credits: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
     }
@@ -29173,6 +29446,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentApiExposureCriteria {
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      activation_config?: ExperimentApiExposureConfig | null;
       exposure_config?: ExperimentApiExposureConfig | null;
       filterTestAccounts?: boolean | null;
       /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
@@ -29489,6 +29764,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureCriteria {
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
@@ -30186,6 +30463,136 @@ export namespace Schemas {
     export interface ExperimentSessionContextsResponse {
       /** Per-session experiment context, in the order the session IDs were requested. Sessions whose recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, as are recordings you don't have access to and sessions beyond the batch's recording-day budget (only the most recent days are computed). Fetch omitted sessions individually via the single-session endpoint. */
       results: ExperimentSessionContextResponse[];
+    }
+
+    /**
+     * * `behavior` - behavior
+     * * `friction` - friction
+     * * `metric` - metric
+     */
+    export type ExperimentWatchCardKindEnum = typeof ExperimentWatchCardKindEnum[keyof typeof ExperimentWatchCardKindEnum];
+
+
+    export const ExperimentWatchCardKindEnum = {
+      Behavior: 'behavior',
+      Friction: 'friction',
+      Metric: 'metric',
+    } as const;
+
+    /**
+     * * `only` - only
+     * * `far_more` - far_more
+     * * `more` - more
+     * * `slightly_more` - slightly_more
+     */
+    export type ExperimentWatchCardStrengthEnum = typeof ExperimentWatchCardStrengthEnum[keyof typeof ExperimentWatchCardStrengthEnum];
+
+
+    export const ExperimentWatchCardStrengthEnum = {
+      Only: 'only',
+      FarMore: 'far_more',
+      More: 'more',
+      SlightlyMore: 'slightly_more',
+    } as const;
+
+    /**
+     * One group of recordings worth opening, and the sentence that justifies it.
+     *
+     * Deliberately no rate, no ratio and no person count: a precise number next to an event name is
+     * an effect size, and the experiment's results publish those for everything it measures, computed
+     * over a different window and a different unit. The only number here is how many recordings the
+     * card can actually show.
+     */
+    export interface ExperimentWatchCard {
+      /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'metric' for a shortcut to recordings around one of the experiment's own metric events. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
+       *
+       * * `behavior` - behavior
+       * * `friction` - friction
+       * * `metric` - metric */
+      kind: ExperimentWatchCardKindEnum;
+      /** The event behind the card. */
+      event: string;
+      /** The variant whose recordings these are: for comparison cards, the one that did the event more. */
+      variant: string;
+      /** How far apart this variant and the rest are, as a band rather than a number: 'only' when nobody in the other variants did it at all among the people compared, then 'far_more', 'more' and 'slightly_more'. Read off the conservative end of the difference, so a card that clears the bar only because the sample is large reports as slight. Null on metric cards, which compare nothing. Present a band as a comparison ('far more common in test'), never convert it into a multiple.
+       *
+       * * `only` - only
+       * * `far_more` - far_more
+       * * `more` - more
+       * * `slightly_more` - slightly_more */
+      strength: ExperimentWatchCardStrengthEnum | null;
+      /**
+         * The metric whose event this card shortcuts to. Null outside metric cards.
+         * @nullable
+         */
+      metric_name: string | null;
+      /** How many recordings the card carries, at most 20. Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. */
+      recording_count: number;
+      /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
+      session_ids: string[];
+    }
+
+    /**
+     * One variant's compared population.
+     */
+    export interface ExperimentWatchArm {
+      /** The variant key. */
+      key: string;
+      /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
+      persons: number;
+      /** Exposed sessions those people were seen in, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
+      sessions: number;
+    }
+
+    /**
+     * * `exclude` - exclude
+     * * `first_seen` - first_seen
+     */
+    export type ExperimentWatchMultipleVariantHandlingEnum = typeof ExperimentWatchMultipleVariantHandlingEnum[keyof typeof ExperimentWatchMultipleVariantHandlingEnum];
+
+
+    export const ExperimentWatchMultipleVariantHandlingEnum = {
+      Exclude: 'exclude',
+      FirstSeen: 'first_seen',
+    } as const;
+
+    /**
+     * The recordings worth watching for this experiment, grouped into cards.
+     *
+     * Descriptive, never a result: cards say where behavior visibly differed and hand over the
+     * recordings, while the experiment's results measure its metrics over the whole run window and
+     * state the magnitudes. Nothing here says a variant is winning.
+     */
+    export interface ExperimentSessionEventDeltaResponse {
+      /** The shelf, strongest comparison first, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. The experiment's own metric events never appear as comparisons: see metric_events. */
+      cards: ExperimentWatchCard[];
+      /** Every variant's compared population, in the flag's variant order. */
+      arms: ExperimentWatchArm[];
+      /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
+      multiple_variant_persons: number;
+      /** How the experiment handles someone who saw more than one variant, followed here so the cards split their people the same way the analysis does.
+       *
+       * * `exclude` - exclude
+       * * `first_seen` - first_seen */
+      multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum;
+      /** The experiment's own metric events, which never enter the behavior comparison. They are the events it was built to move, so they would top the ranking on nearly every experiment, and the experiment's results already say what happened to them with the statistics that go with a result. They can appear as 'metric' shortcut cards, which claim nothing. */
+      metric_events: string[];
+      /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days (2 when sessions are matched on the stamped flag property, which no event name can prune a scan on), but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
+      date_from: string;
+      /** End of what was compared: the experiment's end date, or now while it runs. */
+      date_to: string;
+      /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
+      filter_test_accounts: boolean;
+      /** True when the compared sessions were matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', and the variant comes from the flag's value on each event, so a returning user can be counted under a variant they were re-bucketed into later. */
+      used_exposure_fallback: boolean;
+      /** True when the experiment had more exposed sessions in the requested window than one comparison covers, so the most recent ones were used and date_from is later than the experiment's own window. Every variant is still covered over the same stretch of time. */
+      sessions_truncated: boolean;
+      /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
+      events_truncated: boolean;
+      /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
+      min_arm_persons: number;
+      /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
+      too_early: boolean;
     }
 
     /**
@@ -32142,7 +32549,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -33461,7 +33869,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -39477,6 +39886,18 @@ export namespace Schemas {
       readonly code_name: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+         * @nullable
+         */
+      values_query?: string | null;
+      /**
+         * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+         * @nullable
+         */
+      values_query_connection_id?: string | null;
     }
 
     export interface InsightViewedRequest {
@@ -40386,6 +40807,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40466,6 +40892,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40593,6 +41024,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40681,6 +41117,8 @@ export namespace Schemas {
     export interface LLMSkillVersionSummary {
       readonly id: string;
       readonly version: number;
+      /** @nullable */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly is_latest: boolean;
@@ -43744,6 +44182,48 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    /**
+     * One attendee of a synced calendar meeting (read-only).
+     */
+    export interface MeetingParticipant {
+      /** Email address of the attendee. */
+      readonly email: string;
+      /** Display name from the calendar event; may be empty. */
+      readonly display_name: string;
+      /** The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'. */
+      readonly response_status: string;
+      /** Whether this attendee organized the meeting. */
+      readonly is_organizer: boolean;
+      /**
+         * UUID of the PostHog person resolved for this attendee, if any.
+         * @nullable
+         */
+      readonly person_id: string | null;
+    }
+
+    /**
+     * A calendar meeting synced from a connected employee calendar (read-only).
+     */
+    export interface Meeting {
+      /** UUID of the meeting. */
+      readonly id: string;
+      /** Meeting title; may be empty. */
+      readonly title: string;
+      /** When the meeting starts. */
+      readonly start_time: string;
+      /**
+         * When the meeting ends.
+         * @nullable
+         */
+      readonly end_time: string | null;
+      /** Email address of the meeting organizer; may be empty. */
+      readonly organizer_email: string;
+      /** Meeting status: 'confirmed', 'tentative', or 'cancelled'. */
+      readonly status: string;
+      /** Attendees of the meeting. */
+      readonly participants: readonly MeetingParticipant[];
+    }
+
     export interface MemberAccessUpdate {
       /** Gateway server to toggle for the member. */
       gateway_server_id: string;
@@ -44906,6 +45386,7 @@ export namespace Schemas {
      * * `schedule` - Schedule
      * * `on_demand` - On demand
      * * `retry` - Retry
+     * * `backfill` - Backfill
      */
     export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
 
@@ -44914,6 +45395,7 @@ export namespace Schemas {
       Schedule: 'schedule',
       OnDemand: 'on_demand',
       Retry: 'retry',
+      Backfill: 'backfill',
     } as const;
 
     /**
@@ -45987,6 +46469,15 @@ export namespace Schemas {
       results: Comment[];
     }
 
+    export interface PaginatedCommunitySkillListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CommunitySkillList[];
+    }
+
     export interface PaginatedConversationMinimalList {
       count: number;
       /** @nullable */
@@ -46885,6 +47376,15 @@ export namespace Schemas {
       results: MaxCoreMemory[];
     }
 
+    export interface PaginatedMeetingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Meeting[];
+    }
+
     export interface PaginatedMessageCategoryList {
       count: number;
       /** @nullable */
@@ -47600,14 +48100,20 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.
+      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
        *
        * * `schedule` - Schedule
        * * `on_demand` - On demand
-       * * `retry` - Retry */
+       * * `retry` - Retry
+       * * `backfill` - Backfill */
       readonly triggered_by: ObservationTriggerEnum;
       /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
+      /**
+         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+         * @nullable
+         */
+      readonly backfill_id: string | null;
       /**
          * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
          * @nullable
@@ -47646,6 +48152,46 @@ export namespace Schemas {
       results: ReplayObservation[];
     }
 
+    export interface ReplayScannerBackfill {
+      readonly id: string;
+      readonly status: BackfillStatusEnum;
+      /** Inclusive lower bound of the historical window to scan. */
+      readonly window_start: string;
+      /** Exclusive upper bound of the window; clamped to now at creation. */
+      readonly window_end: string;
+      /** Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation. */
+      readonly total_count: number;
+      readonly dispatched_count: number;
+      /** Candidates the walk stepped over because this scanner had already tried them. Counted at creation but never dispatched, so progress and remaining spend both have to account for them. */
+      readonly skipped_count: number;
+      /** Per-observation credit price frozen at creation from the snapshot model. */
+      readonly credits_per_observation: number;
+      /** Observations from this backfill that succeeded. */
+      readonly succeeded_count: number;
+      /** Observations from this backfill that failed. */
+      readonly failed_count: number;
+      /** Sessions that turned out ineligible (too short, expired recording, ...). */
+      readonly ineligible_count: number;
+      /** Observations from this backfill still pending or running. */
+      readonly in_flight_count: number;
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      /**
+         * When the backfill reached a terminal status (completed or cancelled).
+         * @nullable
+         */
+      readonly finished_at: string | null;
+    }
+
+    export interface PaginatedReplayScannerBackfillList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReplayScannerBackfill[];
+    }
+
     /**
      * * `google` - Google
      */
@@ -47655,6 +48201,25 @@ export namespace Schemas {
     export const ScannerProviderEnum = {
       Google: 'google',
     } as const;
+
+    /**
+     * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
+     */
+    export interface ScannerExperimentTargeting {
+      /**
+         * The experiment the scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Targeted experiment variants. Empty means every variant.
+         * @maxItems 50
+         * @items.maxLength 400
+         */
+      variant_keys: string[];
+      /** True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead. */
+      use_exposure_fallback: boolean;
+    }
 
     /**
      * A Replay Vision scanner: its type, targeting query, and AI configuration.
@@ -47708,6 +48273,8 @@ export namespace Schemas {
       enabled?: boolean;
       /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
+      /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
+      experiment_targeting?: ScannerExperimentTargeting | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
       /**
@@ -49936,6 +50503,18 @@ export namespace Schemas {
       schema_version: number;
     }
 
+    /**
+     * * `agent` - agent
+     * * `user` - user
+     */
+    export type UploadedByEnum = typeof UploadedByEnum[keyof typeof UploadedByEnum];
+
+
+    export const UploadedByEnum = {
+      Agent: 'agent',
+      User: 'user',
+    } as const;
+
     export interface TaskRunArtifactResponse {
       /** Stable identifier for the artifact within this run */
       id?: string;
@@ -49955,9 +50534,16 @@ export namespace Schemas {
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
       uploaded_at: string;
+      /** Whether the artifact version was uploaded by the task agent or an interactive user.
+       *
+       * * `agent` - agent
+       * * `user` - user */
+      uploaded_by?: UploadedByEnum;
+      /** User id for an interactive user upload. Absent for agent uploads and legacy entries. */
+      uploaded_by_user_id?: number;
       /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
       dismissed_at?: string;
-      /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+      /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
       url?: string;
     }
 
@@ -50031,6 +50617,13 @@ export namespace Schemas {
       completed_at?: string | null;
     }
 
+    export interface SlackThreadReferenceDTO {
+      url: string;
+      channel: string;
+      /** @nullable */
+      created_at?: string | null;
+    }
+
     /**
      * @nullable
      */
@@ -50083,6 +50676,7 @@ export namespace Schemas {
       ci_prompt: string | null;
       /** @nullable */
       channel?: string | null;
+      readonly slack_thread_references: readonly SlackThreadReferenceDTO[];
     }
 
     export interface PaginatedTaskDetailDTOList {
@@ -51642,12 +52236,14 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type PatchedAccountProperties = {
       /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
       email_domains?: string[];
+      /** Individual email addresses pinned to this account, matched before the domain fallback. */
+      known_emails?: string[];
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -51683,7 +52279,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -52028,6 +52624,19 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever
+     * performs a null -> value transition: `validate` rejects any instance whose `cimd_url`
+     * is already set, so an existing binding can never be re-pointed through this endpoint.
+     */
+    export interface PatchedCIMDVerificationTokenUpdate {
+      /**
+         * HTTPS URL of the CIMD metadata document to bind this token to. Only settable once, on a token with no existing binding; an already-bound token must be reissued instead.
+         * @maxLength 2048
+         */
+      cimd_url?: string;
     }
 
     /**
@@ -54747,6 +55356,18 @@ export namespace Schemas {
       readonly code_name?: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+         * @nullable
+         */
+      values_query?: string | null;
+      /**
+         * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+         * @nullable
+         */
+      values_query_connection_id?: string | null;
     }
 
     /**
@@ -54892,6 +55513,11 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+      /**
+         * Optional note describing what changed in this version. Shown in the version history.
+         * @maxLength 400
+         */
+      version_description?: string;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
@@ -56889,6 +57515,8 @@ export namespace Schemas {
       enabled?: boolean;
       /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
+      /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
+      experiment_targeting?: ScannerExperimentTargeting | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
       /**
@@ -58023,12 +58651,12 @@ export namespace Schemas {
     export interface PatchedSurveySerializerCreateUpdateOnlySchema {
       readonly id?: string;
       /**
-         * Survey name.
+         * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
          * @minLength 1
          * @maxLength 400
          */
       name?: string;
-      /** Survey description. */
+      /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
       description?: string;
       /** Survey type.
        *
@@ -59806,6 +60434,26 @@ export namespace Schemas {
       status: number;
       /** The target project's response body, passed through. */
       data: unknown;
+    }
+
+    export interface PostHogConnectionTarget {
+      /** Project id to use in target API paths. It is the connected project's id, not this one's. */
+      project_id: number;
+      /** Name of the connected project. */
+      project_name: string;
+      /** Id of the organization the connected project belongs to. */
+      organization_id: string;
+      /** Name of the organization the connected project belongs to. */
+      organization_name: string;
+      /** Cloud region the connected project lives in, e.g. `US` or `EU`. */
+      region: string;
+      /** Base URL requests through this connection are sent to. */
+      base_url: string;
+    }
+
+    export interface PostHogConnectionTargetError {
+      /** Why the connected project's context could not be read. */
+      error: string;
     }
 
     /**
@@ -69568,7 +70216,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -70897,7 +71546,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -72216,7 +72866,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -73206,12 +73857,12 @@ export namespace Schemas {
     export interface SurveySerializerCreateUpdateOnlySchema {
       readonly id: string;
       /**
-         * Survey name.
+         * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
          * @minLength 1
          * @maxLength 400
          */
       name: string;
-      /** Survey description. */
+      /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
       description?: string;
       /** Survey type.
        *
@@ -76186,8 +76837,12 @@ export namespace Schemas {
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
-      /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      /** `scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate. */
       readonly projected_monthly_credits: number;
+      /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
+      readonly scanners_monthly_credits: number;
+      /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
+      readonly backfills_committed_credits: number;
       /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
       readonly free_monthly_credits: number;
     }
@@ -76287,6 +76942,12 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
+      /**
+         * GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.
+         * @maxItems 3
+         * @items.maxLength 255
+         */
+      repositories?: string[];
       /**
          * Primary key of the team's GitHub integration to clone with when a repository is selected.
          * @nullable
@@ -79118,6 +79779,21 @@ export namespace Schemas {
     include_history?: boolean;
     };
 
+    export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string;
+    };
+
     export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
@@ -79290,6 +79966,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -79352,6 +80029,7 @@ export namespace Schemas {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
      * @minLength 1
@@ -79384,6 +80062,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
       Dashboard: 'Dashboard',
@@ -79446,6 +80125,7 @@ export namespace Schemas {
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
+      DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
     } as const;
@@ -79464,6 +80144,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -79526,6 +80207,7 @@ export namespace Schemas {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
      */
@@ -79546,6 +80228,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
       Dashboard: 'Dashboard',
@@ -79608,6 +80291,7 @@ export namespace Schemas {
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
+      DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
     } as const;
@@ -80124,6 +80808,59 @@ export namespace Schemas {
       Any: 'any',
       Comment: 'comment',
       Task: 'task',
+    } as const;
+
+    export type CommunitySkillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort key. Defaults to most-installed first.
+     *
+     * * `-created_at` - -created_at
+     * * `-install_count` - -install_count
+     * * `-name` - -name
+     * * `-published_at` - -published_at
+     * * `-vote_count` - -vote_count
+     * * `created_at` - created_at
+     * * `install_count` - install_count
+     * * `name` - name
+     * * `published_at` - published_at
+     * * `vote_count` - vote_count
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Substring filter on skill names and descriptions; also matches a tag exactly (case-insensitive).
+     */
+    search?: string;
+    /**
+     * Return only skills carrying this exact tag (case-insensitive).
+     */
+    tag?: string;
+    /**
+     * Filter to a single moderation tier.
+     *
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     * @minLength 1
+     */
+    trust_tier?: CommunitySkillsListTrustTier;
+    };
+
+    export type CommunitySkillsListTrustTier = typeof CommunitySkillsListTrustTier[keyof typeof CommunitySkillsListTrustTier];
+
+
+    export const CommunitySkillsListTrustTier = {
+      Official: 'official',
+      Verified: 'verified',
+      Community: 'community',
     } as const;
 
     export type ConversationsListParams = {
@@ -87550,6 +88287,10 @@ export namespace Schemas {
 
     export type VisionObservationsRetrieveParams = {
     /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
+    /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string;
@@ -87582,7 +88323,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -87604,6 +88345,10 @@ export namespace Schemas {
      * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
      */
     enabled?: string;
+    /**
+     * Filter to scanners whose targeting watches the given experiment.
+     */
+    experiment_id?: string;
     /**
      * Number of results to return per page.
      */
@@ -87651,7 +88396,22 @@ export namespace Schemas {
     window_days?: number;
     };
 
+    export type VisionScannersBackfillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type VisionScannersObservationsListParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -87693,7 +88453,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -87703,6 +88463,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -87736,7 +88500,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -87746,6 +88510,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -87779,7 +88547,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**

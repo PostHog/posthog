@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
     GOOGLE_ANALYTICS_REPORT_SCHEMAS,
+    CustomReportError,
+    parse_custom_reports,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
     GoogleAnalyticsSource,
@@ -24,8 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
-def _config(property_id: str = "123456789") -> GoogleAnalyticsSourceConfig:
-    return GoogleAnalyticsSourceConfig(property_id=property_id, google_analytics_integration_id=1)
+def _config(property_id: str = "123456789", custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
+    return GoogleAnalyticsSourceConfig(
+        property_id=property_id, google_analytics_integration_id=1, custom_reports=custom_reports
+    )
 
 
 def test_source_type():
@@ -36,7 +40,7 @@ def test_get_source_config_fields():
     cfg = GoogleAnalyticsSource().get_source_config
 
     field_names = {field.name for field in cfg.fields}
-    assert field_names == {"google_analytics_integration_id", "property_id"}
+    assert field_names == {"google_analytics_integration_id", "property_id", "custom_reports"}
     assert cfg.label == "Google Analytics"
     assert cfg.featureFlag is None
     assert cfg.releaseStatus == ReleaseStatus.GA
@@ -89,6 +93,76 @@ def test_get_schemas_default_sync_set():
 def test_get_schemas_filters_by_names():
     schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1, names=["website_overview", "events"])
     assert {s.name for s in schemas} == {"website_overview", "events"}
+
+
+def test_get_schemas_includes_user_defined_custom_reports():
+    # A configured custom report shows up alongside the built-ins, default-on (the user
+    # explicitly asked for it) and incremental like every other report.
+    custom = '[{"name": "paid_campaigns", "dimensions": ["sessionCampaignName"], "metrics": ["sessions"]}]'
+    schemas = GoogleAnalyticsSource().get_schemas(_config(custom_reports=custom), team_id=1)
+
+    by_name = {s.name: s for s in schemas}
+    assert set(GOOGLE_ANALYTICS_REPORT_SCHEMAS.keys()) <= by_name.keys()
+    assert "paid_campaigns" in by_name
+    assert by_name["paid_campaigns"].should_sync_default is True
+    assert by_name["paid_campaigns"].supports_incremental is True
+
+
+def test_parse_custom_reports_prepends_date_and_derives_primary_key():
+    # `date` always leads the dimensions (day-grained) and the primary key is date + all
+    # dimensions, matching the built-in convention that incremental/merge sync relies on.
+    reports = parse_custom_reports(
+        '[{"name": "campaign_grain", "dimensions": ["date", "sessionCampaignName"], "metrics": ["sessions"]}]'
+    )
+    schema = reports["campaign_grain"]
+    assert schema["dimensions"] == ["date", "sessionCampaignName"]
+    assert schema["primary_key"] == ["date", "sessionCampaignName"]
+    assert schema["metrics"] == ["sessions"]
+
+
+def test_parse_custom_reports_empty_input_returns_no_reports():
+    assert parse_custom_reports(None) == {}
+    assert parse_custom_reports("   ") == {}
+
+
+@pytest.mark.parametrize(
+    "custom_reports,expected_substring",
+    [
+        ("not json", "valid JSON"),
+        ('{"name": "x"}', "JSON array"),
+        ('[{"dimensions": ["a"], "metrics": ["sessions"]}]', "non-empty 'name'"),
+        ('[{"name": "website_overview", "dimensions": [], "metrics": ["sessions"]}]', "built-in report name"),
+        (
+            '[{"name": "dup", "metrics": ["sessions"]}, {"name": "dup", "metrics": ["sessions"]}]',
+            "Duplicate custom report name",
+        ),
+        ('[{"name": "no_metrics", "dimensions": ["country"], "metrics": []}]', "at least one metric"),
+        ('[{"name": "bad_dim", "dimensions": ["not a dim!"], "metrics": ["sessions"]}]', "not a valid GA4"),
+        (
+            '[{"name": "too_many_dims", "dimensions": ["a","b","c","d","e","f","g","h","i"], "metrics": ["s"]}]',
+            "at most 9 dimensions",
+        ),
+        (
+            '[{"name": "too_many_metrics", "dimensions": ["a"], '
+            '"metrics": ["m1","m2","m3","m4","m5","m6","m7","m8","m9","m10","m11"]}]',
+            "at most 10 metrics",
+        ),
+    ],
+)
+def test_parse_custom_reports_rejects_invalid(custom_reports, expected_substring):
+    with pytest.raises(CustomReportError) as exc:
+        parse_custom_reports(custom_reports)
+    assert expected_substring in str(exc.value)
+
+
+def test_validate_credentials_rejects_invalid_custom_reports():
+    # A malformed custom-report config is surfaced at setup, before any GA4 call, so the
+    # user fixes their JSON instead of hitting an opaque runReport failure mid-sync.
+    ok, message = GoogleAnalyticsSource().validate_credentials(
+        _config(custom_reports='[{"name": "x", "dimensions": ["country"], "metrics": []}]'), team_id=1
+    )
+    assert ok is False
+    assert "at least one metric" in (message or "")
 
 
 def test_all_schemas_have_date_dimension_and_in_primary_key():

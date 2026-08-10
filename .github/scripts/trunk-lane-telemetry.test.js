@@ -55,7 +55,7 @@ test('the ALL sentinel still reports no targets but is flagged', () => {
 // its weight, and it is not recoverable from the paths alone once the split
 // exists.
 test('tripwire domains are counted alongside the files', () => {
-    const props = buildProperties(['.oxlintrc.json', 'mypy.ini', 'pnpm-lock.yaml'], UNIVERSE, UNIVERSE)
+    const props = buildProperties(['.oxlintrc.json', 'mypy.ini', 'hogli.yaml'], UNIVERSE, UNIVERSE)
     assert.deepEqual(props.tripwire_domains, { javascript: 1, python: 1, universal: 1 })
 })
 

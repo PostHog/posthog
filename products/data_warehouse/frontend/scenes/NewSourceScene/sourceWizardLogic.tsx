@@ -1137,6 +1137,7 @@ export interface sourceWizardLogicActions {
             | 'Imagga'
             | 'ImfData'
             | 'Impact'
+            | 'ImpactPartner'
             | 'Imperva'
             | 'IncidentIo'
             | 'Infisical'
