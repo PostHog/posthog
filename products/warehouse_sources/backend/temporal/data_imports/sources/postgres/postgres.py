@@ -247,6 +247,16 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # activity. Match the stable code, distinct from genuine credential-rejection wordings
     # ("password authentication failed", "SASL authentication failed").
     "(eauthquery)",
+    # Supavisor caches the per-tenant database credentials it needs to authenticate and proxy
+    # connections; when it can't fetch them (e.g. its own metadata store is briefly unreachable) it
+    # retries internally and, after exhausting those attempts, trips an internal circuit breaker
+    # that rejects new connects outright rather than retrying forever: a bare OperationalError
+    # carrying "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts,
+    # new connections are temporarily blocked". Same class as EAUTHQUERY above — the pooler's own
+    # bookkeeping failing, not a rejection of the client's credentials — and the breaker resets once
+    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the
+    # stable code, distinct from genuine credential-rejection wordings.
+    "(ecircuitbreaker)",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
@@ -624,6 +634,25 @@ def _raised_while_closing_generator(error: BaseException) -> bool:
         seen.add(id(ctx))
         ctx = ctx.__context__
     return False
+
+
+def _schema_discovery_timeout_error() -> QueryTimeoutException:
+    """Build the timeout error for the schema discovery catalog scan in `_schemas_from_conn`.
+
+    That function already raises `statement_timeout` to `METADATA_STATEMENT_TIMEOUT_MS` before this
+    query, so hitting it here means the catalog has enough tables/columns in scope that enumerating
+    them can't finish even under the generous timeout — a fixed cost of the schema's size, not
+    something a retry against the same schema fixes. Narrowing the source's `schema` field, or the
+    tables selected for sync, is the customer's lever. Distinct wording from
+    `_statement_timeout_as_non_retryable`'s incremental-field message, which doesn't apply here —
+    this query scans every table in scope, not one column.
+    """
+    return QueryTimeoutException(
+        "Timed out listing table columns while discovering the database schema. There are enough "
+        "tables in scope that PostHog could not enumerate their columns within the timeout. Narrow "
+        "the schema selected for this source, or reduce the number of tables synced, then re-enable "
+        "the sync."
+    )
 
 
 def _pk_uniqueness_probe_timeout_error() -> QueryTimeoutException:
@@ -1400,39 +1429,49 @@ def _schemas_from_conn(
         )
         schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
-        cursor.execute(
-            f"""
-            SELECT * FROM (
-                SELECT
-                    table_schema,
-                    table_name,
-                    column_name,
-                    data_type,
-                    is_nullable,
-                    ordinal_position
-                FROM information_schema.columns
-                WHERE table_schema IN ({schema_placeholders})
-                UNION ALL
-                SELECT
-                    n.nspname AS table_schema,
-                    c.relname AS table_name,
-                    a.attname AS column_name,
-                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-                    a.attnum AS ordinal_position
-                FROM pg_class c
-                JOIN pg_namespace n ON c.relnamespace = n.oid
-                JOIN pg_attribute a ON a.attrelid = c.oid
-                WHERE c.relkind = 'm'
-                  AND n.nspname IN ({schema_placeholders})
-                  AND a.attnum > 0
-                  AND NOT a.attisdropped
-            ) t
-            ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
-            """,
-            schema_params,
-        )
-        result = cursor.fetchall()
+        try:
+            cursor.execute(
+                f"""
+                SELECT * FROM (
+                    SELECT
+                        table_schema,
+                        table_name,
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        ordinal_position
+                    FROM information_schema.columns
+                    WHERE table_schema IN ({schema_placeholders})
+                    UNION ALL
+                    SELECT
+                        n.nspname AS table_schema,
+                        c.relname AS table_name,
+                        a.attname AS column_name,
+                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+                        a.attnum AS ordinal_position
+                    FROM pg_class c
+                    JOIN pg_namespace n ON c.relnamespace = n.oid
+                    JOIN pg_attribute a ON a.attrelid = c.oid
+                    WHERE c.relkind = 'm'
+                      AND n.nspname IN ({schema_placeholders})
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
+                ) t
+                ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
+                """,
+                schema_params,
+            )
+            result = cursor.fetchall()
+        except psycopg.errors.QueryCanceled as e:
+            # QueryCanceled also covers a hot-standby recovery conflict mid-scan ("conflict with
+            # recovery"), which `get_schemas`'s outer `_retry_on_connection_dropped` already retries
+            # via `_is_recovery_conflict_error` — that one is transient and must keep propagating
+            # unconverted. Only a genuine statement_timeout means the catalog is too big to enumerate
+            # in time, where retrying re-runs the same futile scan against the same schema.
+            if "statement timeout" not in " ".join(str(arg) for arg in e.args).lower():
+                raise
+            raise _schema_discovery_timeout_error() from e
 
         columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         discovered_pairs_by_schema_and_table = {
