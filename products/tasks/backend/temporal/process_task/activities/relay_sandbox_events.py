@@ -503,7 +503,8 @@ async def _relay_loop(
                         run_id=run_id,
                         reconnect_count=reconnect_count,
                     )
-                    await asyncio.sleep(min(reconnect_count * 2, 10))
+                    if reconnect_count <= MAX_RECONNECT_ATTEMPTS:
+                        await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
