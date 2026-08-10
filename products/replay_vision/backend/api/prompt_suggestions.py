@@ -46,7 +46,7 @@ from products.replay_vision.backend.prompt_suggestions import (
     generate_prompt_suggestion,
     labels_fingerprint,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
@@ -428,7 +428,7 @@ class ReplayScannerPromptSuggestionViewSet(
             # overspend the month. An uncapped org (no credit limit) never trips this.
             planned = min(session_limit, rated_count)
             planned_credits = planned * observation_credits_for_model(scanner.model)
-            quota = compute_quota_snapshot(organization_id=self.team.organization_id)
+            quota = quota_state(organization_id=self.team.organization_id)
             if quota.would_exceed(planned_credits):
                 raise QuotaLimitExceeded(
                     detail=(
