@@ -19,7 +19,7 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
-        PersonHogLifecycleService::new(Arc::new(self.engine()))
+        PersonHogLifecycleService::new(Arc::new(self.engine()), self.tables.clone())
     }
 
     /// (is_deleted, version, properties) of a person row.
@@ -455,6 +455,60 @@ async fn a_recreated_distinct_id_revives_above_the_death_version() {
     let (is_deleted, version, _) = ctx.person_state(person_id).await;
     assert!(!is_deleted);
     assert_eq!(version, death_version + 1);
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn full_flow_works_on_a_configured_person_table() {
+    // Runs create, resolve, and the whole delete saga against
+    // personhog_person_tmp — a leftover hardcoded posthog_person in any of
+    // the interpolated queries would pass silently on the default table.
+    let ctx = TestContext::new_with_tables(common::tmp_tables()).await;
+    let service = ctx.lifecycle_service();
+    let distinct_id = format!("tmp-table-{}", Uuid::now_v7());
+
+    let person_id = ctx.create_person_via_stub(&distinct_id).await;
+
+    let key = (ctx.team_id, distinct_id.clone());
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(std::slice::from_ref(&key))
+        .await
+        .expect("resolve succeeds");
+    assert_eq!(resolved.get(&key).map(|p| p.id), Some(person_id));
+
+    let response = service
+        .delete_persons(Request::new(delete_request(
+            ctx.team_id,
+            vec![person_id],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("delete succeeds")
+        .into_inner();
+    assert_eq!(
+        outcomes(&response),
+        vec![(person_id, DeletePersonOutcome::Deleted)]
+    );
+
+    let (is_deleted, version): (bool, i64) = sqlx::query_as(
+        "SELECT is_deleted, version FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("tombstone row exists");
+    assert!(is_deleted);
+    assert!(version > SEAL_VERSION_MARGIN);
+
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(std::slice::from_ref(&key))
+        .await
+        .expect("resolve after delete succeeds");
+    assert!(resolved.is_empty(), "tombstoned person must not resolve");
 
     ctx.cleanup().await.expect("cleanup");
 }

@@ -12,6 +12,28 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub primary_database_url: String,
 
+    /// Person table every identity query reads and writes (stub creation,
+    /// resolution, and the delete saga's person mutations). Must pair with
+    /// the leader's FALLBACK_TABLE and the writer's PG_TARGET_TABLE so the
+    /// three services agree on where person rows live. Defaults to the
+    /// validation table, matching the writer; set to "posthog_person" at
+    /// production cutover — and flip all three services together.
+    #[envconfig(default = "personhog_person_tmp")]
+    pub person_table: String,
+
+    /// Distinct id table paired with PERSON_TABLE. Person ids come from the
+    /// person table's own sequence, so the mapping must live in the same
+    /// namespace (and posthog_persondistinctid's FK rejects ids that are not
+    /// in posthog_person). Set to "posthog_persondistinctid" at cutover.
+    #[envconfig(default = "personhog_persondistinctid_tmp")]
+    pub person_distinct_id_table: String,
+
+    /// Feature-flag hash-key-override table the delete saga clears by
+    /// person_id — same namespace rule as the distinct id table. Set to
+    /// "posthog_featureflaghashkeyoverride" at cutover.
+    #[envconfig(default = "personhog_featureflaghashkeyoverride_tmp")]
+    pub ff_hash_key_override_table: String,
+
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
@@ -127,7 +149,39 @@ pub struct Config {
     pub lifecycle_op_retention_hours: u64,
 }
 
+/// The paired table set identity operates on: the person table plus the
+/// tables it writes rows into (or clears rows from) keyed by that table's
+/// person ids. The three must come from the same namespace — mixing the
+/// validation set with the real set cross-contaminates id spaces.
+#[derive(Clone, Debug)]
+pub struct IdentityTables {
+    pub person: String,
+    pub person_distinct_id: String,
+    pub ff_hash_key_override: String,
+}
+
+impl IdentityTables {
+    pub fn validate(&self) -> Result<(), String> {
+        for table in [
+            &self.person,
+            &self.person_distinct_id,
+            &self.ff_hash_key_override,
+        ] {
+            personhog_common::persons::validate_table_name(table)?;
+        }
+        Ok(())
+    }
+}
+
 impl Config {
+    pub fn tables(&self) -> IdentityTables {
+        IdentityTables {
+            person: self.person_table.clone(),
+            person_distinct_id: self.person_distinct_id_table.clone(),
+            ff_hash_key_override: self.ff_hash_key_override_table.clone(),
+        }
+    }
+
     pub fn request_limits(&self) -> crate::service::validation::RequestLimits {
         crate::service::validation::RequestLimits {
             max_batch_size: self.max_batch_size,

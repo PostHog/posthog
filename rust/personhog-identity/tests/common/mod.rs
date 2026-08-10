@@ -7,60 +7,90 @@ use std::sync::Arc;
 use rand::Rng;
 use sqlx::postgres::PgPool;
 
+use personhog_identity::config::IdentityTables;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
+
+/// The production table set. Most tests run here; the raw-SQL assertion
+/// helpers in the test binaries assume it.
+pub fn default_tables() -> IdentityTables {
+    IdentityTables {
+        person: "posthog_person".to_string(),
+        person_distinct_id: "posthog_persondistinctid".to_string(),
+        ff_hash_key_override: "posthog_featureflaghashkeyoverride".to_string(),
+    }
+}
+
+/// The validation (shadow) table set — the service's config default.
+pub fn tmp_tables() -> IdentityTables {
+    IdentityTables {
+        person: "personhog_person_tmp".to_string(),
+        person_distinct_id: "personhog_persondistinctid_tmp".to_string(),
+        ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp".to_string(),
+    }
+}
 
 pub struct TestContext {
     pub pool: PgPool,
     pub storage: Arc<PostgresIdentityStorage>,
     pub team_id: i64,
+    pub tables: IdentityTables,
 }
 
 impl TestContext {
     pub async fn new() -> Self {
+        Self::new_with_tables(default_tables()).await
+    }
+
+    pub async fn new_with_tables(tables: IdentityTables) -> Self {
         let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgres://posthog:posthog@localhost:5432/posthog_persons".to_string()
         });
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let storage = Arc::new(PostgresIdentityStorage::new(pool.clone()));
+        let storage = Arc::new(PostgresIdentityStorage::new(pool.clone(), tables.clone()));
         let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         Self {
             pool,
             storage,
             team_id,
+            tables,
         }
     }
 
     /// Inserts a person with a random (non-deterministic) uuid plus a distinct
     /// id row pointing at it. Returns the person id.
     pub async fn insert_person_with_distinct_id(&self, distinct_id: &str) -> i64 {
-        let person_id: i64 = sqlx::query_scalar(
+        let insert_sql = format!(
             r#"
-            INSERT INTO posthog_person
+            INSERT INTO {}
                 (created_at, properties, properties_last_updated_at, properties_last_operation,
                  team_id, is_identified, uuid, version)
-            VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, gen_random_uuid(), 0)
+            VALUES (now(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, $1, false, gen_random_uuid(), 0)
             RETURNING id
             "#,
-        )
-        .bind(self.team_id as i32)
-        .fetch_one(&self.pool)
-        .await
-        .expect("Failed to insert person");
+            self.tables.person
+        );
+        let person_id: i64 = sqlx::query_scalar(&insert_sql)
+            .bind(self.team_id as i32)
+            .fetch_one(&self.pool)
+            .await
+            .expect("Failed to insert person");
 
-        sqlx::query(
+        let pdi_sql = format!(
             r#"
-            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+            INSERT INTO {} (distinct_id, person_id, team_id, version)
             VALUES ($1, $2, $3, 0)
             "#,
-        )
-        .bind(distinct_id)
-        .bind(person_id)
-        .bind(self.team_id as i32)
-        .execute(&self.pool)
-        .await
-        .expect("Failed to insert distinct id");
+            self.tables.person_distinct_id
+        );
+        sqlx::query(&pdi_sql)
+            .bind(distinct_id)
+            .bind(person_id)
+            .bind(self.team_id as i32)
+            .execute(&self.pool)
+            .await
+            .expect("Failed to insert distinct id");
 
         person_id
     }
@@ -84,14 +114,20 @@ impl TestContext {
             .bind(self.team_id as i32)
             .execute(&self.pool)
             .await?;
-        sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
-            .bind(self.team_id as i32)
-            .execute(&self.pool)
-            .await?;
-        sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
-            .bind(self.team_id as i32)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
+            self.tables.person_distinct_id
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
+            self.tables.person
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }
