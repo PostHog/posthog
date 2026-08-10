@@ -44,6 +44,25 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to read.
+    channel-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update channel instructions
+        description: >
+            Publish a complete replacement for a channel's CONTEXT.md. Read the current version with
+            channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if
+            another update changes the document.
+        param_overrides:
+            id:
+                description: ID of the channel whose instructions to update.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
     channel-list:
         operation: task_channels_list
         enabled: true
@@ -456,6 +475,9 @@ tools:
     tasks-runs-artifacts-finalize-upload-create:
         operation: tasks_runs_artifacts_finalize_upload_create
         enabled: false
+        description: >
+            Finalize a task run artifact uploaded through a prepared form. Before revising a file under the same name,
+            read its latest version because an interactive user may have edited it since the agent's last upload.
     tasks-runs-artifacts-prepare-upload-create:
         operation: tasks_runs_artifacts_prepare_upload_create
         enabled: false
