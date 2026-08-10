@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -177,6 +177,41 @@ export const IntegrationsLinearTeamsRetrieveParams = /* @__PURE__ */ zod.object(
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const IntegrationsUsersRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsUsersRetrieveQueryLimitDefault = 50
+export const integrationsUsersRetrieveQueryLimitMax = 200
+
+export const integrationsUsersRetrieveQueryOffsetDefault = 0
+export const integrationsUsersRetrieveQueryOffsetMin = 0
+
+export const integrationsUsersRetrieveQuerySearchDefault = ``
+
+export const IntegrationsUsersRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(integrationsUsersRetrieveQueryLimitMax)
+        .default(integrationsUsersRetrieveQueryLimitDefault)
+        .describe('Maximum number of members to return per request (max 200).'),
+    offset: zod
+        .number()
+        .min(integrationsUsersRetrieveQueryOffsetMin)
+        .default(integrationsUsersRetrieveQueryOffsetDefault)
+        .describe('Number of members to skip before returning results.'),
+    search: zod
+        .string()
+        .default(integrationsUsersRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive member name or ID search query.'),
 })
 
 /**

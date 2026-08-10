@@ -440,7 +440,8 @@ tools:
             the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30
             minutes apart; set null to return to the rolling interval. You can also configure
             `output_destinations.slack` with a Slack integration plus either a `channel` to post into or `users` to DM
-            directly (handy for personal scouts). `skill_name` is fixed. Enabling records
+            directly (handy for personal scouts) — find channel ids with integrations-channels-retrieve and member ids
+            with integrations-users-retrieve. `skill_name` is fixed. Enabling records
             who flipped it on and is activity-logged, since running a scout drives spend.
     scout-create:
         operation: signals_scout_create
