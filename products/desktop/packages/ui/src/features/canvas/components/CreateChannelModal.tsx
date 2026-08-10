@@ -27,7 +27,7 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 // Matches Slack's "Create a channel" naming constraint.
 const MAX_CONTEXT_NAME_LENGTH = 80;
@@ -41,6 +41,11 @@ const DESCRIPTION_EXAMPLES = [
 ];
 
 const DESCRIPTION_ROTATION_INTERVAL_MS = 5000;
+
+// Create mode's steps, in order. One dialog swaps between them — see below.
+const STEP_ORDER = ["name", "describe", "repositories"] as const;
+
+type Step = (typeof STEP_ORDER)[number];
 
 function RotatingDescriptionPlaceholder({ visible }: { visible: boolean }) {
   const [exampleIndex, setExampleIndex] = useState(0);
@@ -84,11 +89,12 @@ interface CreateChannelModalProps {
 }
 
 // Two dialogs in one, split on `existingContext`:
-// - Create mode: two steps. Step one names the channel; "Next" advances to step
-//   two, which asks what it's about. Nothing is created until that second step
-//   resolves — "Create" makes the channel and launches the context.md plan
-//   session seeded by the description, "Skip" makes the channel alone. Either
-//   way the user lands in the channel's feed, whose intro card carries the
+// - Create mode: one dialog whose contents step through name → description →
+//   repositories, so the flow never stacks a second modal over the first.
+//   Nothing is created until the last step resolves — "Create" makes the channel
+//   with the selected repositories and launches the context.md plan session
+//   seeded by the description, "Skip" leaves the repositories off. Either way
+//   the user lands in the channel's feed, whose intro card carries the
 //   onboarding (and offers context.md later if skipped).
 // - Describe mode: the "Create your context.md" dialog (opened from the intro
 //   card or the CONTEXT.md empty state). A single textarea whose text seeds
@@ -111,9 +117,7 @@ export function CreateChannelModal({
     number | null
   >(null);
   // Create mode's step. Describe mode has no name step, so it starts past it.
-  const [step, setStep] = useState<"name" | "describe" | "repositories">(
-    "name",
-  );
+  const [step, setStep] = useState<Step>("name");
   const descriptionHelperId = useId();
 
   // Reset the fields each time the modal opens so a previous draft never
@@ -250,8 +254,8 @@ export function CreateChannelModal({
 
   const descriptionField = (
     <Field>
-      {/* In create mode the nested dialog's title asks the question, so the
-          label would just repeat it. */}
+      {/* In create mode the step's title asks the question, so the label would
+          just repeat it. */}
       {isDescribeMode && (
         <>
           <FieldLabel htmlFor="context-description">
@@ -289,8 +293,8 @@ export function CreateChannelModal({
     </Field>
   );
 
-  // Describe mode is only ever the one dialog — the channel already exists, so
-  // there's no name step to nest under.
+  // Describe mode is only ever the one step — the channel already exists, so
+  // there's no name or repositories step around it.
   if (isDescribeMode) {
     return (
       <Dialog
@@ -328,6 +332,8 @@ export function CreateChannelModal({
     );
   }
 
+  const noun = spacesLayout ? "space" : "channel";
+
   return (
     <Dialog
       open={open}
@@ -335,190 +341,150 @@ export function CreateChannelModal({
         if (!busy) onOpenChange(next);
       }}
     >
-      {/* quill stacks a nested dialog by pushing the *parent* down, which would
-          leave step one peeking below step two. Invert it: pin this step at the
-          base gap and drop step two below it (see its content), so the stack
-          reads first-on-top. Inline style because these are CSS variables. */}
-      <DialogContent
-        showCloseButton={false}
-        className="sm:max-w-lg"
-        style={{ "--quill-dialog-top-gap": "max(1rem, 10vh)" } as CSSProperties}
-      >
+      <DialogContent showCloseButton={false} className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            Create a {spacesLayout ? "space" : "channel"}
+            {step === "name" && `Create a ${noun}`}
+            {step === "describe" && `What's this ${noun} about?`}
+            {step === "repositories" && "Link repositories"}
           </DialogTitle>
+          {step === "describe" && (
+            <DialogDescription id={descriptionHelperId}>
+              Tell PostHog about this {noun}. We'll use it to create a
+              CONTEXT.md file with relevant information for future tasks.
+            </DialogDescription>
+          )}
+          {step === "repositories" && (
+            <DialogDescription>
+              New tasks in this {noun} can use these repositories. You can
+              change them later.
+            </DialogDescription>
+          )}
         </DialogHeader>
 
-        <DialogBody className="flex flex-col gap-4">
-          <Field>
-            <FieldLabel htmlFor="context-name">Name</FieldLabel>
-            <Input
-              id="context-name"
-              autoFocus
-              value={name}
-              placeholder="e.g. mobile"
-              maxLength={MAX_CONTEXT_NAME_LENGTH}
+        <DialogBody viewportClassName="flex flex-col gap-4">
+          {step === "name" && (
+            <Field>
+              <FieldLabel htmlFor="context-name">Name</FieldLabel>
+              <Input
+                id="context-name"
+                autoFocus
+                value={name}
+                placeholder="e.g. mobile"
+                maxLength={MAX_CONTEXT_NAME_LENGTH}
+                disabled={busy}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (canAdvance) setStep("describe");
+                  }
+                }}
+              />
+              {nameError ? (
+                <FieldError>{nameError}</FieldError>
+              ) : (
+                <span className="text-gray-9 text-xs tabular-nums">
+                  {remaining} left
+                </span>
+              )}
+            </Field>
+          )}
+          {step === "describe" && descriptionField}
+          {step === "repositories" && (
+            <RepositoriesField
+              selected={repositories}
+              integrationId={repositoryIntegration}
               disabled={busy}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (canAdvance) setStep("describe");
-                }
+              onChange={(nextRepositories, nextIntegration) => {
+                setRepositories(nextRepositories);
+                setRepositoryIntegration(nextIntegration);
               }}
             />
-            {nameError ? (
-              <FieldError>{nameError}</FieldError>
-            ) : (
-              <span className="text-gray-9 text-xs tabular-nums">
-                {remaining} left
-              </span>
-            )}
-          </Field>
+          )}
         </DialogBody>
 
         <DialogFooter>
-          <DialogClose
-            render={
-              <Button variant="outline" disabled={busy}>
-                Cancel
-              </Button>
-            }
-          />
-          <Button
-            variant="primary"
-            disabled={!canAdvance}
-            onClick={() => setStep("describe")}
+          <Text
+            size="xs"
+            variant="muted"
+            render={<span />}
+            className="hidden tabular-nums sm:me-auto sm:flex sm:items-center"
           >
-            Next
-          </Button>
-        </DialogFooter>
+            Step {STEP_ORDER.indexOf(step) + 1} of {STEP_ORDER.length}
+          </Text>
 
-        {/* The About dialog stays mounted behind the repository step so Quill
-            can preserve the visual stack and return path. */}
-        <Dialog
-          open={step === "describe" || step === "repositories"}
-          onOpenChange={(next) => {
-            if (!busy && !next) setStep("name");
-          }}
-        >
-          <DialogContent
-            showCloseButton={false}
-            className="sm:max-w-lg"
-            // Sits below the name step, whose scaled-down top edge stays visible
-            // above this one.
-            style={
-              {
-                "--quill-dialog-top-gap": "max(1rem, 10vh + 1.5rem)",
-              } as CSSProperties
-            }
-          >
-            <DialogHeader>
-              <DialogTitle>
-                What's this {spacesLayout ? "space" : "channel"} about?
-              </DialogTitle>
-              <DialogDescription id={descriptionHelperId}>
-                Tell PostHog about this {spacesLayout ? "space" : "channel"}.
-                We'll use it to create a CONTEXT.md file with relevant
-                information for future tasks.
-              </DialogDescription>
-            </DialogHeader>
+          {step === "name" ? (
+            <DialogClose
+              render={
+                <Button variant="outline" disabled={busy}>
+                  Cancel
+                </Button>
+              }
+            />
+          ) : (
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                setStep(step === "repositories" ? "describe" : "name")
+              }
+            >
+              Back
+            </Button>
+          )}
 
-            <DialogBody viewportClassName="flex flex-col gap-4">
-              {descriptionField}
-            </DialogBody>
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => setStep("name")}
-              >
-                Back
-              </Button>
-              <Button
-                variant="default"
-                disabled={busy}
-                onClick={() => {
-                  setDescription("");
-                  setStep("repositories");
-                }}
-              >
-                Skip
-              </Button>
-              <Button
-                variant="primary"
-                disabled={!canDescribe}
-                onClick={() => void submitOnce(submitDescribeStep)}
-              >
-                Next
-              </Button>
-            </DialogFooter>
-
-            <Dialog
-              open={step === "repositories"}
-              onOpenChange={(next) => {
-                if (!busy && !next) setStep("describe");
+          {step === "describe" && (
+            <Button
+              variant="default"
+              disabled={busy}
+              onClick={() => {
+                setDescription("");
+                setStep("repositories");
               }}
             >
-              <DialogContent
-                showCloseButton={false}
-                className="sm:max-w-lg"
-                style={
-                  {
-                    "--quill-dialog-top-gap": "max(1rem, 10vh + 3rem)",
-                  } as CSSProperties
-                }
-              >
-                <DialogHeader>
-                  <DialogTitle>Link repositories</DialogTitle>
-                </DialogHeader>
+              Skip
+            </Button>
+          )}
+          {step === "repositories" && (
+            <Button
+              variant="default"
+              disabled={busy}
+              onClick={() => void submitOnce(() => submitCreate(false))}
+            >
+              Skip
+            </Button>
+          )}
 
-                <DialogBody viewportClassName="flex flex-col gap-3">
-                  <Text size="sm" variant="muted">
-                    New tasks in this {spacesLayout ? "space" : "channel"} can
-                    use these repositories. You can change them later.
-                  </Text>
-                  <RepositoriesField
-                    selected={repositories}
-                    integrationId={repositoryIntegration}
-                    disabled={busy}
-                    onChange={(nextRepositories, nextIntegration) => {
-                      setRepositories(nextRepositories);
-                      setRepositoryIntegration(nextIntegration);
-                    }}
-                  />
-                </DialogBody>
-
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setStep("describe")}
-                  >
-                    Back
-                  </Button>
-                  <Button
-                    variant="default"
-                    disabled={busy}
-                    onClick={() => void submitOnce(() => submitCreate(false))}
-                  >
-                    Skip
-                  </Button>
-                  <Button
-                    variant="primary"
-                    disabled={busy || repositories.length === 0}
-                    loading={busy}
-                    onClick={() => void submitOnce(() => submitCreate(true))}
-                  >
-                    Create
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </DialogContent>
-        </Dialog>
+          {step === "name" && (
+            <Button
+              variant="primary"
+              disabled={!canAdvance}
+              onClick={() => setStep("describe")}
+            >
+              Next
+            </Button>
+          )}
+          {step === "describe" && (
+            <Button
+              variant="primary"
+              disabled={!canDescribe}
+              onClick={() => void submitOnce(submitDescribeStep)}
+            >
+              Next
+            </Button>
+          )}
+          {step === "repositories" && (
+            <Button
+              variant="primary"
+              disabled={busy || repositories.length === 0}
+              loading={busy}
+              onClick={() => void submitOnce(() => submitCreate(true))}
+            >
+              Create
+            </Button>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
