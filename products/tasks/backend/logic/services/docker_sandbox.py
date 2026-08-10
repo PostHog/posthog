@@ -258,6 +258,7 @@ class DockerSandbox(SandboxBase):
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
             os.path.join(monorepo_root, "patches"),
+            os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
                 for package_name in ("agent", "harness", "shared", "git", "enricher")
@@ -334,11 +335,14 @@ class DockerSandbox(SandboxBase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_path = os.path.join(tmpdir, "local-workspace")
             packages_path = os.path.join(workspace_path, "packages")
+            scripts_path = os.path.join(workspace_path, "scripts")
             os.makedirs(packages_path)
+            os.makedirs(scripts_path)
 
             for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
             shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
+            shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
             for package_name in ("agent", "harness", "shared", "git", "enricher"):
                 shutil.copytree(
