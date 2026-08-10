@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -39,9 +39,10 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { DashboardFilter, Node, ProductKey, TileFilters } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -170,7 +171,7 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
+    const { exportContext, insightData, insightDataRaw, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
         insightAlertsLogic({
@@ -236,6 +237,9 @@ export function InsightMeta({
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
+
+    const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
+    const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
@@ -593,28 +597,45 @@ export function InsightMeta({
                         )}
 
                         {/* Data related */}
-                        {exportContext ? (
+                        {exportContext || showCopyTableData ? (
                             <>
                                 <LemonDivider />
-                                <ExportButton
-                                    fullWidth
-                                    items={[
-                                        {
-                                            export_format: ExporterFormat.PNG,
-                                            insight: insight.id,
-                                            dashboard: insightLogicProps.dashboardId,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.CSV,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.XLSX,
-                                            export_context: exportContext,
-                                        },
-                                    ]}
-                                />
+                                {exportContext ? (
+                                    <ExportButton
+                                        fullWidth
+                                        items={[
+                                            {
+                                                export_format: ExporterFormat.PNG,
+                                                insight: insight.id,
+                                                dashboard: insightLogicProps.dashboardId,
+                                                export_context: exportContext,
+                                            },
+                                            {
+                                                export_format: ExporterFormat.CSV,
+                                                export_context: exportContext,
+                                            },
+                                            {
+                                                export_format: ExporterFormat.XLSX,
+                                                export_context: exportContext,
+                                            },
+                                        ]}
+                                    />
+                                ) : null}
+                                {/* Copies the already-loaded results client-side, so unlike ExportButton
+                                    it needs neither an export context nor export access */}
+                                {showCopyTableData ? (
+                                    <LemonButton
+                                        onClick={() =>
+                                            copyTableAdapter &&
+                                            copyTableData(copyTableAdapter.toTableData(), ExporterFormat.CSV)
+                                        }
+                                        disabledReason={copyTableAdapter ? undefined : 'No data to copy yet'}
+                                        fullWidth
+                                        data-attr="insight-card-copy-as-csv"
+                                    >
+                                        Copy as CSV
+                                    </LemonButton>
+                                ) : null}
                             </>
                         ) : null}
                         {refresh && (
