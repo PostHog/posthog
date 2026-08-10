@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact.settings import (
+    IMPACT_API_VERSION_LEGACY,
     IMPACT_ENDPOINTS,
+    IMPACT_VERSION_HEADER,
     MAX_LOOKBACK_DAYS,
     MAX_WINDOW_DAYS,
     ImpactEndpointConfig,
@@ -32,11 +34,15 @@ class ImpactResumeConfig:
     window_start: Optional[str] = None
 
 
-def _get_session(account_sid: str, auth_token: str) -> requests.Session:
+def _get_session(account_sid: str, auth_token: str, api_version: str = IMPACT_API_VERSION_LEGACY) -> requests.Session:
     session = make_tracked_session(redact_values=(auth_token,))
     session.auth = HTTPBasicAuth(account_sid, auth_token)
     # Impact.com returns XML unless explicitly asked for JSON.
     session.headers["Accept"] = "application/json"
+    # The legacy label sends no version header, so it keeps tracking the account's configured
+    # default; a dated label pins the response shape via the header.
+    if api_version != IMPACT_API_VERSION_LEGACY:
+        session.headers[IMPACT_VERSION_HEADER] = api_version
     return session
 
 
@@ -51,9 +57,9 @@ def _fetch(
     return response.json()
 
 
-def validate_credentials(account_sid: str, auth_token: str) -> bool:
+def validate_credentials(account_sid: str, auth_token: str, api_version: str = IMPACT_API_VERSION_LEGACY) -> bool:
     try:
-        session = _get_session(account_sid, auth_token)
+        session = _get_session(account_sid, auth_token, api_version)
         response = session.get(
             f"{BASE_URL}/Advertisers/{account_sid}/Campaigns",
             params={"PageSize": 1},
@@ -311,9 +317,10 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[ImpactResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = IMPACT_API_VERSION_LEGACY,
 ) -> Iterator[list[dict[str, Any]]]:
     config = IMPACT_ENDPOINTS[endpoint]
-    session = _get_session(account_sid, auth_token)
+    session = _get_session(account_sid, auth_token, api_version)
 
     if config.nested is not None:
         yield from _get_rows_nested(session, account_sid, config, logger, resumable_source_manager)
@@ -350,6 +357,7 @@ def impact_source(
     resumable_source_manager: ResumableSourceManager[ImpactResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    api_version: str = IMPACT_API_VERSION_LEGACY,
 ) -> SourceResponse:
     config = IMPACT_ENDPOINTS[endpoint]
 
@@ -363,6 +371,7 @@ def impact_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            api_version=api_version,
         ),
         primary_keys=config.primary_keys,
         partition_mode="datetime" if config.partition_key else None,
