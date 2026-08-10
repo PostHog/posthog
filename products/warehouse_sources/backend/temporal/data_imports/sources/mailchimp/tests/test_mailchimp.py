@@ -12,6 +12,7 @@ from requests.exceptions import HTTPError, ProxyError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
+    MAX_RETRY_ATTEMPTS,
     MailchimpPaginator,
     MailchimpResumeConfig,
     MailchimpRetryableError,
@@ -105,21 +106,25 @@ class TestFormatIncrementalValue:
 
 
 class TestGetWithRetry:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp.MAX_RETRY_ATTEMPTS", 1)
     @pytest.mark.parametrize(
-        ("status_code", "expected_error"),
+        ("status_code", "expected_error", "expected_call_count"),
         [
-            (429, MailchimpRetryableError),
-            (500, MailchimpRetryableError),
-            (401, HTTPError),
+            # `MAX_RETRY_ATTEMPTS` is baked into the decorator at import time (it wraps a
+            # top-level function, unlike the per-call nested functions other sources use), so
+            # a retryable status is retried the full budget rather than a patched-down count.
+            (429, MailchimpRetryableError, MAX_RETRY_ATTEMPTS),
+            (500, MailchimpRetryableError, MAX_RETRY_ATTEMPTS),
+            (401, HTTPError, 1),
         ],
     )
-    def test_errors_are_classified(self, status_code, expected_error):
+    def test_errors_are_classified(self, status_code, expected_error, expected_call_count):
         session = MagicMock()
         session.get.return_value = _make_http_response({}, status_code=status_code)
 
         with pytest.raises(expected_error):
             _get_with_retry(session, "https://us6.api.mailchimp.com/3.0/automations")
+
+        assert session.get.call_count == expected_call_count
 
     def test_success_returns_response_unchanged(self):
         session = MagicMock()
