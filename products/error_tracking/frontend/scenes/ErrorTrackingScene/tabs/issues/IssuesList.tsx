@@ -7,7 +7,6 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import {
@@ -16,7 +15,6 @@ import {
     QueryContextColumnComponent,
     QueryContextColumnTitleComponent,
 } from '~/queries/types'
-import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
@@ -29,7 +27,11 @@ import { VolumeSparkline } from 'products/error_tracking/frontend/components/Vol
 import { applyVolumeSpikeHighlights, useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
 import { batchSpikeEventsLogic } from 'products/error_tracking/frontend/logics/batchSpikeEventsLogic'
 import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
-import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
+import {
+    ISSUES_DATA_NODE_KEY,
+    ISSUES_INSIGHT_PROPS,
+    issuesDataNodeLogic,
+} from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
 
@@ -135,14 +137,10 @@ export const useIssueQueryContext = (): QueryContext => {
     return {
         columns: defaultColumns,
         showOpenEditorButton: false,
-        insightProps: insightProps,
+        insightProps: ISSUES_INSIGHT_PROPS,
         emptyStateHeading: 'No issues found',
         emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
     }
-}
-
-const insightProps: InsightLogicProps = {
-    dashboardItemId: 'new-ErrorTrackingQuery',
 }
 
 export function IssuesList(): JSX.Element {
@@ -150,10 +148,7 @@ export function IssuesList(): JSX.Element {
     const context = useIssueQueryContext()
 
     return (
-        <BindLogic
-            logic={issuesDataNodeLogic}
-            props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
-        >
+        <BindLogic logic={issuesDataNodeLogic} props={{ key: ISSUES_DATA_NODE_KEY, query: query.source }}>
             {/* first:-mt-4 tucks the bar flush under the tab bar, but only when no banner
                 renders above — an unconditional -mt-4 would cover the banner's bottom edge */}
             <SceneStickyBar className="first:-mt-4" showBorderBottom={false}>

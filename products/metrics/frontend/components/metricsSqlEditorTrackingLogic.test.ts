@@ -9,13 +9,6 @@ import { metricsSqlEditorTrackingLogic } from './metricsSqlEditorTrackingLogic'
 
 jest.mock('posthog-js')
 
-// endpointLogic (pulled in transitively via sqlEditorLogic) uses permanentlyMount() with a
-// keyed logic, which crashes in tests without the full React component tree.
-jest.mock('lib/utils/kea-logic-builders', () => ({
-    ...jest.requireActual('lib/utils/kea-logic-builders'),
-    permanentlyMount: () => () => {},
-}))
-
 describe('metricsSqlEditorTrackingLogic', () => {
     let logic: ReturnType<typeof metricsSqlEditorTrackingLogic.build>
 

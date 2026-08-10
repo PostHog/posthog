@@ -41,12 +41,6 @@ import {
 } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
-// endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
-// tests without the full React component tree — disable auto-mounting
-jest.mock('lib/utils/kea-logic-builders', () => ({
-    permanentlyMount: () => () => {},
-}))
-
 const MOCK_INSIGHT_SHORT_ID = 'abc123' as InsightShortId
 
 const MOCK_INSIGHT_QUERY: DataVisualizationNode = {
