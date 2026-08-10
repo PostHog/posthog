@@ -40,7 +40,7 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
 
 @pytest.mark.asyncio
 @override_settings(SANDBOX_PROVIDER="docker")
-async def test_create_sandbox_cancellation_stops_docker_subprocess(monkeypatch) -> None:
+async def test_create_sandbox_cancellation_stops_docker_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(provision_sandbox_module.activity, "heartbeat", lambda: None)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.bind(("127.0.0.1", 0))

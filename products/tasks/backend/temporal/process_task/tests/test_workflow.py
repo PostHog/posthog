@@ -1544,7 +1544,7 @@ class TestProcessTaskWorkflowUnit:
         assert clone_repository_in_sandbox not in activity_calls
         assert checkout_branch_in_sandbox not in activity_calls
 
-    async def test_sandbox_creation_stops_when_task_completes(self, monkeypatch):
+    async def test_sandbox_creation_stops_when_task_completes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         process_workflow = ProcessTaskWorkflow()
         process_workflow._context = _build_context(github_integration_id=None)
         prepared = PrepareSandboxForRepositoryOutput(
