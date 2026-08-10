@@ -1283,6 +1283,34 @@ class TestFindSignalImplementationRun(TestCase):
         assert found is not None
         assert found.run_id == run.id
 
+    def test_colliding_run_in_another_tenant_does_not_shadow_this_teams_run(self):
+        # Two teams can have the same repo connected, so another tenant's run may carry the same
+        # pr_url. That run must not be selected first and reject the lookup as a cross-team run,
+        # which would hide this team's run and treat the inbox PR as unrecognized.
+        run = self._make_run(output={"pr_url": self.PR_URL})
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            created_by=self.user,
+            title="Other tenant self-driving",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+        )
+        # Non-terminal, so an unscoped lookup ranks it ahead of this team's completed run.
+        TaskRun.objects.create(
+            task=other_task, team=other_team, status=TaskRun.Status.IN_PROGRESS, output={"pr_url": self.PR_URL}
+        )
+
+        found = find_signal_implementation_run(team_id=self.team.id, repository="posthog/posthog", pr_url=self.PR_URL)
+
+        assert found is not None
+        assert found.run_id == run.id
+
     @parameterized.expand(
         [
             # Every rejection means "treat as an ordinary PR" downstream — each of these leaking

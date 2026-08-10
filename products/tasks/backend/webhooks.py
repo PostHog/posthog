@@ -30,15 +30,24 @@ def find_task_run(
     pr_url: str | None = None,
     branch: str | None = None,
     repository: str | None = None,
+    team_id: int | None = None,
 ) -> TaskRun | None:
     repository = repository.strip() if repository else None
+
+    # Callers that already know the owning team (e.g. stamphog's inbox carve-out) scope the
+    # lookup so a colliding pr_url or branch in another tenant's run can't be selected first and
+    # shadow the right one. The webhook backstop leaves this None: it uses the match to discover
+    # the team, so it must search across tenants.
+    base = TaskRun.objects.all()
+    if team_id is not None:
+        base = base.filter(team_id=team_id)
 
     if pr_url:
         # A resumed wizard run inherits its predecessor's head branch, so a terminal
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = TaskRun.objects.filter(output__pr_url=pr_url)
+        runs = base.filter(output__pr_url=pr_url)
         if repository:
             runs = runs.filter(task__repository__iexact=repository)
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
@@ -66,7 +75,7 @@ def find_task_run(
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
         # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
-            TaskRun.objects.filter(
+            base.filter(
                 branch=branch,
                 task__repository__iexact=repository,
                 state__wizard_head_branch__isnull=True,
@@ -83,7 +92,7 @@ def find_task_run(
         # (post-merge events for bound runs resolve via the pr_url leg above).
         if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
             task_run = (
-                TaskRun.objects.filter(
+                base.filter(
                     state__wizard_head_branch=branch,
                     task__repository__iexact=repository,
                     task__deleted=False,

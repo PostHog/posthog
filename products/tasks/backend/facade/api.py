@@ -501,7 +501,9 @@ def find_signal_implementation_run(
     # module-level import here would be circular.
     from products.tasks.backend.webhooks import find_task_run  # noqa: PLC0415
 
-    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository)
+    # Scope the lookup to this team so a colliding pr_url/branch in another tenant's run can't be
+    # selected first and shadow the right one (the team check below stays as belt and braces).
+    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository, team_id=team_id)
     if run is None or run.team_id != team_id:
         return None
     task = run.task
