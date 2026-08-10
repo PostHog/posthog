@@ -183,13 +183,15 @@ class SignupSerializer(serializers.Serializer):
 
             value = session_email
 
-        if not self.is_social_signup and not settings.DEMO:
-            reject_plus_addressed_email(value)
-            if EmailValidationHelper.user_exists_with_stripped_alias(value):
+        if not settings.DEMO:
+            if not self.is_social_signup:
+                reject_plus_addressed_email(value)
+                if EmailValidationHelper.user_exists_with_stripped_alias(value):
+                    raise serializers.ValidationError(
+                        "There is already an account with this email address.", code="unique"
+                    )
+            elif EmailValidationHelper.user_exists(value):
                 raise serializers.ValidationError("There is already an account with this email address.", code="unique")
-
-        if not settings.DEMO and EmailValidationHelper.user_exists(value):
-            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         return value
 
     def is_email_auto_verified(self):
