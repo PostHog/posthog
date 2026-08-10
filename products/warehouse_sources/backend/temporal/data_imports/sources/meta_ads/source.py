@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
+    META_RATE_LIMIT_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsRateLimitError,
@@ -142,11 +143,17 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # Meta error codes 1 ("API Unknown") and 2 ("API Service") are momentary backend blips
-        # Meta's own docs recommend simply retrying. `meta_ads._raise_meta_api_error` tags them
-        # with this marker once `_get_with_transient_retry`'s in-process retries are exhausted, so
-        # the eventual Temporal-level retry doesn't page us as a bug.
-        return {"Meta API request failed (retryable)"}
+        return {
+            # Meta error codes 1 ("API Unknown") and 2 ("API Service") are momentary backend blips
+            # Meta's own docs recommend simply retrying. `meta_ads._raise_meta_api_error` tags them
+            # with this marker once `_get_with_transient_retry`'s in-process retries are exhausted, so
+            # the eventual Temporal-level retry doesn't page us as a bug.
+            "Meta API request failed (retryable)",
+            # Meta throttling (rate limiting) — the request itself is fine, Meta just rejected it
+            # for volume. Only waiting helps, and the sync already retries via Temporal, so this
+            # shouldn't page us as a bug either.
+            META_RATE_LIMIT_ERROR_MESSAGE,
+        }
 
     def get_schemas(
         self,
