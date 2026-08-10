@@ -141,6 +141,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
     )
     const insightAlertKind = insightAlertKindForQuery(query)
+    const anomalyAlertDefaultEnabled = useFeatureFlag('ANOMALY_ALERT_DEFAULT_EXPERIMENT', 'anomaly_default')
 
     const formLogicProps = {
         alert,
@@ -149,7 +150,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
         insightAlertKind,
-        defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
+        defaultToAnomalyDetection:
+            !alertId && !isNonTimeSeriesDisplay && (defaultToAnomalyDetection || anomalyAlertDefaultEnabled),
         insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
     }
