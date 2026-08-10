@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import type { AccountsQuery, AccountsTableQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType, UserType } from '~/types'
@@ -163,6 +164,17 @@ describe('accountsLogic', () => {
             { kind: 'relationship', definitionId: OWNER_DEFINITION_ID },
         ])
         expect(logic.values.metricsQuery?.kind).toBe('AccountsQuery')
+    })
+
+    it('keeps the previous positional response stable while switching runners', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+        const previousRows = [
+            { result: [{ id: 'account-id', name: 'Acme', external_id: 'acme' }, [], 0, [], [], []] },
+        ] as DataTableRow[]
+
+        expect(logic.values.tableRowsTransformer?.(previousRows)).toEqual(previousRows)
     })
 
     it('keeps unsupported list state on the HogQL runner', () => {

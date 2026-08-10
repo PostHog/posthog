@@ -257,6 +257,21 @@ function legacyCellValue(row: AccountsTableRow, column: AccountsTableColumn): un
     }
 }
 
+export function isAccountsTableRow(value: unknown): value is AccountsTableRow {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false
+    }
+    const row = value as Partial<AccountsTableRow>
+    return (
+        typeof row.id === 'string' &&
+        typeof row.name === 'string' &&
+        !!row.accountFields &&
+        !!row.relationships &&
+        !!row.customProperties &&
+        !!row.customPropertyHistory
+    )
+}
+
 export function accountsTableRowsToLegacyRows(rows: AccountsTableRow[], plan: AccountsTableQueryPlan): unknown[][] {
     return rows.map((row) => plan.columns.map(({ column }) => legacyCellValue(row, column)))
 }

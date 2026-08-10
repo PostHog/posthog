@@ -19,7 +19,6 @@ import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import {
     AccountsQuery,
     AccountsTableQuery,
-    AccountsTableRow,
     DataNode,
     DataTableNode,
     NodeKind,
@@ -58,6 +57,7 @@ import {
     AccountsTableQueryPlan,
     accountsTableRowsToLegacyRows,
     buildAccountsTableQueryPlan,
+    isAccountsTableRow,
 } from './accountsTableQuery'
 import { normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
@@ -988,10 +988,11 @@ export const accountsLogic = kea<accountsLogicType>([
                     return sortedRowsTransformer
                 }
                 return (rows: DataTableRow[]): DataTableRow[] => {
-                    const translatedResults = accountsTableRowsToLegacyRows(
-                        rows.map((row) => row.result as AccountsTableRow),
-                        accountsTableQueryPlan
-                    )
+                    const rowResults = rows.map((row) => row.result)
+                    if (!rowResults.every(isAccountsTableRow)) {
+                        return sortedRowsTransformer ? sortedRowsTransformer(rows) : rows
+                    }
+                    const translatedResults = accountsTableRowsToLegacyRows(rowResults, accountsTableQueryPlan)
                     const translatedRows = rows.map((row, index) => ({
                         ...row,
                         result: translatedResults[index],
