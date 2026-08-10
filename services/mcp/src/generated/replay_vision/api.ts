@@ -607,6 +607,7 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Filter by enabled state. Accepts a comma-separated list of `enabled`\/`disabled`.'),
+    experiment_id: zod.string().optional().describe('Filter to scanners whose targeting watches the given experiment.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -642,6 +643,10 @@ export const visionScannersCreateBodyDescriptionMax = 1000
 
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
+
+export const visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax = 400
+
+export const visionScannersCreateBodyExperimentTargetingOneVariantKeysMax = 50
 
 export const VisionScannersCreateBody = /* @__PURE__ */ zod
     .object({
@@ -713,6 +718,29 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
             ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant_keys: zod
+                            .array(zod.string().max(visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax))
+                            .max(visionScannersCreateBodyExperimentTargetingOneVariantKeysMax)
+                            .describe('Targeted experiment variants. Empty means every variant.'),
+                        use_exposure_fallback: zod
+                            .boolean()
+                            .describe(
+                                'True when the exposure event is captured server-side and the query filters on the `$feature\/<flag_key>` property instead.'
+                            ),
+                    })
+                    .describe("The experiment a scanner's targeting watches. Metadata only; scanning never reads it."),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
+            ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
 
@@ -746,6 +774,10 @@ export const visionScannersPartialUpdateBodyDescriptionMax = 1000
 
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
+
+export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax = 400
+
+export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysMax = 50
 
 export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -820,6 +852,33 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
+            ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant_keys: zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax)
+                            )
+                            .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysMax)
+                            .describe('Targeted experiment variants. Empty means every variant.'),
+                        use_exposure_fallback: zod
+                            .boolean()
+                            .describe(
+                                'True when the exposure event is captured server-side and the query filters on the `$feature\/<flag_key>` property instead.'
+                            ),
+                    })
+                    .describe("The experiment a scanner's targeting watches. Metadata only; scanning never reads it."),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')

@@ -467,17 +467,21 @@ class TestSurvey(APIBaseTest):
                 False,
             ),
             ("archived", {"start_date": datetime(2026, 1, 1, tzinfo=UTC), "archived": True}, False),
+            (
+                "external",
+                {"start_date": datetime(2026, 1, 1, tzinfo=UTC), "type": Survey.SurveyType.EXTERNAL_SURVEY},
+                False,
+            ),
         ]
     )
-    def test_sdk_payload_only_includes_running_surveys(
-        self, _name: str, lifecycle_fields: dict[str, Any], expected_in_payload: bool
+    def test_sdk_payload_only_includes_running_in_app_surveys(
+        self, _name: str, survey_fields: dict[str, Any], expected_in_payload: bool
     ) -> None:
         survey = Survey.objects.create(
             team=self.team,
             name="Lifecycle survey",
-            type="popover",
             questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
-            **lifecycle_fields,
+            **{"type": "popover", **survey_fields},
         )
 
         payload_ids = {str(item["id"]) for item in get_surveys_response(self.team)["surveys"]}
@@ -6884,6 +6888,83 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["distinct_id"], "new")
 
+    def test_merges_answers_split_across_submission_events(self):
+        """A submission split across events — rating on one, free text on another, neither
+        repeating the other's answer — should surface as one row carrying both answers."""
+        create_person(team=self.team, distinct_ids=["split"])
+        submission_id = str(uuid.uuid4())
+        # Event 1 (not completed): rating only.
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="split",
+            timestamp="2024-06-10 09:05:00",
+            properties={
+                "$survey_id": str(self.survey.id),
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{self.question_id_rating}": "3",
+                "$survey_completed": "false",
+            },
+        )
+        # Event 2 (completed): free text only — the rating is NOT repeated here.
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="split",
+            timestamp="2024-06-10 09:05:30",
+            properties={
+                "$survey_id": str(self.survey.id),
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{self.question_id_text}": "Because reasons",
+                "$survey_completed": "true",
+            },
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # One merged submission, carrying both answers.
+        self.assertEqual(len(data["results"]), 1)
+        answers_by_id = {a["question_id"]: a["answer"] for a in data["results"][0]["answers"]}
+        self.assertEqual(answers_by_id[self.question_id_rating], "3")
+        self.assertEqual(answers_by_id[self.question_id_text], "Because reasons")
+
+    def test_score_filter_uses_merged_rating(self):
+        """score_lte should match on the merged rating even when it lives on a non-final event."""
+        create_person(team=self.team, distinct_ids=["split"])
+        submission_id = str(uuid.uuid4())
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="split",
+            timestamp="2024-06-10 09:05:00",
+            properties={
+                "$survey_id": str(self.survey.id),
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{self.question_id_rating}": "2",
+                "$survey_completed": "false",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="split",
+            timestamp="2024-06-10 09:05:30",
+            properties={
+                "$survey_id": str(self.survey.id),
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{self.question_id_text}": "Frustrating",
+                "$survey_completed": "true",
+            },
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(self.url, {"question_id": self.question_id_rating, "score_lte": "6"})
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["answers"][0]["answer"], "2")
+
     def test_exclude_archived(self):
         create_person(team=self.team, distinct_ids=["kept"])
         create_person(team=self.team, distinct_ids=["archived"])
@@ -7304,6 +7385,53 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         # "oui" folds into "yes"; the literal placeholder text is bucketed as <other>, not "no".
         self.assertEqual(per_q[choice_qid]["distribution"], {"yes": 2, "<other>": 1})
         self.assertEqual(per_q[choice_qid]["response_count"], 3)
+
+    def test_per_question_stats_merges_answers_across_submission_events(self):
+        """Answers split across a submission's events should all count toward per-question stats,
+        even when the completed event only carries one of them."""
+        create_person(team=self.team, distinct_ids=["split-user"])
+        submission_id = str(uuid.uuid4())
+        # Event 1 (not completed): rating + choice only.
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="split-user",
+            timestamp="2024-06-10 09:00:00",
+            properties={
+                "$survey_id": str(self.survey.id),
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{self.rating_qid}": "9",
+                f"$survey_response_{self.choice_qid}": "yes",
+                "$survey_completed": "false",
+            },
+        )
+        # Event 2 (completed): open text only — rating/choice are NOT repeated here.
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="split-user",
+            timestamp="2024-06-10 09:01:00",
+            properties={
+                "$survey_id": str(self.survey.id),
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{self.open_qid}": "Nice",
+                "$survey_completed": "true",
+            },
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/stats/?include_per_question_stats=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        per_q = {q["question_id"]: q for q in response.json()["per_question_stats"]}
+
+        # All three answers count for the single submission, despite living on different events.
+        self.assertEqual(per_q[self.rating_qid]["response_count"], 1)
+        self.assertEqual(per_q[self.rating_qid]["distribution"], {"9": 1})
+        self.assertEqual(per_q[self.choice_qid]["response_count"], 1)
+        self.assertEqual(per_q[self.choice_qid]["distribution"], {"yes": 1})
+        self.assertEqual(per_q[self.open_qid]["response_count"], 1)
 
 
 class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):

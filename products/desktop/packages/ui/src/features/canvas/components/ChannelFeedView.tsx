@@ -64,6 +64,7 @@ import { Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import {
   memo,
+  type ReactElement,
   type ReactNode,
   useCallback,
   useEffect,
@@ -758,7 +759,7 @@ export function ChannelFeedView({
   /** Rendered pinned above the first entry — the Slack-style channel intro
    * (name, creation line, onboarding card). When set, the feed renders even
    * with no entries instead of falling back to `emptyState`. */
-  intro?: ReactNode;
+  intro?: ReactElement;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task) => void;
 }) {
@@ -826,7 +827,7 @@ export function ChannelFeedView({
               bottom padding clears the composer's floating workspace-mode
               selector, which hangs over the end of the feed. */}
           <ChatMessageScrollerContent className="mx-auto w-full gap-0 pt-4 pb-10">
-            {intro}
+            {intro as never}
             {entries.map((entry) =>
               entry.kind === "task" ? (
                 <FeedRow

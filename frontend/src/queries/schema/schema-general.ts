@@ -514,6 +514,8 @@ export interface HogQLQueryModifiers {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean
     pushDownPredicates?: boolean
+    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+    mergeFederatedAggregateJoins?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
@@ -609,6 +611,7 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
+    /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFilters
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -827,7 +830,7 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */
     globals?: Record<string, any>
-    /** Extra filters applied to query via {filters} */
+    /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFilters
     /** Variables to be subsituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -4633,6 +4636,10 @@ export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNo
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentExposureConfig
+    /** Additional event (or action) an entity must emit at/after their first default exposure
+     *  event before they count as exposed; exposure time becomes this event's timestamp.
+     *  Only valid with the default exposure event, not a custom `exposure_config`. */
+    activation_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -4783,6 +4790,10 @@ export interface ExperimentApiExposureConfig {
 export interface ExperimentApiExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentApiExposureConfig
+    /** Additional event (or action) an entity must emit at/after their first default exposure
+     *  event before they count as exposed; exposure time becomes this event's timestamp.
+     *  Only valid with the default exposure event, not a custom `exposure_config`. */
+    activation_config?: ExperimentApiExposureConfig
     /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from
      *  the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
     multiple_variant_handling?: 'exclude' | 'first_seen'
@@ -9330,6 +9341,7 @@ export enum ProductIntentContext {
     EXPERIMENT_CREATED = 'experiment created',
     EXPERIMENT_ANALYZED = 'experiment analyzed',
     EXPERIMENT_VIEW_RECORDINGS = 'experiment view recordings',
+    EXPERIMENT_REPLAY_VISION_SCANNER_CREATED = 'experiment replay vision scanner created',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
