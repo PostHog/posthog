@@ -42,7 +42,7 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
         <Integration kind="github">
             {/* w-full because Integration drops its children into a bare flex row, which would
                 otherwise size the banner to its longest word. */}
-            <div className="flex flex-col gap-y-2 w-full">
+            <div className="flex flex-col gap-y-4 w-full">
                 {/* An install GitHub already has is the exception, not a second way to connect, so it
                     reads as an aside with its own action rather than a button competing with the one
                     below. */}
