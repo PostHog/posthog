@@ -24,11 +24,21 @@ ALL_ENDPOINTS = {
     "invalid_emails",
     "spam_reports",
     "global_unsubscribes",
+    "stats",
     "unsubscribe_groups",
     "marketing_lists",
     "templates",
 }
-INCREMENTAL_ENDPOINTS = {"bounces", "blocks", "invalid_emails", "spam_reports", "global_unsubscribes"}
+# Endpoints that sync incrementally, mapped to the cursor field they expose. Everything else is
+# full refresh.
+INCREMENTAL_FIELD_BY_ENDPOINT = {
+    "bounces": "created",
+    "blocks": "created",
+    "invalid_emails": "created",
+    "spam_reports": "created",
+    "global_unsubscribes": "created",
+    "stats": "date",
+}
 
 
 def _config() -> SendGridSourceConfig:
@@ -79,14 +89,16 @@ class TestSendGridSource:
         schemas = SendGridSource().get_schemas(_config(), team_id=1)
         assert {s.name for s in schemas} == ALL_ENDPOINTS
 
-    def test_only_suppression_endpoints_support_incremental(self) -> None:
+    def test_incremental_endpoints_expose_their_cursor_field(self) -> None:
         schemas = {s.name: s for s in SendGridSource().get_schemas(_config(), team_id=1)}
-        for name in INCREMENTAL_ENDPOINTS:
-            assert schemas[name].supports_incremental is True
-            assert {f["field"] for f in schemas[name].incremental_fields} == {"created"}
-        for name in ALL_ENDPOINTS - INCREMENTAL_ENDPOINTS:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].incremental_fields == []
+        for name in ALL_ENDPOINTS:
+            expected_field = INCREMENTAL_FIELD_BY_ENDPOINT.get(name)
+            if expected_field is None:
+                assert schemas[name].supports_incremental is False
+                assert schemas[name].incremental_fields == []
+            else:
+                assert schemas[name].supports_incremental is True
+                assert {f["field"] for f in schemas[name].incremental_fields} == {expected_field}
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = SendGridSource().get_schemas(_config(), team_id=1, names=["bounces", "templates"])
