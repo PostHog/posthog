@@ -9,9 +9,6 @@
 # checkout, no app token, no Anthropic key here — the only secret is the shared trigger token.
 # Publishing happens server-side via the PostHog GitHub App installation token.
 #
-# PostHog/posthog.com carries a copy of this file; keep the two in sync. The repos ReviewHog accepts
-# are allowlisted server-side in products/review_hog/backend/api/trigger.py.
-#
 # Safety: `pull_request_target` always runs the base branch's version of this file, so a PR cannot
 # edit its own trigger, and it fires even when the PR has merge conflicts. It does expose secrets to
 # fork PRs, so the `if:` hard-gates forks — safe because this job never checks out or runs PR code.
