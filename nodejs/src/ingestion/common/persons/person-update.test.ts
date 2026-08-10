@@ -1,10 +1,19 @@
+import { DateTime } from 'luxon'
+
 import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from '~/common/persons/metrics'
 import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson } from '~/types'
 
-import { EventOps, applyEventPropertyUpdates, extractEventOps, foldOps, refineEventOps } from './person-update'
+import {
+    EventOps,
+    applyEventPropertyUpdates,
+    computeOpsScalarUpdates,
+    extractEventOps,
+    foldOps,
+    refineEventOps,
+} from './person-update'
 
 // The scenarios below exercise the extract → refine pair end to end, the
 // same composition the Postgres store runs per event.
@@ -709,6 +718,55 @@ describe('person-update', () => {
         })
     })
 
+    describe('computeOpsScalarUpdates', () => {
+        const personState = (overrides: Partial<InternalPerson>): InternalPerson =>
+            ({ properties: {}, is_identified: false, last_seen_at: null, ...overrides }) as unknown as InternalPerson
+
+        const ops = (overrides: Partial<EventOps>): EventOps => ({
+            set: {},
+            setOnce: {},
+            unset: [],
+            denied: false,
+            shouldForceUpdate: false,
+            eventName: '$set',
+            ...overrides,
+        })
+
+        it.each([
+            ['identifies an unidentified person', { isIdentified: true }, {}, { is_identified: true }],
+            ['does not re-identify an identified person', { isIdentified: true }, { is_identified: true }, {}],
+            ['never reverts identification', {}, { is_identified: true }, {}],
+        ] as [string, Partial<EventOps>, Partial<InternalPerson>, Partial<InternalPerson>][])(
+            '%s',
+            (_label, opOverrides, personOverrides, expected) => {
+                expect(computeOpsScalarUpdates(ops(opOverrides), personState(personOverrides))).toEqual(expected)
+            }
+        )
+
+        it('advances last_seen_at only forward', () => {
+            const older = DateTime.fromMillis(3_600_000, { zone: 'utc' })
+            const newer = DateTime.fromMillis(7_200_000, { zone: 'utc' })
+            const seenAt = personState({ last_seen_at: older } as unknown as Partial<InternalPerson>)
+
+            expect(computeOpsScalarUpdates(ops({ lastSeenAtMs: 7_200_000 }), seenAt)).toEqual({
+                last_seen_at: newer,
+            })
+            const current = personState({ last_seen_at: newer } as unknown as Partial<InternalPerson>)
+            expect(computeOpsScalarUpdates(ops({ lastSeenAtMs: 3_600_000 }), current)).toEqual({})
+        })
+
+        it('denied ops still contribute their scalars', () => {
+            // The denylist gates property writes only; both stores and
+            // the leader advance identity and last-seen regardless.
+            const updates = computeOpsScalarUpdates(
+                ops({ denied: true, isIdentified: true, lastSeenAtMs: 3_600_000 }),
+                personState({})
+            )
+            expect(updates.is_identified).toBe(true)
+            expect(updates.last_seen_at?.toMillis()).toBe(3_600_000)
+        })
+    })
+
     describe('fold equivalence', () => {
         // Deterministic PRNG (mulberry32): the sweep must reproduce
         // identically on every run.
@@ -887,6 +945,77 @@ describe('person-update', () => {
             const real = eventOps({ $set: { b: '2' } })
             expect(foldOps(real, denied)).toEqual(real)
             expect(foldOps(denied, real)).toEqual(real)
+        })
+
+        describe('exhaustive single-key transition table', () => {
+            const K = 'k'
+            type Shape = Record<string, unknown> | null
+            // Every reachable accumulated state, named by the ops that
+            // produce it, and every per-key shape one event can carry.
+            const STATES: [string, Shape][] = [
+                ['empty', null],
+                ['pending set', { $set: { [K]: 'p-set' } }],
+                ['pending set_once', { $set_once: { [K]: 'p-once' } }],
+                ['pending unset', { $unset: [K] }],
+                ['pending set pair', { $set: { [K]: 'p-pair' }, $unset: [K] }],
+                ['pending set_once pair', { $set_once: { [K]: 'p-pair' }, $unset: [K] }],
+            ]
+            const INCOMING: [string, Record<string, unknown>][] = [
+                ['set', { $set: { [K]: 'i-set' } }],
+                ['set_once', { $set_once: { [K]: 'i-once' } }],
+                ['unset', { $unset: [K] }],
+                ['set pair', { $set: { [K]: 'i-pair' }, $unset: [K] }],
+                ['set_once pair', { $set_once: { [K]: 'i-pair' }, $unset: [K] }],
+            ]
+            // The pair state is the one place composition can lose
+            // information, and only under an incoming op that is itself
+            // snapshot-dependent for the key.
+            const SEGMENTS = new Set(
+                ['pending set pair', 'pending set_once pair'].flatMap((s) =>
+                    ['set_once', 'set pair', 'set_once pair'].map((i) => `${s}|${i}`)
+                )
+            )
+            const CASES = STATES.flatMap(([stateLabel, stateProps]) =>
+                INCOMING.flatMap(([inLabel, inProps]) =>
+                    [
+                        ['absent', {}],
+                        ['present', { [K]: 'existing' }],
+                    ].map(([snapLabel, snapshot]) => [stateLabel, inLabel, snapLabel, stateProps, inProps, snapshot])
+                )
+            ) as [string, string, string, Shape, Record<string, unknown>, Properties][]
+
+            const applySequentially = (events: Record<string, unknown>[], snapshot: Properties): Properties => {
+                let personState = { properties: { ...snapshot }, is_identified: false } as unknown as InternalPerson
+                for (const properties of events) {
+                    const refined = refineEventOps(eventOps(properties), personState.properties, false)
+                    ;[personState] = applyEventPropertyUpdates(refined, personState)
+                }
+                return personState.properties
+            }
+
+            it.each(CASES)(
+                '%s then %s over %s key: fold matches sequential refinement',
+                (stateLabel, inLabel, _snapLabel, stateProps, inProps, snapshot) => {
+                    const events = stateProps === null ? [inProps] : [stateProps, inProps]
+                    const sequential = applySequentially(events, snapshot)
+
+                    const accumulated = eventOps(stateProps ?? {})
+                    const folded = foldOps(accumulated, eventOps(inProps))
+
+                    if (folded === null) {
+                        expect(SEGMENTS.has(`${stateLabel}|${inLabel}`)).toBe(true)
+                        // A cut segment ships each side as its own leader
+                        // call, which is the sequential application above
+                        // by construction — nothing further to assert.
+                        return
+                    }
+                    expect(SEGMENTS.has(`${stateLabel}|${inLabel}`)).toBe(false)
+                    let personState = { properties: { ...snapshot }, is_identified: false } as unknown as InternalPerson
+                    const refined = refineEventOps(folded, personState.properties, false)
+                    ;[personState] = applyEventPropertyUpdates(refined, personState)
+                    expect(personState.properties).toEqual(sequential)
+                }
+            )
         })
 
         it('a denied event still contributes its identity and last-seen scalars', () => {
