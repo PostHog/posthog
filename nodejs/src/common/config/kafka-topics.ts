@@ -43,6 +43,11 @@ export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_m
 // raw inlined replay images: ml-mirror producer -> image-scrub worker
 export const KAFKA_SESSION_REPLAY_IMAGE_SCRUB = `${prefix}session_replay_image_scrub${suffix}`
 
+// remote image URLs: ml-mirror producer -> image-fetch worker. The Kafka key is the host, so all
+// URLs of one host go to one partition, and one pod then owns the request rate of that host. A
+// record holds an original, unscrubbed URL, so this topic is as sensitive as the raw replay topic.
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH = `${prefix}session_replay_image_fetch${suffix}`
+
 // images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
 // The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be
 // thrown away either, so it waits here for the sidecar bug behind it to be fixed and replayed.

@@ -8,6 +8,7 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
     KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
     KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
 } from '~/common/config/kafka-topics'
@@ -193,6 +194,9 @@ export type SessionReplayOutputsConfig = {
 
     INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_TOPIC: string
     INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_PRODUCER: SessionReplayProducerName
+
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_TOPIC: string
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_PRODUCER: SessionReplayProducerName
 }
 
 export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
@@ -216,5 +220,12 @@ export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConf
         INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
         INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_PRODUCER: INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+        // The fetch lane shares the ML_IMAGE_SCRUB producer instance. Both lanes carry best-effort
+        // ML traffic, and both put their delivery promises into the mirror's side-effect drain
+        // before an offset commit. That producer has the short `message.timeout.ms` which that
+        // drain needs, and it keeps both lanes out of the queue that the DLQ and the overflow
+        // topic use. Point this key at another producer if the two lanes must not share a queue.
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_PRODUCER: INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER,
     }
 }

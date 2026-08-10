@@ -180,7 +180,16 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                         // measures on its own, so it follows only its own flag.
                         collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
                         collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
-                    }
+                    },
+                    // Producing needs collection: without it the anonymizer returns no URLs, and
+                    // the step would have nothing to send.
+                    this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
+                        this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED
+                        ? {
+                              outputs,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
+                          }
+                        : undefined
                 ),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane

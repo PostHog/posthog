@@ -1,0 +1,124 @@
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PipelineResultType } from '~/ingestion/framework/results'
+import { CollectedUrl } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
+import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+
+import { createProduceCollectedUrlsStep } from './produce-collected-urls-step'
+
+describe('produceCollectedUrlsStep', () => {
+    const PSEUDO_TEAM = 'a'.repeat(32)
+    let queued: { key: string; value: Buffer }[][]
+    let outputs: IngestionOutputs<MlImageFetchOutput>
+    let queueMessages: jest.Mock
+
+    beforeEach(() => {
+        queued = []
+        queueMessages = jest.fn((_output: string, messages: { key: string; value: Buffer }[]) => {
+            queued.push(messages)
+            return Promise.resolve()
+        })
+        outputs = { queueMessages } as unknown as IngestionOutputs<MlImageFetchOutput>
+    })
+
+    function collected(hash: string, host: string, url: string): CollectedUrl {
+        return { ref: `image:${PSEUDO_TEAM}:${hash.padEnd(22, 'x')}`, url, host }
+    }
+
+    function decode(batch: { key: string; value: Buffer }[]) {
+        return batch.map((message) => ({ key: message.key, value: parseJSON(message.value.toString()) }))
+    }
+
+    async function run<T extends { collectedUrls?: CollectedUrl[] }>(
+        step: ReturnType<typeof createProduceCollectedUrlsStep<T>>,
+        input: T
+    ) {
+        const result = await step(input)
+        if (result.type !== PipelineResultType.OK) {
+            throw new Error(`expected ok, got ${result.type}`)
+        }
+        await Promise.all(result.sideEffects)
+        return result
+    }
+
+    it('sends one message per host, keyed by that host, and strips the URLs from the element', async () => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-08-10T00:00:00.000Z'))
+        try {
+            const step = createProduceCollectedUrlsStep(outputs)
+            const result = await run(step, {
+                collectedUrls: [
+                    collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?sig=1'),
+                    collected('h2', 'img.other.com', 'https://img.other.com/b.png'),
+                    collected('h3', 'cdn.example.com', 'https://cdn.example.com/c.jpg'),
+                ],
+            })
+
+            expect(result.value.collectedUrls).toBeUndefined()
+            expect(queued).toHaveLength(1)
+            expect(decode(queued[0])).toEqual([
+                {
+                    key: 'cdn.example.com',
+                    value: {
+                        pseudoTeam: PSEUDO_TEAM,
+                        firstSeenMs: Date.parse('2026-08-10T00:00:00.000Z'),
+                        urls: [
+                            {
+                                ref: `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
+                                url: 'https://cdn.example.com/a.jpg?sig=1',
+                            },
+                            {
+                                ref: `image:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
+                                url: 'https://cdn.example.com/c.jpg',
+                            },
+                        ],
+                    },
+                },
+                {
+                    key: 'img.other.com',
+                    value: {
+                        pseudoTeam: PSEUDO_TEAM,
+                        firstSeenMs: Date.parse('2026-08-10T00:00:00.000Z'),
+                        urls: [
+                            { ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`, url: 'https://img.other.com/b.png' },
+                        ],
+                    },
+                },
+            ])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('passes through elements with no collected URLs without producing', async () => {
+        const step = createProduceCollectedUrlsStep(outputs)
+        await run(step, { collectedUrls: undefined })
+        await run(step, { collectedUrls: [] })
+        expect(queueMessages).not.toHaveBeenCalled()
+    })
+
+    it('dedups refs it already produced across messages', async () => {
+        const step = createProduceCollectedUrlsStep(outputs)
+        const first = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
+        const second = collected('h2', 'cdn.example.com', 'https://cdn.example.com/b.jpg')
+        await run(step, { collectedUrls: [first] })
+        await run(step, { collectedUrls: [first, second] })
+        expect(
+            queued.map((batch) => decode(batch).map((m) => m.value.urls.map((u: { ref: string }) => u.ref)))
+        ).toEqual([[[first.ref]], [[second.ref]]])
+    })
+
+    it('swallows a failed produce and un-marks its refs so a later sighting produces again', async () => {
+        queueMessages.mockRejectedValueOnce(new Error('broker down'))
+        const step = createProduceCollectedUrlsStep(outputs)
+        const entry = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
+
+        const result = await run(step, { collectedUrls: [entry] })
+        expect(result.type).toBe(PipelineResultType.OK)
+
+        await run(step, { collectedUrls: [entry] })
+        expect(queueMessages).toHaveBeenCalledTimes(2)
+        // The second produce succeeded, so the ref dedups from then on.
+        await run(step, { collectedUrls: [entry] })
+        expect(queueMessages).toHaveBeenCalledTimes(2)
+    })
+})
