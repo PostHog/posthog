@@ -3,10 +3,12 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { reverseProxyCheckerLogic } from './reverseProxyCheckerLogic'
+import { isTransientNetworkError, reverseProxyCheckerLogic } from './reverseProxyCheckerLogic'
 
 const hasReverseProxyValues = [['https://proxy.example.com'], [null]]
 const doesNotHaveReverseProxyValues = [[null], [null]]
@@ -79,14 +81,12 @@ describe('reverseProxyCheckerLogic', () => {
             })
     })
 
-    it('should swallow server errors silently instead of showing a toast', async () => {
-        // Regression test: previously a 500 from the HogQL endpoint would propagate
-        // through kea-loaders and surface a user-visible
-        // 'Load has reverse proxy failed: A server error occurred' toast on every
-        // scene that mounts ProductSetupButton.
+    it('should not report a transient 5xx to error tracking', async () => {
+        // The check is advisory, so a proxy/gateway 5xx has no user impact. Reporting it only
+        // opened a fresh error tracking issue on every deploy — this locks in that it stays silent.
         useMocks({
             post: {
-                '/api/environments/:team_id/query/:kind': () => [500, { detail: 'A server error occurred' }],
+                '/api/environments/:team_id/query/:kind': () => [503, { detail: 'A server error occurred' }],
             },
         })
 
@@ -106,15 +106,55 @@ describe('reverseProxyCheckerLogic', () => {
             })
 
         expect(toastErrorSpy).not.toHaveBeenCalled()
-        // The error is captured directly (not wrapped) so its type is preserved at the
-        // top of `$exception_list` — that lets the central `before_send` filter recognise
-        // `ReadOnlyModeError` without depending on cause-chain serialization.
-        expect(captureExceptionSpy).toHaveBeenCalledWith(
-            expect.objectContaining({ status: 500 }),
-            expect.objectContaining({ posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy' })
-        )
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
 
         toastErrorSpy.mockRestore()
         captureExceptionSpy.mockRestore()
+    })
+
+    it('should report a genuinely unexpected error to error tracking', async () => {
+        // A 4xx is not benign network noise, so it must still reach error tracking. Captured
+        // directly (not wrapped) so the error type stays at the top of `$exception_list`, which
+        // lets the central `before_send` filter recognise `ReadOnlyModeError`.
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [400, { detail: 'Bad query' }],
+            },
+        })
+
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        }).toFinishAllListeners()
+
+        expect(captureExceptionSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 400 }),
+            expect.objectContaining({ posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy' })
+        )
+
+        captureExceptionSpy.mockRestore()
+    })
+
+    describe('isTransientNetworkError', () => {
+        it.each([
+            ['Chrome fetch rejection', new TypeError('Failed to fetch'), true],
+            ['Safari fetch rejection', new TypeError('Load failed'), true],
+            ['Firefox fetch rejection', new TypeError('NetworkError when attempting to fetch resource'), true],
+            // The api layer wraps a dropped fetch in a statusless ApiError whose message coerces
+            // from the underlying TypeError — this is the dominant production path.
+            ['wrapped statusless fetch rejection', new ApiError('TypeError: Failed to fetch'), true],
+            ['502 gateway error', new ApiError('Non-OK response', 502), true],
+            ['503 gateway error', new ApiError('Non-OK response', 503), true],
+            ['504 gateway error', new ApiError('Non-OK response', 504), true],
+            ['500 backend exception', new ApiError('Non-OK response', 500), false],
+            ['statusless ApiError', new ApiError('Failed to read response body'), false],
+            ['4xx client error', new ApiError('Bad request', 400), false],
+            ['unexpected app error', new TypeError("Cannot read properties of undefined (reading 'x')"), false],
+        ])('classifies %s', (_label, error, expected) => {
+            expect(isTransientNetworkError(error)).toBe(expected)
+        })
     })
 })

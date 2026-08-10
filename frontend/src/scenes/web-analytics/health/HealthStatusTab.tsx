@@ -4,7 +4,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { HealthCheckSection } from './components/HealthCheckSection'
-import { HealthCheck } from './healthCheckTypes'
+import { HealthCheck, HealthCheckStatus } from './healthCheckTypes'
 import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
@@ -51,7 +51,7 @@ export function HealthStatusTab(): JSX.Element {
 }
 
 interface OverallHealthBannerProps {
-    status: 'success' | 'warning' | 'error' | 'loading'
+    status: HealthCheckStatus
     summary: string
     passedCount: number
     totalCount: number

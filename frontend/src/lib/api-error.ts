@@ -6,6 +6,14 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/*
+Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
+reach the backend), not application bugs, so callers may retry them without reporting them to
+error tracking — otherwise sporadic 5xxs surface as noisy code-regression issues. 500 is
+intentionally excluded: those are genuine backend exceptions worth capturing.
+*/
+export const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null

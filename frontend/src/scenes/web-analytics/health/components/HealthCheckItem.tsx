@@ -67,7 +67,7 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
 }
 
 function StatusIcon({ status, urgent }: { status: HealthCheckStatus; urgent?: boolean }): JSX.Element {
-    const isUrgentAndFailing = urgent && status !== 'success' && status !== 'loading'
+    const isUrgentAndFailing = urgent && status !== 'success' && status !== 'loading' && status !== 'unknown'
 
     if (isUrgentAndFailing) {
         return (
@@ -100,6 +100,12 @@ function StatusIcon({ status, urgent }: { status: HealthCheckStatus; urgent?: bo
             return (
                 <div className="w-6 h-6 rounded-full bg-muted-alt flex items-center justify-center flex-shrink-0">
                     <LemonSkeleton className="w-4 h-4 rounded-full" />
+                </div>
+            )
+        case 'unknown':
+            return (
+                <div className="w-6 h-6 rounded-full bg-muted-alt flex items-center justify-center flex-shrink-0">
+                    <span className="text-muted text-xs font-bold">?</span>
                 </div>
             )
     }

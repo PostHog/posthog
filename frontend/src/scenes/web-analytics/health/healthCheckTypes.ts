@@ -1,4 +1,4 @@
-export type HealthCheckStatus = 'success' | 'warning' | 'error' | 'loading'
+export type HealthCheckStatus = 'success' | 'warning' | 'error' | 'loading' | 'unknown'
 
 export type HealthCheckCategory = 'events' | 'configuration' | 'performance'
 

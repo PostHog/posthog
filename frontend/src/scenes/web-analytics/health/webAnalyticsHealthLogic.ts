@@ -158,6 +158,7 @@ export interface webAnalyticsHealthLogicValues {
     hasIssues: boolean
     hasUrgentIssues: boolean
     healthIssues: HealthIssuesResponse | null
+    healthIssuesLoadFailed: boolean
     healthIssuesLoading: boolean
     nextRefreshAvailableAt: number | null
     now: number
@@ -283,6 +284,7 @@ export interface webAnalyticsHealthLogicMeta {
             activeIssuesByKind: Record<string, HealthIssue>,
             healthIssuesLoading: boolean,
             healthIssues: HealthIssuesResponse | null,
+            healthIssuesLoadFailed: boolean,
             featureFlags: FeatureFlagsSet
         ) => HealthCheck[]
         checksByCategory: (allChecks: HealthCheck[]) => Record<HealthCheckCategory, HealthCheck[]>
@@ -352,6 +354,16 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 setNow: (_, { now }) => now,
             },
         ],
+        // Tracks whether the most recent health_issues fetch failed, so `allChecks` can render an
+        // explicit "couldn't check" state instead of falling through to a row of passing ticks.
+        healthIssuesLoadFailed: [
+            false,
+            {
+                loadHealthIssues: () => false,
+                loadHealthIssuesSuccess: () => false,
+                loadHealthIssuesFailure: () => true,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -378,11 +390,18 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         ],
 
         allChecks: [
-            (s) => [s.activeIssuesByKind, s.healthIssuesLoading, s.healthIssues, s.featureFlags],
+            (s) => [
+                s.activeIssuesByKind,
+                s.healthIssuesLoading,
+                s.healthIssues,
+                s.healthIssuesLoadFailed,
+                s.featureFlags,
+            ],
             (
                 activeIssuesByKind: Record<string, HealthIssue>,
                 loading: boolean,
                 healthIssues: HealthIssuesResponse | null,
+                loadFailed: boolean,
                 featureFlags: FeatureFlagsSet
             ): HealthCheck[] => {
                 const enabledChecks = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS]
@@ -397,6 +416,20 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                             title: config.title,
                             description: 'Checking...',
                             status: 'loading' as HealthCheckStatus,
+                        }
+                    }
+
+                    // Fail closed: with no data because the fetch failed, we cannot judge the setup.
+                    // Render "couldn't check" rather than a passing tick that hides a real problem.
+                    if (loadFailed && !healthIssues) {
+                        return {
+                            id: config.id,
+                            category: config.category,
+                            title: config.title,
+                            description: "We couldn't check this. Refresh to try again.",
+                            status: 'unknown' as HealthCheckStatus,
+                            docsUrl: config.docsUrl,
+                            urgent: config.urgent,
                         }
                     }
 
@@ -446,6 +479,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 const warningCount = allChecks.filter((check) => check.status === 'warning').length
                 const errorCount = allChecks.filter((check) => check.status === 'error').length
                 const loadingCount = allChecks.filter((check) => check.status === 'loading').length
+                const unknownCount = allChecks.filter((check) => check.status === 'unknown').length
                 const totalCount = allChecks.length
 
                 let status: HealthCheckStatus
@@ -454,6 +488,9 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 if (loadingCount > 0) {
                     status = 'loading'
                     summary = 'Checking your setup...'
+                } else if (unknownCount > 0) {
+                    status = 'unknown'
+                    summary = "We couldn't check your setup. Refresh to try again."
                 } else if (warningCount > 0 || errorCount > 0) {
                     status = 'warning'
                     const totalErrors = warningCount + errorCount
@@ -484,8 +521,14 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         urgentFailedChecks: [
             (s) => [s.allChecks],
             (allChecks: HealthCheck[]): HealthCheck[] => {
+                // 'unknown' is excluded: a failed fetch is not a confirmed urgent failure, so it
+                // must not raise the red tab badge.
                 return allChecks.filter(
-                    (check) => check.urgent && check.status !== 'success' && check.status !== 'loading'
+                    (check) =>
+                        check.urgent &&
+                        check.status !== 'success' &&
+                        check.status !== 'loading' &&
+                        check.status !== 'unknown'
                 )
             },
         ],

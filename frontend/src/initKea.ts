@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { TRANSIENT_GATEWAY_STATUSES, isAccessDeniedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -56,14 +56,6 @@ Unlike ERROR_FILTER_ALLOW_LIST, this only suppresses access-denied errors;
 other failures on these actions still toast.
 */
 const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
-
-/*
-Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
-reach the backend), not application bugs, so we still toast the user a retryable failure but
-don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
-issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
-*/
-const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
 interface InitKeaProps {
     state?: Record<string, any>
