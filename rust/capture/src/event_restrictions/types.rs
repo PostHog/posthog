@@ -45,10 +45,10 @@ impl Pipeline {
     /// Pipelines a given capture deployment produces events to. The events
     /// deployment writes to `analytics` (normal events), `errortracking`
     /// (`$exception` events split off in `process_single_event`), and `ai`
-    /// (`$ai_*` events diverted by the `AiRouting` policy), so its restriction
-    /// service must serve restrictions for all three pipelines. `Import` is an
-    /// events deployment restricted to backfills, so it serves the same three.
-    /// Other deployments serve their single pipeline.
+    /// (`$ai_*` events diverted by `CaptureMode::routes_ai_events`), so its
+    /// restriction service must serve restrictions for all three pipelines.
+    /// `Import` is an events deployment restricted to backfills, so it serves
+    /// the same three. Other deployments serve their single pipeline.
     pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
             CaptureMode::Events | CaptureMode::Import => {
