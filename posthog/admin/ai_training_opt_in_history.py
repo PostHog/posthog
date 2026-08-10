@@ -145,14 +145,18 @@ def _build_summary(current: Optional[bool], changes: list[OptInChange], truncate
     else:
         headline = "Currently opted out"
 
+    # The headline already states the current value, so only spell it out when it is null, which
+    # the headline cannot distinguish from opted out.
+    current_value_lines = ["The value is null rather than false."] if current is None else []
+
     if not changes:
         return headline, [
-            f"Current value is {_describe_value(current)}.",
+            *current_value_lines,
             "No change to this setting has ever been recorded, so it still holds the value the "
             "organization was given automatically.",
         ]
 
-    lines = [f"Current value is {_describe_value(current)}."]
+    lines = list(current_value_lines)
 
     if truncated:
         lines.append(
@@ -186,7 +190,7 @@ def _build_summary(current: Optional[bool], changes: list[OptInChange], truncate
 
 def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
     raw_status: list[tuple[str, Any]] = [(name, getattr(organization, name, None)) for name in RAW_STATUS_FIELDS]
-    raw_status.append(("created_at", organization.created_at))
+    raw_status.append(("created_at", _timestamp(organization.created_at)))
 
     try:
         changes, truncated = _fetch_changes(organization)
