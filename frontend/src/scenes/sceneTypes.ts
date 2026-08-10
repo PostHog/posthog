@@ -393,6 +393,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,
 
+    // Error tracking
+    [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
+
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
