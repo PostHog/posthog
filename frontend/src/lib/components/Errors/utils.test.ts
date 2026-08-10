@@ -93,7 +93,7 @@ describe('Error Display', () => {
             $sentry_exception_type: undefined,
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
             $exception_type: undefined,
-            $exception_level: 'info',
+            $level: 'info',
             $exception_message: 'the message sent into sentry captureMessage',
         }
         const result = getExceptionAttributes(eventProperties)
@@ -109,7 +109,7 @@ describe('Error Display', () => {
             runtime: 'web',
             lib: 'posthog-js',
             libVersion: '1.0.0',
-            level: 'info',
+            level: undefined,
             os: 'Windows',
             osVersion: '10',
             sentryUrl:
