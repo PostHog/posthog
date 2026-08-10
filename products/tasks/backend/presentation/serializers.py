@@ -1552,6 +1552,14 @@ class ChannelWriteSerializer(serializers.Serializer):
     name = serializers.CharField(
         max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
     )
+    star = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Star the channel for the requester when this call creates it. "
+            "Ignored when the channel already exists, which leaves existing stars untouched."
+        ),
+    )
 
 
 class ChannelUpdateSerializer(serializers.Serializer):
