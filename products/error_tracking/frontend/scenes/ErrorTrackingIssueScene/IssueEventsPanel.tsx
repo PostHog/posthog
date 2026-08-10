@@ -36,7 +36,7 @@ function LoadedIssueEventsPanel(): JSX.Element {
     return (
         <IssueEventsLayout
             loading={itemsLoading}
-            onReload={loadData}
+            onReload={() => loadData('force_blocking')}
             onScrollNearEnd={() => {
                 if (canLoadNextData && !itemsLoading) {
                     loadNextData()
