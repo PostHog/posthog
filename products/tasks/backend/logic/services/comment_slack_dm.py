@@ -54,32 +54,31 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
 
     comment = Comment.objects.filter(team_id=team_id, id=comment_id).select_related("created_by").first()
     if comment is None:
-        return
+        return _skip(comment_id, "comment_missing")
     skip_reason = _skip_reason(comment)
     if skip_reason:
-        logger.info("comment_slack_dm_skipped", comment_id=str(comment_id), reason=skip_reason)
-        return
+        return _skip(comment_id, skip_reason)
 
     # Cheapest gate first: most comments have no opted-in recipient, and this keeps the flag call
     # (a network hop) off that path.
     wanted = _recipients_wanting_dms(team_id=team_id, comment=comment, recipients=recipients)
     if not wanted:
-        return
+        return _skip(comment_id, "no_opted_in_recipient")
 
     integration = Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.SLACK).first()
     if integration is None or not integration.integration_id:
-        return
+        return _skip(comment_id, "no_slack_integration")
     # The flag that gates the Slack identity link itself. Gating delivery on it too means an org
     # that never had the link flow can't receive DMs, and turning it off halts delivery without a
     # deploy. Skipped in local dev, where flags evaluate against the developer's own instance and
     # the gate would otherwise fail closed on every machine — the same default-on-in-dev treatment
     # the desktop flags get.
     if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
-        return
+        return _skip(comment_id, "slack_app_oauth_disabled")
 
     task = Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()
     if task is None:
-        return
+        return _skip(comment_id, "task_missing")
 
     organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
     client = SlackIntegration(integration).client
@@ -89,15 +88,23 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
         if not target_is_accessible(
             team_id=team_id, user_id=user_id, task_id=task_id, scope=comment.scope, item_id=comment.item_id
         ):
+            _skip(comment_id, "recipient_lost_access", user_id=user_id)
             continue
         slack_user_id = _slack_user_id(user_id, integration.integration_id)
         if not slack_user_id:
+            _skip(comment_id, "recipient_has_no_slack_link", user_id=user_id)
             continue
         fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=organization_id)
         try:
             client.chat_postMessage(channel=slack_user_id, text=fallback, blocks=blocks, unfurl_links=False)
         except Exception as exc:
             logger.warning("comment_slack_dm_failed", comment_id=str(comment_id), user_id=user_id, error=str(exc))
+
+
+def _skip(comment_id: UUID, reason: str, user_id: int | None = None) -> None:
+    """Every gate here returns silently by design, which makes "why did I get no DM" unanswerable
+    without one line per exit."""
+    logger.info("comment_slack_dm_skipped", comment_id=str(comment_id), reason=reason, user_id=user_id)
 
 
 def _skip_reason(comment: Comment) -> str | None:
