@@ -1,6 +1,5 @@
 import {
   ArrowSquareIn,
-  Cloud,
   GitBranch,
   GitMerge,
   GitPullRequest,
@@ -56,7 +55,7 @@ export const DOT_TONE_VAR: Record<DotTone, string> = {
   yellow: "var(--primary)",
   red: "var(--red-9)",
   blue: "var(--blue-9)",
-  gray: "var(--gray-8)",
+  gray: "var(--muted-foreground)",
 };
 
 /**
@@ -125,11 +124,18 @@ export interface TaskDot {
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
   if (props.needsPermission) {
+    // Not flashing. Blue already reads as the one thing in the list that is
+    // yours to answer, and a blink on top of that argues with every quiet row
+    // around it — in a sidebar of a dozen spaces it is the whole tree moving.
     return {
       tone: "blue",
       style: "solid",
-      pulse: true,
-      label: "Needs permission — blocked on you",
+      pulse: false,
+      // What the agent is asking for varies: permission to run a tool, an
+      // answer to a question it asked with one. Both reach the reader as the
+      // same prompt in the same place, so the row names the ask rather than the
+      // mechanism behind it.
+      label: "Needs your input",
     };
   }
   // Spinning means something is moving on its own: a prompt in flight, or a
@@ -148,12 +154,14 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: props.isGenerating ? "Working" : "Starting",
     };
   }
-  // The statuses that lie. Nothing writes a terminal status when a local agent
-  // goes idle, and the cloud workflow holds in_progress while it babysits CI, so
-  // the claim outlives the work, sometimes for the row's whole life. Live, but
-  // nothing moving: the still dot.
+  // Only a background run's status is a claim about work. An interactive run is
+  // left `in_progress` after it succeeds, deliberately — the session stays open
+  // for a follow-up, so the status says "followable", not "working". Reading it
+  // as a claim marked every finished session as pending, on a row nobody could
+  // clear: opening the session writes a viewed timestamp, not a status.
   const runClaimsWork =
-    props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued";
+    props.runMode === "background" &&
+    (props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued");
   if (runClaimsWork && !hasPullRequest(props)) {
     return {
       tone: "yellow",
@@ -208,8 +216,13 @@ export interface TaskBadge {
 
 /**
  * Identity → badges, widest context first so the stack reads left-to-right as
- * "who asked, where it runs, what came out of it". Always returns at least one
- * badge: an empty slot where every other row has an avatar reads as a bug.
+ * "who asked, where it runs, what came out of it".
+ *
+ * Only the local case says where it runs. Running in the cloud is what a task
+ * does by default, and a badge on the majority of rows is a badge nobody reads —
+ * so cloud is silent and the laptop marks the exception. A cloud row with
+ * nothing else to say carries no badges at all, which is the honest shape:
+ * nothing has happened to it yet.
  *
  * Origins deliberately share ONE glyph. Eight product marks at avatar size is a
  * vocabulary nobody learns — and the badge's job in a nav row is "this didn't
@@ -229,9 +242,6 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       Icon: ArrowSquareIn,
       label: `Source: ${origin.label}`,
     });
-  }
-  if (props.workspaceMode === "cloud") {
-    badges.push({ key: "cloud", Icon: Cloud, label: "Cloud" });
   }
   if (props.prState === "merged") {
     badges.push({
@@ -278,7 +288,11 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       tone: "yellow",
     });
   }
-  if (badges.length === 0) {
+  // Only when we actually know it runs on this machine. An unset mode is
+  // unknown, not local, and claiming a laptop for it would be a guess.
+  const runsLocally =
+    props.workspaceMode === "local" || props.workspaceMode === "worktree";
+  if (badges.length === 0 && runsLocally) {
     badges.push({ key: "local", Icon: Laptop, label: "Local" });
   }
   return badges;

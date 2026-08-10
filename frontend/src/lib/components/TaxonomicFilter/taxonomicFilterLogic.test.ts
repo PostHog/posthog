@@ -1470,6 +1470,29 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('exception property selection', () => {
+        it('provides the value and event filter type needed to commit an exception property', () => {
+            const exceptionLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'exceptionPropertySelection',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.ErrorTrackingProperties],
+                onChange: jest.fn(),
+            })
+            exceptionLogic.mount()
+
+            const group = exceptionLogic.values.taxonomicGroups.find(
+                (candidate) => candidate.type === TaxonomicFilterGroupType.ErrorTrackingProperties
+            )
+            const option = group?.options?.find((candidate) => candidate.name === '$exception_values') as
+                | { name: string; propertyFilterType: PropertyFilterType }
+                | undefined
+
+            expect(group?.getValue?.(option)).toBe('$exception_values')
+            expect(option?.propertyFilterType).toBe(PropertyFilterType.Event)
+
+            exceptionLogic.unmount()
+        })
+    })
+
     describe('event feature flag properties are a separate group from event properties', () => {
         let splitLogic: ReturnType<typeof taxonomicFilterLogic.build>
 
