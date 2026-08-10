@@ -31,6 +31,16 @@ pub fn is_media_src_attr(name: &str) -> bool {
     MEDIA_SRC_ATTRS.contains(&name)
 }
 
+/// The media source attributes the fetch lane collects URLs from.
+///
+/// A subset of [`MEDIA_SRC_ATTRS`], because the rest do not name one fetchable image. `srcset`
+/// holds several candidates with descriptors, so it needs a parse and a choice of which candidate
+/// to fetch. `href` and `xlink:href` on a media tag are as often a link or an SVG fragment
+/// reference as they are an image. Both can be added later without changing anything else here.
+fn is_fetchable_src_attr(name: &str) -> bool {
+    matches!(name, "src" | "rr_src" | "poster")
+}
+
 /// True if an attribute map contains any media-source attribute.
 pub fn has_media_src_attr(attrs: &Object<'_>) -> bool {
     MEDIA_SRC_ATTRS.iter().any(|name| attrs.contains_key(*name))
@@ -72,12 +82,22 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>) -> bool {
             let blurred = ctx.scrub_image(&existing, ImageFallback::Placeholder);
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
+            // A ref here means the fetch lane will download this URL and scrub it out of band, so
+            // the attribute can carry a join key instead of the placeholder. Until those bytes
+            // land the ref is dangling, which readers already render as the placeholder, so the
+            // worst case matches the behaviour this replaces.
+            let collected = is_fetchable_src_attr(key)
+                .then(|| ctx.collect_url(&existing))
+                .flatten();
             // Stashed under a namespaced attr that won't collide with an app `data-original-*`.
             let scrubbed = scrub_url(ctx, &existing).unwrap_or(existing);
-            attrs.insert(
-                Cow::Borrowed(*key),
-                Value::String(Cow::Borrowed(PLACEHOLDER_SRC)),
-            );
+            match collected {
+                Some(url_ref) => attrs.insert(Cow::Borrowed(*key), string_value(url_ref)),
+                None => attrs.insert(
+                    Cow::Borrowed(*key),
+                    Value::String(Cow::Borrowed(PLACEHOLDER_SRC)),
+                ),
+            };
             attrs.insert(
                 Cow::Owned(format!("data-anon-original-{key}")),
                 string_value(scrubbed),

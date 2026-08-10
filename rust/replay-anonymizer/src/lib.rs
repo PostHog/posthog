@@ -60,6 +60,8 @@ mod unwind;
 #[doc(hidden)]
 pub mod url;
 #[doc(hidden)]
+pub mod url_collect;
+#[doc(hidden)]
 pub mod value;
 
 pub use allow_lists::AllowLists;
@@ -77,6 +79,7 @@ pub use snapshot::{
 pub use timings::{PhaseTimings, PhaseTimingsSnapshot};
 #[cfg(feature = "typed-parse")]
 pub use typed::{parse_scrubbed_event, parse_scrubbed_event_with_ctx};
+pub use url_collect::{CollectedUrl, UrlCollection};
 
 /// Shared helpers for the image-neutralization tests across modules.
 #[cfg(test)]
