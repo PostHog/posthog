@@ -30,6 +30,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelInstructionsDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
+    SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
     TaskAutomationDTO,
@@ -134,6 +135,11 @@ class TaskUserBasicInfoSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = TaskUserBasicInfo
+
+
+class SlackThreadReferenceSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SlackThreadReferenceDTO
 
 
 TASK_RUN_ARTIFACT_MAX_SIZE_BYTES = 30 * 1024 * 1024
@@ -400,6 +406,7 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    slack_thread_references = SlackThreadReferenceSerializer(many=True, read_only=True)
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
         read_only=True,
@@ -432,6 +439,7 @@ class TaskSerializer(DataclassSerializer):
             "created_by",
             "ci_prompt",
             "channel",
+            "slack_thread_references",
         ]
 
 

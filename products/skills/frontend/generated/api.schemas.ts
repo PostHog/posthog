@@ -116,6 +116,11 @@ export interface LLMSkillListApi {
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
+    /**
+     * Optional note describing what changed in this version. Set when the version is published.
+     * @nullable
+     */
+    readonly version_description: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -205,6 +210,11 @@ export interface LLMSkillCreateApi {
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
+    /**
+     * Optional note describing what changed in this version. Set when the version is published.
+     * @nullable
+     */
+    readonly version_description: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -271,6 +281,11 @@ export interface LLMSkillApi {
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
+    /**
+     * Optional note describing what changed in this version. Set when the version is published.
+     * @nullable
+     */
+    readonly version_description: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -421,6 +436,11 @@ export interface PatchedLLMSkillPublishApi {
      * @minimum 1
      */
     base_version?: number
+    /**
+     * Optional note describing what changed in this version. Shown in the version history.
+     * @maxLength 400
+     */
+    version_description?: string
 }
 
 export interface LLMSkillDuplicateApi {
@@ -480,6 +500,8 @@ export interface LLMSkillFileApi {
 export interface LLMSkillVersionSummaryApi {
     readonly id: string
     readonly version: number
+    /** @nullable */
+    readonly version_description: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly is_latest: boolean
