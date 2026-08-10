@@ -174,13 +174,15 @@ class TestAccountsTableQueryRunner(BaseTest):
                 value_num=index,
             )
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             page = api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=UserAccessControl(user=self.user, team=self.team),
                 selection=contracts.AccountTableColumnSelection(
                     custom_property_definition_ids=frozenset({definition.id})
                 ),
+                filters=(),
+                sort=None,
                 offset=0,
                 limit=100,
             )
