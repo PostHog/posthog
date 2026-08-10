@@ -23,9 +23,7 @@ class _SchemaEditor:
 
 
 def _source(team, source_type):
-    return ExternalDataSource.objects.create(
-        source_id="src", connection_id="conn", team=team, source_type=source_type
-    )
+    return ExternalDataSource.objects.create(source_id="src", connection_id="conn", team=team, source_type=source_type)
 
 
 @pytest.mark.django_db
