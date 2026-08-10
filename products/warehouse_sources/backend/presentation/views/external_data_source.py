@@ -146,6 +146,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
+    purge_buffer_prefix,
     repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
@@ -3971,6 +3972,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except Exception as e:
             logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
             capture_exception(e, {"source_id": str(instance.id)})
+
+        # Drop each schema's S3 change buffer: the shadow lane's files are raw customer
+        # change data with no consumer once CDC is off, and nothing else expires them.
+        for schema_id in cdc_schema_ids:
+            purge_buffer_prefix(instance.team_id, str(schema_id), logger)
 
         with transaction.atomic():
             # Clear any broken marker (recovery contract): leaving a stale cdc_broken in
