@@ -85,7 +85,7 @@ class TestSendDigestForUser(_DigestTestBase):
         assert outcome == DigestOutcome.SENT
         self.mock_email_class.assert_called_once()
         kwargs = self.mock_email_class.call_args.kwargs
-        assert kwargs["subject"] == f"Web analytics weekly digest for {self.organization.name}"
+        assert kwargs["subject"] == f"Web analytics: weekly digest for {self.organization.name}"
         assert "_test_" not in kwargs["campaign_key"]
         self.mock_message.add_user_recipient.assert_called_once_with(self.user)
         self.mock_message.send.assert_called_once()

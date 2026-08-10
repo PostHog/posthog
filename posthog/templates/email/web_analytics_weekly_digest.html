@@ -8,10 +8,10 @@
 </style>
 {% endblock %}
 
-{% block preheader %}Web analytics weekly digest for {{ organization.name }} organization{% endblock %}
+{% block preheader %}Web analytics: weekly digest for {{ organization.name }} organization{% endblock %}
 
 {% block main %}
-<p style="font-size: 1.1em; color: #374151; margin: 0 0 24px 0;">Web analytics weekly digest for <strong>{{ organization.name }}</strong> organization</p>
+<p style="font-size: 1.1em; color: #374151; margin: 0 0 24px 0;">Web analytics: weekly digest for <strong>{{ organization.name }}</strong> organization</p>
 
 {% for section in project_sections %}
 <!-- Project section: {{ section.team.name }} -->
