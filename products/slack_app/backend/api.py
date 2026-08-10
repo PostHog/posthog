@@ -78,18 +78,8 @@ from products.slack_app.backend.services.integration_resolver import (
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
-    ACTION_EDIT_PERSONAL,
-    ACTION_RESET_PERSONAL,
-    ACTION_RESET_PROJECT_PERSONAL,
-    ACTION_SET_PROJECT_PERSONAL,
-    ACTION_SET_PROJECT_WORKSPACE,
-    ACTION_TASKS_FILTER_REPO,
-    ACTION_TASKS_FILTER_STATUS,
-    ACTION_TASKS_PAGE_NEXT,
-    ACTION_TASKS_PAGE_PREV,
-    ACTION_TASKS_REFRESH,
-    ACTION_UNLINK_ACCOUNT,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    HOME_ACTION_IDS,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_RUNTIME_ADAPTER,
     handle_ai_preferences_block_action as _handle_ai_preferences_block_action,
@@ -3088,23 +3078,10 @@ def _extract_context_token(payload: dict) -> str:
     return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
 
 
-_AI_PREFERENCES_ACTION_IDS = frozenset(
-    {
-        ACTION_EDIT_PERSONAL,
-        ACTION_RESET_PERSONAL,
-        ACTION_RESET_PROJECT_PERSONAL,
-        ACTION_SET_PROJECT_PERSONAL,
-        ACTION_SET_PROJECT_WORKSPACE,
-        ACTION_TASKS_FILTER_REPO,
-        ACTION_TASKS_FILTER_STATUS,
-        ACTION_TASKS_PAGE_NEXT,
-        ACTION_TASKS_PAGE_PREV,
-        ACTION_TASKS_REFRESH,
-        ACTION_UNLINK_ACCOUNT,
-        MODAL_ACTION_RUNTIME_ADAPTER,
-        MODAL_ACTION_MODEL,
-    }
-)
+# Every Home tab control, plus the two modal selects that re-render the edit modal.
+# Sourced from `HOME_ACTION_IDS` rather than re-listed, so a control added to the tab
+# is routable here the moment it exists.
+_AI_PREFERENCES_ACTION_IDS = HOME_ACTION_IDS | {MODAL_ACTION_RUNTIME_ADAPTER, MODAL_ACTION_MODEL}
 _AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID})
 
 

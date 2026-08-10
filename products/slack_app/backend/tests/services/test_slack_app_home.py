@@ -29,14 +29,23 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_STATS_WINDOW,
+    ACTION_TASKS_FILTER_REPO,
+    ACTION_TASKS_PAGE_NEXT,
+    ACTION_TASKS_PAGE_PREV,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    HOME_ACTION_IDS,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_REASONING_EFFORT,
     MODAL_ACTION_RUNTIME_ADAPTER,
     MODAL_BLOCK_MODEL,
     MODAL_BLOCK_REASONING_EFFORT,
     MODAL_BLOCK_RUNTIME_ADAPTER,
+    AccountState,
     PreferenceSource,
+    ProjectChoice,
+    ProjectState,
+    StatsState,
     TaskItem,
     TasksState,
     handle_ai_preferences_block_action,
@@ -389,6 +398,53 @@ class TestRenderHomeView:
         # Friendly label rather than raw model id; source attribution visible.
         assert "Claude Opus 4.7" in text_blob
         assert "Your personal override" in _all_text(view)
+
+    def test_every_control_the_tab_renders_is_routable(self):
+        # The interactivity endpoint claims region ownership and dispatches off
+        # HOME_ACTION_IDS, so a control missing from it renders as a button that
+        # silently does nothing. Render every card at once and check the whole set.
+        view = render_home_view(
+            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
+            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7"),
+            is_admin=True,
+            account_state=AccountState(enabled=True, link_url="https://app/link"),
+            project_state=ProjectState(
+                candidates=(ProjectChoice(team_id=1, label="Org · Team"),),
+                personal_team_id=1,
+                workspace_team_id=1,
+                workspace_team_label="Org · Team",
+            ),
+            tasks_state=TasksState(
+                items=(
+                    TaskItem(
+                        title="Fix flaky retention test",
+                        posthog_url="https://app/project/1/tasks/abc",
+                        status="in_progress",
+                        repository="posthog/posthog",
+                        pr_url=None,
+                        thread_url=None,
+                        updated_at_label="5m ago",
+                    ),
+                ),
+                available_repos=("posthog/posthog",),
+                has_any_tasks=True,
+                page=1,
+                total_pages=3,
+                total_filtered=25,
+            ),
+            stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
+        )
+
+        rendered = set(_action_ids(view))
+        # Sanity: the fixture above must actually exercise every card, otherwise the
+        # subset check below passes trivially on a half-rendered tab.
+        assert {
+            ACTION_TASKS_FILTER_REPO,
+            ACTION_TASKS_PAGE_PREV,
+            ACTION_TASKS_PAGE_NEXT,
+            ACTION_STATS_WINDOW,
+        } <= rendered
+        assert rendered <= HOME_ACTION_IDS, f"unroutable controls: {sorted(rendered - HOME_ACTION_IDS)}"
 
     def test_source_resolution_is_atomic(self):
         # A user row missing half the pair isn't a real override.

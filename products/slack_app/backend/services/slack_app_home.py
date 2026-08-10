@@ -86,6 +86,28 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 
+# Every control the Home tab renders, in one place. The interactivity endpoint reads
+# this to claim region ownership and to dispatch, so a control that isn't listed here
+# renders as a button that silently does nothing. Adding an action id above without
+# adding it here is the failure this set exists to prevent.
+HOME_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        ACTION_EDIT_PERSONAL,
+        ACTION_RESET_PERSONAL,
+        ACTION_UNLINK_ACCOUNT,
+        ACTION_SET_PROJECT_PERSONAL,
+        ACTION_SET_PROJECT_WORKSPACE,
+        ACTION_RESET_PROJECT_PERSONAL,
+        ACTION_TASKS_FILTER_REPO,
+        ACTION_TASKS_FILTER_STATUS,
+        ACTION_TASKS_REFRESH,
+        ACTION_TASKS_PAGE_PREV,
+        ACTION_TASKS_PAGE_NEXT,
+        ACTION_STATS_WINDOW,
+        ACTION_STATS_REFRESH,
+    }
+)
+
 # Single block_id for the whole controls row. Block Kit only persists
 # state in `view.state.values` under blocks that carry a `block_id`, so
 # both the repo and the status dropdowns live under the same key here and
@@ -1448,9 +1470,13 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 def _get_slack_integration(slack_team_id: str) -> Integration | None:
     if not slack_team_id:
         return None
+    # Ordered so a workspace connected to several projects resolves to the same row on
+    # every request. An unordered `first()` can hand back a different integration — and
+    # so a different organization — between rendering the tab and handling a click on it.
     return (
         Integration.objects.select_related("team", "team__organization")
         .filter(kind="slack", integration_id=slack_team_id)
+        .order_by("id")
         .first()
     )
 
@@ -1667,6 +1693,20 @@ def _republish_home(
         slack.client.views_publish(user_id=slack_user_id, view=view)
     except Exception:
         logger.exception("slack_app_home_republish_failed")
+        return
+    # Carries the controls the click resolved to, so a report of "the filter does
+    # nothing" can be told apart from a click that never reached us at all.
+    logger.info(
+        "slack_app_home_republished",
+        slack_user_id=slack_user_id,
+        slack_team_id=integration.integration_id,
+        slack_app_home_tasks_page=tasks_state.page,
+        slack_app_home_tasks_total_pages=tasks_state.total_pages,
+        slack_app_home_tasks_shown=len(tasks_state.items),
+        slack_app_home_selected_repo=view_state.selected_repo,
+        slack_app_home_selected_status=view_state.selected_status,
+        slack_app_home_stats_window_days=view_state.stats_window_days,
+    )
 
 
 _TASKS_PAGE_SIZE = 10
