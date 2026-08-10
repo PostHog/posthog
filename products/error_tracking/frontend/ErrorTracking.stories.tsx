@@ -247,6 +247,21 @@ export const GroupPage: Story = {
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
 }
 
+export const GroupPageLoading: Story = {
+    name: 'Issue scene loading',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind/': () => new Promise<never>(() => {}),
+            },
+        }),
+    ],
+}
+
 // Self-driving investigated this issue, so its section renders in the right pane above the exception
 // card. This is the only coverage of the placement: the section's own story fabricates a pane around
 // it, so it cannot show that the two header strips line up, that the section paints the background the
