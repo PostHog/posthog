@@ -20,8 +20,15 @@ tools:
             destructive: false
             idempotent: true
         title: Certify a table/view
-        description: |
-            Mark a table or view as certified (prefer this source). Requires human typed confirmation.
+        description:
+            Mark a table or view as certified (prefer this source), addressed by the certification id returned by
+            data-catalog-certification-propose — create the proposal first if none exists. Requires human typed
+            confirmation.
+        param_overrides:
+            id:
+                description:
+                    Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse
+                    table or view id).
         feature_flag: product-data-catalog
         confirmed_action:
             message: >
@@ -39,8 +46,15 @@ tools:
             destructive: false
             idempotent: true
         title: Deprecate a table/view
-        description: |
-            Mark a table or view as deprecated (avoid this source). Requires human typed confirmation.
+        description:
+            Mark a table or view as deprecated (avoid this source), addressed by the certification id returned by
+            data-catalog-certification-propose — create the proposal first if none exists. Requires human typed
+            confirmation.
+        param_overrides:
+            id:
+                description:
+                    Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse
+                    table or view id).
         feature_flag: product-data-catalog
         confirmed_action:
             message: >
@@ -57,10 +71,12 @@ tools:
             destructive: false
             idempotent: false
         title: Propose a table/view certification
-        description: >
-            Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name
-            returns the candidate ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or
-            wrong source; an approver settles the proposal with the certify or deprecate tool.
+        description:
+            Propose a trust mark (certification record) on a warehouse table or view — the first step before a human
+            certifies or deprecates the source. Call when the user wants to mark a table/view as trusted, preferred,
+            deprecated, or to-be-avoided. Address the target by id, or by name (an ambiguous name returns the candidate
+            ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or wrong source; an
+            approver then settles the proposal with the certify or deprecate tool.
         feature_flag: product-data-catalog
     data-catalog-certifications-destroy:
         operation: data_catalog_certifications_destroy
