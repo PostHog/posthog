@@ -30,10 +30,10 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
-    ACTION_STATS_WINDOW,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
     ACTION_TASKS_PAGE_PREV,
+    ACTION_UNLINK_ACCOUNT,
     BLOCK_TASKS_CONTROLS,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
     HOME_ACTION_IDS,
@@ -341,6 +341,23 @@ def _block_action_payload(
     }
 
 
+def _tasks_click_payload(action_id: str, *, value: str | None = None, repo: str | None = None) -> dict:
+    """A Home tab Tasks click: the page rides on the button's value, the filter on view state."""
+    action: dict[str, Any] = {"action_id": action_id}
+    if value is not None:
+        action["value"] = value
+    controls: dict[str, Any] = {}
+    if repo:
+        controls[ACTION_TASKS_FILTER_REPO] = {"selected_option": {"value": repo}}
+    return {
+        "type": "block_actions",
+        "team": {"id": SLACK_WORKSPACE_ID},
+        "user": {"id": "U001"},
+        "actions": [action],
+        "view": {"id": "V1", "hash": "H1", "type": "home", "state": {"values": {BLOCK_TASKS_CONTROLS: controls}}},
+    }
+
+
 def _view_submission_payload(
     *,
     callback_id: str,
@@ -438,16 +455,10 @@ class TestRenderHomeView:
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
         )
 
-        rendered = set(_action_ids(view))
-        # Sanity: the fixture above must actually exercise every card, otherwise the
-        # subset check below passes trivially on a half-rendered tab.
-        assert {
-            ACTION_TASKS_FILTER_REPO,
-            ACTION_TASKS_PAGE_PREV,
-            ACTION_TASKS_PAGE_NEXT,
-            ACTION_STATS_WINDOW,
-        } <= rendered
-        assert rendered <= HOME_ACTION_IDS, f"unroutable controls: {sorted(rendered - HOME_ACTION_IDS)}"
+        # Equality both ways: an unroutable control fails on the left, and a card that
+        # stopped rendering fails on the right instead of passing a subset check trivially.
+        # Unlink only renders once an account is linked, which this fixture deliberately isn't.
+        assert set(_action_ids(view)) == HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}
 
     def test_source_resolution_is_atomic(self):
         # A user row missing half the pair isn't a real override.
@@ -780,8 +791,9 @@ class TestTasksControlsRepublishTheList:
     joins them: a real `block_actions` payload in, the `views.publish` payload out.
     """
 
-    def _seed(self, integration, count: int = 12) -> None:
-        for index in range(count):
+    def _seed(self, integration) -> None:
+        # More than one page, so a Next click has somewhere to go.
+        for index in range(12):
             task = Task.objects.create(
                 team=integration.team,
                 title=f"Task {index}",
@@ -801,21 +813,6 @@ class TestTasksControlsRepublishTheList:
                 mentioning_slack_user_id="U001",
             )
 
-    def _click(self, action_id: str, *, value: str | None = None, repo: str | None = None) -> dict:
-        action: dict[str, Any] = {"action_id": action_id}
-        if value is not None:
-            action["value"] = value
-        controls: dict[str, Any] = {}
-        if repo:
-            controls[ACTION_TASKS_FILTER_REPO] = {"selected_option": {"value": repo}}
-        return {
-            "type": "block_actions",
-            "team": {"id": SLACK_WORKSPACE_ID},
-            "user": {"id": "U001"},
-            "actions": [action],
-            "view": {"id": "V1", "hash": "H1", "type": "home", "state": {"values": {BLOCK_TASKS_CONTROLS: controls}}},
-        }
-
     def _published_titles(self, view: dict) -> list[str]:
         titles = []
         for block in view["blocks"]:
@@ -830,15 +827,15 @@ class TestTasksControlsRepublishTheList:
         self._seed(slack_integration)
 
         with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
-            first = self._click(ACTION_TASKS_PAGE_NEXT, value="0")
+            first = _tasks_click_payload(ACTION_TASKS_PAGE_NEXT, value="0")
             handle_ai_preferences_block_action(first, first["actions"][0])
             page_one = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
 
-            second = self._click(ACTION_TASKS_PAGE_NEXT, value="1")
+            second = _tasks_click_payload(ACTION_TASKS_PAGE_NEXT, value="1")
             handle_ai_preferences_block_action(second, second["actions"][0])
             page_two = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
 
-            narrowed = self._click(ACTION_TASKS_FILTER_REPO, repo="posthog/other")
+            narrowed = _tasks_click_payload(ACTION_TASKS_FILTER_REPO, repo="posthog/other")
             handle_ai_preferences_block_action(narrowed, narrowed["actions"][0])
             filtered = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
 
@@ -855,21 +852,6 @@ class TestTasksControlsResolveViewState:
     `value` and the filters ride on the view's input state. These lock that decoding,
     which is otherwise only observable through a full publish.
     """
-
-    def _payload(self, action_id: str, *, value: str | None = None, repo: str | None = None) -> dict:
-        action: dict[str, Any] = {"action_id": action_id}
-        if value is not None:
-            action["value"] = value
-        controls: dict[str, Any] = {}
-        if repo:
-            controls[ACTION_TASKS_FILTER_REPO] = {"selected_option": {"value": repo}}
-        return {
-            "type": "block_actions",
-            "team": {"id": SLACK_WORKSPACE_ID},
-            "user": {"id": "U001"},
-            "actions": [action],
-            "view": {"id": "V1", "hash": "H1", "type": "home", "state": {"values": {BLOCK_TASKS_CONTROLS: controls}}},
-        }
 
     def _resolved_state(self, monkeypatch, payload: dict):
         captured: dict[str, Any] = {}
@@ -896,19 +878,21 @@ class TestTasksControlsResolveViewState:
         ],
     )
     def test_page_comes_off_the_clicked_button(self, monkeypatch, action_id, value, expected_page):
-        state = self._resolved_state(monkeypatch, self._payload(action_id, value=value))
+        state = self._resolved_state(monkeypatch, _tasks_click_payload(action_id, value=value))
         assert state.tasks_page == expected_page
 
     def test_paging_keeps_the_active_repo_filter(self, monkeypatch):
         # Paging must not silently widen the list back to every repo.
         state = self._resolved_state(
-            monkeypatch, self._payload(ACTION_TASKS_PAGE_NEXT, value="1", repo="posthog/posthog")
+            monkeypatch, _tasks_click_payload(ACTION_TASKS_PAGE_NEXT, value="1", repo="posthog/posthog")
         )
         assert (state.selected_repo, state.tasks_page) == ("posthog/posthog", 1)
 
     def test_changing_the_filter_returns_to_the_first_page(self, monkeypatch):
         # Otherwise a narrower result set leaves the viewer stranded past its last page.
-        state = self._resolved_state(monkeypatch, self._payload(ACTION_TASKS_FILTER_REPO, repo="posthog/posthog"))
+        state = self._resolved_state(
+            monkeypatch, _tasks_click_payload(ACTION_TASKS_FILTER_REPO, repo="posthog/posthog")
+        )
         assert (state.selected_repo, state.tasks_page) == ("posthog/posthog", 0)
 
 
@@ -1143,31 +1127,14 @@ class TestInteractionResolvesTheViewersIntegration:
             sensitive_config={"access_token": "xoxb-other"},
         )
 
-    def test_click_uses_the_project_the_viewer_routed_to(
-        self, slack_integration, mock_slack_client, flag_on, admin_user
-    ):
-        # `slack_integration` is created first, so an unordered lookup returns it; the
-        # viewer's saved pick is the *other* one.
+    # Personal pick and workspace default are separate rungs of the ladder; both must beat
+    # row order, since `slack_integration` is created first and any unordered lookup wins with it.
+    @pytest.mark.parametrize("pick_owner", ["U001", None])
+    def test_the_saved_project_pick_beats_row_order(self, slack_integration, pick_owner):
         preferred = self._second_org_integration()
         SlackSettings.objects.create(
             slack_workspace_id=SLACK_WORKSPACE_ID,
-            slack_user_id="U001",
-            default_integration=preferred,
-        )
-
-        resolved = slack_app_home._resolve_interaction_integration(SLACK_WORKSPACE_ID, "U001")
-
-        assert resolved is not None
-        assert resolved.id == preferred.id
-        assert resolved.team.organization_id == preferred.team.organization_id
-
-    def test_workspace_default_applies_when_the_viewer_has_no_pick(
-        self, slack_integration, mock_slack_client, flag_on, admin_user
-    ):
-        preferred = self._second_org_integration()
-        SlackSettings.objects.create(
-            slack_workspace_id=SLACK_WORKSPACE_ID,
-            slack_user_id=None,
+            slack_user_id=pick_owner,
             default_integration=preferred,
         )
 

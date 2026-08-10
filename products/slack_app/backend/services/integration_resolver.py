@@ -62,6 +62,17 @@ class ResolutionResult:
     source: ResolutionSource
     candidates: list[Integration] = field(default_factory=list)
 
+    def resolved_or_first(self) -> Integration | None:
+        """The resolved integration, falling back to the first candidate.
+
+        Surfaces that must act on *some* integration rather than prompt for one share this
+        tie-break, so a workspace's traffic is answered for the same project whichever
+        surface handles it. `candidates` is ordered, so the fallback is stable.
+        """
+        if self.integration is not None and self.integration in self.candidates:
+            return self.integration
+        return self.candidates[0] if self.candidates else None
+
 
 def format_project_candidate_list(candidates: list[Integration]) -> str:
     return "\n".join(f"• `{c.team_id}` — {c.team.organization.name} · {c.team.name}" for c in candidates)

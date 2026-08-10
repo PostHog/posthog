@@ -1829,7 +1829,9 @@ def _route_app_home_opened(
     if region_route is not None:
         return region_route
 
-    integration = result.integration if result.integration in result.candidates else result.candidates[0]
+    integration = result.resolved_or_first()
+    if integration is None:
+        return ROUTE_NO_INTEGRATION
     try:
         _handle_app_home_opened(event, slack_team_id, integration=integration)
     except Exception:

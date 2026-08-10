@@ -25,7 +25,7 @@ from django.http import HttpResponse, JsonResponse
 
 import structlog
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
@@ -1422,7 +1422,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     if action_id in (MODAL_ACTION_RUNTIME_ADAPTER, MODAL_ACTION_MODEL):
         # Modal re-render: a runtime / model change updates which downstream
         # blocks (model list, effort options) are valid. Push an updated view.
-        return _update_modal_after_input_change(payload)
+        return _update_modal_after_input_change(payload, integration)
 
     return HttpResponse(status=200)
 
@@ -1469,27 +1469,21 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 
 
 def _resolve_interaction_integration(slack_team_id: str, slack_user_id: str) -> Integration | None:
-    """The integration an interaction with the Home tab belongs to.
+    """The integration the viewer's Home tab is rendered against.
 
-    Resolved through the same ladder `_route_app_home_opened` uses to decide which
-    integration the tab is *rendered* against — thread mapping, then the viewer's project
-    pick, then the workspace default — so a click is answered for the project the viewer
-    was looking at. Picking any row of the workspace instead would answer against an
-    arbitrary organization, and everything keyed on it (the rollout flag, the task list,
-    the account link) would disagree with what the tab shows.
+    Same resolver the publish path runs, so a click is answered for the project the viewer
+    was looking at. Any row of the workspace would do for fetching a bot token, but the
+    rollout flag is scoped to an organization and the task list to a team, so answering
+    against an arbitrary one makes the tab disagree with itself.
     """
     if not slack_team_id:
         return None
     result = load_integrations(
         slack_team_id=slack_team_id,
-        kinds=["slack"],
+        kinds=list(SLACK_INTEGRATION_KINDS),
         slack_user_id=slack_user_id,
     )
-    if not result.candidates:
-        return None
-    # `candidates` is ordered, so the no-default case still lands on the same row the
-    # publish would have chosen rather than whatever the database returns first.
-    return result.integration if result.integration in result.candidates else result.candidates[0]
+    return result.resolved_or_first()
 
 
 def _load_user_row(integration: Integration, slack_user_id: str) -> SlackSettings | None:
@@ -1558,7 +1552,7 @@ def _render_unavailable_modal() -> dict:
     }
 
 
-def _update_modal_after_input_change(payload: dict) -> HttpResponse:
+def _update_modal_after_input_change(payload: dict, integration: Integration) -> HttpResponse:
     """Re-render the modal in response to a runtime_adapter or model change.
 
     Reads the in-flight state from `payload["view"]`, drops whatever the change
@@ -1575,12 +1569,6 @@ def _update_modal_after_input_change(payload: dict) -> HttpResponse:
     supported = _supported_efforts(current.runtime_adapter, current.model)
 
     updated_view = render_edit_modal(current=current, supported_efforts=supported)
-
-    slack_team_id = (payload.get("team") or {}).get("id", "")
-    slack_user_id = (payload.get("user") or {}).get("id", "")
-    integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
-    if integration is None:
-        return HttpResponse(status=200)
 
     slack = SlackIntegration(integration)
     try:
