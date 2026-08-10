@@ -104,6 +104,15 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         status_reason=EvaluationStatusReason.HOG_ERROR,
         disables_evaluation=True,
     ),
+    # The only user-actionable spec that neither disables the evaluation nor sets a status reason:
+    # one event carried data the Hog source could not handle, which says nothing about whether the
+    # evaluation works on the next event. Leaving `status_reason` unset is what keeps the workflow
+    # from calling `disable_evaluation_activity` for it.
+    "hog_input_error": EvaluationErrorSpec(
+        error_type="hog_input_error",
+        owner="user",
+        safe_message="The evaluation code could not read this event's data, so this run was skipped.",
+    ),
 }
 
 
@@ -222,13 +231,19 @@ def terminal_user_error_result_from_application_error(
     )
 
 
-def status_reason_detail_for_terminal_user_error(spec: EvaluationErrorSpec, message: str | None) -> str | None:
-    if spec.error_type != "hog_error" or not message:
+def truncate_error_detail(message: str | None) -> str | None:
+    """Bound a raw execution error before it reaches a status reason or a user-visible result."""
+    if not message:
         return None
-
     if len(message) <= MAX_STATUS_REASON_DETAIL_LENGTH:
         return message
     return f"{message[: MAX_STATUS_REASON_DETAIL_LENGTH - 3]}..."
+
+
+def status_reason_detail_for_terminal_user_error(spec: EvaluationErrorSpec, message: str | None) -> str | None:
+    if spec.error_type != "hog_error":
+        return None
+    return truncate_error_detail(message)
 
 
 def is_terminal_user_error_result(result: EvaluationActivityResult) -> bool:

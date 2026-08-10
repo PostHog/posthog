@@ -11,16 +11,35 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     status_reason_detail_for_terminal_user_error,
+    truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.metrics import increment_user_errors
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
 from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
+
+# Python-level errors the Hog standard library raises when an event's data is not the shape the
+# evaluation source assumed: `ilike` against a list rather than a string, `jsonParse` on truncated
+# model output, indexing past the end of an array. The evaluation is not broken and neither are we,
+# so these skip the one event instead of paging us or disabling the evaluation.
+#
+# `ValueError` at large is deliberately excluded, and `json.JSONDecodeError` (a subclass of it) is
+# listed instead: our own code raises plain ValueError, and treating that as an input error would
+# hide real bugs behind a skip.
+HOG_INPUT_ERROR_TYPES: tuple[type[BaseException], ...] = (
+    TypeError,
+    AttributeError,
+    KeyError,
+    IndexError,
+    ZeroDivisionError,
+    json.JSONDecodeError,
+)
 
 
 def coerce_hog_io_value(value: Any) -> str:
@@ -123,8 +142,9 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
 
     Shared by the single-event and trace-level Hog activities — only the globals differ.
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}, plus "applicable"
-    when allows_na and a `return null` is treated as N/A, and "unexpected": True when the failure
-    was a bug in our code rather than in the user's Hog source.
+    when allows_na and a `return null` is treated as N/A, "user_input_error": True when this
+    event's data defeated the user's Hog source, and "unexpected": True when the failure was a
+    bug in our code rather than in the user's Hog source or its input.
     """
     try:
         response = execute_bytecode(
@@ -139,6 +159,17 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
         return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
     except HogVMException as e:
         return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
+    except HOG_INPUT_ERROR_TYPES as e:
+        logger.warning(
+            "Hog eval could not read event data",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return {
+            "verdict": None,
+            "reasoning": "",
+            "error": f"Could not read this event's data: {type(e).__name__}: {e}",
+            "user_input_error": True,
+        }
     except Exception as e:
         logger.exception("Unexpected error executing Hog eval bytecode")
         return {
@@ -167,23 +198,46 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
     return result
 
 
-def finalize_hog_eval_result(result: dict[str, Any], *, allows_na: bool, unit_label: str) -> EvaluationActivityResult:
+def finalize_hog_eval_result(
+    result: dict[str, Any], *, allows_na: bool, unit_label: str | None = None
+) -> EvaluationActivityResult:
     """Turn raw Hog bytecode output into an activity result.
 
-    Shared by the trace and session Hog activities: this is the block that decides whether a
-    failure is our bug or the customer's, and a drifted copy would mean a broken evaluation
-    silently retrying against every unit instead of disabling itself. `unit_label`
-    ("trace" / "session") reaches only the raised our-bug message, so whoever triages the page
-    can tell which target produced it.
+    Shared by the generation, trace, and session Hog activities: this is the block that decides
+    whether a failure is our bug, this event's data, or a broken evaluation, and a drifted copy
+    would mean a broken evaluation silently retrying against every unit instead of disabling
+    itself. `unit_label` ("trace" / "session") reaches only the raised our-bug message, so whoever
+    triages the page can tell which target produced it; the generation path leaves it unset
+    because it has no second target to disambiguate.
     """
     if result["error"]:
         if result.get("unexpected"):
             # A genuine bug in our evaluation code (not the user's Hog). Raise so the Temporal
             # interceptor reports it to error tracking and we get paged to investigate.
+            qualifier = f" ({unit_label})" if unit_label else ""
             raise ApplicationError(
-                f"Hog evaluation error ({unit_label}): {result['error']}",
+                f"Hog evaluation error{qualifier}: {result['error']}",
                 non_retryable=True,
             )
+
+        if result.get("user_input_error"):
+            # This unit's data was not the shape the Hog source expected. Deliberately not marked
+            # terminal: the same evaluation usually reads the next unit fine, so disabling it over
+            # one malformed payload would cost the user every later result. Skipping keeps the
+            # evaluation running and leaves the run visible as skipped rather than failed.
+            input_error_spec = require_user_error_spec("hog_input_error")
+            increment_user_errors(input_error_spec.error_type)
+            skipped_result: EvaluationActivityResult = {
+                "result_type": "boolean",
+                "verdict": None if allows_na else False,
+                "reasoning": truncate_error_detail(result["error"]) or input_error_spec.safe_message,
+                "allows_na": allows_na,
+                "skipped": True,
+                "skip_reason": input_error_spec.error_type,
+            }
+            if allows_na:
+                skipped_result["applicable"] = False
+            return skipped_result
 
         # The user's Hog source itself errored — an expected outcome of running customer-authored
         # code, recorded as a skipped evaluation rather than raised (which would flood error
@@ -222,8 +276,9 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
     Used by both the Temporal activity and the test endpoint.
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
     When allows_na=True, a `return null` is treated as N/A (not an error).
-    Sets "unexpected": True only when the bytecode raised something other than a
-    HogVM error — i.e. a bug in our code rather than in the user's Hog source.
+    Sets "user_input_error": True when this event's data defeated the user's Hog source, and
+    "unexpected": True only when the bytecode raised something other than a HogVM error or an
+    input error — i.e. a bug in our code rather than in the user's Hog source or its input.
     """
     properties = event_data["properties"]
     if isinstance(properties, str):
@@ -285,42 +340,4 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
 
     result = await database_sync_to_async(_execute, thread_sensitive=False)()
 
-    if result["error"]:
-        if result.get("unexpected"):
-            # A genuine bug in our evaluation code (not the user's Hog). Raise so the Temporal
-            # interceptor reports it to error tracking and we get paged to investigate.
-            raise ApplicationError(
-                f"Hog evaluation error: {result['error']}",
-                non_retryable=True,
-            )
-
-        # The user's Hog source itself errored (invalid code, execution timeout, or a
-        # non-boolean result). That's an expected outcome of running customer-authored code,
-        # not a system fault — record it as a skipped evaluation the user can see, rather than
-        # raising (which would flood error tracking with one event per matching generation).
-        spec = require_user_error_spec("hog_error")
-        error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
-        errored_result: EvaluationActivityResult = {
-            "result_type": "boolean",
-            "verdict": None if allows_na else False,
-            "reasoning": error_detail,
-            "allows_na": allows_na,
-            "skipped": True,
-            "skip_reason": "hog_error",
-            "terminal_user_error": True,
-            "status_reason": spec.status_reason,
-        }
-        if allows_na:
-            errored_result["applicable"] = False
-        return errored_result
-
-    activity_result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": result["verdict"],
-        "reasoning": result["reasoning"],
-        "allows_na": allows_na,
-    }
-    if allows_na:
-        activity_result["applicable"] = result.get("applicable", True)
-
-    return activity_result
+    return finalize_hog_eval_result(result, allows_na=allows_na)
