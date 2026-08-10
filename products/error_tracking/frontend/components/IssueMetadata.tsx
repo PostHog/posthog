@@ -189,7 +189,11 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
     return (
         <span className="contents">
             {match([loading])
-                .with([true], () => <Skeleton className="h-2 w-[50px]" />)
+                .with([true], () => (
+                    <Skeleton className="h-2 w-[50px]">
+                        <span>Loading…</span>
+                    </Skeleton>
+                ))
                 .with([false], () => (
                     <Tooltip title={tooltip} delayMs={0} placement="right">
                         <div className="flex items-center gap-1">

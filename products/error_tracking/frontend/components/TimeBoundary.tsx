@@ -33,7 +33,11 @@ export function TimeBoundary({ time, loading, label, updateDateRange, suffix }: 
     return (
         <>
             {match([loading, time])
-                .with([true, P.any], () => <Skeleton className="h-2 w-[50px]" />)
+                .with([true, P.any], () => (
+                    <Skeleton className="h-2 w-[50px]">
+                        <span>Loading…</span>
+                    </Skeleton>
+                ))
                 .with([false, P.nullish], () => <span className="text-xs text-muted">-</span>)
                 .with([false, P.any], () => (
                     <span

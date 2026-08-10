@@ -53,7 +53,9 @@ export function CollapsibleExceptionHeader({
             <div className="flex gap-2 items-center justify-between min-w-0">
                 <div className="flex gap-2 items-center min-w-0">
                     {loading ? (
-                        <Skeleton className="h-2 w-[25%]" />
+                        <Skeleton className="h-2 w-[25%]">
+                            <span>Loading…</span>
+                        </Skeleton>
                     ) : (
                         <>
                             {runtime && <RuntimeIcon runtime={runtime} className="ml-1 shrink-0" />}
@@ -102,7 +104,13 @@ export function CollapsibleExceptionHeader({
                             'cursor-pointer': !truncate && isClamped,
                         })}
                     >
-                        {loading ? <Skeleton className="h-2 w-[50%]" /> : value}
+                        {loading ? (
+                            <Skeleton className="h-2 w-[50%]">
+                                <span>Loading…</span>
+                            </Skeleton>
+                        ) : (
+                            value
+                        )}
                     </div>
                     {!truncate && isClamped && (
                         <LemonButton

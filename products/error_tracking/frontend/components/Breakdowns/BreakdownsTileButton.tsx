@@ -69,7 +69,9 @@ function BreakdownPreview({ title, property }: { title: string; property: string
                     </Tooltip>
                 ) : responseLoading ? (
                     <div className="h-4 flex items-center justify-center">
-                        <Skeleton className="h-2 w-full" />
+                        <Skeleton className="h-4 w-full">
+                            <span>Loading…</span>
+                        </Skeleton>
                     </div>
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
                     <div className="text-muted text-xs h-4 flex items-center justify-center">No data</div>
