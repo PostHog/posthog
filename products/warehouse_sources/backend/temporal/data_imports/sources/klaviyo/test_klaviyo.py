@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -8,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaviyo import (
     KlaviyoSourceConfig,
 )
@@ -236,6 +238,36 @@ class TestNonRetryableErrors:
         non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
+    @parameterized.expand(
+        [
+            # A plan-gated 403 (e.g. webhooks without Advanced KDP) carries Klaviyo's body detail on
+            # the message and must map to the plan message, not the scope one the user can't act on.
+            (
+                "plan_gated",
+                "HTTPError: 403 Client Error: Forbidden for url: https://a.klaviyo.com/api/webhooks (You must have Advanced KDP enabled to use this endpoint.)",
+                "Advanced KDP add-on",
+            ),
+            # A scope-denied 403 keeps pointing at the key's read scopes.
+            (
+                "scope_missing",
+                "HTTPError: 403 Client Error: Forbidden for url: https://a.klaviyo.com/api/metrics",
+                "missing the read permissions",
+            ),
+        ]
+    )
+    def test_first_matching_entry_supplies_the_user_facing_message(
+        self, _name: str, observed_error: str, expected_snippet: str
+    ) -> None:
+        # Mirrors update_external_data_job_model: the first matching entry becomes the user-facing
+        # error, so reordering the dict (or broadening a pattern) regresses the shown message.
+        matches = [
+            friendly
+            for pattern, friendly in KlaviyoSource().get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert expected_snippet in matches[0]
+
 
 class TestFetchPageRetries:
     @parameterized.expand(
@@ -273,10 +305,67 @@ class TestFetchPageRetries:
         assert session.get.call_count == 5
 
 
-def _response_with_status(status_code: int) -> requests.Response:
+def _response_with_status(status_code: int, body: bytes | None = None, url: str | None = None) -> requests.Response:
     response = requests.Response()
     response.status_code = status_code
+    if body is not None:
+        response._content = body
+    if url is not None:
+        response.url = url
     return response
+
+
+class TestFetchPageErrorDetail:
+    _url = "https://a.klaviyo.com/api/webhooks"
+
+    def _session_returning(self, response: requests.Response) -> MagicMock:
+        session = MagicMock()
+        session.get.return_value = response
+        return session
+
+    def test_klaviyo_detail_rides_on_the_http_error(self) -> None:
+        # A 403's status and URL alone can't distinguish a key missing a read scope from an endpoint
+        # the account's Klaviyo plan doesn't include; without the body detail on the message, the
+        # non-retryable mapping blames scopes the user may have already granted.
+        body = json.dumps(
+            {
+                "errors": [
+                    {
+                        "code": "permission_denied",
+                        "title": "You do not have permission to perform this action.",
+                        "detail": "You must have Advanced KDP enabled to use this endpoint.",
+                    }
+                ]
+            }
+        ).encode()
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            klaviyo._fetch_page(
+                self._session_returning(_response_with_status(403, body=body, url=self._url)),
+                self._url,
+                {},
+                MagicMock(),
+            )
+
+        assert "You must have Advanced KDP enabled to use this endpoint." in str(exc_info.value)
+        assert "403 Client Error" in str(exc_info.value)
+        assert self._url in str(exc_info.value)
+        # Fan-out handlers branch on `exc.response.status_code`, so the response must stay attached.
+        assert exc_info.value.response is not None
+        assert exc_info.value.response.status_code == 403
+
+    def test_non_json_error_body_still_raises_the_plain_error(self) -> None:
+        # A gateway HTML error page must not crash detail extraction and mask the real HTTPError.
+        with pytest.raises(requests.HTTPError) as exc_info:
+            klaviyo._fetch_page(
+                self._session_returning(_response_with_status(403, body=b"<html>denied</html>", url=self._url)),
+                self._url,
+                {},
+                MagicMock(),
+            )
+
+        assert "403 Client Error" in str(exc_info.value)
+        assert self._url in str(exc_info.value)
 
 
 class _FakeResumableManager:
@@ -669,6 +758,59 @@ class TestGeneralizedFanOut:
         assert KLAVIYO_ENDPOINTS[endpoint].primary_keys == expected_keys
 
 
+class TestProfilesSubscriptionsRoundTrip:
+    def test_suppression_and_consent_land_in_the_synced_row(self, monkeypatch: Any) -> None:
+        # Suppression and consent status only exist inside the nested subscriptions object; if
+        # flattening or batching drops or reshapes it, a team exporting unsubscribes before a
+        # sending-platform migration silently loses exactly the profiles that must not be messaged.
+        suppressed_subscriptions = {
+            "email": {
+                "marketing": {
+                    "can_receive_email_marketing": False,
+                    "consent": "UNSUBSCRIBED",
+                    "suppression": [{"reason": "USER_SUPPRESSED", "timestamp": "2026-01-02T00:00:00+00:00"}],
+                    "list_suppressions": [
+                        {"list_id": "L1", "reason": "UNSUBSCRIBE", "timestamp": "2026-01-03T00:00:00+00:00"}
+                    ],
+                }
+            }
+        }
+        consented_subscriptions = {
+            "email": {"marketing": {"can_receive_email_marketing": True, "consent": "SUBSCRIBED"}},
+            "sms": {
+                "marketing": {
+                    "can_receive_sms_marketing": True,
+                    "consent": "SUBSCRIBED",
+                    "consent_timestamp": "2026-02-01T00:00:00+00:00",
+                }
+            },
+            "mobile_push": {"marketing": {"can_receive_push_marketing": False, "consent": "UNSUBSCRIBED"}},
+        }
+        pages = {
+            "https://a.klaviyo.com/api/profiles?additional-fields[profile]=subscriptions": {
+                "data": [
+                    {
+                        "type": "profile",
+                        "id": "P_SUPPRESSED",
+                        "attributes": {"email": "suppressed@example.com", "subscriptions": suppressed_subscriptions},
+                    },
+                    {
+                        "type": "profile",
+                        "id": "P_CONSENTED",
+                        "attributes": {"email": "consented@example.com", "subscriptions": consented_subscriptions},
+                    },
+                ],
+                "links": {"next": None},
+            },
+        }
+
+        rows = {row["id"]: row for row in _collect_rows("profiles", monkeypatch, pages)}
+
+        assert rows["P_SUPPRESSED"]["email"] == "suppressed@example.com"
+        assert json.loads(rows["P_SUPPRESSED"]["subscriptions"]) == suppressed_subscriptions
+        assert json.loads(rows["P_CONSENTED"]["subscriptions"]) == consented_subscriptions
+
+
 class TestValuesReports:
     @staticmethod
     def _pages(report_path: str, results: list[dict], next_url: str | None = None) -> dict[str, Any]:
@@ -925,6 +1067,31 @@ class TestEndpointRequestParams:
         )
         assert params["filter"] == "greater-or-equal(created,2026-03-04T02:58:14.000Z)"
 
+    def test_profiles_request_the_omitted_subscriptions_object(self) -> None:
+        # Klaviyo excludes subscriptions (consent detail) unless additional-fields asks for it;
+        # dropping this param silently loses the column for every synced profile.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS["profiles"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="updated",
+        )
+        assert params["additional-fields[profile]"] == "subscriptions"
+        assert params["filter"] == "greater-than(updated,2026-03-04T02:58:14.000Z)"
+
+    @parameterized.expand([("list_profiles",), ("segment_profiles",)])
+    def test_membership_fan_outs_keep_their_restrictive_fieldset(self, endpoint: str) -> None:
+        # The fan-outs only need joined_group_at; expanding them with additional-fields would
+        # balloon every per-parent request.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params["fields[profile]"] == "joined_group_at"
+        assert "additional-fields[profile]" not in params
+
 
 class TestNewSchemas:
     @parameterized.expand(
@@ -951,6 +1118,12 @@ class TestNewSchemas:
     def test_every_endpoint_is_exposed_as_a_schema(self) -> None:
         schemas = {s.name for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas == set(KLAVIYO_ENDPOINTS)
+
+    def test_plan_gated_webhooks_is_opt_in(self) -> None:
+        # Klaviyo only offers the webhooks API with its paid Advanced KDP add-on, so a default-on
+        # table would fail the first sync for every other account.
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas["webhooks"].should_sync_default is False
 
 
 class TestSourceResponseSortMode:

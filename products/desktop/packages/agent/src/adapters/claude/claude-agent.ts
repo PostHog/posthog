@@ -1979,6 +1979,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // needs so the session doesn't pin the whole meta object.
     const baseBranch = meta?.baseBranch;
     const environment = meta?.environment;
+    const channelMode = meta?.channelMode;
     const spokenNarration = resolveSpokenNarration(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
     const buildInProcessMcpServers = (): Record<
@@ -1996,6 +1997,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         },
         {
           environment,
+          channelMode,
           spokenNarration,
           background: meta?.mode === "background",
         },
@@ -2087,6 +2089,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       onEnsureLocalToolsConnected: () =>
         this.ensureLocalToolsConnected("guard-hook"),
       taskState,
+      getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
       onTaskStateChange: async () => {
         await this.client.sessionUpdate({

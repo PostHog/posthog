@@ -1501,7 +1501,7 @@ mod tests {
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
         CaptureSink, CaptureStreamEventSink, CaptureTransferSink, CohortMembershipChange,
-        MembershipStatus, ReconcileCompleteMarker,
+        MembershipStatus,
     };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::{Stage1State, StatefulRecord};
@@ -1542,13 +1542,6 @@ mod tests {
                 self.release.notified().await;
             }
             changes.into_iter().map(|_| Ok(())).collect()
-        }
-
-        async fn produce_markers(
-            &self,
-            markers: Vec<ReconcileCompleteMarker>,
-        ) -> Vec<Result<(), KafkaProduceError>> {
-            markers.into_iter().map(|_| Ok(())).collect()
         }
     }
 

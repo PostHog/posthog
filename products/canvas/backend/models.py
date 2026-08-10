@@ -32,8 +32,6 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     generation_task_id = models.UUIDField(null=True, blank=True)
     # Set when the canvas is pinned to its channel (shared across users).
     pinned_at = models.DateTimeField(null=True, blank=True)
-    # A channel's home canvas is the board shown when the channel opens.
-    is_home = models.BooleanField(default=False)
 
     current_source_version = models.ForeignKey(
         "canvas.CanvasSourceVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
@@ -56,13 +54,6 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_canvas"
         indexes = [models.Index(fields=["channel", "-created_at"], name="canvas_channel_recency")]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["channel"],
-                condition=Q(is_home=True, deleted=False),
-                name="unique_home_canvas_per_channel",
-            )
-        ]
 
 
 class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
@@ -89,6 +80,11 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     task_id = models.UUIDField(null=True, blank=True)
     task_run_id = models.UUIDField(null=True, blank=True)
     prompt = models.TextField(null=True, blank=True)
+
+    # Snapshot of the project's declared capabilities manifest, denormalized
+    # from the stored source so capability changes can be diffed and audited
+    # without reading object storage. Null for versions that predate it.
+    capabilities = models.JSONField(null=True, blank=True)
 
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False

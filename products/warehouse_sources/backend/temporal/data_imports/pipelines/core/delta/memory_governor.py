@@ -52,29 +52,39 @@ MB = 1024 * 1024
 
 Mode = Literal["off", "advisory", "enforce"]
 
-#: Fallback concurrency when neither the env override nor settings.MAX_CONCURRENT_ACTIVITIES is set.
-#: The Temporal SDK's own default is 100 (posthog's worker wrapper uses 50); we pick the higher
-#: value so an unknown concurrency yields a smaller, safer per-upsert slice rather than over-commit.
+#: Fallback concurrency when nothing else declares it. The Temporal SDK's own default is 100
+#: (posthog's worker wrapper uses 50); we pick the higher value so an unknown concurrency yields a
+#: smaller, safer per-upsert slice rather than over-commit.
 _DEFAULT_MAX_CONCURRENT = 100
 
-# --- Memory model coefficients (mirror deltalite_planner.py; see REPORT.md §5.5-5.7) --------
+#: A process's real max concurrent upserts, declared at startup via ``configure_process_concurrency``
+#: (e.g. the v3 loader passes its BatchConsumer ``max_concurrency``). Set here rather than read from
+#: an env var so the governor uses the loader's actual source of truth. None until declared.
+_PROCESS_MAX_CONCURRENT: int | None = None
 
-#: One-off, shared process floor: interpreter, imports, tokio runtime, object-store pools. Paid
-#: once for the whole process, so it is a floor on the projected peak, not a per-upsert cost.
-_PROCESS_BASELINE_MB = 500.0
-#: Marginal cost of one in-flight upsert before any partition worker: snapshot/log state, plan,
-#: channels, PK set bookkeeping.
-_PER_UPSERT_FLOOR_MB = 300.0
-#: The resident source batch is held for the whole upsert; roughly doubled while an interleaved
-#: source is sliced per partition. Conservative (over-counting memory is the safe direction).
-_SOURCE_RESIDENT_MULTIPLIER = 2.0
-#: Cost of one concurrent partition worker on top of its write buffer (in-flight row groups, PK
-#: set, transient source slice).
-_PER_WORKER_OVERHEAD_MB = 150.0
-#: Default output file target; the write buffer per worker is bounded by this.
-_TARGET_FILE_SIZE_MB = 100.0
+# --- Memory model coefficients (threaded process model; REPORT.md §5.6, deltalite_planner's
+# ProcessCalibration) ---------------------------------------------------------------------------
+#
+# Production runs upserts as concurrent threads in ONE worker process. They share the interpreter,
+# tokio runtime and object-store pools (paid once, covered by ``reserve_mb``) and, crucially, do not
+# peak at the same instant — so the memory ONE upsert adds is far below its standalone peak. Measured
+# (bench/threaded_bench.py): ~0.73 MB per MB of source, ~133 MB per concurrent partition worker, on a
+# ~220 MB per-upsert base. This replaces the old single-upsert coefficients (floor 300 + 2·source +
+# 250·mpp + buffer), which over-predicted ~2-3x and needlessly capped mpp — validated on prod, where
+# observed per-upsert cgroup deltas were a small fraction of the single-upsert estimate.
+
+#: Per concurrent upsert, before any partition worker or source (snapshot/log state, plan, channels).
+_MARGINAL_BASE_MB = 220.0
+#: Additional per concurrent upsert, per ``max_parallel_partitions`` worker.
+_MARGINAL_PER_WORKER_MB = 133.0
+#: Additional per concurrent upsert, per MB of that upsert's source batch.
+_MARGINAL_PER_SOURCE_MB = 0.73
 #: Beyond 4 partition workers the measured wall-clock gains vanish while memory keeps climbing.
 _MAX_PARALLEL_PARTITIONS = 4
+#: Per-call knobs the governor no longer tunes (mpp is the memory dial): deltalite's defaults, kept
+#: explicit so the write is deterministic.
+_MAX_PARALLEL_FILES = 4
+_DEFAULT_BUFFERED_BYTES = 64 * MB
 
 
 @dataclass(frozen=True)
@@ -84,9 +94,9 @@ class UpsertPlan:
     max_parallel_partitions: int
     max_parallel_files: int
     max_buffered_bytes: int
-    #: Predicted marginal peak RSS this upsert adds on top of the shared baseline, in MB.
+    #: Predicted marginal peak RSS this upsert adds while running concurrently with others, in MB.
     predicted_peak_mb: float
-    #: False when even the most conservative single-worker config exceeds the available budget.
+    #: False when even a single worker exceeds the available slice.
     fits: bool
 
     def as_upsert_kwargs(self) -> dict[str, int]:
@@ -97,35 +107,31 @@ class UpsertPlan:
         }
 
 
-def _predict_marginal_mb(source_mb: float, mpp: int, buffered_mb: float) -> float:
-    """Marginal peak RSS one upsert adds: floor + resident source + workers + output buffer."""
-    worker_mb = _TARGET_FILE_SIZE_MB + _PER_WORKER_OVERHEAD_MB
-    return _PER_UPSERT_FLOOR_MB + _SOURCE_RESIDENT_MULTIPLIER * source_mb + mpp * worker_mb + buffered_mb
+def _predict_marginal_mb(source_mb: float, mpp: int) -> float:
+    """Marginal peak RSS one upsert adds while running concurrently (threaded model, REPORT §5.6)."""
+    return _MARGINAL_BASE_MB + _MARGINAL_PER_WORKER_MB * mpp + _MARGINAL_PER_SOURCE_MB * source_mb
 
 
 def size_upsert(available_mb: float, source_mb: float, n_partitions: int | None = None) -> UpsertPlan:
     """Pick the largest ``max_parallel_partitions`` whose marginal peak fits ``available_mb``.
 
-    ``available_mb`` is the per-upsert memory slice, not the whole pod. Strategy: start at the cap
-    and step down; if even one worker with a shrunk buffer does not fit, return the minimal config
-    with ``fits=False``. The caller does not fall back on ``fits=False`` — it runs deltalite at
-    ``mpp=1`` anyway (still the memory floor, far below the MERGE) and flags ``capacity_exceeded``.
+    ``available_mb`` is the per-upsert memory slice, not the whole pod. Start at the cap and step
+    down. If even a single worker exceeds the slice, return ``mpp=1`` with ``fits=False``. The caller
+    does not fall back on ``fits=False`` — it runs deltalite at ``mpp=1`` anyway (still the memory
+    floor, far below the MERGE) and flags ``capacity_exceeded``. mpp is the memory dial; the other
+    knobs stay at deltalite's defaults.
     """
     partition_cap = _MAX_PARALLEL_PARTITIONS
     if n_partitions is not None and n_partitions >= 1:
         partition_cap = min(partition_cap, n_partitions)
 
-    # Try the roomy config first, then a tight one (halved buffer / fewer readers) if nothing fits.
-    for buffered_bytes, mpf in ((64 * MB, 4), (32 * MB, 2)):
-        buffered_mb = buffered_bytes / MB
-        for mpp in range(partition_cap, 0, -1):
-            predicted = _predict_marginal_mb(source_mb, mpp, buffered_mb)
-            if predicted <= available_mb:
-                return UpsertPlan(mpp, mpf, buffered_bytes, round(predicted, 1), fits=True)
+    for mpp in range(partition_cap, 0, -1):
+        predicted = _predict_marginal_mb(source_mb, mpp)
+        if predicted <= available_mb:
+            return UpsertPlan(mpp, _MAX_PARALLEL_FILES, _DEFAULT_BUFFERED_BYTES, round(predicted, 1), fits=True)
 
-    # Nothing fits: report the smallest configuration (mpp=1, tight buffer) and its overshoot.
-    minimal = _predict_marginal_mb(source_mb, 1, 32.0)
-    return UpsertPlan(1, 2, 32 * MB, round(minimal, 1), fits=False)
+    minimal = _predict_marginal_mb(source_mb, 1)
+    return UpsertPlan(1, _MAX_PARALLEL_FILES, _DEFAULT_BUFFERED_BYTES, round(minimal, 1), fits=False)
 
 
 # --- Reading the pod's real memory (cgroup v2, with v1 and psutil fallbacks) -----------------
@@ -239,8 +245,6 @@ class GovernorConfig:
     reserve_mb: float = 2048.0
     #: Used only when the cgroup limit is unreadable (local dev). None + unreadable ⇒ deltalite defaults.
     limit_override_mb: float | None = None
-    #: Shared process floor for the projected-peak / pressure estimate.
-    baseline_mb: float = _PROCESS_BASELINE_MB
 
     @staticmethod
     def from_env() -> GovernorConfig:
@@ -261,16 +265,20 @@ class GovernorConfig:
     def _resolve_max_concurrent() -> int:
         """Max concurrent upserts on this process, from the same source of truth as the worker.
 
-        Prefers an explicit ``DELTALITE_GOVERNOR_MAX_CONCURRENT``, then
-        ``settings.MAX_CONCURRENT_ACTIVITIES`` (what the Temporal worker is configured with). Falls
-        back to ``_DEFAULT_MAX_CONCURRENT`` with a warning, so it is visible when the slice is sized
-        against a guess rather than the real concurrency. The v3 loader is a Kafka consumer, not a
-        Temporal worker, so ``MAX_CONCURRENT_ACTIVITIES`` does not describe it — set the explicit
-        override there to its consumer-thread count.
+        Resolution order:
+          1. ``DELTALITE_GOVERNOR_MAX_CONCURRENT`` env override (ops escape hatch).
+          2. A value declared by the process at startup via ``configure_process_concurrency`` — the
+             v3 Kafka loader passes its ``BatchConsumer.max_concurrency`` here, since it is not a
+             Temporal worker and ``MAX_CONCURRENT_ACTIVITIES`` does not describe it.
+          3. ``settings.MAX_CONCURRENT_ACTIVITIES`` — what the Temporal worker is configured with.
+          4. ``_DEFAULT_MAX_CONCURRENT`` with a warning, so it is visible when the slice is sized
+             against a guess rather than the real concurrency.
         """
         explicit = os.environ.get("DELTALITE_GOVERNOR_MAX_CONCURRENT")
         if explicit:
             return max(1, _env_int("DELTALITE_GOVERNOR_MAX_CONCURRENT", _DEFAULT_MAX_CONCURRENT))
+        if _PROCESS_MAX_CONCURRENT is not None:
+            return _PROCESS_MAX_CONCURRENT
         configured = getattr(settings, "MAX_CONCURRENT_ACTIVITIES", None)
         if configured:
             return max(1, int(configured))
@@ -299,6 +307,9 @@ class Admission:
     predicted_peak_mb: float | None
     #: The per-upsert memory slice this upsert was sized against, in MB.
     budget_mb: float | None
+    #: The max_parallel_partitions the governor would use — recorded in every mode (including
+    #: advisory, where ``upsert_kwargs`` stays empty) so we can see the planned parallelism.
+    planned_mpp: int | None = None
     #: True when even mpp=1 overflows the slice: an ops signal to chunk the source, raise the pod
     #: limit, or lower max_concurrent. Not a failure — deltalite still runs at mpp=1.
     capacity_exceeded: bool = False
@@ -365,20 +376,23 @@ class MemoryGovernor:
         budget_mb = self._per_upsert_budget_mb(limit_mb)
         plan = size_upsert(budget_mb, source_mb, n_partitions)
 
+        # Read live usage now, in every mode, so the observed cgroup delta over the upsert can be
+        # logged against the prediction — the calibration advisory mode exists for. Only enforce
+        # reserves against the budget; advisory is a pure no-op on the accounting.
+        current_at_admit = self.pod.current_mb()
         admitted = False
-        current_at_admit: float | None = None
-        with self._lock:
-            if self.config.mode == "enforce":
+        if self.config.mode == "enforce":
+            with self._lock:
                 self._reserved_mb += plan.predicted_peak_mb
                 self._inflight += 1
                 admitted = True
-                current_at_admit = self.pod.current_mb()
 
         adm = Admission(
             upsert_kwargs=plan.as_upsert_kwargs() if admitted else {},
             mode=self.config.mode,
             predicted_peak_mb=plan.predicted_peak_mb,
             budget_mb=round(budget_mb, 1),
+            planned_mpp=plan.max_parallel_partitions,
             capacity_exceeded=not plan.fits,
         )
         self._emit_decision(adm, source_mb)
@@ -389,11 +403,11 @@ class MemoryGovernor:
                 with self._lock:
                     self._reserved_mb -= plan.predicted_peak_mb
                     self._inflight -= 1
-                # Best-effort predicted-vs-actual: how much did cgroup usage actually rise?
-                if current_at_admit is not None:
-                    now = self.pod.current_mb()
-                    if now is not None:
-                        adm.observed_delta_mb = round(now - current_at_admit, 1)
+            # Best-effort predicted-vs-actual, all modes (whole-process delta, so noisy under load).
+            if current_at_admit is not None:
+                now = self.pod.current_mb()
+                if now is not None:
+                    adm.observed_delta_mb = round(now - current_at_admit, 1)
 
     # -- observability -----------------------------------------------------------------------
 
@@ -427,6 +441,20 @@ class MemoryGovernor:
 
 
 _GOVERNOR: MemoryGovernor | None = None
+
+
+def configure_process_concurrency(max_concurrent: int) -> None:
+    """Declare this process's real max concurrent upserts, from its own source of truth.
+
+    The v3 loader calls this with its ``BatchConsumer.max_concurrency`` at startup, before the first
+    upsert, so the governor sizes each memory slice against the loader's actual concurrency instead
+    of the Temporal-only ``MAX_CONCURRENT_ACTIVITIES`` (unset there) or a conservative default. Takes
+    precedence over the setting; the ``DELTALITE_GOVERNOR_MAX_CONCURRENT`` env override still wins.
+    Resets the singleton so the next ``get_governor()`` rebuilds with the declared value.
+    """
+    global _PROCESS_MAX_CONCURRENT, _GOVERNOR
+    _PROCESS_MAX_CONCURRENT = max(1, int(max_concurrent))
+    _GOVERNOR = None
 
 
 def get_governor() -> MemoryGovernor:

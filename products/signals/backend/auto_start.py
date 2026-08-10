@@ -30,6 +30,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -263,6 +264,13 @@ def _build_autostart_task_description(
         "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
+        "Before you open the PR, run the `/simplify` skill over your branch and apply what it "
+        "finds; if the skill isn't available to you, reread your own diff for the same. Cut the "
+        "scaffolding a first draft accumulates, and any comment that only narrates the code. Only "
+        "remove, never widen the change, and rerun the tests if you removed anything.\n\n"
+        "Write everything you produce in Simplified Technical English, following the "
+        "`writing-simplified-technical-english` skill: one meaning per word, active voice, simple tenses, "
+        "one idea per sentence.\n\n"
         f"{_PR_DESCRIPTION_FORM_RULES}"
         f"{source_reference_instruction}"
         "When opening the PR, include this report link in the description footer, "
@@ -621,7 +629,7 @@ async def maybe_autostart_implementation_task(
     elif priority is None:
         skip_reason = "no priority assessment"
     if skip_reason is not None:
-        logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
+        logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
         return
 
     assert priority is not None  # narrowed by the `priority is None` skip_reason guard above
@@ -632,10 +640,30 @@ async def maybe_autostart_implementation_task(
         # fallback) may auto-start. Null (never set) leaves autostart on, so only False disables here.
         # Reports still generate and notify.
         logger.info(
-            "signals auto-start skipped", report_id=report_id, team_id=team_id, reason="autostart disabled for team"
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="autostart disabled for team",
         )
         return
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+
+    # Quota gate: the implementation task is the step that leads to the billable PR, so a team
+    # whose org is over its self-driving credits quota starts none, on any path (pipeline, custom agent, scout, or
+    # a user's reviewer edit). The report stays ready; the next new-signal research cycle after
+    # the quota lifts re-evaluates auto-start.
+    team = await Team.objects.select_related("organization").aget(pk=team_id)
+    quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
+    if quota_gate.limited:
+        capture_signal_report_quota_paused(team, report_id=report_id, stage="autostart", enforced=quota_gate.enforced)
+    if quota_gate.enforced:
+        logger.info(
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="org over self-driving credits quota",
+        )
+        return
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
     # (commit-authorship) reviewer. Either way the task's user is never an attacker-named colleague.
@@ -654,16 +682,14 @@ async def maybe_autostart_implementation_task(
             task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
     if task_user is None:
         logger.info(
-            "signals auto-start skipped",
+            "self-driving auto-start skipped",
             report_id=report_id,
             team_id=team_id,
             reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
         )
         return
 
-    base_branch = None
-    if repository and team_config:
-        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+    base_branch = team_config.base_branch_for(repository) if team_config else None
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id
@@ -688,7 +714,7 @@ async def maybe_autostart_implementation_task(
     )
     if not created:
         # Another evaluation won the race and already created the implementation task.
-        logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
+        logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
         return
 
 

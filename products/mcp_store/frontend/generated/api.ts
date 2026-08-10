@@ -11,6 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ApplyPresetApi,
     AuditCountsApi,
+    AvailableToolsResponseApi,
+    CallToolRequestApi,
+    CallToolResponseApi,
     GatewayConfigUpdateApi,
     GatewayMemberSummaryApi,
     GatewayPoliciesUpsertApi,
@@ -24,6 +27,7 @@ import type {
     MCPServerInstallationToolApi,
     MCPServiceAccountApi,
     MCPServiceAccountUpdateApi,
+    McpGatewayAuditCountsRetrieveParams,
     McpGatewayAuditListParams,
     McpGatewayMembersListParams,
     McpGatewayRulesListParams,
@@ -89,8 +93,9 @@ export const getMcpGatewayAuditListUrl = (projectId: string, params?: McpGateway
 }
 
 /**
- * Read-only trail of proxied tool calls. Admin-only — it exposes what
- * every member and agent has been doing.
+ * Read-only trail of proxied tool calls. Project admins see all calls.
+ * Members see calls made through their connections, including calls made by
+ * agents using connections they shared.
  */
 export const mcpGatewayAuditList = async (
     projectId: string,
@@ -108,8 +113,9 @@ export const getMcpGatewayAuditRetrieveUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Read-only trail of proxied tool calls. Admin-only — it exposes what
- * every member and agent has been doing.
+ * Read-only trail of proxied tool calls. Project admins see all calls.
+ * Members see calls made through their connections, including calls made by
+ * agents using connections they shared.
  */
 export const mcpGatewayAuditRetrieve = async (
     projectId: string,
@@ -122,8 +128,23 @@ export const mcpGatewayAuditRetrieve = async (
     })
 }
 
-export const getMcpGatewayAuditCountsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_gateway/audit/counts/`
+export const getMcpGatewayAuditCountsRetrieveUrl = (
+    projectId: string,
+    params?: McpGatewayAuditCountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_gateway/audit/counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_gateway/audit/counts/`
 }
 
 /**
@@ -131,9 +152,10 @@ export const getMcpGatewayAuditCountsRetrieveUrl = (projectId: string) => {
  */
 export const mcpGatewayAuditCountsRetrieve = async (
     projectId: string,
+    params?: McpGatewayAuditCountsRetrieveParams,
     options?: RequestInit
 ): Promise<AuditCountsApi> => {
-    return apiMutator<AuditCountsApi>(getMcpGatewayAuditCountsRetrieveUrl(projectId), {
+    return apiMutator<AuditCountsApi>(getMcpGatewayAuditCountsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -845,6 +867,31 @@ export const mcpServerInstallationsDestroy = async (
     })
 }
 
+export const getMcpServerInstallationsCallToolCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/${id}/call_tool/`
+}
+
+/**
+ * Invoke one tool on a connected MCP server.
+ *
+ * The request/response shape is plain REST rather than the JSON-RPC envelope
+ * `proxy` speaks, because the caller here is an agent surface (the PostHog MCP's
+ * `exec`) that wants one tool result, not an MCP transport of its own.
+ */
+export const mcpServerInstallationsCallToolCreate = async (
+    projectId: string,
+    id: string,
+    callToolRequestApi: CallToolRequestApi,
+    options?: RequestInit
+): Promise<CallToolResponseApi> => {
+    return apiMutator<CallToolResponseApi>(getMcpServerInstallationsCallToolCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(callToolRequestApi),
+    })
+}
+
 export const getMcpServerInstallationsProxyCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/mcp_server_installations/${id}/proxy/`
 }
@@ -1001,6 +1048,29 @@ export const mcpServerInstallationsAuthorizeRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMcpServerInstallationsAuthorizeRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpServerInstallationsAvailableToolsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/available_tools/`
+}
+
+/**
+ * Every tool the caller can currently reach, across all their connections.
+ *
+ * One request instead of one per connection: an agent surface resolving its
+ * tool list on each session cannot afford a fan-out. `do_not_use` and removed
+ * tools are omitted — an agent should not see what it cannot call — while
+ * `needs_approval` tools are listed with their state so the caller can explain
+ * the block rather than report the capability as missing.
+ */
+export const mcpServerInstallationsAvailableToolsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AvailableToolsResponseApi> => {
+    return apiMutator<AvailableToolsResponseApi>(getMcpServerInstallationsAvailableToolsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

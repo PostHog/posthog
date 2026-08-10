@@ -23,8 +23,6 @@ export const dashboardRecordSchema = z.object({
   updatedAt: z.number(),
   // Epoch ms the canvas was pinned to its channel; absent = not pinned.
   pinnedAt: z.number().optional(),
-  // Whether this is the channel's home board (at most one per channel).
-  isHome: z.boolean().default(false),
   // Head source version — pass as expected_current_version_id when publishing.
   currentVersionId: z.string().nullish(),
   // The live (last successful, still-eligible) build.
@@ -75,6 +73,11 @@ export const createDashboardInput = z.object({
 
 export const dashboardIdInput = z.object({ id: z.string().min(1) });
 
+export const canvasBuildsInput = z.object({
+  id: z.string().min(1),
+  versionId: z.string().min(1).optional(),
+});
+
 export const canvasSourceInput = z.object({
   id: z.string().min(1),
   // Read a historical version's files instead of the head.
@@ -93,10 +96,6 @@ export const revertCanvasInput = z.object({
 export const saveContextInput = z.object({
   id: z.string().min(1),
   context: z.string(),
-});
-
-export const ensureHomeCanvasInput = z.object({
-  channelId: z.string().min(1),
 });
 
 // Rename a canvas (its display title).

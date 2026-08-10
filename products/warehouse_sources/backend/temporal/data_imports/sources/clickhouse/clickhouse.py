@@ -881,11 +881,16 @@ def _is_materialized_view_engine(engine: str | None) -> bool:
 
 def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Table[ClickHouseColumn]:
     """Read columns + table type for a single table from system tables."""
+    # Skip ALIAS and EPHEMERAL columns, matching `get_schemas`'s discovery query — see its
+    # comment for why: our `SELECT *` expands to an explicit column list, and an included
+    # ALIAS whose defining expression no longer resolves fails the whole sync query with
+    # UNKNOWN_IDENTIFIER (code 47), while EPHEMERAL columns aren't selectable at all.
     cols_result = client.query(
         """
         SELECT name, type
         FROM system.columns
         WHERE database = %(database)s AND table = %(table)s
+          AND default_kind NOT IN ('ALIAS', 'EPHEMERAL')
         ORDER BY position ASC
         """,
         parameters={"database": database, "table": table_name},
