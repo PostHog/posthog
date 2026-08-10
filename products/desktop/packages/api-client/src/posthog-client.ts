@@ -677,7 +677,7 @@ export class FolderInstructionsConflictError extends Error {
 
 export interface TaskArtifactUploadRequest {
   name: string;
-  type: "user_attachment" | "skill_bundle";
+  type: "output" | "user_attachment" | "skill_bundle";
   size: number;
   content_type?: string;
   source?: string;
@@ -706,6 +706,8 @@ export interface FinalizedTaskArtifactUpload {
   metadata?: TaskArtifactUploadRequest["metadata"];
   storage_path: string;
   uploaded_at?: string;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
 }
 
 export interface CloudRunOptions {
@@ -3023,6 +3025,7 @@ export class PostHogAPIClient {
 
   async warmTask(options: {
     repository?: string | null;
+    repositories?: string[];
     github_integration?: number | null;
     branch?: string | null;
     runtime_adapter?: string | null;
@@ -3043,6 +3046,7 @@ export class PostHogAPIClient {
       overrides: {
         body: JSON.stringify({
           repository: options.repository,
+          repositories: options.repositories,
           github_integration: options.github_integration,
           branch: options.branch ?? null,
           runtime_adapter: options.runtime_adapter ?? null,

@@ -83,6 +83,17 @@ class TestNorthpassLMSSource:
         assert schemas["people"].detected_primary_keys == ["id"]
         assert schemas["course_enrollments"].detected_primary_keys == ["course_id", "id"]
         assert schemas["learning_path_enrollments"].detected_primary_keys == ["learning_path_id", "id"]
+        assert schemas["course_activities"].detected_primary_keys == ["course_id", "id"]
+        # Events carry no id of their own, so the key is the full (who, what, when) grain.
+        assert schemas["activity_events"].detected_primary_keys == ["person_id", "activity_id", "type", "created_at"]
+
+    def test_activity_events_is_the_only_schema_off_by_default(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        # The event stream re-fetches its full history every sync, so connecting the source must
+        # not silently enable it; everything else keeps syncing by default.
+        off_by_default = {schema.name for schema in schemas if not schema.should_sync_default}
+        assert off_by_default == {"activity_events"}
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["courses"])

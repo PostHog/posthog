@@ -35,6 +35,7 @@ import type {
     PatchedOrganizationIntegrationApi,
     PostHogConnectionForwardApi,
     PostHogConnectionForwardResponseApi,
+    PostHogConnectionTargetApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
@@ -798,5 +799,24 @@ export const posthogConnectionsForwardCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(postHogConnectionForwardApi),
+    })
+}
+
+export const getPosthogConnectionsTargetRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/posthog_connections/${id}/target/`
+}
+
+/**
+ * Resolve which project, organization and region a PostHog connection points at, so callers can build target API paths without reading `api/users/@me/` through the connection first.
+ * @summary Read the connected project's identity
+ */
+export const posthogConnectionsTargetRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PostHogConnectionTargetApi> => {
+    return apiMutator<PostHogConnectionTargetApi>(getPosthogConnectionsTargetRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
