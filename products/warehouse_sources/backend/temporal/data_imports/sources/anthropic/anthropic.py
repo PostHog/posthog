@@ -1,13 +1,16 @@
 import hashlib
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any, Optional
 
 from requests import Request, Response
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
     ANTHROPIC_ENDPOINTS,
+    USAGE_GROUP_BY_FALLBACKS,
     PaginationType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -30,6 +33,12 @@ ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
 # Entity list endpoints allow up to 1000 per page.
 ENTITY_PAGE_SIZE = 1000
+# Attempts per request before the client gives up and the activity retries. Above the client
+# default because the report endpoints are rate limited per organization and hand back a 429 with
+# no `Retry-After`: the client then falls back to exponential backoff, and five attempts spend the
+# budget in about fifteen seconds — far short of the window a per-minute limit needs to replenish.
+# Each wait stays capped, so this widens the budget without letting a sync stall indefinitely.
+MAX_RETRY_ATTEMPTS = 8
 # Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
 # cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
 # buckets while still pulling all available history.
@@ -431,6 +440,39 @@ def _entity_paginator() -> AnthropicCursorPaginator:
     return AnthropicCursorPaginator(cursor_path="last_id", cursor_param="after_id")
 
 
+def _is_bad_request(exc: HTTPError) -> bool:
+    return exc.response is not None and exc.response.status_code == 400
+
+
+def _iter_narrowing_group_by(
+    build_resource: Callable[[list[str], Optional[dict[str, Any]]], Any],
+    group_by_fallbacks: list[list[str]],
+    initial_paginator_state: Optional[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the endpoint's pages, retrying with a narrower `group_by` when the API rejects the query.
+
+    The usage report answers 400 for a query that groups more finely than it will serve, which fails
+    the whole sync rather than returning coarser rows. Each fallback is tried in turn until one is
+    accepted, so the sync lands on the finest breakdown that org's report serves.
+
+    Narrowing happens only while no page has been yielded yet: once rows are out, re-running at a
+    coarser grain would re-emit the same buckets under different synthesized ids. A narrowed query
+    also starts from its own first page, since a resume cursor minted by the wider query no longer
+    addresses anything.
+    """
+    for index, group_by in enumerate(group_by_fallbacks):
+        resume_state = initial_paginator_state if index == 0 else None
+        yielded = False
+        try:
+            for page in build_resource(group_by, resume_state):
+                yielded = True
+                yield page
+            return
+        except HTTPError as exc:
+            if yielded or index == len(group_by_fallbacks) - 1 or not _is_bad_request(exc):
+                raise
+
+
 def anthropic_source(
     api_key: str,
     endpoint: str,
@@ -440,11 +482,14 @@ def anthropic_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ANTHROPIC_ENDPOINTS[endpoint]
+    # Set only where the rows come from something other than iterating `resource` once.
+    items: Optional[Callable[[], Iterator[list[dict[str, Any]]]]] = None
 
     client_config: ClientConfig = {
         "base_url": ANTHROPIC_BASE_URL,
         "headers": _version_headers(),
         "auth": _auth_config(api_key),
+        "max_retries": MAX_RETRY_ATTEMPTS,
     }
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -544,46 +589,12 @@ def anthropic_source(
         )
         resource = next(r for r in resources if r.name == endpoint)
     else:
+        is_report = config.pagination == PaginationType.PAGE
         data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
-        if config.pagination == PaginationType.PAGE:
-            # Report endpoints: `starting_at` is required. On an incremental run start from the
-            # watermark (already shifted back by the pipeline's lookback); otherwise fall back to
-            # the Anthropic launch date to pull all history.
-            params: dict[str, Any] = {"bucket_width": config.bucket_width}
-            if config.limit is not None:
-                params["limit"] = config.limit
-            if config.group_by:
-                # requests encodes a list value as one repeated query param per element.
-                params["group_by[]"] = config.group_by
-            params["starting_at"] = {
-                "type": "incremental",
-                "cursor_path": "starting_at",
-                "initial_value": DEFAULT_STARTING_AT,
-                "convert": _format_rfc3339,
-            }
-            paginator = AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
+        if is_report:
             data_map = _explode_usage_bucket if endpoint == "usage_report" else _explode_cost_bucket
         else:
-            params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
-            paginator = _entity_paginator()
             data_map = _flatten_created_by if endpoint == "api_keys" else None
-
-        endpoint_resource: EndpointResource = {
-            "name": endpoint,
-            "endpoint": {
-                "path": config.path,
-                "params": params,
-                "data_selector": "data",
-                "paginator": paginator,
-            },
-            "data_map": data_map,
-        }
-
-        rest_config = {
-            "client": client_config,
-            "resource_defaults": None,
-            "resources": [endpoint_resource],
-        }
 
         initial_paginator_state: Optional[dict[str, Any]] = None
         if resume is not None and resume.cursor:
@@ -596,18 +607,61 @@ def anthropic_source(
             if state and state.get("cursor"):
                 resumable_source_manager.save_state(AnthropicResumeConfig(cursor=state["cursor"]))
 
-        resource = rest_api_resource(
-            rest_config,
-            team_id,
-            job_id,
-            db_incremental_field_last_value,
-            resume_hook=save_checkpoint,
-            initial_paginator_state=initial_paginator_state,
-        )
+        def build_resource(group_by: list[str], resume_state: Optional[dict[str, Any]]) -> Any:
+            if is_report:
+                # Report endpoints: `starting_at` is required. On an incremental run start from the
+                # watermark (already shifted back by the pipeline's lookback); otherwise fall back to
+                # the Anthropic launch date to pull all history.
+                params: dict[str, Any] = {"bucket_width": config.bucket_width}
+                if config.limit is not None:
+                    params["limit"] = config.limit
+                if group_by:
+                    # requests encodes a list value as one repeated query param per element.
+                    params["group_by[]"] = group_by
+                params["starting_at"] = {
+                    "type": "incremental",
+                    "cursor_path": "starting_at",
+                    "initial_value": DEFAULT_STARTING_AT,
+                    "convert": _format_rfc3339,
+                }
+                paginator: BasePaginator = AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
+            else:
+                params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
+                paginator = _entity_paginator()
+
+            endpoint_resource: EndpointResource = {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": "data",
+                    "paginator": paginator,
+                },
+                "data_map": data_map,
+            }
+            rest_config: RESTAPIConfig = {
+                "client": client_config,
+                "resource_defaults": None,
+                "resources": [endpoint_resource],
+            }
+            return rest_api_resource(
+                rest_config,
+                team_id,
+                job_id,
+                db_incremental_field_last_value,
+                resume_hook=save_checkpoint,
+                initial_paginator_state=resume_state,
+            )
+
+        if endpoint == "usage_report":
+            resource = build_resource(USAGE_GROUP_BY_FALLBACKS[0], initial_paginator_state)
+            items = partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state)
+        else:
+            resource = build_resource(config.group_by, initial_paginator_state)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items if items is not None else (lambda: resource),
         primary_keys=config.primary_keys,
         # Report buckets return oldest-first from `starting_at`, and entity cursors page forward, so
         # rows arrive in ascending order — the pipeline checkpoints the watermark after each batch.

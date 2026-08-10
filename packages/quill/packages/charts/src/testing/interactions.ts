@@ -26,10 +26,15 @@ export async function hoverUntilTooltip(
     return waitForHogChartTooltip(timeout, () => hoverAtIndex(wrapper, index, totalLabels))
 }
 
-export async function clickAtIndex(wrapper: HTMLElement, index: number, totalLabels: number): Promise<void> {
+export async function clickAtIndex(
+    wrapper: HTMLElement,
+    index: number,
+    totalLabels: number,
+    timeout?: number
+): Promise<void> {
     // Re-hover until the tooltip flushes — onClick reads tooltipCtx synchronously to decide
     // between pinning and onPointClick, and a stale null takes the wrong branch.
-    await hoverUntilTooltip(wrapper, index, totalLabels)
+    await hoverUntilTooltip(wrapper, index, totalLabels, timeout)
     fireEvent.click(wrapper)
 }
 

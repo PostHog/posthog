@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import {
+    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     IntegrationType,
@@ -86,6 +87,9 @@ export interface EmailServiceConfig {
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
+    // When true, sends carry TenantName so SES attributes reputation per team. Requires every
+    // sending identity to have a tenant resource association — see EMAIL_SES_TENANT_ATTRIBUTION_ENABLED.
+    sesTenantAttributionEnabled: boolean
 }
 
 /**
@@ -297,7 +301,7 @@ export class EmailService {
             }
 
             if (success && assetRow) {
-                result.emailAssets.push(assetRow)
+                result.messageAssets.push(assetRow)
             }
         }
 
@@ -509,7 +513,16 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
+        // A flow's email runs as a hog function invocation built by spreading the flow invocation, so
+        // `hogFlow` is present at runtime even though the type is the narrower hog function shape.
+        const workflowVersion =
+            'hogFlow' in result.invocation
+                ? (result.invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
+                : undefined
+        const trackingCode = this.trackingCodeSigner.generate(
+            { ...result.invocation, distinctId, workflowVersion },
+            isTest
+        )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const htmlBody = params.html
@@ -551,6 +564,20 @@ export class EmailService {
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
             FeedbackForwardingEmailAddress: from.email,
+        }
+
+        if (this.sesConfig.sesTenantAttributionEnabled) {
+            // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
+            // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
+            // is the provisioning convention (products/workflows/backend/providers/ses.py and
+            // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
+            // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+            // unattributed would (a) push their bounces onto the shared account's reputation and
+            // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
+            // this class only shield our internal metrics, a separate concern from SES-side
+            // attribution; test volume is far below the representative volume AWS needs for a
+            // reputation finding.
+            sendEmailParams.TenantName = `team-${result.invocation.teamId}`
         }
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't

@@ -142,15 +142,7 @@ case "$RS_SVC" in
     export ISSUE_BUCKETS_REDIS_URL="$DEFAULT_REDIS"
     export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}" # Used to emit signals, via the internal API
     export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
-    # Route exception resolution through the local cymbal-resolution pod so
-    # the new gRPC seam is exercised end-to-end during dev. Flip
-    # CYMBAL_REMOTE_RESOLUTION_ENABLED=false to fall back to inline local
-    # resolution if cymbal-resolution isn't running.
-    export CYMBAL_REMOTE_RESOLUTION_ENABLED="${CYMBAL_REMOTE_RESOLUTION_ENABLED:-true}"
-    # Production defaults to SAMPLE_RATE=0.0 so flipping ENABLED is a no-op
-    # until rollout is ramped explicitly. In dev we want every event to
-    # exercise the remote path so the seam is actually tested.
-    export CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE="${CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE:-1.0}"
+    # Processing always routes exception resolution through cymbal-resolution.
     export CYMBAL_REMOTE_RESOLUTION_HOST="${CYMBAL_REMOTE_RESOLUTION_HOST:-127.0.0.1}"
     export CYMBAL_REMOTE_RESOLUTION_PORT="${CYMBAL_REMOTE_RESOLUTION_PORT:-50061}"
     # Keep cadence tight on the dev box so routing reacts quickly to

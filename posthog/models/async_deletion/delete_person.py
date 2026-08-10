@@ -38,7 +38,7 @@ def remove_deleted_person_data():
     loaded into a dictionary once and deleted with dictHas(), so each part is scanned a single
     time instead of re-running a whole-table subquery per affected part.
     """
-    dict_reader_user, dict_reader_password = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+    dict_reader_creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)
 
     # Unique per invocation so overlapping runs never create, consume, or drop a shared
     # cluster-wide dictionary out from under each other.
@@ -61,7 +61,7 @@ def remove_deleted_person_data():
             LAYOUT(COMPLEX_KEY_HASHED())
             LIFETIME(0)
             """,
-            {"dict_reader_user": dict_reader_user, "dict_reader_password": dict_reader_password},
+            {"dict_reader_user": dict_reader_creds.user, "dict_reader_password": dict_reader_creds.password},
             workload=Workload.OFFLINE,
         )
 

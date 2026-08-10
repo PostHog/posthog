@@ -168,6 +168,16 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
+    // Always-v1 rollout of the personless-table removal RFC: for these teams, merge-added distinct
+    // id mappings get version 1 unconditionally (always writing a ClickHouse override) instead of
+    // consulting posthog_personlessdistinctid for the version-0 optimization. Comma-separated team
+    // IDs, or '*' for all teams; empty means no teams.
+    PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: string
+    // Steps 3+4 of the personless-table removal RFC: for these teams, stop writing
+    // posthog_personlessdistinctid (chunk inserts, single-row fallback, merge upserts) and stop
+    // reading the is_merged race hint. Implies always-v1 merge versioning for the team, so the
+    // table's absence can never orphan events. Comma-separated team IDs, or '*' for all teams.
+    PERSONLESS_WRITES_DISABLED_TEAMS: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -203,6 +213,8 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
+    EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
     // $feature_flag_called keep-first dedup config
     /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
@@ -310,6 +322,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '',
+        PERSONLESS_WRITES_DISABLED_TEAMS: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
@@ -339,6 +353,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
 
         // $feature_flag_called keep-first dedup config
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',

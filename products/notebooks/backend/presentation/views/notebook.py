@@ -27,6 +27,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
@@ -100,6 +101,21 @@ from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
+
+# Raised when a cell reads a sibling whose last result lives somewhere this run can't reach.
+_CROSS_ENGINE_REF_ERROR = (
+    "'{name}' last ran on a different connection, so this cell can't read it. "
+    "Point both cells at the same connection and re-run, or inline its query here."
+)
+# Python cells read upstream results through the data plane, which only reaches PostHog.
+_CROSS_ENGINE_REF_ERROR_FOR_PYTHON = (
+    "'{name}' ran on a warehouse connection, and Python cells can only read PostHog results. "
+    "Re-run '{name}' on PostHog to use it here."
+)
+_LOCAL_FRAME_REF_ERROR = (
+    "'{name}' is a Python dataframe, so only a cell running on PostHog can read it. "
+    "Switch this cell to PostHog to use it."
+)
 
 
 def depluralize(string: str | None) -> str | None:
@@ -632,6 +648,24 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
 
+    def _require_run_connection_access(self, run: NotebookNodeRun, user: User | None) -> None:
+        # Dispatch resolved the source for the user who ran the cell, but the run row outlives
+        # that check and these endpoints serve its rows to anyone with notebook + query access.
+        # Without re-checking, a user denied viewer on the warehouse source could read rows a
+        # colleague's run pulled from it. Notebook + query access does not imply source access.
+        if not run.connection_id:
+            return
+        if (
+            get_direct_connection_source(
+                self.team,
+                str(run.connection_id),
+                user=user,
+                require_pure_direct=run.send_raw_query,
+            )
+            is None
+        ):
+            raise PermissionDenied("You need access to this cell's data source to read its results.")
+
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
 
@@ -1108,6 +1142,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
+        node_type = serializer.validated_data["node_type"]
+        code = serializer.validated_data["code"]
+        output_name = serializer.validated_data["output_name"]
+        # Only SQL nodes carry a connection; python always runs in the kernel against PostHog.
+        connection_id = serializer.validated_data["connection_id"] if node_type != "python" else None
+        send_raw_query = bool(serializer.validated_data["send_raw_query"]) and connection_id is not None
+        if connection_id is not None and (
+            # Resolve up front so a stale or unreachable connection fails the dispatch with the
+            # shared message, rather than surfacing later as an opaque failed run.
+            get_direct_connection_source(
+                self.team,
+                str(connection_id),
+                user=user if isinstance(user, User) else None,
+                require_pure_direct=send_raw_query,
+            )
+            is None
+        ):
+            return Response({"detail": INVALID_CONNECTION_ID_ERROR}, status=400)
+
         # Resolve each referenced hogql node to its last-run query (not its live editor text),
         # so a join recomputes against the definitions that produced the results on screen.
         # Inlining happens once here, so the run stores a self-contained query and paging
@@ -1121,37 +1174,53 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             .filter(notebook=notebook, node_id__in=hogql_node_ids, status=NotebookNodeRun.Status.DONE)
             .order_by("node_id", "-created_at")
             .distinct("node_id")
-            .values_list("node_id", "id", "code", "node_type")
+            .values_list("node_id", "id", "code", "node_type", "connection_id", "send_raw_query")
         )
-        # A SQL node's runs can alternate between hogql and duckdb (Journey 5 rerouting), so a
-        # kind=hogql ref is only trustworthy when the node's LATEST result really is hogql —
-        # a duckdb run's code is raw, non-self-contained SQL naming kernel frames, and inlining
-        # it as a CTE would ship it to ClickHouse. Treat that node as not-run instead.
-        latest_by_node: dict[str, tuple[str, str]] = {
-            node_id: (str(run_id), code)
-            for node_id, run_id, code, run_type in latest_runs
-            if run_type == NotebookNodeRun.NodeType.HOGQL
-        }
+        # A ref is only inlinable when the upstream node's LATEST run executed the same way this
+        # one will. A SQL node's runs can alternate between hogql and duckdb (Journey 5
+        # rerouting) and between engines, and its stored code only means anything on the engine
+        # that produced it — a duckdb run's code names kernel frames, and a connection run's is
+        # that warehouse's SQL. Inlining either elsewhere would ship the wrong query.
+        latest_by_node: dict[str, tuple[str, str]] = {}
+        other_engine_nodes: set[str] = set()
+        for other_node_id, run_id, run_code, run_type, run_connection_id, run_send_raw in latest_runs:
+            if run_type != NotebookNodeRun.NodeType.HOGQL:
+                continue
+            if run_connection_id == connection_id and bool(run_send_raw) == send_raw_query:
+                latest_by_node[other_node_id] = (str(run_id), run_code)
+            else:
+                other_engine_nodes.add(other_node_id)
+        cross_engine_error = _CROSS_ENGINE_REF_ERROR_FOR_PYTHON if node_type == "python" else _CROSS_ENGINE_REF_ERROR
         refs: dict[str, SQLV2Ref] = {}
         for name, spec in ref_specs.items():
             if spec["kind"] == "local":
-                refs[name] = SQLV2Ref(kind="local")
-            else:
-                latest = latest_by_node.get(spec["node_id"])
-                refs[name] = SQLV2Ref(
-                    kind="hogql",
-                    node_id=spec["node_id"],
-                    run_id=latest[0] if latest else None,
-                    last_run_code=latest[1] if latest else None,
+                # A kernel frame lives in the sandbox, which only reaches PostHog's own data — a
+                # connection run can't be rerouted there, so mark it unusable instead.
+                refs[name] = (
+                    SQLV2Ref(kind="hogql", node_id=None, unavailable_reason=_LOCAL_FRAME_REF_ERROR.format(name=name))
+                    if connection_id is not None
+                    else SQLV2Ref(kind="local")
                 )
-        node_type = serializer.validated_data["node_type"]
-        code = serializer.validated_data["code"]
-        output_name = serializer.validated_data["output_name"]
+                continue
+            latest = latest_by_node.get(spec["node_id"])
+            refs[name] = SQLV2Ref(
+                kind="hogql",
+                node_id=spec["node_id"],
+                run_id=latest[0] if latest else None,
+                last_run_code=latest[1] if latest else None,
+                unavailable_reason=(
+                    cross_engine_error.format(name=name) if spec["node_id"] in other_engine_nodes else None
+                ),
+            )
         try:
             if node_type == "python":
                 # A python node stores its code as-is; referenced frames become kernel inputs,
                 # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
                 run_code, inputs = code, resolve_python_node_inputs(code, refs)
+            elif send_raw_query:
+                # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
+                # there is nothing to inline: it reaches the engine exactly as written.
+                run_code, inputs = code, []
             else:
                 # A SQL node pushes to ClickHouse — unless it references a local frame, which
                 # reroutes it to the sandbox's DuckDB (Journey 5).
@@ -1170,6 +1239,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             node_id=serializer.validated_data["node_id"],
             code=run_code,
             node_type=node_type,
+            connection_id=connection_id,
+            send_raw_query=send_raw_query,
             status=NotebookNodeRun.Status.RUNNING,
         )
 
@@ -1245,7 +1316,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Direct (hogql) runs have no callback: this poll advances the row from the async
         # query status, and while the manager's result is alive it also returns the full
         # capped row set for client-side paging (`rows`, absent once expired).
+        #
+        # It runs before the access gate on purpose. This poll is the only thing that moves a
+        # direct run to a terminal state, and the only place its expiry watchdog fires, so
+        # gating first would strand the run RUNNING forever if the source was deleted or the
+        # caller lost access mid-query. Advancing the row leaks nothing — the gate below still
+        # decides whether any of it is returned.
         rows = sync_direct_run(run)
+        self._require_run_connection_access(run, user)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
         # captured stdout/stderr arrive with the final envelope even when the user stopped it.
@@ -1286,6 +1364,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         if run is None:
             raise Http404()
+        self._require_run_connection_access(run, user)
         if run.status != NotebookNodeRun.Status.DONE:
             return Response({"detail": "Run has no result to page."}, status=400)
 

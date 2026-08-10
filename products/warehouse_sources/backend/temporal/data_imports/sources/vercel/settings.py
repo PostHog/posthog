@@ -18,6 +18,11 @@ class VercelEndpointConfig:
     # Query param that lower-bounds results by creation time (Unix ms). Only set where Vercel
     # documents a genuine server-side time filter — None means full refresh for this endpoint.
     since_param: Optional[str] = None
+    # Whether `since`/`until` must be sent as ISO 8601 UTC strings rather than raw Unix-ms
+    # integers. Vercel's OpenAPI spec types since/until as numbers (e.g. 1540095775941) for
+    # deployments, domains, aliases, and teams, but as strings (e.g. "2019-12-08T10:00:38.976Z")
+    # for events — sending events a raw ms integer gets rejected with a 400.
+    since_until_as_iso: bool = False
     # Team-owned resources require ?teamId=<id> on each request. Endpoints that list resources
     # visible to the token itself (e.g. /v2/teams) are not team-scoped.
     team_scoped: bool = True
@@ -36,6 +41,13 @@ class VercelEndpointConfig:
     # `from`/`to` date window instead of the cursor-paginated list envelope every other endpoint
     # uses. Routed through its own transport path in vercel.py.
     is_focus_billing: bool = False
+    # Field holding the row's creation timestamp (Unix ms) for endpoints that return rows but no
+    # `pagination` envelope. The transport pages those by feeding the oldest value on a page back
+    # as the next `until`. None means the endpoint carries the envelope and pages from
+    # `pagination.next`.
+    cursor_from_field: Optional[str] = None
+    # Static query params this endpoint needs on every request, merged over the shared ones.
+    extra_params: dict[str, str] = field(default_factory=dict)
 
 
 # Charges get restated after they first post (usage finalization, plus adjustments, credits, and tax
@@ -67,6 +79,41 @@ VERCEL_ENDPOINTS: dict[str, VercelEndpointConfig] = {
                 "label": "created",
                 "type": IncrementalFieldType.Integer,
                 "field": "created",
+                "field_type": IncrementalFieldType.Integer,
+            },
+        ],
+    ),
+    # Team activity stream: every action taken on the team, across ~600 event types (deployments,
+    # projects, env vars, domains, aliases, certs, flags, firewall config, access groups). The
+    # resource tables above hold current state; this one holds the transitions between them, which
+    # is what deployment frequency, change-failure rate, and config audit trails are built from.
+    "events": VercelEndpointConfig(
+        name="events",
+        path="/v3/events",
+        response_data_key="events",
+        primary_key="id",
+        # /v3/events documents `since`/`until` (Unix ms) as a server-side filter on event creation
+        # time, so this is genuinely incremental rather than a client-side skip. `createdAt` is
+        # immutable, making it both the incremental cursor and the pagination cursor.
+        since_param="since",
+        since_until_as_iso=True,
+        supports_incremental=True,
+        supports_append=True,
+        # Unlike the resource endpoints this one returns no `pagination` envelope, so pages are
+        # walked from the oldest `createdAt` on each page.
+        cursor_from_field="createdAt",
+        # Without this the response carries only the event's summary text, not the entity it acted
+        # on. The payload shape varies per event type; the pipeline serializes it to a JSON string
+        # column, so the variation doesn't drift the Arrow schema.
+        extra_params={"withPayload": "true"},
+        # Deliberately left unpartitioned. `createdAt` is Unix *milliseconds*, and the datetime
+        # partition mode feeds an int straight to `datetime.fromtimestamp()`, which reads it as
+        # seconds and raises for any ms value. Same reason `deployments.created` is unpartitioned.
+        incremental_fields=[
+            {
+                "label": "createdAt",
+                "type": IncrementalFieldType.Integer,
+                "field": "createdAt",
                 "field_type": IncrementalFieldType.Integer,
             },
         ],

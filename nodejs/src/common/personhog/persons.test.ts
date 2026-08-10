@@ -68,7 +68,13 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     updatePersonProperties: () => ({}),
     deletePersons: () => ({ deletedCount: 0n }),
     deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
+    deletePersonlessDistinctIdsBatchForTeam: () => ({ deletedCount: 0n }),
     splitPerson: () => ({ splits: [] }),
+    setPersonDistinctIdVersionFloor: () => ({}),
+    setPersonVersionFloor: () => ({ updated: false }),
+    fencePerson: () => ({}),
+    releaseFence: () => ({}),
+    foldPersonDocument: () => ({}),
 }
 
 function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): {

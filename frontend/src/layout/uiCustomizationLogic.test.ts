@@ -11,7 +11,12 @@ import { UserUIConfiguration } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { uiCustomizationLogic, withSidebarItemVisibility, withSidebarSectionVisibility } from './uiCustomizationLogic'
+import {
+    uiCustomizationLogic,
+    withSidebarItemVisibility,
+    withSidebarPatch,
+    withSidebarSectionVisibility,
+} from './uiCustomizationLogic'
 
 describe('uiCustomizationLogic', () => {
     let logic: ReturnType<typeof uiCustomizationLogic.build>
@@ -84,16 +89,18 @@ describe('uiCustomizationLogic', () => {
         expect(logic.values.isSidebarSectionShown('project')).toBe(true)
     })
 
-    it('applies toggles optimistically and batches them into one update', async () => {
+    it('applies customization changes optimistically and batches them into one update', async () => {
         jest.useFakeTimers()
         seedUser({ version: 1, sidebar: { items: { starred: { visible: false } } } })
 
         logic.actions.setSidebarItemShown('data', false)
         logic.actions.setSidebarSectionShown('recents', false)
+        logic.actions.setSidebarDensity('compact')
 
         expect(logic.values.isSidebarItemShown('data')).toBe(false)
         expect(logic.values.isSidebarItemShown('starred')).toBe(false)
         expect(logic.values.isSidebarSectionShown('recents')).toBe(false)
+        expect(logic.values.sidebarDensity).toBe('compact')
         expect(patchCount).toBe(0)
 
         await jest.advanceTimersByTimeAsync(500)
@@ -103,6 +110,7 @@ describe('uiCustomizationLogic', () => {
         expect(patchedUser?.ui_configuration).toEqual({
             version: 1,
             sidebar: {
+                density: 'compact',
                 sections: { recents: { visible: false } },
                 items: { starred: { visible: false }, data: { visible: false } },
             },
@@ -128,6 +136,41 @@ describe('uiCustomizationLogic', () => {
         expect(withSidebarSectionVisibility(null, 'my_tools', false)).toEqual({
             version: 1,
             sidebar: { sections: { my_tools: { visible: false } } },
+        })
+    })
+
+    it('defaults to comfortable density when no configuration is set', () => {
+        seedUser(null)
+        expect(logic.values.sidebarDensity).toBe('comfortable')
+    })
+
+    it('returns the stored density from the configuration', () => {
+        seedUser({
+            version: 1,
+            sidebar: { density: 'compact' },
+        })
+        expect(logic.values.sidebarDensity).toBe('compact')
+    })
+
+    it('ignores stored density when the customization flag is off', () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        seedUser({
+            version: 1,
+            sidebar: { density: 'compact' },
+        })
+        expect(logic.values.sidebarDensity).toBe('comfortable')
+    })
+
+    it('withSidebarPatch merges density into configuration', () => {
+        expect(withSidebarPatch(null, { density: 'compact' })).toEqual({
+            version: 1,
+            sidebar: { density: 'compact' },
+        })
+        expect(
+            withSidebarPatch({ version: 1, sidebar: { items: { data: { visible: false } } } }, { density: 'compact' })
+        ).toEqual({
+            version: 1,
+            sidebar: { items: { data: { visible: false } }, density: 'compact' },
         })
     })
 })

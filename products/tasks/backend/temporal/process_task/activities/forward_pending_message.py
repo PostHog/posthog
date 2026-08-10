@@ -68,8 +68,15 @@ def forward_pending_user_message(run_id: str) -> None:
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except TaskRun.DoesNotExist:
+        # The run existed when this workflow started, so a missing row means it was
+        # hard-deleted mid-run (team/org deletion cascade). Fail the workflow rather
+        # than letting the agent session run on with no rows to report into.
         logger.warning("forward_pending_message_run_not_found", run_id=run_id)
-        return
+        raise ApplicationError(
+            f"TaskRun {run_id} no longer exists; cannot forward the pending user message",
+            non_retryable=True,
+            type="TaskRunDeletedError",
+        )
 
     retryable_delivery_error: str | None = None
 

@@ -1,6 +1,7 @@
 import os
 import uuid
 import asyncio
+from datetime import timedelta
 from typing import Any, Literal
 
 import pytest
@@ -10,7 +11,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.ai.slack_app import derive_mention_workflow_id
+from posthog.temporal.ai.slack_app import derive_mention_workflow_id, slack_app_mention
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 from posthog.temporal.ai.slack_app.types import (
@@ -18,6 +19,8 @@ from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
     SlackAppMessageReactionInput,
+    SlackAppModelOverride,
+    SlackAppModelOverrideInput,
     SlackRepoSelectionOutcome,
 )
 
@@ -27,9 +30,10 @@ def _message(
     *,
     event_id: str | None = None,
     untagged: bool = False,
+    text: str = "fix the bug",
 ) -> PostHogCodeSlackMentionWorkflowInputs:
     return PostHogCodeSlackMentionWorkflowInputs(
-        event={"channel": "C1", "ts": ts, "thread_ts": "100.0", "user": "U1", "text": "fix the bug"},
+        event={"channel": "C1", "ts": ts, "thread_ts": "100.0", "user": "U1", "text": text},
         integration_id=1,
         slack_team_id="T1",
         slack_event_id=event_id,
@@ -42,12 +46,18 @@ class _Recorder:
     def __init__(self) -> None:
         # (ts, repository) per create-task call, in execution order.
         self.created: list[tuple[str, str | None]] = []
+        # ts -> model override the classifier returns; missing means no override.
+        self.model_overrides: dict[str, SlackAppModelOverride] = {}
+        # ts -> model override the create-task call actually received.
+        self.created_with_override: dict[str, SlackAppModelOverride | None] = {}
         # ts per hourglass reaction (message queued behind another), in execution order.
         self.queued_marked: list[str] = []
         # ts per hourglass->eyes reaction swap, in execution order.
         self.processing_marked: list[str] = []
         # ts per forwarded followup, in execution order.
         self.forwarded: list[str] = []
+        # ts per internal-error notice posted back to the thread, in execution order.
+        self.internal_errors: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
         self.forward_results: dict[str, bool] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
@@ -156,6 +166,10 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> bool:
         return False
 
+    @activity.defn(name="classify_slack_app_model_override_activity")
+    async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
+        return rec.model_overrides.get(input.event_text)
+
     @activity.defn(name="create_posthog_code_task_for_repo_activity")
     async def create_task(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
@@ -168,8 +182,10 @@ def _fake_activities(rec: _Recorder) -> list:
         repository: str | None,
         repo_research_task_id: str | None = None,
         repo_research_run_id: str | None = None,
+        model_override: SlackAppModelOverride | None = None,
     ) -> None:
         ts = inputs.event["ts"]
+        rec.created_with_override[ts] = model_override
         reached = rec.create_reached.get(ts)
         if reached:
             reached.set()
@@ -188,7 +204,7 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="post_posthog_code_internal_error_activity")
     async def internal_error(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
-        return None
+        rec.internal_errors.append(inputs.event["ts"])
 
     @activity.defn(name="resolve_posthog_code_slack_user_activity")
     async def resolve_user(
@@ -217,6 +233,7 @@ def _fake_activities(rec: _Recorder) -> list:
         post_picker,
         resolve_authorship,
         block_github,
+        classify_model_override,
         create_task,
         picker_timeout,
         authorship_timeout,
@@ -308,6 +325,27 @@ async def test_queued_messages_process_serially_in_arrival_order():
     assert rec.queued_marked == ["1.2", "1.3"]
     # Every mention gets eyes as it leaves the queue.
     assert rec.processing_marked == ["1.1", "1.2", "1.3"]
+
+
+@pytest.mark.asyncio
+async def test_model_override_reaches_task_creation():
+    """A mention that names a model steers only its own task; the next one in the
+    same thread goes back to the resolved preferences."""
+    rec = _Recorder()
+    plain, steered = _message("1.1"), _message("1.2", text="use fable for this one")
+    override = SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high")
+    rec.model_overrides["use fable for this one"] = override
+    rec.create_reached["1.1"] = asyncio.Event()
+    rec.create_gates["1.1"] = asyncio.Event()
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", plain)
+        await asyncio.wait_for(rec.create_reached["1.1"].wait(), timeout=30)
+        await handle.signal(SlackAppMentionWorkflow.new_message, steered)
+        rec.create_gates["1.1"].set()
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created_with_override == {"1.1": None, "1.2": override}
 
 
 @pytest.mark.asyncio
@@ -405,6 +443,27 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/picked"), ("1.2", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_hung_child_times_out_and_queue_continues(monkeypatch):
+    # A child that never finishes used to stall the conversation forever: the queue
+    # awaits it serially, so every later message in the thread sat behind it with no
+    # reply and no explanation. Shortened here so the time-skipping server reaches the
+    # execution timeout before the child's own 15-minute picker wait.
+    monkeypatch.setattr(slack_app_mention, "SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT", timedelta(minutes=5))
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "agent_needed"
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        # The first message parks on the repo picker and is never answered.
+        await asyncio.wait_for(rec.picker_posted.wait(), timeout=30)
+        await handle.signal(SlackAppMentionWorkflow.new_message, _message("1.2"))
+        await asyncio.wait_for(handle.result(), timeout=60)
+
+    assert rec.created == [("1.2", "org/auto-repo")]
+    assert rec.internal_errors == ["1.1"]
 
 
 @pytest.mark.asyncio

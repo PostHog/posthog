@@ -8,6 +8,7 @@ import shlex
 import shutil
 import tempfile
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -15,12 +16,21 @@ import pytest
 from unittest import mock
 
 import yaml
+from click.testing import CliRunner
+from hogli_commands.devenv.cli import dev_regenerate_mprocs
 from hogli_commands.devenv.generator import (
+    _READY_MARKER,
+    TRACKED_MPROCS_FILES,
     DevenvConfig,
     MprocsConfig,
     MprocsGenerator,
+    TrackedMprocsFile,
+    _build_docker_compose_shell,
     build_docker_compose_command,
+    build_e2e_docker_compose_shell,
+    build_static_docker_compose_shell,
     load_devenv_config,
+    regenerate_mprocs_shell,
 )
 from hogli_commands.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli_commands.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
@@ -479,6 +489,130 @@ class TestDockerComposeProjectName:
         # proving it can't be split into extra shell arguments or inject shell syntax.
         tokens = shlex.split(cmd)
         assert tokens[tokens.index("-p") + 1] == expected_value
+
+
+class TestMprocsDockerComposeShellSync:
+    """Each checked-in file's shell must equal its generator function's output, and
+    regenerating a drifted copy must rewrite only that one line."""
+
+    @parameterized.expand([(t.name, t) for t in TRACKED_MPROCS_FILES])
+    def test_checked_in_file_matches_generator_output(self, _name: str, target: TrackedMprocsFile) -> None:
+        proc = create_mprocs_registry(target.path).get_processes()["docker-compose"]
+
+        assert proc.shell == target.build_shell()
+        assert proc.config["ready_pattern"] == _READY_MARKER
+
+    @parameterized.expand([(t.name, t) for t in TRACKED_MPROCS_FILES])
+    def test_regenerate_rewrites_a_drifted_file_and_only_that_line(self, _name: str, target: TrackedMprocsFile) -> None:
+        real_path = target.path
+        original = real_path.read_text()
+        current_shell = create_mprocs_registry(real_path).get_processes()["docker-compose"].shell
+        drifted_shell = current_shell.replace("docker-compose ready", "DRIFTED")
+        with tempfile.TemporaryDirectory() as tmp:
+            drifted_path = Path(tmp) / "mprocs.yaml"
+            drifted_path.write_text(original.replace(current_shell, drifted_shell))
+
+            was_rewritten = regenerate_mprocs_shell(drifted_path, target.build_shell())
+
+            assert was_rewritten is True
+            assert drifted_path.read_text() == original
+
+
+class TestRegenerateMprocsCheckFlag:
+    """--check backs ci:preflight's verify step, so it must report staleness without writing."""
+
+    def test_passes_without_writing_when_up_to_date(self) -> None:
+        originals = {target.path: target.path.read_text() for target in TRACKED_MPROCS_FILES}
+
+        result = CliRunner().invoke(dev_regenerate_mprocs, ["--check"])
+
+        assert result.exit_code == 0
+        assert "up to date" in result.output
+        assert all(path.read_text() == text for path, text in originals.items())
+
+    def test_fails_without_writing_when_stale(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        static_target = TRACKED_MPROCS_FILES[0]
+        original = static_target.path.read_text()
+        drifted_path = tmp_path / "mprocs.yaml"
+        drifted_path.write_text(original.replace(static_target.build_shell(), "echo drifted"))
+        drifted_text = drifted_path.read_text()
+        patched_targets = [replace(static_target, path=drifted_path), *TRACKED_MPROCS_FILES[1:]]
+        monkeypatch.setattr("hogli_commands.devenv.cli.TRACKED_MPROCS_FILES", patched_targets)
+
+        result = CliRunner().invoke(dev_regenerate_mprocs, ["--check"])
+
+        assert result.exit_code == 1
+        assert str(drifted_path) in result.output
+        assert drifted_path.read_text() == drifted_text
+
+
+class TestDockerComposeShellBehavior:
+    """The static and e2e shells must only report ready after `docker compose up`
+    (and, for e2e, the personhog step) succeeds, and must never invoke docker at
+    all when POSTHOG_SANDBOX=1 (e2e never sandboxes, so it has no such case).
+
+    The failing-`up` cases specifically guard the `exit 1` in the static shell's
+    `up_cmd || { fail_cmd; exit 1; }`: drop it and the `{ ...; }` group exits 0,
+    the `||` is satisfied, and the ready marker fires even though `up` failed —
+    every dependent proc then starts against a dead stack."""
+
+    def test_generated_shell_delegates_to_the_shared_docker_compose_helper(self) -> None:
+        # The hogli-generated shell shares its up/logs/sandbox-guard logic with the
+        # static one via _build_docker_compose_shell, so its branching behavior is
+        # already covered below; this just guards against that delegation being
+        # replaced with a reimplementation that drifts.
+        generated = MprocsGenerator(MockRegistry({}))._generate_docker_compose_config({}, [])["shell"]
+
+        assert generated.endswith(_build_docker_compose_shell([]))
+
+    _SHELL_BUILDERS = {"static": build_static_docker_compose_shell, "e2e": build_e2e_docker_compose_shell}
+
+    @classmethod
+    def _shell(cls, source: str) -> str:
+        return cls._SHELL_BUILDERS[source]()
+
+    @staticmethod
+    def _run_shell(
+        shell: str, up_exit: int, personhog_exit: int = 0, *, sandbox: bool
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_docker = Path(tmp) / "docker"
+            fake_docker.write_text(
+                f'#!/bin/sh\ncase "$*" in *personhog*) exit {personhog_exit};; *" up "*) exit {up_exit};; esac\nexit 0\n'
+            )
+            fake_docker.chmod(0o755)
+            fake_sleep = Path(tmp) / "sleep"
+            fake_sleep.write_text("#!/bin/sh\nexit 0\n")
+            fake_sleep.chmod(0o755)
+            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}"}
+            if sandbox:
+                env["POSTHOG_SANDBOX"] = "1"
+            else:
+                env.pop("POSTHOG_SANDBOX", None)
+            return subprocess.run(
+                ["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10, check=False
+            )
+
+    @parameterized.expand(
+        [
+            ("static", False, 0, 0, True),
+            ("static", False, 1, 0, False),
+            ("static", True, 1, 0, True),
+            ("e2e", False, 0, 0, True),
+            ("e2e", False, 0, 1, False),
+        ]
+    )
+    def test_ready_marker_tracks_up_result_unless_sandboxed(
+        self, source: str, sandbox: bool, up_exit: int, personhog_exit: int, expect_ready: bool
+    ) -> None:
+        # Sandbox cases pass up_exit=1 and still expect ready, proving docker's `up`
+        # call is never reached once POSTHOG_SANDBOX=1 short-circuits the shell. The
+        # e2e personhog_exit=1 case proves a failed personhog step (its own `&&` in
+        # the chain) blocks ready too, not just a failed main `up`.
+        result = self._run_shell(self._shell(source), up_exit, personhog_exit, sandbox=sandbox)
+
+        assert ("docker-compose ready" in result.stdout) == expect_ready
+        assert (result.returncode == 0) == expect_ready
 
 
 class TestIntentMapLoading:
@@ -979,64 +1113,3 @@ class TestParseExcludeInput:
         excluded, out_of_range = _parse_exclude_input(raw, self.UNITS)
         assert excluded == expected_excluded
         assert out_of_range == expected_out_of_range
-
-
-class TestDockerComposeShellFailurePath:
-    """The docker-compose proc shell must not emit the ready marker when `up` fails.
-
-    `up_cmd || { fail_cmd; exit 1; } && echo 'docker-compose ready'` only adds
-    a friendlier failure message over a plain `up_cmd && echo ready` chain —
-    both already skip the ready marker on failure. What this guards against is
-    someone dropping the `exit 1` from `fail_cmd`: then the `{ ...; }` group
-    exits 0, the `||` is satisfied, and `docker-compose ready` fires even
-    though `up` failed, so every dependent proc starts against a dead stack.
-    Covers both the generated shell and its independently maintained twin in
-    bin/mprocs.yaml (the static fallback used when hogli is unavailable).
-    """
-
-    @staticmethod
-    def _shells() -> list[tuple[str, str]]:
-        generated = MprocsGenerator(MockRegistry({}))._generate_docker_compose_config({}, [])["shell"]
-        repo_root = Path(__file__).resolve().parents[4]
-        static = yaml.safe_load((repo_root / "bin" / "mprocs.yaml").read_text())["procs"]["docker-compose"]["shell"]
-        return [("generated", generated), ("static", static)]
-
-    @parameterized.expand(
-        [
-            ("generated", 0, True),
-            ("generated", 1, False),
-            ("static", 0, True),
-            ("static", 1, False),
-        ]
-    )
-    def test_ready_marker_tracks_up_result(self, source: str, up_exit: int, expect_ready: bool) -> None:
-        shell = dict(self._shells())[source]
-        with tempfile.TemporaryDirectory() as tmp:
-            fake = Path(tmp) / "docker"
-            fake.write_text(f'#!/bin/sh\ncase "$*" in *" up "*) exit {up_exit};; esac\nexit 0\n')
-            fake.chmod(0o755)
-            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}"}
-            env.pop("POSTHOG_SANDBOX", None)
-            result = subprocess.run(
-                ["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10, check=False
-            )
-        assert ("docker-compose ready" in result.stdout) == expect_ready
-        assert (result.returncode == 0) == expect_ready
-
-    @parameterized.expand([("generated",), ("static",)])
-    def test_sandbox_guard_short_circuits_before_docker(self, source: str) -> None:
-        # Sandboxes have no docker CLI; the shell must report ready without
-        # invoking docker at all. A fake docker that always fails proves the
-        # guard short-circuits; a fake sleep lets the sandbox branch terminate.
-        shell = dict(self._shells())[source]
-        with tempfile.TemporaryDirectory() as tmp:
-            for name, body in [("docker", "#!/bin/sh\nexit 1\n"), ("sleep", "#!/bin/sh\nexit 0\n")]:
-                fake = Path(tmp) / name
-                fake.write_text(body)
-                fake.chmod(0o755)
-            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "POSTHOG_SANDBOX": "1"}
-            result = subprocess.run(
-                ["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10, check=False
-            )
-        assert "docker-compose ready" in result.stdout
-        assert result.returncode == 0

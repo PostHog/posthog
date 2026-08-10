@@ -32,6 +32,8 @@ interface WebhookSetupFormProps {
     webhookTables?: { name: string; label?: string | null }[]
     webhookResult?: WebhookCreateResult | null
     webhookCreating: boolean
+    /** Whether the manual webhook fields form is currently submitting — guards the Save button against double-submission */
+    webhookFieldsSubmitting?: boolean
     onCreateWebhook: () => void
     /** kea-forms logic and formKey for the manual webhook field inputs form */
     formLogic?: LogicWrapper | BuiltLogic<any>
@@ -48,6 +50,7 @@ export function WebhookSetupForm({
     webhookTables,
     webhookResult,
     webhookCreating,
+    webhookFieldsSubmitting = false,
     onCreateWebhook,
     formLogic,
     formKey,
@@ -153,7 +156,7 @@ export function WebhookSetupForm({
                     <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
                         <div className="space-y-3 ph-no-capture">
                             {pendingFields.map((field: SourceFieldConfig) => sourceFieldToElement(field, sourceConfig))}
-                            <LemonButton type="primary" htmlType="submit">
+                            <LemonButton type="primary" htmlType="submit" loading={webhookFieldsSubmitting}>
                                 Save
                             </LemonButton>
                         </div>
@@ -187,7 +190,7 @@ export function WebhookSetupForm({
                 <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
                     <div className="space-y-3 ph-no-capture">
                         {webhookFields.map((field: SourceFieldConfig) => sourceFieldToElement(field, sourceConfig))}
-                        <LemonButton type="primary" htmlType="submit">
+                        <LemonButton type="primary" htmlType="submit" loading={webhookFieldsSubmitting}>
                             Save
                         </LemonButton>
                     </div>
