@@ -223,6 +223,10 @@ export const getDefaultFilters = (
                 ? 'surfacing_score'
                 : DEFAULT_RECORDING_FILTERS.order),
         order_direction: preferredSort?.order_direction ?? DEFAULT_RECORDING_FILTERS.order_direction,
+        // Deep links (e.g. "View recordings" CTAs) point at a specific session. Do not impose the
+        // 5-second minimum-activity default the link never asked for, or a short recording lands on
+        // an empty list. The link's own duration filter, if any, still layers on top of this.
+        duration: urlFilters ? (urlFilters.duration ?? []) : DEFAULT_RECORDING_FILTERS.duration,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)

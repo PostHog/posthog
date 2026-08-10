@@ -29,6 +29,7 @@ import {
     asUniversalFilters,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
+    defaultRecordingDurationFilter,
     getDefaultFilters,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
@@ -680,7 +681,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
         })
 
-        it('reads filters from the URL and defaults the duration filter', async () => {
+        it('reads filters from the URL without imposing the duration default', async () => {
             router.actions.push('/replay', {
                 filters: {
                     filter_group: {
@@ -701,7 +702,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     filters: {
                         date_from: '-3d',
                         date_to: null,
-                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
+                        duration: [],
                         filter_group: {
                             type: FilterLogicalOperator.And,
                             values: [
@@ -756,7 +757,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({
-                    filters: { ...getDefaultFilters(), filter_group: filterGroup },
+                    filters: {
+                        ...getDefaultFilters(undefined, undefined, { filter_group: filterGroup }),
+                        filter_group: filterGroup,
+                    },
                 })
         })
 
@@ -1457,6 +1461,22 @@ describe('sessionRecordingsPlaylistLogic', () => {
         it('returns date_from as -3d for non-person recordings', () => {
             const result = getDefaultFilters()
             expect(result.date_from).toBe('-3d')
+        })
+
+        it('keeps the 5-second minimum-activity duration default without url filters', () => {
+            const result = getDefaultFilters()
+            expect(result.duration).toEqual([defaultRecordingDurationFilter])
+        })
+
+        it('drops the duration default for deep links that do not name a duration', () => {
+            const result = getDefaultFilters(undefined, undefined, { date_from: '-24h' })
+            expect(result.duration).toEqual([])
+        })
+
+        it('keeps the duration a deep link explicitly asks for', () => {
+            const urlDuration = [{ ...defaultRecordingDurationFilter, value: 60 }]
+            const result = getDefaultFilters(undefined, undefined, { duration: urlDuration })
+            expect(result.duration).toEqual(urlDuration)
         })
 
         it('merges pinnedFilters into the default filter_group', () => {
