@@ -36,6 +36,7 @@ import {
 } from '@posthog/quill'
 
 import type { SeriesRename } from 'lib/components/EntityFilterInfo'
+import { NESTED_MENU_OVERLAY_Z_CLASS } from 'lib/components/TaxonomicFilter/menu/nestedOverlay'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -936,8 +937,13 @@ export function MenuFilterCombobox({
                     // `CLICK_OUTSIDE_BLOCK_CLASS`: portaled separately from
                     // the menu panel that renders this trigger, so it needs
                     // its own exemption — otherwise picking a category
-                    // dismisses the enclosing popover.
-                    className={cn('w-max min-w-(--anchor-width) max-w-(--available-width)', CLICK_OUTSIDE_BLOCK_CLASS)}
+                    // dismisses the enclosing popover. The z-class keeps it
+                    // above the panel (and any enclosing menu) it opens over.
+                    className={cn(
+                        'w-max min-w-(--anchor-width) max-w-(--available-width)',
+                        CLICK_OUTSIDE_BLOCK_CLASS,
+                        NESTED_MENU_OVERLAY_Z_CLASS
+                    )}
                 >
                     <SelectGroup>
                         {categoryOptions.map((o) => (

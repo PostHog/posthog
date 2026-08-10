@@ -41,6 +41,7 @@ import {
 
 import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import { NESTED_MENU_OVERLAY_Z_CLASS } from 'lib/components/TaxonomicFilter/menu/nestedOverlay'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -706,8 +707,10 @@ export function TaxonomicFilterMenu({
                         'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)] @[720px]/main-content-container:w-[720px] h-[400px]',
                         // Portaled out of any enclosing Lemon Popover, so mark it
                         // as inside — otherwise picking a property dismisses the
-                        // parent overlay (e.g. a table's column header menu).
-                        CLICK_OUTSIDE_BLOCK_CLASS
+                        // parent overlay (e.g. a table's column header menu) — and
+                        // lift it above that overlay so it can't paint underneath.
+                        CLICK_OUTSIDE_BLOCK_CLASS,
+                        NESTED_MENU_OVERLAY_Z_CLASS
                     )}
                 >
                     {state.kind === 'combobox' && (
@@ -789,7 +792,10 @@ export function TaxonomicFilterMenu({
                     onBack={state.origin === 'menu' ? openMenu : openDwhPick}
                 />
             )}
-            <DropdownMenuContent align="start" className={cn('min-w-[240px]', CLICK_OUTSIDE_BLOCK_CLASS)}>
+            <DropdownMenuContent
+                align="start"
+                className={cn('min-w-[240px]', CLICK_OUTSIDE_BLOCK_CLASS, NESTED_MENU_OVERLAY_Z_CLASS)}
+            >
                 {/* The input-trigger box already does "type to make a new filter",
                     so the explicit "New filter…" row would be redundant there. */}
                 {!useInputTrigger && (
