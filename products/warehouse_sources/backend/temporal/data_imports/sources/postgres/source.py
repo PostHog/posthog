@@ -806,9 +806,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
         # sustained shortage that outlasts that budget is still transient — the same
         # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        #
+        # A mid-stream or connect-time connection drop ("server closed the connection unexpectedly",
+        # the SSL-flavoured "SSL connection has been closed unexpectedly") is retried in-process by
+        # `_connect_with_dropped_retry` / the offset-chunking fallback (both keyed on
+        # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py). Once that budget is exhausted the
+        # raw psycopg `OperationalError` reaches `_handle_import_error`, which — without a match here
+        # — logs it at `exception` and reports it to error tracking on every occurrence, even though
+        # Temporal retries the whole activity and the drop is transient and self-recovering (a pooler
+        # idle cull, failover, or network blip). Classify it retryable so it logs as a warning
+        # instead. These stay clear of `get_non_retryable_errors` deliberately (see the note there),
+        # so the sync keeps retrying rather than being disabled.
         return {
             "terminating connection due to",
             "the database system is shutting down",
+            "server closed the connection unexpectedly",
+            "SSL connection has been closed unexpectedly",
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
         }
 
