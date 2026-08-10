@@ -10,7 +10,7 @@ use etcd_client::{EventType, WatchStream};
 use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, gauge, histogram};
-use tokio::sync::{mpsc, Mutex, Notify, Semaphore, SemaphorePermit};
+use tokio::sync::{Mutex, Notify, Semaphore, SemaphorePermit};
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
@@ -273,13 +273,11 @@ pub struct PodHandle {
     authority: Arc<AuthorityClock>,
     /// Optional K8s awareness for departure classification during shutdown.
     k8s_awareness: Option<Arc<K8sAwareness>>,
-    /// Data-plane repair requests: partitions whose serving state broke
-    /// in a way only a convergence can mend (the leader sends one when a
-    /// changelog producer is condemned). Consumed by the watch loop as an
-    /// extra convergence trigger, so repair happens now rather than on
-    /// the next reconcile tick. Behind a mutex only because the loop
-    /// needs `&mut` through `&self`; the loop runs once at a time.
-    repair_rx: Option<tokio::sync::Mutex<mpsc::UnboundedReceiver<u32>>>,
+    /// Nudged when serving state broke in a way only a convergence can
+    /// mend (the leader nudges when a changelog producer is condemned).
+    /// The watch loop answers with an early reconcile pass, so repair
+    /// happens now rather than on the next tick.
+    repair_nudge: Option<Arc<Notify>>,
 }
 
 impl PodHandle {
@@ -313,17 +311,17 @@ impl PodHandle {
             fence_poisoned: AtomicBool::new(false),
             authority,
             k8s_awareness,
-            repair_rx: None,
+            repair_nudge: None,
         }
     }
 
-    /// Converge a partition whenever `rx` names it, in addition to the
-    /// event and reconcile triggers. The sending end announces breakage
-    /// the protocol has no event for — the leader's condemned changelog
-    /// producer — and this is what turns its repair latency from one
-    /// reconcile interval into one convergence.
-    pub fn with_repair_requests(mut self, rx: mpsc::UnboundedReceiver<u32>) -> Self {
-        self.repair_rx = Some(tokio::sync::Mutex::new(rx));
+    /// Run a reconcile pass whenever `nudge` fires, in addition to the
+    /// periodic tick. The nudging end announces breakage the protocol
+    /// has no event for — the leader's condemned changelog producer —
+    /// and this is what turns its repair latency from one reconcile
+    /// interval into one convergence.
+    pub fn with_repair_nudge(mut self, nudge: Arc<Notify>) -> Self {
+        self.repair_nudge = Some(nudge);
         self
     }
 
@@ -1261,33 +1259,20 @@ impl PodHandle {
         let mut in_flight: HashSet<u32> = HashSet::new();
         let mut pending: HashMap<u32, Trigger> = HashMap::new();
 
-        // Held for the loop's lifetime; a supervisor restart re-locks
-        // after this future is dropped. Repairs sent while no loop runs
-        // wait in the channel and are drained by the next attempt.
-        let mut repair_rx = match &self.repair_rx {
-            Some(m) => Some(m.lock().await),
-            None => None,
-        };
-        // One repair-triggered convergence per partition per reconcile
-        // interval. A partition whose producer condemns again right
-        // after every heal would otherwise cycle at broker speed — and
-        // each successful heal counts as applied work, resetting the
-        // budgets that exist to catch exactly that wedge. Suppressed
-        // requests fall back to the reconcile tick, so a flapping
-        // partition degrades to tick-rate healing, the pre-repair shape.
-        let mut repair_dispatched_at: HashMap<u32, tokio::time::Instant> = HashMap::new();
+        // One nudge-driven pass per reconcile interval at most. A
+        // producer that condemns again right after every heal would
+        // otherwise drive passes at broker speed — and each successful
+        // heal counts as applied work, resetting the budgets that exist
+        // to catch exactly that wedge. A suppressed nudge falls back to
+        // the tick, so a flap degrades to tick-rate healing, the
+        // pre-nudge shape.
+        let mut last_repair_pass: Option<tokio::time::Instant> = None;
 
-        /// Resolves to the next repair request, or never: an absent or
-        /// closed channel must leave the other arms in charge rather
-        /// than spin this one.
-        async fn next_repair(
-            rx: &mut Option<tokio::sync::MutexGuard<'_, mpsc::UnboundedReceiver<u32>>>,
-        ) -> u32 {
-            match rx {
-                Some(rx) => match rx.recv().await {
-                    Some(partition) => partition,
-                    None => std::future::pending().await,
-                },
+        /// Resolves when the repair nudge fires, or never when none is
+        /// wired, leaving the other arms in charge.
+        async fn nudged(nudge: &Option<Arc<Notify>>) {
+            match nudge {
+                Some(nudge) => nudge.notified().await,
                 None => std::future::pending().await,
             }
         }
@@ -1411,47 +1396,54 @@ impl PodHandle {
                         }
                     }
                 }
-                partition = next_repair(&mut repair_rx) => {
+                _ = nudged(&self.repair_nudge) => {
                     let now = tokio::time::Instant::now();
-                    let cooling = repair_dispatched_at.get(&partition).is_some_and(|last| {
-                        now.duration_since(*last) < self.config.reconcile_interval
+                    let cooling = last_repair_pass.is_some_and(|last| {
+                        now.duration_since(last) < self.config.reconcile_interval
                     });
                     if cooling {
-                        counter!(
-                            "personhog_coordination_repair_requests_suppressed_total",
-                            "partition" => partition.to_string()
-                        )
-                        .increment(1);
+                        counter!("personhog_coordination_repair_passes_total", "outcome" => "suppressed")
+                            .increment(1);
                         tracing::warn!(
                             pod = %self.config.pod_name,
-                            partition,
-                            "repair requested again inside the cooldown; leaving it to the reconcile tick"
+                            "repair nudged again inside the cooldown; leaving it to the reconcile tick"
                         );
                     } else {
-                        repair_dispatched_at.insert(partition, now);
-                        counter!(
-                            "personhog_coordination_repair_requests_total",
-                            "partition" => partition.to_string()
-                        )
-                        .increment(1);
+                        last_repair_pass = Some(now);
+                        counter!("personhog_coordination_repair_passes_total", "outcome" => "run")
+                            .increment(1);
                         tracing::info!(
                             pod = %self.config.pod_name,
-                            partition,
-                            "data-plane repair requested; converging"
+                            "data-plane repair nudge; converging involved partitions"
                         );
-                        // Reconcile severity: the convergence re-derives
-                        // the truth, and a repair that cannot be applied
-                        // is the reconcile budget's business —
-                        // `verify_serving` already declines to make a
-                        // failed heal fatal.
-                        dispatch(
-                            self,
-                            partition,
-                            Trigger::Reconcile,
-                            &mut in_flight,
-                            &mut pending,
-                            &mut lanes,
-                        );
+                        // The same derivation the tick runs: the nudge
+                        // carries no payload, and `verify_serving`
+                        // repairs exactly the partitions that need it
+                        // while the rest converge as no-ops. Reconcile
+                        // severity throughout; a failed snapshot leaves
+                        // repair to the tick, whose budget owns
+                        // sustained failure.
+                        match self.involved_partitions().await {
+                            Ok((partitions, _)) => {
+                                for partition in partitions {
+                                    dispatch(
+                                        self,
+                                        partition,
+                                        Trigger::Reconcile,
+                                        &mut in_flight,
+                                        &mut pending,
+                                        &mut lanes,
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    pod = %self.config.pod_name,
+                                    error = %e,
+                                    "repair-pass snapshot failed; leaving repair to the reconcile tick"
+                                );
+                            }
+                        }
                     }
                 }
                 msg = stream.message() => {

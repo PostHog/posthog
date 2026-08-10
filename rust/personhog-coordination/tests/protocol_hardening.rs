@@ -4134,15 +4134,15 @@ impl personhog_coordination::pod::HandoffHandler for RepairProbeHandler {
     }
 }
 
-/// A data-plane repair request must converge the partition immediately.
-/// The condemned-producer incident this pins: every write on the
-/// partition bounces until `verify_serving` re-takes the fence, and with
-/// the reconcile tick as the only trigger that wait is a whole interval.
+/// A data-plane repair nudge must converge immediately. The
+/// condemned-producer incident this pins: every write on the partition
+/// bounces until `verify_serving` re-takes the fence, and with the
+/// reconcile tick as the only trigger that wait is a whole interval.
 /// Here reconcile is parked at a day and no etcd event fires, so the
-/// only thing that can drive the second `verify_serving` is the repair
+/// only thing that can drive the second `verify_serving` is the nudge
 /// arm itself.
 #[tokio::test]
-async fn a_repair_request_converges_the_partition_without_waiting_for_reconcile() {
+async fn a_repair_nudge_converges_without_waiting_for_reconcile() {
     let store = test_store("repair-request-converges").await;
     let cancel = CancellationToken::new();
 
@@ -4162,7 +4162,7 @@ async fn a_repair_request_converges_the_partition_without_waiting_for_reconcile(
         events: Arc::clone(&events),
         verified: Arc::clone(&verified),
     };
-    let (repair_tx, repair_rx) = tokio::sync::mpsc::unbounded_channel();
+    let nudge = Arc::new(tokio::sync::Notify::new());
     let pod = personhog_coordination::pod::PodHandle::new(
         Arc::clone(&store),
         personhog_coordination::pod::PodConfig {
@@ -4179,7 +4179,7 @@ async fn a_repair_request_converges_the_partition_without_waiting_for_reconcile(
         None,
         Arc::new(AuthorityClock::unclaimed()),
     )
-    .with_repair_requests(repair_rx);
+    .with_repair_nudge(Arc::clone(&nudge));
     let token = cancel.child_token();
     tokio::spawn(async move { pod.run(token).await });
 
@@ -4192,12 +4192,12 @@ async fn a_repair_request_converges_the_partition_without_waiting_for_reconcile(
     .await;
     let baseline = verified.load(Ordering::SeqCst);
 
-    repair_tx.send(0).expect("repair channel open");
+    nudge.notify_one();
 
     wait_for_condition_named(
         WAIT_TIMEOUT,
         POLL_INTERVAL,
-        "repair request drives a convergence",
+        "repair nudge drives a convergence",
         || {
             let verified = Arc::clone(&verified);
             async move { verified.load(Ordering::SeqCst) > baseline }
@@ -4205,18 +4205,18 @@ async fn a_repair_request_converges_the_partition_without_waiting_for_reconcile(
     )
     .await;
 
-    // A second request inside the cooldown must not converge again: the
-    // condemn-heal-condemn flap would otherwise cycle at broker speed,
-    // resetting the budgets that exist to catch it. The cooldown is the
-    // reconcile interval, parked at a day here, so nothing but the
-    // suppression can be holding the counter still.
+    // A second nudge inside the cooldown must not run another pass: the
+    // condemn-heal-condemn flap would otherwise drive passes at broker
+    // speed, resetting the budgets that exist to catch it. The cooldown
+    // is the reconcile interval, parked at a day here, so nothing but
+    // the suppression can be holding the counter still.
     let after_first = verified.load(Ordering::SeqCst);
-    repair_tx.send(0).expect("repair channel open");
+    nudge.notify_one();
     tokio::time::sleep(Duration::from_millis(1_500)).await;
     assert_eq!(
         verified.load(Ordering::SeqCst),
         after_first,
-        "a repair request inside the cooldown must fall to the reconcile tick"
+        "a nudge inside the cooldown must fall to the reconcile tick"
     );
 
     cancel.cancel();

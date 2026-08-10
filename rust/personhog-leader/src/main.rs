@@ -322,7 +322,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.ingestion_warnings_topic.clone(),
     );
     let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
-    let mut fence_repair_rx = None;
+    let mut fence_repair_nudge: Option<std::sync::Arc<tokio::sync::Notify>> = None;
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
         // directly, so an operator debugging a fenced-write timeout has
@@ -338,10 +338,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         preregister_fencing_metrics(num_partitions);
         // A condemned producer's repair otherwise waits for the next
-        // reconcile tick; this channel lets the condemnation itself
-        // trigger the convergence that heals it.
-        let (repair_tx, repair_rx) = tokio::sync::mpsc::unbounded_channel();
-        fence_repair_rx = Some(repair_rx);
+        // reconcile tick; this nudge lets the condemnation itself
+        // trigger the repair pass that heals it.
+        let repair_nudge = std::sync::Arc::new(tokio::sync::Notify::new());
+        fence_repair_nudge = Some(std::sync::Arc::clone(&repair_nudge));
         // The fenced producer runs on a tighter message timeout than the
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {
@@ -363,7 +363,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window: Duration::from_millis(config.fencing_window_ms),
                 settle_budget: config.fencing_settle_budget(),
             })
-            .with_repair_requests(repair_tx),
+            .with_repair_nudge(repair_nudge),
         ))
     } else {
         None
@@ -578,8 +578,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         k8s_awareness,
         Arc::clone(&authority),
     );
-    if let Some(rx) = fence_repair_rx.take() {
-        pod = pod.with_repair_requests(rx);
+    if let Some(nudge) = fence_repair_nudge.take() {
+        pod = pod.with_repair_nudge(nudge);
     }
 
     tokio::spawn(async move {

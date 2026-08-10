@@ -374,28 +374,31 @@ async fn a_completed_warm_keeps_its_fence() {
         .expect("a completed warm keeps a usable fence");
 }
 
-/// A condemnation must request its own repair: the fix for a condemned
-/// producer is a convergence-driven heal, and without the announcement
-/// that convergence waits for the next reconcile tick while every write
-/// on the partition bounces. Exactly once per producer: the unusable
-/// swap, not the channel, bounds the announcements.
+/// A condemnation must nudge its own repair: the fix for a condemned
+/// producer is a convergence-driven heal, and without the nudge that
+/// convergence waits for the next reconcile tick while every write on
+/// the partition bounces. Once per producer: the unusable swap, not the
+/// notify, bounds the nudges.
 #[tokio::test]
-async fn a_condemnation_requests_repair_once() {
+async fn a_condemnation_nudges_repair_once() {
     let topic = format!("fence_repair_{}", uuid::Uuid::new_v4().simple());
-    let (repair_tx, mut repair_rx) = tokio::sync::mpsc::unbounded_channel();
-    let producers = fenced_producers(&topic).with_repair_requests(repair_tx);
+    let nudge = Arc::new(tokio::sync::Notify::new());
+    let producers = fenced_producers(&topic).with_repair_nudge(Arc::clone(&nudge));
     producers.acquire(3).await.expect("acquire the fence");
 
     producers.condemn_for_test(3);
-    producers.condemn_for_test(3);
-
-    let announced = tokio::time::timeout(Duration::from_secs(5), repair_rx.recv())
+    tokio::time::timeout(Duration::from_secs(5), nudge.notified())
         .await
-        .expect("a condemnation must announce the partition for repair");
-    assert_eq!(announced, Some(3));
+        .expect("a condemnation must nudge the repair pass");
+
+    // The permit was consumed above; a second condemnation of the same
+    // producer takes the unusable-swap early exit and stores no new one.
+    producers.condemn_for_test(3);
     assert!(
-        repair_rx.try_recv().is_err(),
-        "a second condemnation of the same producer must not announce again"
+        tokio::time::timeout(Duration::from_millis(250), nudge.notified())
+            .await
+            .is_err(),
+        "a second condemnation of the same producer must not nudge again"
     );
 }
 

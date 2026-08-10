@@ -26,68 +26,17 @@ pub type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 const LEADER_PREFIX: &str = "/personhog.leader.v1.PersonHogLeader/";
 
 /// How long to wait after a bounced forward attempt before the next one.
-/// Most bounce conditions clear on their own — a fence in
+/// Both bounce conditions clear on their own — a fence in
 /// watch-propagation time, a transport failure as the target pod comes
-/// up — so the first wait only needs to outpace the caller's latency
-/// bound, not be aggressive. The drain's wave loop uses it flat: its
-/// requests are parked and invisible to clients, so yielding the lane to
-/// the reconcile pass after a few cheap waves is the better escalation.
-/// The direct path doubles it instead — see [`direct_bounce_backoff`].
+/// up — so the cadence only needs to outpace the caller's latency bound,
+/// not be aggressive. Shared by the direct path's re-entrant retry loop
+/// and the drain's wave loop so the two paths settle at the same rate.
 pub(crate) const BOUNCE_BACKOFF: Duration = Duration::from_millis(150);
 
-/// Bounced waves after which the drain yields its lane to the reconcile
-/// pass rather than keep re-forwarding.
+/// Consecutive bounces after which a retry loop gives up — the direct path
+/// returns a definitive `UNAVAILABLE` (the client's own retry may reach
+/// a healthier router), the drain yields its lane to the reconcile pass.
 pub(crate) const MAX_CONSECUTIVE_BOUNCES: u32 = 4;
-
-/// Fenced bounces after which the direct path stops holding the request
-/// and returns a definitive `UNAVAILABLE` (the client's own retry may
-/// reach a healthier router).
-///
-/// Together with [`fenced_bounce_backoff`] this is the fenced-bounce
-/// patience, sized against the slowest condition it deliberately
-/// covers: the *first* heal of a condemned changelog fence, which
-/// answers `FailedPrecondition` until a repair convergence re-takes the
-/// epoch — two timeout-bounded broker calls (a metadata ping, then
-/// `init_transactions`), up to twice the leader's
-/// `fencing_init_timeout`, 4s at the default `LEASE_TTL=30`. Patience
-/// below that bound exhausts against a repair that was always going to
-/// land, which is exactly what turned a fleet-wide fence condemnation
-/// into client-visible failures. Fenced responses return in a round
-/// trip, so this whole hold is sleep, not backend timeouts.
-///
-/// Not covered, deliberately: a fence eviction with no condemnation,
-/// and a re-condemnation inside the leader's repair cooldown — both
-/// heal on the leader's reconcile tick (5s), and waiting out a tick
-/// would hold every fenced request for seconds. Those exhaust as
-/// retryable `UNAVAILABLE`, the pre-repair behavior.
-///
-/// The 4s bound is the leader's derivation at `LEASE_TTL=30` and
-/// nothing enforces the relation across the two services: a deployment
-/// that raises the leader's `LEASE_TTL` (which scales
-/// `fencing_init_timeout`) must revisit this budget. The default-config
-/// relation is pinned by `fenced_bounce_patience_outlasts_a_fence_repair`.
-const MAX_FENCED_BOUNCES: u32 = 8;
-
-/// Transport and unrouted bounces after which the direct path gives up.
-/// Each such attempt can burn a full backend timeout before bouncing,
-/// so this stays small to keep the worst-case hold inside typical
-/// client gRPC deadlines.
-const MAX_TRANSPORT_BOUNCES: u32 = 4;
-
-/// Ceiling on the fenced-bounce doubling backoff, so patience grows at
-/// the tail without the early retries losing the handoff races they
-/// usually win in one wave.
-const FENCED_BOUNCE_BACKOFF_CAP: Duration = Duration::from_millis(800);
-
-/// The wait after the `n`th consecutive fenced bounce: `BOUNCE_BACKOFF`
-/// doubling per bounce, capped. Fast first (most fence bounces are
-/// routing races that clear in watch-propagation time), patient at the
-/// tail (the rest are waiting on a leader-side repair).
-fn fenced_bounce_backoff(fenced_bounces: u32) -> Duration {
-    BOUNCE_BACKOFF
-        .saturating_mul(1u32 << fenced_bounces.saturating_sub(1).min(4))
-        .min(FENCED_BOUNCE_BACKOFF_CAP)
-}
 
 /// Why a forward attempt produced no outcome, and what that implies for
 /// the request's delivery state. All reasons share retry mechanics; they
@@ -422,8 +371,7 @@ impl LeaderBackend {
     /// (the re-resolve targets the new owner), or nothing changed yet
     /// (re-send, possibly bounce again). Each re-attempt is counted by
     /// `personhog_router_forward_retries_total` under the reason that
-    /// caused it. After `MAX_FENCED_BOUNCES` fenced bounces, or
-    /// `MAX_TRANSPORT_BOUNCES` transport/unrouted ones, the request fails with
+    /// caused it. After `MAX_CONSECUTIVE_BOUNCES` the request fails with
     /// a definitive `UNAVAILABLE`, counted by
     /// `personhog_router_forward_retries_exhausted_total`, so a router
     /// whose view never updates (a dead watch) can't hold requests
@@ -442,8 +390,7 @@ impl LeaderBackend {
         headers: HeaderMap,
         frame: Bytes,
     ) -> (http::Response<BoxBody>, Option<f64>) {
-        let mut fenced_bounces = 0u32;
-        let mut transport_bounces = 0u32;
+        let mut consecutive_bounces = 0u32;
         let mut possibly_applied = false;
         loop {
             // The stash module emits its own enqueued/rejected counters
@@ -487,13 +434,8 @@ impl LeaderBackend {
                     if counts_as_possibly_applied(reason) {
                         possibly_applied = true;
                     }
-                    match reason {
-                        BounceReason::Fenced => fenced_bounces += 1,
-                        BounceReason::Transport | BounceReason::Unrouted => transport_bounces += 1,
-                    }
-                    if fenced_bounces >= MAX_FENCED_BOUNCES
-                        || transport_bounces >= MAX_TRANSPORT_BOUNCES
-                    {
+                    consecutive_bounces += 1;
+                    if consecutive_bounces >= MAX_CONSECUTIVE_BOUNCES {
                         counter!("personhog_router_forward_retries_exhausted_total").increment(1);
                         return (
                             grpc_error_response(
@@ -509,11 +451,7 @@ impl LeaderBackend {
                         "reason" => reason.label()
                     )
                     .increment(1);
-                    let backoff = match reason {
-                        BounceReason::Fenced => fenced_bounce_backoff(fenced_bounces),
-                        BounceReason::Transport | BounceReason::Unrouted => BOUNCE_BACKOFF,
-                    };
-                    tokio::time::sleep(backoff).await;
+                    tokio::time::sleep(BOUNCE_BACKOFF).await;
                 }
             }
         }
@@ -702,26 +640,5 @@ mod tests {
             "rejection must surface as UNAVAILABLE so callers retry"
         );
         assert!(call_ms.is_none(), "no forward happened, so no call time");
-    }
-
-    /// The fenced-bounce patience must outlast the slowest thing such a
-    /// bounce can be waiting on: the leader re-taking a condemned
-    /// changelog fence, two timeout-bounded broker calls (metadata ping
-    /// plus `init_transactions`) of `fencing_init_timeout` each — 4s
-    /// total at the default `LEASE_TTL`. Patience below that bound
-    /// exhausts against a repair that was always going to land, failing
-    /// clients during a window the system heals on its own.
-    #[test]
-    fn fenced_bounce_patience_outlasts_a_fence_repair() {
-        let patience: Duration = (1..MAX_FENCED_BOUNCES).map(fenced_bounce_backoff).sum();
-        assert!(
-            patience >= Duration::from_secs(4),
-            "fenced bounce patience ({patience:?}) must cover the leader's \
-             fence repair (2 x fencing_init_timeout, 4s at the default LEASE_TTL)"
-        );
-        // The schedule buys that patience at the tail: the first retry
-        // stays at the base cadence, because most bounces are routing
-        // races that clear in watch-propagation time.
-        assert_eq!(fenced_bounce_backoff(1), BOUNCE_BACKOFF);
     }
 }

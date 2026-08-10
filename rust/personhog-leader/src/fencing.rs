@@ -36,7 +36,7 @@ use prost::Message as ProtoMessage;
 use rdkafka::client::ClientContext;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
-use tokio::sync::{mpsc, oneshot, Notify};
+use tokio::sync::{oneshot, Notify};
 use tokio::task::spawn_blocking;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, error, warn};
@@ -166,9 +166,9 @@ struct PartitionFence {
     /// epoch once the pod's claim is confirmed.
     unusable: AtomicBool,
     commit_timeout: Duration,
-    /// Clone of the map's repair sender; a condemnation must be able to
+    /// Clone of the map's repair nudge; a condemnation must be able to
     /// announce itself from wherever the commit task discovers it.
-    repair_tx: Option<mpsc::UnboundedSender<u32>>,
+    repair_nudge: Option<Arc<Notify>>,
 }
 
 impl PartitionFence {
@@ -187,12 +187,12 @@ impl PartitionFence {
             );
             // The only way back is a heal on a convergence to Serving, and
             // the reconcile tick that would otherwise carry it is seconds
-            // away — writes bounce for that whole gap. Announcing the
-            // condemnation lets the coordination loop converge now. Best
-            // effort: a closed channel means coordination is gone, where
-            // the tick (or the shutdown) owns the outcome anyway.
-            if let Some(tx) = &self.repair_tx {
-                let _ = tx.send(partition);
+            // away — writes bounce for that whole gap. The nudge lets the
+            // coordination loop run its repair pass now; Notify stores
+            // the permit, so a nudge landing before the loop listens is
+            // not lost.
+            if let Some(nudge) = &self.repair_nudge {
+                nudge.notify_one();
             }
         }
     }
@@ -428,10 +428,11 @@ pub struct FencedChangelogProducers {
     /// and report a failed drain.
     settle_budget: Duration,
     partitions: DashMap<u32, Arc<PartitionFence>>,
-    /// Where a condemnation announces itself, so the coordination loop
-    /// can converge the partition now instead of on its next reconcile
-    /// tick. `None` leaves repair to the tick alone.
-    repair_tx: Option<mpsc::UnboundedSender<u32>>,
+    /// Nudged on condemnation, so the coordination loop can run a
+    /// repair pass now instead of on its next reconcile tick. Carries no
+    /// payload: the pass re-derives what needs converging, the same way
+    /// the tick does. `None` leaves repair to the tick alone.
+    repair_nudge: Option<Arc<Notify>>,
     /// Outcomes a test stages for the next produce on a partition.
     ///
     /// The uncertain outcomes need a broker fault landing inside a
@@ -477,18 +478,18 @@ impl FencedChangelogProducers {
             window,
             settle_budget,
             partitions: DashMap::new(),
-            repair_tx: None,
+            repair_nudge: None,
             #[cfg(any(test, feature = "test-support"))]
             staged_failures: DashMap::new(),
         }
     }
 
-    /// Announce condemnations on `tx`, so the coordination loop can
-    /// converge the partition immediately instead of on its next
-    /// reconcile tick. The receiving end is [`PodHandle::
-    /// with_repair_requests`](personhog_coordination::pod::PodHandle).
-    pub fn with_repair_requests(mut self, tx: mpsc::UnboundedSender<u32>) -> Self {
-        self.repair_tx = Some(tx);
+    /// Announce condemnations on `nudge`, so the coordination loop can
+    /// run a repair pass immediately instead of on its next reconcile
+    /// tick. The listening end is [`PodHandle::
+    /// with_repair_nudge`](personhog_coordination::pod::PodHandle).
+    pub fn with_repair_nudge(mut self, nudge: Arc<Notify>) -> Self {
+        self.repair_nudge = Some(nudge);
         self
     }
 
@@ -528,7 +529,7 @@ impl FencedChangelogProducers {
             panic_next_commit: AtomicBool::new(false),
             unusable: AtomicBool::new(false),
             commit_timeout: self.commit_timeout,
-            repair_tx: self.repair_tx.clone(),
+            repair_nudge: self.repair_nudge.clone(),
         });
         if let Some(replaced) = self.partitions.insert(partition, Arc::clone(&installed)) {
             // The heal path installs over a still-present condemned
@@ -1384,6 +1385,12 @@ pub fn preregister_fencing_metrics(partitions: u32) {
         counter!("personhog_leader_fence_condemned_total", "reason" => reason).increment(0);
     }
     counter!("personhog_leader_fence_commit_retries_total").increment(0);
+    // The coordination loop's repair-pass counter fires exclusively
+    // mid-incident, exactly when a first-increment series would be
+    // swallowed between scrapes.
+    for outcome in ["run", "suppressed"] {
+        counter!("personhog_coordination_repair_passes_total", "outcome" => outcome).increment(0);
+    }
     counter!("personhog_leader_kafka_produce_errors_total").increment(0);
     for partition in 0..partitions {
         let p = partition.to_string();
@@ -1398,20 +1405,7 @@ pub fn preregister_fencing_metrics(partitions: u32) {
             "partition" => p.clone()
         )
         .increment(0);
-        // The coordination loop's repair counters, preregistered here
-        // because this is where the partition count is known. They fire
-        // exclusively mid-incident, exactly when a first-increment
-        // series would be swallowed between scrapes.
-        counter!(
-            "personhog_coordination_repair_requests_total",
-            "partition" => p.clone()
-        )
-        .increment(0);
-        counter!(
-            "personhog_coordination_repair_requests_suppressed_total",
-            "partition" => p.clone()
-        )
-        .increment(0);
+
         counter!(
             "personhog_leader_fence_commit_indeterminate_total",
             "partition" => p.clone()
