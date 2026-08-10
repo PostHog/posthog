@@ -150,6 +150,24 @@ def _slack_integration_for_project(*, integration_id: int, project_id: int) -> I
     return integration
 
 
+def _ensure_dm_recipient_eligible(slack: SlackIntegration, target_id: str) -> None:
+    """Re-resolve a DM recipient's eligibility at send time.
+
+    Config validation only checks the ID shape, so an API/MCP caller can persist any well-formed
+    member ID, and a member who was eligible at config time can later become a guest or leave.
+    `get_user_by_id` applies the same eligibility rules as the picker (no bots, guests, or
+    members from outside the connected workspace), so an ineligible recipient fails permanently
+    here instead of leaking internal output.
+    """
+    if not target_id.startswith(("U", "W")):
+        return
+    if slack.get_user_by_id(target_id) is None:
+        raise ScoutSlackPermanentDeliveryError(
+            "The configured Slack member can no longer receive scout output",
+            error_code="recipient_not_eligible",
+        )
+
+
 def _slack_channel_id(channel: str) -> str:
     channel_id = slack_channel_id_from_target(channel)
     if not channel_id:
@@ -220,8 +238,10 @@ def post_scout_emission_to_slack(
     channel_id = _slack_channel_id(channel)
 
     blocks, fallback = build_scout_slack_message(emission)
-    client = SlackIntegration(integration).client
+    slack = SlackIntegration(integration)
+    client = slack.client
     try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
         response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
@@ -304,8 +324,10 @@ def post_scout_report_to_slack(
     )
     channel_id = _slack_channel_id(channel)
     blocks, fallback = build_scout_report_slack_message(report, run)
-    client = SlackIntegration(integration).client
+    slack = SlackIntegration(integration)
+    client = slack.client
     try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
         response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,

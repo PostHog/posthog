@@ -140,6 +140,32 @@ class TestSlackIntegration:
 
         assert [member["id"] for member in slack.list_users()] == ["U1"]
 
+    @parameterized.expand(
+        [
+            ("workspace_member", {"id": "U1", "team_id": "T_HOME"}, True),
+            # Slack Connect externals resolve through users.info once the bot shares a channel with
+            # them; their home workspace differs so they must not become DM recipients.
+            ("external_workspace", {"id": "U2", "team_id": "T_OTHER"}, False),
+            ("stranger", {"id": "U3", "team_id": "T_HOME", "is_stranger": True}, False),
+            (
+                "grid_member_of_this_workspace",
+                {"id": "U4", "team_id": "T_OTHER", "enterprise_user": {"teams": ["T_HOME", "T_OTHER"]}},
+                True,
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.WebClient")
+    def test_get_user_by_id_workspace_membership(self, _name, member, expected_found, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.return_value = {"user": member}
+        self.integration.integration_id = "T_HOME"
+
+        slack = SlackIntegration(self.integration)
+
+        result = slack.get_user_by_id(member["id"])
+        assert (result is not None) is expected_found
+
     @patch("posthog.models.integration.WebClient")
     def test_list_channels_without_access(self, mock_webclient_class):
         mock_client = MagicMock()
@@ -2040,6 +2066,40 @@ class TestIntegrationAPIKeyAccess:
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Slack" in response.json()["detail"]
+
+    @patch("posthog.api.integration.SLACK_USERS_INFO_LOOKUPS_PER_MINUTE", 2)
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_throttles_distinct_uncached_lookups(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_BUDGET",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.get_user_by_id.return_value = None
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users_budget"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        # Distinct ids each miss the per-id cache; the per-integration budget is what stops them.
+        for index, expected_status in enumerate(
+            [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+        ):
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/?user_id=UPROBE{index}",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+            assert response.status_code == expected_status
+        assert mock_slack_instance.get_user_by_id.call_count == 2
 
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
         slack_integration = Integration.objects.create(

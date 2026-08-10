@@ -18,7 +18,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -419,6 +419,10 @@ class SlackUserSerializer(serializers.Serializer):
 
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
+
+# Cap on uncached per-id member lookups per integration per minute; each one reaches Slack's
+# users.info endpoint, so distinct fabricated ids must not be able to drain the workspace quota.
+SLACK_USERS_INFO_LOOKUPS_PER_MINUTE = 30
 
 
 class SlackUsersQuerySerializer(serializers.Serializer):
@@ -1432,6 +1436,15 @@ class IntegrationViewSet(
             cached_lookup = cache.get(lookup_key)
             if cached_lookup is not None:
                 return Response({"users": cached_lookup})
+            # The per-id cache doesn't bound a caller cycling through distinct fabricated ids, so
+            # also cap how many uncached lookups an integration can send to Slack per minute.
+            budget_key = f"slack/{instance.id}/users_info_budget"
+            try:
+                lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
+            except ValueError:
+                lookups = 1
+            if lookups > SLACK_USERS_INFO_LOOKUPS_PER_MINUTE:
+                raise Throttled(detail="Too many Slack member lookups. Try again in a minute.")
             try:
                 member = slack.get_user_by_id(user_id)
             except SlackApiError as e:

@@ -183,9 +183,11 @@ export function SlackUserPicker({
     }, [logic, loadAllSlackUsers, disabled])
 
     // Saved recipients absent from the loaded list (bare ids stored over the API, or members beyond
-    // the first page) get a direct lookup so their chips render a name instead of a raw id.
+    // the first page) get a direct lookup so their chips render a name instead of a raw id. A
+    // disabled picker (e.g. a disabled scout) never loads the directory, so its saved ids go
+    // straight to lookup; an enabled one waits for the list, which usually resolves them for free.
     useEffect(() => {
-        if (disabled || allSlackUsersLoading || !slackUsers.length) {
+        if (allSlackUsersLoading || (!disabled && !slackUsers.length)) {
             return
         }
         for (const value of values ?? []) {

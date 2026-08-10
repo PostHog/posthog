@@ -2132,6 +2132,19 @@ class SlackIntegration:
         try:
             response = self.client.users_info(user=user_id)
             member = response["user"]
+            # users.info also resolves Slack Connect externals the bot shares a channel with, so
+            # reject members whose home workspace isn't this integration's: internal scout/DM
+            # output must never be routable outside the connected workspace by pasting an ID.
+            # Enterprise Grid members may carry another primary team_id while still belonging to
+            # this workspace via enterprise_user.teams.
+            member_team_id = member.get("team_id")
+            enterprise_teams = (member.get("enterprise_user") or {}).get("teams") or []
+            if member.get("is_stranger") or (
+                member_team_id is not None
+                and member_team_id != self.integration.integration_id
+                and self.integration.integration_id not in enterprise_teams
+            ):
+                return None
             return member if self._is_dmable_user(member) else None
         except SlackApiError as e:
             if e.response["error"] == "user_not_found":

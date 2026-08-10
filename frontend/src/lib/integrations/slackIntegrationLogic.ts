@@ -232,7 +232,13 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                         await breakpoint(300)
                     }
                     try {
-                        return await api.integrations.slackChannels(props.id, forceRefresh, { search })
+                        const response = await api.integrations.slackChannels(props.id, forceRefresh, { search })
+                        if (forceRefresh) {
+                            // Only a forced refresh provably reached Slack (a plain load can be
+                            // served from the backend cache), so only it may hide the reconnect banner.
+                            actions.setSlackIntegrationInactive(null)
+                        }
+                        return response
                     } catch (e: any) {
                         if (e?.code === SLACK_INTEGRATION_INACTIVE_ERROR_CODE) {
                             // Keep whatever we had and surface guidance inline instead of throwing,
@@ -263,6 +269,11 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                         )
                         // A slower earlier search must not overwrite a newer one's results.
                         breakpoint()
+                        if (forceRefresh) {
+                            // Matches the channels loader: a cached-served search proves nothing
+                            // about the token, so only a forced refresh clears the banner.
+                            actions.setSlackIntegrationInactive(null)
+                        }
                         return response
                     } catch (e: any) {
                         if (e?.code === SLACK_INTEGRATION_INACTIVE_ERROR_CODE) {
@@ -302,6 +313,9 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     await breakpoint(500)
                     try {
                         const res = await api.integrations.slackChannelsById(props.id, channelId)
+                        // The by-id endpoint always calls Slack live, so a success is real proof
+                        // the connection works again.
+                        actions.setSlackIntegrationInactive(null)
                         return res.channels[0] || null
                     } catch (e: any) {
                         if (e?.code === SLACK_INTEGRATION_INACTIVE_ERROR_CODE) {
@@ -346,10 +360,9 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         slackIntegrationInactiveMessage: [
             null as string | null,
             {
-                // Cleared on each fresh fetch attempt so a later success (e.g. after reconnecting) hides the banner.
-                loadAllSlackChannels: () => null,
-                loadAllSlackUsers: () => null,
-                loadSlackChannelById: () => null,
+                // Only cleared by requests that provably reached Slack (forced refreshes, live
+                // by-id lookups) — the loaders dispatch the clear themselves. A cache-served search
+                // succeeding must not hide the banner while the token is still revoked.
                 setSlackIntegrationInactive: (_, { message }) => message,
             },
         ],

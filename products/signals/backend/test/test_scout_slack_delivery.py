@@ -225,6 +225,46 @@ class TestScoutSlackDelivery(BaseTest):
 
         assert fake_client.chat_postMessage.call_count == 2
 
+    @parameterized.expand(
+        [
+            ("eligible_member", {"id": "U123ABC45"}, True),
+            # None covers every ineligibility get_user_by_id enforces: unknown id, guest,
+            # bot, or a member from outside the connected workspace.
+            ("ineligible_member", None, False),
+        ]
+    )
+    def test_dm_delivery_revalidates_recipient_eligibility(self, _name, member, expect_sent) -> None:
+        emission = self._make_emission()
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            slack_integration.return_value.get_user_by_id.return_value = member
+            if expect_sent:
+                post_scout_emission_to_slack(
+                    emission,
+                    delivery_id=str(emission.id),
+                    integration_id=integration.id,
+                    channel="U123ABC45|@andy",
+                )
+            else:
+                with pytest.raises(ScoutSlackPermanentDeliveryError) as err:
+                    post_scout_emission_to_slack(
+                        emission,
+                        delivery_id=str(emission.id),
+                        integration_id=integration.id,
+                        channel="U123ABC45|@andy",
+                    )
+                assert err.value.error_code == "recipient_not_eligible"
+
+        slack_integration.return_value.get_user_by_id.assert_called_once_with("U123ABC45")
+        if expect_sent:
+            assert fake_client.chat_postMessage.call_args_list[0].kwargs["channel"] == "U123ABC45"
+        else:
+            fake_client.chat_postMessage.assert_not_called()
+
     def test_task_skips_report_suppressed_before_delivery(self) -> None:
         emission = self._make_emission()
         report = SignalReport.objects.create(
