@@ -407,9 +407,7 @@ def _scalar_value(row: "CustomPropertyValue") -> float | bool | str | None:
     return _json_safe_scalar(_custom_property_values_logic.value_of(row))
 
 
-def _scalar_value_for_display_type(
-    row: "CustomPropertyValue", display_type: DisplayType
-) -> float | bool | str | None:
+def _scalar_value_for_display_type(row: "CustomPropertyValue", display_type: DisplayType) -> float | bool | str | None:
     value_column = {
         DataType.STRING: "value_str",
         DataType.NUMERIC: "value_num",
