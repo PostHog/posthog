@@ -7,11 +7,11 @@
 
 // SANDBOX_TTL_SECONDS from sandbox_config.py (production value only; the TEST
 // branch short-circuits to 15 min but Node never runs in Django TEST mode).
-export const STREAM_TTL_SECONDS = 2 * 60 * 60 // 7200
+export const STREAM_TTL_SECONDS = 6 * 60 * 60 // 21600
 
 // TTL for last-seq and completed keys = SANDBOX_TTL_SECONDS + 1 hour buffer
 // (mirrors SANDBOX_EVENT_INGEST_TOKEN_TTL in connection_token.py).
-export const SEQUENCE_TTL_SECONDS = STREAM_TTL_SECONDS + 3600 // 10800
+export const SEQUENCE_TTL_SECONDS = STREAM_TTL_SECONDS + 3600 // 25200
 
 // Redis XADD MAXLEN ~ (approximate trim, not exact).
 export const STREAM_MAX_LENGTH = 5_000

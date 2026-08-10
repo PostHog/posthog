@@ -1,9 +1,9 @@
 from django.conf import settings
 
-# Production: 2 hours (safety net; workflow inactivity timeout handles cleanup).
+# Production: 6 hours (safety net; workflow inactivity timeout handles cleanup).
 # Tests: 15 min so any sandbox orphaned by a crashed test auto-destroys quickly
 # instead of burning Modal capacity for hours.
-SANDBOX_TTL_SECONDS = 15 * 60 if settings.TEST else 2 * 60 * 60
+SANDBOX_TTL_SECONDS = 15 * 60 if settings.TEST else 6 * 60 * 60
 
 # Default request floor for burstable sandboxes (used when SandboxConfig.burstable_resources is
 # True): the box reserves only this much and bursts up to its configured cpu_cores / memory_gb.
