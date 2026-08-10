@@ -26,6 +26,11 @@ _SOURCE = "review_hog"
 _TIMEOUT = 30.0
 _THREADS_PAGE_SIZE = 100
 _COMMENTS_PER_THREAD = 50
+# Tail-paging backstop for absurdly chatty threads: 20 pages x 50 comments = 1000. Past that we
+# fail the fetch rather than silently truncate — a truncated tail would freeze the watermark below
+# the thread's real newest comment and the thread would never re-open to triage (stamphog's
+# github_client.py documents the same trade: comment 51 could be a maintainer's hold).
+_MAX_COMMENT_PAGES = 20
 
 # Source-rank tiers for triage ordering: humans first, ReviewHog's own findings next, other bots
 # last (CONTEXT.md — "Comment-loading policy"). Rank never excludes a thread, it only orders work.
@@ -135,6 +140,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $pageSize
           path
           line
           comments(first: $commentsPerThread) {
+            pageInfo { hasNextPage endCursor }
             nodes {
               databaseId
               url
@@ -151,10 +157,32 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $pageSize
 }
 """
 
+# GitHub returns thread comments oldest-first with no orderBy, so a capped first page drops the
+# NEWEST activity. Threads whose inner connection overflows get their tail paged via this query.
+_THREAD_COMMENTS_QUERY = """
+query($id: ID!, $cursor: String, $commentsPerThread: Int!) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      comments(first: $commentsPerThread, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          databaseId
+          url
+          body
+          createdAt
+          authorAssociation
+          author { login __typename }
+        }
+      }
+    }
+  }
+}
+"""
 
-def _parse_thread(node: dict[str, Any]) -> ReviewThread:
+
+def _parse_comments(nodes: list[Any]) -> list[ThreadComment]:
     comments: list[ThreadComment] = []
-    for comment in (node.get("comments") or {}).get("nodes") or []:
+    for comment in nodes:
         if not isinstance(comment, dict):
             continue
         author = comment.get("author") or {}
@@ -169,6 +197,36 @@ def _parse_thread(node: dict[str, Any]) -> ReviewThread:
                 url=comment.get("url") or "",
             )
         )
+    return comments
+
+
+def _fetch_comment_tail(
+    *,
+    thread_id: str,
+    cursor: str | None,
+    token: str,
+    installation_id: str | None,
+) -> list[ThreadComment]:
+    """Comments past the first page of a thread's inner connection, oldest-first."""
+    comments: list[ThreadComment] = []
+    for _page in range(_MAX_COMMENT_PAGES):
+        data = github_graphql_request(
+            _THREAD_COMMENTS_QUERY,
+            {"id": thread_id, "cursor": cursor, "commentsPerThread": _COMMENTS_PER_THREAD},
+            token=token,
+            installation_id=installation_id,
+        )
+        connection = (data.get("node") or {}).get("comments") or {}
+        comments.extend(_parse_comments(connection.get("nodes") or []))
+        page_info = connection.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            return comments
+        cursor = page_info.get("endCursor")
+    raise GitHubAPIError(f"Thread {thread_id} has more than {_MAX_COMMENT_PAGES * _COMMENTS_PER_THREAD} comments")
+
+
+def _parse_thread(node: dict[str, Any]) -> ReviewThread:
+    comments = _parse_comments((node.get("comments") or {}).get("nodes") or [])
     return ReviewThread(
         thread_id=node["id"],
         path=node.get("path") or "",
@@ -208,7 +266,20 @@ def fetch_unresolved_threads(
         for node in connection.get("nodes") or []:
             if not isinstance(node, dict) or node.get("isResolved"):
                 continue
-            threads.append(_parse_thread(node))
+            thread = _parse_thread(node)
+            comment_page = ((node.get("comments") or {}).get("pageInfo")) or {}
+            if comment_page.get("hasNextPage"):
+                # The inner connection overflowed, so the newest comments (and the true watermark)
+                # are missing: page the tail in before the thread reaches triage.
+                thread.comments.extend(
+                    _fetch_comment_tail(
+                        thread_id=thread.thread_id,
+                        cursor=comment_page.get("endCursor"),
+                        token=token,
+                        installation_id=installation_id,
+                    )
+                )
+            threads.append(thread)
         page_info = connection.get("pageInfo") or {}
         if not page_info.get("hasNextPage"):
             return threads
