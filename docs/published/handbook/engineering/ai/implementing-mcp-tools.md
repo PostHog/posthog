@@ -382,10 +382,11 @@ Viewsets mounted at root URLs (no `team_id`/`project_id` in the path) set
 which means they are invisible to frontend type generation and MCP tool scaffolding.
 If your viewset is one of these and you want to expose it,
 set `force_include_in_api_docs = True` on the class. See `ee/api/billing.py` for an example.
-The opt-in works alongside `scope_object = "INTERNAL"` plus per-action overrides via
-`@action(required_scopes=...)` or `dangerously_get_required_scopes` —
-a viewset can stay default-deny for PAT/OAuth at runtime
-while still surfacing its endpoints in the schema.
+This flag only controls schema inclusion.
+Runtime access still comes from the viewset's `scope_object`,
+`scope_object_read_actions`, `scope_object_write_actions`,
+and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
+Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
 
 ## HogQL query schemas (WIP)
 
