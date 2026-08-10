@@ -204,6 +204,7 @@ class TestDisplayVideo360Source:
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
             "Missing integration ID",
             "Integration not found",
+            "not under Display & Video 360 partner",
         ],
     )
     def test_non_retryable_errors(self, expected_key: str) -> None:

@@ -313,10 +313,26 @@ def resolve_advertiser_ids(
     config: DisplayVideo360SourceConfig,
     logger: FilteringBoundLogger,
 ) -> list[str]:
+    """The advertisers to fan out over, always confined to the configured partner.
+
+    `advertisers/{id}/...` is addressed by advertiser alone, so a configured ID that belongs to
+    another partner the credential can also reach would be read even though the connection is
+    pinned to `partner_id`. Configured IDs are therefore checked against the partner's own
+    advertisers before any child request is made.
+    """
+    partner_advertiser_ids = list_advertiser_ids(session, api_version, config.partner_id, logger)
     configured = parse_advertiser_ids(config.advertiser_ids)
-    if configured:
-        return configured
-    return list_advertiser_ids(session, api_version, config.partner_id, logger)
+    if not configured:
+        return partner_advertiser_ids
+
+    allowed = set(partner_advertiser_ids)
+    outside_partner = [advertiser_id for advertiser_id in configured if advertiser_id not in allowed]
+    if outside_partner:
+        raise DisplayVideo360CredentialsError(
+            f"Advertiser IDs not under Display & Video 360 partner {config.partner_id}: "
+            f"{', '.join(outside_partner)}. Remove them, or change the partner ID."
+        )
+    return configured
 
 
 def normalize_report_column(label: str) -> str:

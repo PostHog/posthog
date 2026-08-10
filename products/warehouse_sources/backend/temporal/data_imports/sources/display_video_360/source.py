@@ -181,6 +181,9 @@ Performance tables are generated as Bid Manager reports, so they only reach as f
             "invalid_grant": "Your Display & Video 360 connection has expired or been revoked. Reconnect your Google account.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "The credentials are missing the Display & Video 360 or Bid Manager scope. Reconnect and grant both scopes.",
             "The service account key": "The service account JSON key could not be read. Paste the complete key file and reconnect.",
+            # Raised before any child request when a configured advertiser belongs to a different
+            # partner. Only the customer can fix it, so retrying cannot help.
+            "not under Display & Video 360 partner": "One or more of the advertiser IDs you entered are not under the configured partner. Check the advertiser IDs and the partner ID.",
             # Raised by `get_oauth_integration` when the source still points at an integration row
             # that has since been deleted, or was saved before an account was connected. No retry
             # can recreate it.

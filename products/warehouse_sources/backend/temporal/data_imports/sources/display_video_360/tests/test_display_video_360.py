@@ -525,34 +525,62 @@ class TestAdvertiserFanOut:
             ("20", None),
         ]
 
-    def test_configured_advertisers_skip_discovery(self) -> None:
-        session = FakeSession(get_responses=[FakeResponse(json_body={"lineItems": [{"lineItemId": "a"}]})])
+    def test_configured_advertisers_are_read_after_checking_they_belong_to_the_partner(self) -> None:
+        session = FakeSession(
+            get_responses=[
+                # The partner's advertisers, listed before any child request is made.
+                FakeResponse(json_body={"advertisers": [{"advertiserId": "77"}, {"advertiserId": "88"}]}),
+                FakeResponse(json_body={"lineItems": [{"lineItemId": "a"}]}),
+            ]
+        )
 
         batches = _rows("line_items", session, FakeResumeManager(), config=_service_account_config(advertiser_ids="77"))
 
         assert batches == [[{"advertiserId": "77", "lineItemId": "a"}]]
-        assert "/advertisers/77/lineItems" in session.get_calls[0]
+        # Only the configured advertiser is fanned out over — 88 is in the partner but not configured.
+        child_calls = [url for url in session.get_calls if "lineItems" in url]
+        assert len(child_calls) == 1
+        assert child_calls[0].startswith("https://displayvideo.googleapis.com/v4/advertisers/77/lineItems?")
+
+    def test_an_advertiser_outside_the_partner_is_refused_before_any_child_request(self) -> None:
+        # `advertisers/{id}/...` is addressed by advertiser alone, so an ID belonging to another
+        # partner the credential can reach would otherwise be read despite the configured scope.
+        session = FakeSession(get_responses=[FakeResponse(json_body={"advertisers": [{"advertiserId": "77"}]})])
+
+        with pytest.raises(dv.DisplayVideo360CredentialsError, match="not under Display & Video 360 partner 1234"):
+            _rows("line_items", session, FakeResumeManager(), config=_service_account_config(advertiser_ids="77,99"))
+
+        assert [url for url in session.get_calls if "lineItems" in url] == []
 
     def test_resume_skips_completed_advertisers_and_reuses_the_page_token(self) -> None:
         session = FakeSession(
-            get_responses=[FakeResponse(json_body={"lineItems": [{"lineItemId": "c"}]})],
+            get_responses=[
+                FakeResponse(json_body={"advertisers": [{"advertiserId": "10"}, {"advertiserId": "20"}]}),
+                FakeResponse(json_body={"lineItems": [{"lineItemId": "c"}]}),
+            ],
         )
         manager = FakeResumeManager(DisplayVideo360ResumeConfig(advertiser_id="20", page_token="tok"))
 
         batches = _rows("line_items", session, manager, config=_service_account_config(advertiser_ids="10,20"))
 
-        assert len(session.get_calls) == 1
-        assert "/advertisers/20/lineItems" in session.get_calls[0]
-        assert "pageToken=tok" in session.get_calls[0]
+        child_calls = [url for url in session.get_calls if "lineItems" in url]
+        assert len(child_calls) == 1
+        assert "/advertisers/20/lineItems" in child_calls[0]
+        assert "pageToken=tok" in child_calls[0]
         assert batches == [[{"advertiserId": "20", "lineItemId": "c"}]]
 
     def test_resume_on_an_advertiser_that_disappeared_restarts_the_fan_out(self) -> None:
-        session = FakeSession(get_responses=[FakeResponse(json_body={"lineItems": [{"lineItemId": "a"}]})])
+        session = FakeSession(
+            get_responses=[
+                FakeResponse(json_body={"advertisers": [{"advertiserId": "10"}]}),
+                FakeResponse(json_body={"lineItems": [{"lineItemId": "a"}]}),
+            ]
+        )
         manager = FakeResumeManager(DisplayVideo360ResumeConfig(advertiser_id="99", page_token="stale"))
 
         _rows("line_items", session, manager, config=_service_account_config(advertiser_ids="10"))
 
-        assert "pageToken" not in session.get_calls[0]
+        assert "pageToken" not in [url for url in session.get_calls if "lineItems" in url][0]
 
     def test_incremental_cutoff_is_applied_to_every_advertiser(self) -> None:
         session = self._fan_out_session()
