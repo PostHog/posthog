@@ -384,6 +384,7 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).\n\n\* `any` - any\n\* `comment` - comment\n\* `task` - task"
         ),
+    page_size: zod.number().optional().describe('Number of results to return per page.'),
     scope: zod
         .string()
         .min(1)

@@ -1579,6 +1579,10 @@ export type CommentsListParams = {
      */
     kind?: CommentsListKind
     /**
+     * Number of results to return per page.
+     */
+    page_size?: number
+    /**
      * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.
      * @minLength 1
      */
