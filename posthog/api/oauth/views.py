@@ -32,6 +32,7 @@ from oauth2_provider.views import (
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauthlib.oauth2 import InvalidGrantError
+from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -43,9 +44,16 @@ from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
+    enqueue_cimd_refresh_if_stale,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
+)
+from posthog.api.oauth.client_assertion import (
+    ClientAssertionError,
+    expected_assertion_audiences,
+    resolve_client_assertion,
+    verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
@@ -101,6 +109,11 @@ CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
 # Sentinel for the per-request impersonator_id cache so None (no impersonator) is
 # distinguishable from "not resolved yet".
 _IMPERSONATOR_CACHE_UNSET: object = object()
+
+# Paths this endpoint answers on, so a private_key_jwt assertion minted for either the
+# issuer or the token_endpoint advertised in discovery is accepted (RFC 7523 section 3).
+# Both slash forms are listed because opt_slash_path serves the route with and without one.
+STANDARD_TOKEN_ENDPOINT_PATHS = ("/oauth/token/", "/oauth/token")
 
 
 def get_region_info() -> dict | None:
@@ -359,6 +372,60 @@ class OAuthValidator(OAuth2Validator):
 
         request.client = app
         return request.client
+
+    def authenticate_client(self, request, *args, **kwargs):
+        """Authenticate a confidential client, adding ``private_key_jwt`` (RFC 7523).
+
+        CIMD clients register as confidential with a ``jwks_uri`` and never receive a secret,
+        so the library's secret-based paths cannot authenticate them. A client presenting a
+        signed assertion is verified here against the keys it publishes; every other client
+        falls through to the library's HTTP Basic and request-body secret checks.
+        """
+        if self._authenticate_client_assertion(request):
+            return True
+        return super().authenticate_client(request, *args, **kwargs)
+
+    def _authenticate_client_assertion(self, request) -> bool:
+        assertion = resolve_client_assertion(
+            getattr(request, "client_assertion", None) or "",
+            getattr(request, "client_assertion_type", None) or "",
+            getattr(request, "client_id", None) or "",
+        )
+        if assertion is None:
+            return False
+
+        assertion_value, client_id = assertion
+        app = self._load_application(client_id, request)
+        if app is None or not app.uses_private_key_jwt_auth:
+            return False
+
+        if app.is_cimd_client and app.cimd_metadata_url:
+            # Token and refresh exchanges never pass through validate_client_id, which is
+            # where a CIMD document is normally re-read, so a client living on refresh
+            # grants alone would otherwise keep a stale auth method or key source forever.
+            # Best-effort: a broker outage must not fail an otherwise valid exchange.
+            try:
+                enqueue_cimd_refresh_if_stale(app.cimd_metadata_url)
+            except Exception as e:
+                logger.warning(
+                    "oauth_cimd_refresh_enqueue_error",
+                    client_id=client_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+
+        try:
+            verify_client_assertion(
+                app,
+                assertion_value,
+                audiences=expected_assertion_audiences(*STANDARD_TOKEN_ENDPOINT_PATHS),
+            )
+        except ClientAssertionError as e:
+            logger.warning("oauth_client_assertion_rejected", client_id=client_id, error=str(e))
+            return False
+
+        request.client = app
+        return True
 
     # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every
     # authorization must go through the interactive login + consent prompt — we never issue a
@@ -1393,6 +1460,17 @@ class OAuthTokenView(TokenView):
                 error=str(e),
             )
             return _temporarily_unavailable_response()
+        except RedisError as e:
+            # Client authentication reads Redis on the private_key_jwt path (JWKS cache, jti
+            # replay cache), so a transient Redis failure otherwise surfaces as an unhandled
+            # 500 instead of a retryable response.
+            logger.warning(
+                "oauth_token_redis_unavailable",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                error=str(e),
+            )
+            return _temporarily_unavailable_response()
 
         logger.info(
             "oauth_token_response",
@@ -1679,11 +1757,13 @@ class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
                 id_jag.JWT_BEARER_GRANT_TYPE,
             ],
             "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
-            # private_key_jwt is deliberately absent: it is implemented on the agentic token
-            # endpoint, not on the endpoint this document describes.
+            # Every method a client can register under (including CIMD's private_key_jwt) must
+            # appear here, or a client reads this document, picks a method we do not accept, and
+            # fails the token exchange.
             "token_endpoint_auth_methods_supported": [
                 TokenEndpointAuthMethod.NONE.value,
                 TokenEndpointAuthMethod.CLIENT_SECRET_POST.value,
+                TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value,
             ],
             "code_challenge_methods_supported": ["S256"],
             # Service documentation
