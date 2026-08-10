@@ -958,7 +958,9 @@ export function SavedInsightsEmptyState({
             </h2>
             {usingFilters ? (
                 <p className="empty-state__description">
-                    Refine your keyword search, or try using other filters such as type, last modified or created by.
+                    {searchString && searchString.length < 3
+                        ? 'Searches under 3 characters only match exact text. Add more characters to include similar results.'
+                        : 'Refine your keyword search, or try using other filters such as type, last modified or created by.'}
                 </p>
             ) : (
                 <p className="empty-state__description">{description}</p>

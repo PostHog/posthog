@@ -142,11 +142,11 @@ export function SavedInsightsTable({
                         filters={filters}
                         usingFilters={hasFilters}
                         onClearFilters={
-                            hasFilteredUI && hasNonSearchFilters
+                            hasNonSearchFilters
                                 ? () => setModalFilters({ insightType: 'All types', createdBy: 'All users', tags: [] })
                                 : undefined
                         }
-                        onClearSearch={hasFilteredUI ? () => setModalFilters({ search: '' }) : undefined}
+                        onClearSearch={() => setModalFilters({ search: '' })}
                     />
                 </>
             ) : (

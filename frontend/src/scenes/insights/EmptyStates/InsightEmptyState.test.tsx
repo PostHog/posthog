@@ -5,13 +5,14 @@ import '@testing-library/jest-dom'
 import { cleanup, render } from '@testing-library/react'
 import { isValidElement } from 'react'
 
+import { cleanFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
-import { InsightEmptyState, renderDetailWithLinks } from './EmptyStates'
+import { InsightEmptyState, SavedInsightsEmptyState, renderDetailWithLinks } from './EmptyStates'
 
 describe('EmptyStates', () => {
     describe('<InsightEmptyState />', () => {
@@ -76,6 +77,28 @@ describe('EmptyStates', () => {
 
             expect(!!container.querySelector('[data-attr="insight-sample-data-state"]')).toBe(expectSampleData)
             expect(!!container.querySelector('[data-attr="insight-empty-state"]')).toBe(!expectSampleData)
+        })
+    })
+
+    describe('<SavedInsightsEmptyState />', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it.each([
+            { name: 'a normal search', search: 'revenue', shortQueryCopy: false },
+            { name: 'a search under 3 characters', search: 'ab', shortQueryCopy: true },
+        ])('always offers a clear-search recovery button for $name', ({ search, shortQueryCopy }) => {
+            const { getByText, queryByText } = render(
+                <SavedInsightsEmptyState filters={cleanFilters({ search })} usingFilters onClearSearch={() => {}} />
+            )
+
+            // The recovery button is no longer gated behind a feature flag, so it must appear
+            // whenever a search returned nothing, and the short-query hint replaces the generic
+            // copy only for terms too short to form a trigram.
+            expect(getByText('Clear search')).toBeInTheDocument()
+            const shortQueryHint = queryByText(/under 3 characters only match exact text/i)
+            expect(!!shortQueryHint).toBe(shortQueryCopy)
         })
     })
 

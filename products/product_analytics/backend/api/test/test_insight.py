@@ -904,6 +904,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert derived.id in result_ids
         assert named.id not in result_ids
 
+    def test_list_filter_by_search_matches_query_event_names(self):
+        # An insight saved without a name shows a title the browser builds from its query, so a
+        # search for a word from an event in that query must find the row.
+        unnamed = Insight.objects.create(
+            name=None,
+            team=self.team,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "cta_click"}]},
+        )
+        other = Insight.objects.create(
+            name=None,
+            team=self.team,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=click")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert unnamed.id in result_ids
+        assert other.id not in result_ids
+
     def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
         name_match = Insight.objects.create(name="revenue", team=self.team, filters={"events": [{"id": "$pageview"}]})
         description_match = Insight.objects.create(

@@ -8,6 +8,7 @@ from typing import Any, Union, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models.fields.json import KeyTextTransform
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -81,6 +82,7 @@ from posthog.helpers.trigram_search import (
     TrigramSearchField,
     apply_trigram_search,
     drop_similar_when_exact_exists,
+    normalize_search_term,
 )
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -2008,12 +2010,20 @@ class InsightViewSet(
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        # An insight saved without a name shows a title the browser builds from its query
+        # (e.g. "cta_click count"), so the searched text and the on-screen text diverge. The
+        # query's event names live in the indexed `query_metadata` JSON, so match them too and
+        # a search for a word the user reads in the list finds the row.
+        queryset = queryset.annotate(_query_events=KeyTextTransform("events", "query_metadata"))
+        normalized_search = normalize_search_term(search)
+        extra_exact_q = Q(_query_events__icontains=normalized_search) if normalized_search else None
         return apply_trigram_search(
             queryset,
             search,
             span_prefix="insight.search",
             fields=(NAME_FIELD, TrigramSearchField("derived_name"), DESCRIPTION_FIELD),
             include_tag_search=True,
+            extra_exact_q=extra_exact_q,
             tiebreakers=("name",),
         )
 
