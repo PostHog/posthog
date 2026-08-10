@@ -108,15 +108,9 @@ const WORKSPACE_CONTEXT = {
 // runs against.
 test('a universal tripwire claims every known target', () => {
     const tripwireFiles = [
-        'pnpm-lock.yaml',
-        'uv.lock',
-        'rust/.sqlx/query-0a1b.json',
-        'tach.toml',
-        'proto/events.proto',
-        'frontend/src/queries/schema.json',
-        'posthog/schema.py',
         'bin/start',
-        '.test_durations',
+        // Read by pytest, jest, and playwright alike, so no one domain holds it.
+        '.test_quarantine.json',
         // Trees that steer what every suite runs or what it runs against: the
         // Depot copies of the workflows, the toolchain, the service configs the
         // stack mounts, and the markdownlint config every tree's prose obeys.
@@ -145,10 +139,54 @@ test('a change to the lane rules themselves stays universal', () => {
         '.github/scripts/trunk-lane-telemetry.js',
         '.github/scripts/turbo-discover.js',
         '.github/workflows/trunk-impacted-targets.yml',
-        'tach.toml',
         'turbo.json',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, file)
+    }
+})
+
+// tach.toml is read by the lane rules too, so it carries the same hazard, but
+// the only lanes its graph can move are python ones. Claiming them all still
+// overlaps any PR whose lanes were computed against the previous graph.
+test('the tach graph claims the python lanes rather than every lane', () => {
+    assert.deepEqual(computeTargets(['tach.toml'], CONTEXT), computeTargets(['mypy.ini'], CONTEXT))
+})
+
+// A pnpm resolution change can red the python suites, which run through
+// `pnpm turbo run backend:test`, but the PR's own CI run is what catches that.
+// The interaction a lane exists to prevent needs a second PR editing the same
+// lockfile, which git already stops as a textual conflict. The python side is
+// the mirror image, and neither workspace resolves against the other's files.
+// Only the root files narrow: a product's own manifests keep the product's lanes.
+test('a lockfile claims its own toolchain rather than every lane', () => {
+    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT), file)
+    }
+    for (const file of ['uv.lock', 'pyproject.toml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
+    }
+    assert.equal(computeTargets(['products/alpha/package.json'], CONTEXT).includes('py:product:alpha'), true)
+})
+
+// Every consumer of a proto commits the stubs generated from it, so the set is
+// enumerable rather than open-ended: tonic for the crates, and checked-in
+// personhog stubs for python and nodejs. The frontend and services lanes are
+// the ones this buys, and a new consumer tree has to fail here.
+test('a proto claims its three consumer toolchains rather than every lane', () => {
+    const targets = computeTargets(['proto/personhog/types/v1/person.proto'], CONTEXT)
+    for (const target of ['py:core', 'py:product:alpha', 'rust:crate:shared', 'node:ingestion']) {
+        assert.equal(targets.includes(target), true, target)
+    }
+    assert.equal(targets.includes('fe:core'), false)
+    assert.equal(targets.includes('svc:mcp'), false)
+
+    const generatedDirs = [
+        'posthog/personhog_client/proto/generated',
+        'nodejs/src/common/generated/personhog',
+        'rust/personhog-proto',
+    ]
+    for (const dir of generatedDirs) {
+        assert.equal(fs.existsSync(path.join(REPO_ROOT, dir)), true, `${dir} is the stub tree its lane stands for`)
     }
 })
 
@@ -278,7 +316,7 @@ test('the widest tripwire in a change set wins', () => {
     assert.equal(scoped.includes('py:product:alpha'), true)
     assert.equal(scoped.includes('fe:core'), false)
     // A universal one still swallows everything.
-    assert.deepEqual(computeTargets(['products/alpha/backend/api.py', 'pnpm-lock.yaml'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['products/alpha/backend/api.py', 'hogli.yaml'], CONTEXT), EVERYTHING)
 })
 
 // The single most dangerous failure mode: an unclaimed path yielding an empty
@@ -351,7 +389,7 @@ test('an incomplete context falls back to the ALL sentinel', () => {
 })
 
 test('tripwire domains are reported for telemetry', () => {
-    assert.equal(tripwireDomain('pnpm-lock.yaml'), UNIVERSAL)
+    assert.equal(tripwireDomain('hogli.yaml'), UNIVERSAL)
     assert.equal(tripwireDomain('.oxlintrc.json'), JAVASCRIPT)
     assert.equal(tripwireDomain('mypy.ini'), PYTHON)
     assert.equal(tripwireDomain('.github/workflows/ci-rust.yml'), RUST)
@@ -465,15 +503,16 @@ test('a crate that builds an npm package claims the lanes importing it', () => {
     assert.deepEqual(unrelated, ['rust:crate:unrelated'])
 })
 
-// The cargo lockfile and manifest resolve nothing outside the cargo workspace,
-// so the lanes they can break are the rust ones plus whatever reaches them
-// through a native module, rather than every lane in the repo.
-test('the cargo lockfile claims the rust lanes rather than every lane', () => {
+// The cargo lockfile, the manifest, and the sqlx offline data resolve nothing
+// outside the cargo workspace, so the lanes they can break are the rust ones
+// plus whatever reaches them through a native module, rather than every lane in
+// the repo.
+test('the cargo workspace tripwires claim the rust lanes rather than every lane', () => {
     const bindingContext = {
         ...CONTEXT,
         rustGraph: { ...CONTEXT.rustGraph, nativeBindings: new Set(['consumer']) },
     }
-    for (const file of ['rust/Cargo.lock', 'rust/Cargo.toml']) {
+    for (const file of ['rust/Cargo.lock', 'rust/Cargo.toml', 'rust/.sqlx/query-0a1b.json']) {
         const targets = computeTargets([file], bindingContext)
         assert.equal(isTripwire(file), true, `${file} should still be a tripwire`)
         assert.deepEqual(
@@ -492,10 +531,7 @@ test('the cargo lockfile claims the rust lanes rather than every lane', () => {
 // and the failure is silent in both directions: an edge the queue drops lets two
 // conflicting PRs merge in parallel.
 test('the runtime spawn edges match the determinator package rules', () => {
-    const rulesToml = fs.readFileSync(
-        path.join(REPO_ROOT, 'rust/affected-services/determinator-rules.toml'),
-        'utf8'
-    )
+    const rulesToml = fs.readFileSync(path.join(REPO_ROOT, 'rust/affected-services/determinator-rules.toml'), 'utf8')
     const names = (block, key) => {
         const match = block.match(new RegExp(`${key}\\s*=\\s*\\[([^\\]]*)\\]`))
         return match ? [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort() : []
@@ -1022,11 +1058,24 @@ test('CI-steering scripts directly under tools/ widen', () => {
     assert.deepEqual(computeTargets(['tools/snob_backend_test_selection_shadow.py'], CONTEXT), EVERYTHING)
 })
 
-// Both sit on the fe/py boundary: openapi-codegen generates the frontend types
-// from backend serializers, and owners is read by both suites.
+// Both are tripwires rather than falling through to the tools/ rule, which
+// would give them the python product lanes and nothing else. openapi-codegen
+// generates the frontend types from the backend serializers, so it claims both
+// sides of the fe/py split. tools/owners has only python readers, but
+// tools/pr-approval-agent is one of them, and that lane is not a product lane.
 test('cross-domain tools are tripwires rather than backend-only', () => {
-    assert.deepEqual(computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT), EVERYTHING)
-    assert.deepEqual(computeTargets(['tools/owners/owners/__init__.py'], CONTEXT), EVERYTHING)
+    assert.deepEqual(
+        computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT),
+        computeTargets(['frontend/src/products.json'], CONTEXT)
+    )
+    assert.deepEqual(
+        computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT),
+        computeTargets(['mypy.ini'], CONTEXT)
+    )
+    assert.equal(
+        computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT).includes('tools:pr-approval-agent'),
+        true
+    )
 })
 
 // Prose overlaps only other prose, and has to reach that lane through the

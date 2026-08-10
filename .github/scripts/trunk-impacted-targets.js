@@ -127,6 +127,12 @@ const RUST = 'rust'
 // those files can reach.
 const PRODUCT_SURFACE = 'product-surface'
 
+// The three proto trees, named for their consumers for the same reason. Every
+// consumer generates stubs from them, so the set is enumerable: tonic builds
+// the rust ones on `cargo build`, and the personhog stubs are checked in for
+// both python and nodejs.
+const PROTO = 'proto'
+
 // Resolved per file from the rule's own `languages:` declaration rather than
 // from its path, so it cannot be expressed as a static domain here.
 const SEMGREP = 'semgrep'
@@ -146,8 +152,15 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/trunk-lane-telemetry*.js', UNIVERSAL],
     ['.github/scripts/turbo-discover*.js', UNIVERSAL],
     ['.github/workflows/trunk-impacted-targets.yml', UNIVERSAL],
-    ['tach.toml', UNIVERSAL],
     ['turbo.json', UNIVERSAL],
+
+    // tach.toml is one of those graphs, so it carries the same self-gating
+    // hazard, but every edge it can move lands on a python lane: `tach check`
+    // runs in ci-backend.yml, and the two readers of the graph, this script and
+    // turbo-discover, use it only to cascade python product lanes. `python`
+    // claims all of them, so a PR editing the graph still overlaps every PR
+    // whose lanes were computed against the old one.
+    ['tach.toml', PYTHON],
 
     // A workflow decides which suites run, so one that defines a single
     // language's suite can be held to that language's lanes. Everything else
@@ -193,46 +206,47 @@ const TRIPWIRE_RULES = [
     ['pytest.ini', PYTHON],
     ['conftest.py', PYTHON],
 
-    // Lockfiles and workspace manifests stay universal. pnpm-workspace.yaml
-    // lists frontend, nodejs, services, tools, products, and three rust node
-    // bindings, and pyproject.toml roots every product package, so a resolution
-    // change in either really does reach almost every lane. The telemetry says
-    // the same: a lockfile was the widening reason for one PR, against 26 for
-    // the CI and lint rules split above.
-    ['pnpm-lock.yaml', UNIVERSAL],
-    ['pnpm-workspace.yaml', UNIVERSAL],
-    ['package.json', UNIVERSAL],
-    ['uv.lock', UNIVERSAL],
-    ['pyproject.toml', UNIVERSAL],
-    ['requirements.txt', UNIVERSAL],
-    ['requirements-dev.txt', UNIVERSAL],
-    // The cargo workspace's own lockfile and manifest are the exception in this
-    // group: nothing outside the workspace resolves against them. What kept
-    // them universal was the three crates that are also pnpm packages, and the
-    // `rust` domain now names the lanes consuming those, so the radius is
-    // covered without claiming every lane in the repo. The workspace's two pyo3
-    // crates do not extend the radius the same way: hogql_parser_rs and
-    // deltalite-python are published to PyPI by their own workflows and pinned
-    // by version in pyproject.toml, so the python suites install a released
-    // wheel rather than building either from this checkout. A resolution change
-    // reaches a python lane only through the version bump, and pyproject.toml
-    // and uv.lock are both universal above. ci-rust.yml already
-    // narrows a lockfile touch further, by diffing the resolved graph rather
-    // than rebuilding everything, which is a step this script cannot take
-    // without a cargo toolchain in the compute job.
+    // The pnpm workspace's lockfile and manifests. A resolution change here can
+    // red the python lanes, which install the root package and drive pytest
+    // through `pnpm turbo run backend:test`, but a lane is not what catches
+    // that: the ci-*.yml path filters decide what runs, so the break lands in
+    // the PR's own run. A lane only has to hold the interaction with a second
+    // PR, and the shape that reaches a python lane is lockfile drift against a
+    // workspace package.json, which needs both PRs to edit pnpm-lock.yaml and
+    // so surfaces as a textual conflict git forces a rebase for.
+    ['pnpm-lock.yaml', JAVASCRIPT],
+    ['pnpm-workspace.yaml', JAVASCRIPT],
+    ['package.json', JAVASCRIPT],
+    // The python lockfile and manifests, on the same reasoning. Every section
+    // of pyproject.toml configures a python tool, and nothing in the pnpm
+    // workspace or the cargo one resolves against either file: the two pyo3
+    // crates install from PyPI rather than from this checkout, which the
+    // uv.lock path-source test holds in place.
+    ['uv.lock', PYTHON],
+    ['pyproject.toml', PYTHON],
+    // The cargo workspace's own lockfile and manifest. What kept them universal
+    // was the three crates that are also pnpm packages, and the `rust` domain
+    // now names the lanes consuming those, so the radius is covered without
+    // claiming every lane in the repo. The workspace's two pyo3 crates do not
+    // extend the radius the same way: hogql_parser_rs and deltalite-python are
+    // published to PyPI by their own workflows and pinned by version in
+    // pyproject.toml, so the python suites install a released wheel rather than
+    // building either from this checkout. A resolution change reaches a python
+    // lane only through the version bump, which is a pyproject.toml and uv.lock
+    // edit claiming those lanes above. ci-rust.yml already narrows a lockfile
+    // touch further, by diffing the resolved graph rather than rebuilding
+    // everything, which is a step this script cannot take without a cargo
+    // toolchain in the compute job.
     ['rust/Cargo.lock', RUST],
     ['rust/Cargo.toml', RUST],
-    // Left universal deliberately. sqlx offline data is rust-only, but it moves
-    // a handful of times a year, too rarely to be worth the narrower rule.
-    ['rust/.sqlx/**', UNIVERSAL],
+    ['rust/.sqlx/**', RUST],
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
     ['Dockerfile*', UNIVERSAL],
-    ['proto/**', UNIVERSAL],
-    // schema.json generates posthog/schema.py, and both sides are committed.
-    ['frontend/src/queries/schema.json', UNIVERSAL],
-    ['posthog/schema.py', UNIVERSAL],
+    ['proto/**', PROTO],
+    ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
+    ['posthog/schema.py', PRODUCT_SURFACE],
     // A manifest publishes its product's urls, routes, and tree items into
     // globals any other product's frontend can reference, and build-products.mjs
     // compiles every manifest into products.json, which posthog/products.py
@@ -250,10 +264,18 @@ const TRIPWIRE_RULES = [
     ['products/*/manifest.tsx', PRODUCT_SURFACE],
     // Generates the frontend API types from the backend serializers, so a
     // change lands on both sides of the fe/py split at once.
-    ['tools/openapi-codegen/**', UNIVERSAL],
-    // Ownership data read by the backend, frontend, and script suites alike.
-    ['tools/owners/**', UNIVERSAL],
-    ['.test_durations', UNIVERSAL],
+    ['tools/openapi-codegen/**', PRODUCT_SURFACE],
+    // Ownership data, read only by python: the pr-approval-agent gates, the
+    // stamphog activities, and pytest through hogli. `python` names the
+    // tools/ lanes as well as the product ones, which is what the tree needs
+    // and what falling through to the tools/ rule below would not give it.
+    ['tools/owners/**', PYTHON],
+    // pytest-split timing data, and nothing else reads it.
+    ['.test_durations', PYTHON],
+    // Left universal: the quarantine list covers all three suites at once, and
+    // playwright.quarantine.ts and replay-shared's jest.config.js read it
+    // alongside pytest, so an entry for a flaky frontend test moves a
+    // frontend lane.
     ['.test_quarantine.json', UNIVERSAL],
     // bin/ appears in the backend, frontend, and E2E path filters alike.
     ['bin/**', UNIVERSAL],
@@ -1014,9 +1036,7 @@ function loadRustGraph(repoRoot) {
             }
             dependsOn.set(spawner, [...new Set([...dependsOn.get(spawner), ...spawned])])
         }
-        const nativeBindings = new Set(
-            crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name)
-        )
+        const nativeBindings = new Set(crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name))
         // Longest directory first so rust/common/hogvm resolves to its own crate
         // rather than to rust/common.
         const byDir = crates
@@ -1169,6 +1189,9 @@ function addJavaScriptLanes(targets, context) {
 // also claims the independent tools/ lanes. Those exist because the Python
 // toolchain spans tools/, and no tool in that list loads products.json or globs
 // the manifests.
+//
+// `query-schema` reaches the same set through different readers, so it shares
+// this function while keeping its own domain name for the telemetry.
 function addProductSurfaceLanes(targets, context) {
     targets.add('py:core')
     targets.add('fe:core')
@@ -1191,11 +1214,26 @@ function addRustLanes(targets, context) {
     return true
 }
 
+// proto/README.md's consumer table is the source for this set, and the stubs
+// themselves are the check on it: every consumer commits generated code, so a
+// tree that reads a proto without one would be reading nothing. The nodejs half
+// is narrower than addJavaScriptLanes because the stubs land only in
+// nodejs/src/common/generated; no frontend or services package imports them.
+function addProtoLanes(targets, context) {
+    if (!addRustLanes(targets, context)) {
+        return false
+    }
+    addPythonLanes(targets, context)
+    targets.add('node:ingestion')
+    return true
+}
+
 const TRIPWIRE_DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
     [RUST, addRustLanes],
     [PRODUCT_SURFACE, addProductSurfaceLanes],
+    [PROTO, addProtoLanes],
 ])
 
 // Returns false when the file's domain is universal, which is the caller's cue
