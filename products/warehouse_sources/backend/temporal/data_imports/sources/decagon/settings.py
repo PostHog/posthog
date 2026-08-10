@@ -71,6 +71,11 @@ class DecagonEndpointConfig:
     # Whether the table is selected by default on a new source. False for tables that
     # fan out row counts or sync data a team should opt into deliberately.
     should_sync_default: bool = True
+    # Batcher overrides for endpoints whose rows are large (whole documents), so the
+    # source-to-Arrow conversion does not materialize an oversized table. None keeps the
+    # pipeline defaults.
+    chunk_size: Optional[int] = None
+    chunk_size_bytes: Optional[int] = None
 
 
 # Decagon's per-endpoint contracts differ enough that everything rides this catalog: four
@@ -141,6 +146,38 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
         # field comment).
         sort_mode="desc",
         supports_append=True,
+    ),
+    # /article/all is the knowledge-base catalog Decagon's AI agent deflects with. It
+    # pages on page/page_size over a `total` count and exposes no server-side timestamp
+    # filter, so the table is full refresh only. `content` holds full article bodies,
+    # which is why the batcher chunks are capped and the table ships opt-in until row
+    # sizes are confirmed against a real knowledge base.
+    "articles": DecagonEndpointConfig(
+        name="articles",
+        path="/article/all",
+        data_key="articles",
+        primary_keys=["id"],
+        incremental_fields=[],
+        pagination="page",
+        page_size=100,
+        total_key="total",
+        partition_key="created_at",
+        should_sync_default=False,
+        chunk_size=500,
+        chunk_size_bytes=50 * 1024 * 1024,
+    ),
+    # /article/usage returns per-article usage in one unpaginated response. The spec
+    # elides the item schema behind {"usage": [...]}, so no primary key is claimed and
+    # the table syncs as a full-refresh snapshot. The timezone is pinned to UTC so the
+    # usage bucketing cannot silently shift with an account-level setting.
+    "article_usage": DecagonEndpointConfig(
+        name="article_usage",
+        path="/article/usage",
+        data_key="usage",
+        primary_keys=None,
+        incremental_fields=[],
+        pagination="single",
+        extra_params={"timezone": "UTC"},
     ),
 }
 
