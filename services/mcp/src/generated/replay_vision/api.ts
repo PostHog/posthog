@@ -492,6 +492,7 @@ export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -534,7 +535,9 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1016,6 +1019,7 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -1060,7 +1064,9 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1081,6 +1087,7 @@ export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.obje
 })
 
 export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -1123,7 +1130,9 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1143,6 +1152,7 @@ export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod
 })
 
 export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -1185,7 +1195,9 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
