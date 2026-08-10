@@ -37,8 +37,9 @@ export const requiredNativeModules = [
   "better-sqlite3",
 ];
 
-// file-icon is only used on macOS.
-export const macOnlyNativeModules = ["file-icon"];
+// file-icon is only used on macOS; koffi only reads the macOS window list for
+// the Mission Control overlay.
+export const macOnlyNativeModules = ["file-icon", "koffi"];
 
 // The subset that ships compiled .node binaries and must be unpacked from asar.
 const asarUnpackModules = [
@@ -48,6 +49,8 @@ const asarUnpackModules = [
   "better-sqlite3",
   "bindings",
   "file-uri-to-path",
+  "koffi",
+  "@koromix/koffi",
 ];
 
 // Modules Vite must not bundle (resolved from the staged node_modules at runtime).
@@ -56,12 +59,17 @@ export const buildExternals = [
   "@parcel/watcher",
   "file-icon",
   "better-sqlite3",
+  "koffi",
 ];
 
-// electron-builder ships the whole @parcel scope so the platform-specific
-// @parcel/watcher-<plat>-<arch> staged by before-pack is covered too.
-const scopeOf = (name: string) =>
-  name.startsWith("@parcel/") ? "@parcel" : name;
+// electron-builder ships the whole @parcel and @koromix scopes so the
+// platform-specific @parcel/watcher-<plat>-<arch> and @koromix/koffi-<plat>-<arch>
+// packages staged by before-pack are covered too.
+const scopeOf = (name: string) => {
+  if (name.startsWith("@parcel/")) return "@parcel";
+  if (name.startsWith("@koromix/")) return "@koromix";
+  return name;
+};
 
 export const packagedFileGlobs = [
   ...runtimeNativeModules,
@@ -101,4 +109,20 @@ export function watcherPackageFor(
       : "@parcel/watcher-linux-x64-glibc";
   }
   return null;
+}
+
+/**
+ * koffi's prebuilt binary for the target arch. It lives in an optional
+ * per-platform package that koffi's loader requires by name, so the packaged app
+ * needs the matching one staged beside it. macOS only — the FFI exists solely to
+ * read the macOS window list.
+ */
+export function koffiPackageFor(
+  platformName: string,
+  arch: number,
+): string | null {
+  if (platformName !== "mac") return null;
+  return arch === ARCH_X64
+    ? "@koromix/koffi-darwin-x64"
+    : "@koromix/koffi-darwin-arm64";
 }

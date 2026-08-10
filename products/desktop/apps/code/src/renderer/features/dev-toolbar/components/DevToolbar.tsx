@@ -33,6 +33,7 @@ import { Box, Flex, Switch, Text, Tooltip } from "@radix-ui/themes";
 import { trpcClient, useTRPC } from "@renderer/trpc/client";
 import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
+import { logger } from "@utils/logger";
 import {
   Activity,
   AlertTriangle,
@@ -43,6 +44,7 @@ import {
   FileText,
   FolderOpen,
   Globe,
+  LayoutGrid,
   MemoryStick,
   Moon,
   Power,
@@ -70,6 +72,8 @@ import { IpcTimingsPanel } from "./IpcTimingsPanel";
 import { LogsPanel } from "./LogsPanel";
 import { MemoryPanel } from "./MemoryPanel";
 import { NetworkPanel } from "./NetworkPanel";
+
+const log = logger.scope("dev-toolbar");
 
 type DetailPanel =
   | "cpu"
@@ -813,6 +817,22 @@ function QuickActionsMenu() {
   const offline = sim?.offline ?? false;
   const slowMs = sim?.slowDelayMs ?? 0;
 
+  const [missionControlForced, setMissionControlForced] = useState(false);
+  const toggleMissionControlOverlay = () => {
+    const next = !missionControlForced;
+    setMissionControlForced(next);
+    void trpcClient.dev.setForceMissionControlOverlay.mutate({ enabled: next });
+  };
+
+  // Logged rather than rendered: this is raw undocumented window geometry read
+  // to confirm the detection heuristic still holds, and it wants copy-pasting
+  // into a test fixture, not a menu.
+  const dumpDockWindows = () => {
+    void trpcClient.dev.dumpDockWindows
+      .query()
+      .then((dump) => log.info("Dock windows", dump));
+  };
+
   const setOffline = (next: boolean) =>
     void trpcClient.dev.setNetworkSim.mutate({ offline: next });
   const setSlow = (ms: number) =>
@@ -926,6 +946,23 @@ function QuickActionsMenu() {
           <DropdownMenuItem variant="destructive" onClick={triggerErrorToast}>
             <AlertTriangle size={12} className="mr-2" />
             Trigger error toast
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Mission Control</DropdownMenuLabel>
+          <DropdownMenuItem onClick={toggleMissionControlOverlay}>
+            <LayoutGrid
+              size={12}
+              className={`mr-2 ${
+                missionControlForced ? "text-(--accent-11)" : "text-(--gray-9)"
+              }`}
+            />
+            {missionControlForced ? "Hide overlay" : "Force overlay on"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={dumpDockWindows}>
+            <ScrollText size={12} className="mr-2 text-(--gray-9)" />
+            Log Dock windows
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

@@ -5,6 +5,7 @@ import {
   DEV_LOGS_SERVICE,
   DEV_METRICS_SERVICE,
   DEV_NETWORK_SERVICE,
+  MISSION_CONTROL_SERVICE,
 } from "@main/di/tokens";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { AGENT_SERVICE } from "@posthog/workspace-server/services/agent/identifiers";
@@ -43,6 +44,11 @@ import {
   networkSnapshotSchema,
 } from "../../services/dev-network/schemas";
 import type { DevNetworkService } from "../../services/dev-network/service";
+import {
+  dockWindowDumpSchema,
+  missionControlStateSchema,
+} from "../../services/mission-control/schemas";
+import type { MissionControlService } from "../../services/mission-control/service";
 import { middleware, publicProcedure, router } from "../trpc";
 
 const getFlagsService = () => container.get<DevFlagsService>(DEV_FLAGS_SERVICE);
@@ -54,6 +60,8 @@ const getLogsService = () => container.get<DevLogsService>(DEV_LOGS_SERVICE);
 const getActionsService = () =>
   container.get<DevActionsService>(DEV_ACTIONS_SERVICE);
 const getAgentService = () => container.get<AgentService>(AGENT_SERVICE);
+const getMissionControlService = () =>
+  container.get<MissionControlService>(MISSION_CONTROL_SERVICE);
 
 // Server-side gate: the toolbar UI only renders when devMode is on, but that
 // does not protect the IPC layer. Any renderer-side code with access to the
@@ -173,6 +181,21 @@ export const devRouter = router({
     .mutation(({ input }) =>
       getActionsService().triggerToast(input.variant, input.message),
     ),
+
+  // Mission Control detection can't be driven from a test, and only exists on
+  // macOS, so these two are how the feature gets verified by hand: one pins the
+  // overlay on to review the visuals, the other dumps the Dock windows the
+  // detection heuristic reads.
+  setForceMissionControlOverlay: devProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .output(missionControlStateSchema)
+    .mutation(({ input }) =>
+      getMissionControlService().setForced(input.enabled),
+    ),
+
+  dumpDockWindows: devProcedure
+    .output(dockWindowDumpSchema)
+    .query(() => getMissionControlService().debugDump()),
 
   onFlagsChanged: publicProcedure.subscription(async function* (opts) {
     const service = getFlagsService();

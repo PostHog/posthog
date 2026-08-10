@@ -36,6 +36,9 @@ catalog:
     typescript: ^5.5.0
 
 ignoredBuiltDependencies:
+    # koffi's install script compiles a binary we never use — the prebuilt
+    # @koromix/koffi-<plat>-<arch> optional package is what its loader picks up.
+    - koffi
     - msw
     - protobufjs
 

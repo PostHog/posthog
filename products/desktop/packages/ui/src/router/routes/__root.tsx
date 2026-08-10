@@ -47,6 +47,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
+import { MissionControlOverlay } from "@posthog/ui/features/mission-control/MissionControlOverlay";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
 import {
@@ -534,6 +535,7 @@ function RootLayout() {
           onNewTask={openTaskInput}
         />
         <TourOverlay />
+        <MissionControlOverlay />
         {billingEnabled && <UsageLimitModal />}
         <AnnouncementsHost />
         <UpdateAvailableModal />

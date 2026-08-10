@@ -264,6 +264,7 @@ import type { DevMetricsService } from "../services/dev-metrics/service";
 import type { DevNetworkService } from "../services/dev-network/service";
 import type { DiscordPresenceService } from "../services/discord-presence/service";
 import type { EncryptionService } from "../services/encryption/service";
+import type { MissionControlService } from "../services/mission-control/service";
 import type { SecureStoreService } from "../services/secure-store/service";
 import type { settingsStore } from "../services/settingsStore";
 import type { WorkspaceServerService } from "../services/workspace-server/service";
@@ -296,6 +297,7 @@ import type {
   LLM_GATEWAY_SERVICE as MAIN_LLM_GATEWAY_SERVICE,
   LOOP_LINK_SERVICE as MAIN_LOOP_LINK_SERVICE,
   MCP_APPS_SERVICE as MAIN_MCP_APPS_SERVICE,
+  MISSION_CONTROL_SERVICE as MAIN_MISSION_CONTROL_SERVICE,
   NEW_TASK_LINK_SERVICE as MAIN_NEW_TASK_LINK_SERVICE,
   OPEN_TARGET_LINK_SERVICE as MAIN_OPEN_TARGET_LINK_SERVICE,
   POSTHOG_PLUGIN_SERVICE as MAIN_POSTHOG_PLUGIN_SERVICE,
@@ -490,6 +492,7 @@ export interface MainBindings {
   [LOGS_SERVICE]: ILogsService;
   [MAIN_ENCRYPTION_SERVICE]: EncryptionService;
   [MAIN_DISCORD_PRESENCE_SERVICE]: DiscordPresenceService;
+  [MAIN_MISSION_CONTROL_SERVICE]: MissionControlService;
 
   // Dev toolbar diagnostics
   [MAIN_DEV_FLAGS_SERVICE]: DevFlagsService;

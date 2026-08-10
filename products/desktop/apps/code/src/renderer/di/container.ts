@@ -127,6 +127,10 @@ import {
   MCP_APP_HOST_COMPONENT,
   MCP_SANDBOX_PROXY_URL,
 } from "@posthog/ui/features/mcp-apps/identifiers";
+import {
+  MISSION_CONTROL_CLIENT,
+  type MissionControlClient,
+} from "@posthog/ui/features/mission-control/identifiers";
 import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import {
@@ -243,6 +247,18 @@ const discordPresenceClient: DiscordPresenceClient = {
   },
 };
 container.bind(DISCORD_PRESENCE_CLIENT).toConstantValue(discordPresenceClient);
+
+// mission control overlay — passthrough over the local main-process router
+const missionControlClient: MissionControlClient = {
+  getState: () => trpcClient.missionControl.getState.query(),
+  onStateChanged: (onData) => {
+    const sub = trpcClient.missionControl.onStateChanged.subscribe(undefined, {
+      onData,
+    });
+    return () => sub.unsubscribe();
+  },
+};
+container.bind(MISSION_CONTROL_CLIENT).toConstantValue(missionControlClient);
 
 // terminal shell client
 const shellClient: ShellClient = {
