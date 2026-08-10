@@ -164,7 +164,13 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
 
             <div className="flex flex-col gap-4 flex-1">
                 <WarehouseWizardHint />
-                <LemonInput type="search" placeholder="Search sources..." value={search} onChange={setSearch} />
+                <LemonInput
+                    type="search"
+                    placeholder="Search sources..."
+                    value={search}
+                    onChange={setSearch}
+                    autoFocus
+                />
 
                 {filteredItems.length === 0 &&
                     (hasCrossCategoryMatches ? (
