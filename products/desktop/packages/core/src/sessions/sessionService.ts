@@ -7576,7 +7576,9 @@ export class SessionService {
     runId: string,
   ): Promise<TaskRunArtifact[]> {
     const authStatus = await this.getAuthCredentialsStatus();
-    if (authStatus.kind !== "ready") return [];
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
 
     return this.getCloudAttachmentManifest(
       authStatus.auth.client,

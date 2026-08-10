@@ -130,14 +130,8 @@ export function CloudArtifactDownloads({
     refetchInterval: isLive ? 120_000 : false,
   });
 
-  const taskArtifacts = task?.latest_run?.artifacts;
-  const artifactManifest = fetchedArtifacts?.length
-    ? fetchedArtifacts
-    : sessionArtifacts?.length
-      ? sessionArtifacts
-      : taskArtifacts?.length
-        ? taskArtifacts
-        : (fetchedArtifacts ?? sessionArtifacts ?? taskArtifacts);
+  const artifactManifest =
+    fetchedArtifacts ?? sessionArtifacts ?? task?.latest_run?.artifacts;
   const groups = useMemo(
     () =>
       groupRunArtifactVersions(

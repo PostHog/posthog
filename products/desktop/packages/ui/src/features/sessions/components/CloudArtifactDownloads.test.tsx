@@ -579,11 +579,11 @@ describe("CloudArtifactDownloads", () => {
     fireEvent.click(trigger);
   });
 
-  it("stays collapsed through an empty refresh when the session retains the files", () => {
+  it("treats a successful empty refresh as authoritative", () => {
     const { rerender } = renderDownloads();
 
     fireEvent.click(screen.getByRole("button", { name: "Files (1)" }));
-    session.cloudArtifacts = fetchedArtifacts;
+    const artifacts = fetchedArtifacts;
     fetchedArtifacts = [];
     rerender(
       <Theme>
@@ -591,9 +591,19 @@ describe("CloudArtifactDownloads", () => {
       </Theme>,
     );
 
-    const trigger = screen.getByRole("button", { name: "Files (1)" });
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(trigger);
+    expect(screen.queryByRole("button", { name: "Files (1)" })).toBeNull();
+
+    fetchedArtifacts = artifacts;
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: "Files (1)" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("remembers collapse state per task", () => {
