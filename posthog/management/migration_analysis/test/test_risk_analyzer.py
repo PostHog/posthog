@@ -1967,6 +1967,7 @@ class TestAtomicFalsePolicy:
     @parameterized.expand(
         [
             "CreateIndexConcurrently",
+            "CreateIndexConcurrentlyPlainReverse",
             "DropIndexConcurrently",
             "SafeAddIndexConcurrently",
             "SafeRemoveIndexConcurrently",
