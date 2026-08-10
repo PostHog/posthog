@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from email.utils import parseaddr
 from typing import Any
 
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 
 import requests
@@ -261,6 +262,61 @@ def _mark_cancelled(team: Team, event: dict, counts: CalendarSyncCounts) -> None
         .update(status=MeetingStatus.CANCELLED)
     )
     counts.cancelled += updated
+
+
+def rematch_account_meetings(team_id: int, account_id: str) -> int:
+    account = Account.objects.for_team(team_id).select_related("team").filter(id=account_id).first()
+    if account is None:
+        return 0
+
+    known_emails = set(account.properties.known_emails)
+    email_domains = {domain.removeprefix("@").lower() for domain in account.properties.email_domains if domain}
+    if not known_emails and not email_domains:
+        return 0
+
+    participant_filter = Q(email__in=known_emails)
+    for domain in email_domains:
+        participant_filter |= Q(email__iendswith=f"@{domain}")
+
+    candidate_meeting_ids = list(
+        MeetingParticipant.objects.for_team(team_id)
+        .filter(participant_filter, meeting__account__isnull=True)
+        .values_list("meeting_id", flat=True)
+        .distinct()
+    )
+    if not candidate_meeting_ids:
+        return 0
+
+    meetings = list(
+        Meeting.objects.for_team(team_id)
+        .filter(id__in=candidate_meeting_ids, account__isnull=True)
+        .prefetch_related(
+            Prefetch(
+                "participants",
+                queryset=MeetingParticipant.objects.for_team(team_id).order_by("created_at", "id"),
+            )
+        )
+    )
+    emails = sorted({participant.email for meeting in meetings for participant in meeting.participants.all()})
+    accounts_by_email = _match_accounts_for_emails(account.team, emails)
+
+    meeting_ids_to_attach = []
+    for meeting in meetings:
+        matched_account_ids = {
+            matched_account.id
+            for participant in meeting.participants.all()
+            if (matched_account := accounts_by_email.get(participant.email)) is not None
+        }
+        if matched_account_ids == {account.id}:
+            meeting_ids_to_attach.append(meeting.id)
+
+    if not meeting_ids_to_attach:
+        return 0
+    return (
+        Meeting.objects.for_team(team_id)
+        .filter(id__in=meeting_ids_to_attach, account__isnull=True)
+        .update(account=account)
+    )
 
 
 def _match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Account]:
