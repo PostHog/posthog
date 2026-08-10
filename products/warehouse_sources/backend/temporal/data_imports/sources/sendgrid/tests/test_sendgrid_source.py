@@ -182,10 +182,11 @@ class TestSendGridSource:
         with patch(f"{_TRANSPORT_MODULE}.get_endpoint_status_code", side_effect=status_for):
             permissions = SendGridSource().get_endpoint_permissions(_config(), team_id=1, endpoints=list(ALL_ENDPOINTS))
 
-        assert permissions[gated_endpoint] is not None
-        assert scope in permissions[gated_endpoint]
+        gated_reason = permissions[gated_endpoint]
+        assert gated_reason is not None
+        assert scope in gated_reason
         assert {name: reason for name, reason in permissions.items() if reason is not None} == {
-            gated_endpoint: permissions[gated_endpoint]
+            gated_endpoint: gated_reason
         }
 
     @pytest.mark.parametrize("name", sorted(ALL_ENDPOINTS))
