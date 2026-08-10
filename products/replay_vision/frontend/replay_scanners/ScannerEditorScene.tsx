@@ -107,7 +107,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         return <NotFound object="page" />
     }
 
-    if (step !== 'template' && (scannerLoading || !scanner)) {
+    // A new scanner has form defaults from the start, so its form renders right away instead of
+    // flashing this placeholder. Only an existing scanner has to wait for the fetch.
+    if (step !== 'template' && !isNew && (scannerLoading || !scanner)) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />

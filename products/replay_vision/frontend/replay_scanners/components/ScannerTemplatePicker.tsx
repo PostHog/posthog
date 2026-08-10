@@ -33,26 +33,14 @@ const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
 function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
     const isBlank = template === 'blank'
     const { searchParams } = useValues(router)
-    const { scannerDraftSavedAt } = useValues(replayScannerLogic({ id: 'new' }))
 
-    const start = (): void => {
+    // Picking a template always navigates. Any draft in progress stays reachable through the
+    // resume banner above the grid, so a confirm dialog here only blocks the click.
+    const handleClick = (): void => {
         const templateKey = isBlank ? null : template.key
         replayScannerLogic({ id: 'new' }).actions.startFromTemplate(templateKey)
         const params = isBlank ? searchParams : { ...searchParams, template: template.key }
         router.actions.push(combineUrl(urls.replayVisionScannerConfigure('new'), params).url)
-    }
-
-    const handleClick = (): void => {
-        if (scannerDraftSavedAt === null) {
-            start()
-            return
-        }
-        LemonDialog.open({
-            title: 'Start over and lose your draft?',
-            description: 'The scanner you have in progress will be replaced by this template.',
-            primaryButton: { children: 'Start over', status: 'danger', onClick: start },
-            secondaryButton: { children: 'Keep my draft' },
-        })
     }
 
     return (
