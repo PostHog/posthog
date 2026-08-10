@@ -30,6 +30,17 @@ from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
+def _make_factory(team) -> MarketingSourceFactory:
+    date_range = QueryDateRange(
+        date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+        team=team,
+        interval=None,
+        now=datetime.now(),
+    )
+    context = QueryContext(date_range=date_range, team=team, base_currency=DEFAULT_CURRENCY)
+    return MarketingSourceFactory(context=context)
+
+
 class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):
     """Test suite for MarketingSourceFactory custom source mapping functionality"""
 
@@ -179,16 +190,6 @@ class TestMetaAdsConfigDiscovery(BaseTest):
         table.name = f"metaads_{schema_name}"
         return cast(DataWarehouseTable, table)
 
-    def _make_factory(self) -> MarketingSourceFactory:
-        date_range = QueryDateRange(
-            date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-        context = QueryContext(date_range=date_range, team=self.team, base_currency=DEFAULT_CURRENCY)
-        return MarketingSourceFactory(context=context)
-
     def _make_source(self) -> Mock:
         source = Mock()
         source.id = "meta_source_id"
@@ -211,7 +212,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
     def test_meta_only_campaign_tables_yields_config_with_no_optional_tables(self):
         """Bare-minimum sync (campaigns + campaign_stats) → adapter loads but
         cannot serve AD_GROUP / AD."""
-        factory = self._make_factory()
+        factory = _make_factory(self.team)
         tables = [self._make_table("campaigns"), self._make_table("campaign_stats")]
 
         config = self._create_meta_config(factory, tables)
@@ -227,7 +228,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
     def test_meta_with_full_hierarchy_yields_all_six_tables(self):
         """All Meta resources synced → all six slots populated → adapter supports
         every drill-down level."""
-        factory = self._make_factory()
+        factory = _make_factory(self.team)
         tables = [
             self._make_table("campaigns"),
             self._make_table("campaign_stats"),
@@ -247,7 +248,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
 
     def test_meta_with_only_adset_tables_supports_ad_group_but_not_ad(self):
         """Partial hierarchy (adsets but no ads) → AD_GROUP works, AD doesn't."""
-        factory = self._make_factory()
+        factory = _make_factory(self.team)
         tables = [
             self._make_table("campaigns"),
             self._make_table("campaign_stats"),
@@ -265,7 +266,7 @@ class TestMetaAdsConfigDiscovery(BaseTest):
 
     def test_meta_without_required_campaign_tables_returns_none(self):
         """Missing campaigns or campaign_stats → adapter can't load at all."""
-        factory = self._make_factory()
+        factory = _make_factory(self.team)
         tables_no_stats = [self._make_table("campaigns")]
         assert self._create_meta_config(factory, tables_no_stats) is None
 
@@ -404,16 +405,6 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         table.name = f"{prefix}_{schema_name}"
         return cast(DataWarehouseTable, table)
 
-    def _make_factory(self) -> MarketingSourceFactory:
-        date_range = QueryDateRange(
-            date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-        context = QueryContext(date_range=date_range, team=self.team, base_currency=DEFAULT_CURRENCY)
-        return MarketingSourceFactory(context=context)
-
     def _make_source(self, source_type: str) -> Mock:
         source = Mock()
         source.id = f"{source_type}_source_id"
@@ -439,7 +430,7 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         just non-None, so a regression that broke the `if adset_unified: ...` wiring
         would surface here.
         """
-        factory = self._make_factory()
+        factory = _make_factory(self.team)
         # Deduplicate by schema: in production each schema is one DataWarehouseTable,
         # and unified-mode sources reuse the same table for both entity and stats slots.
         unique_schemas = list(
@@ -473,7 +464,7 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
         prefix: str,
         schemas: dict[str, str],
     ):
-        factory = self._make_factory()
+        factory = _make_factory(self.team)
         unique_schemas = list(dict.fromkeys(schemas[k] for k in ("campaign", "stats", "adset", "adset_stats")))
         tables = [self._make_table(prefix, schema) for schema in unique_schemas]
 
@@ -491,20 +482,24 @@ class TestNativeHierarchicalConfigDiscovery(BaseTest):
 
 
 class TestNativeCampaignTableResolution(BaseTest):
-    def _make_table(self, schema_name: str) -> DataWarehouseTable:
+    def _make_table(self, schema_name: str, prefix: str = "") -> DataWarehouseTable:
+        """Build a DataWarehouseTable mock named the way `build_table_name` names them:
+        `{user_prefix}{source_type}_{schema_name}`, lowercased.
+        """
         table = Mock()
-        table.name = f"googleads.{schema_name}"
+        table.name = f"{prefix}googleads_{schema_name}"
         return cast(DataWarehouseTable, table)
 
-    def _make_factory(self) -> MarketingSourceFactory:
-        date_range = QueryDateRange(
-            date_range=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
+    def _create_config(self, tables: list[DataWarehouseTable]) -> GoogleAdsConfig | None:
+        source = Mock()
+        source.id = "googleads_source_id"
+        source.source_type = "GoogleAds"
+        return cast(
+            GoogleAdsConfig | None,
+            _make_factory(self.team)._create_native_config(
+                source, tables, NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig
+            ),
         )
-        context = QueryContext(date_range=date_range, team=self.team, base_currency=DEFAULT_CURRENCY)
-        return MarketingSourceFactory(context=context)
 
     @parameterized.expand([("budget_last", False), ("budget_first", True)])
     def test_campaign_budget_never_wins_the_campaign_slot(self, _name: str, reverse: bool):
@@ -518,15 +513,30 @@ class TestNativeCampaignTableResolution(BaseTest):
         budget = self._make_table("campaign_budget")
         tables = [campaign, stats, budget]
 
-        source = Mock()
-        source.id = "googleads_source_id"
-        source.source_type = "GoogleAds"
-        config = self._make_factory()._create_native_config(
-            source,
-            list(reversed(tables)) if reverse else tables,
-            NativeMarketingSource.GOOGLE_ADS,
-            GoogleAdsConfig,
-        )
+        config = self._create_config(list(reversed(tables)) if reverse else tables)
+
+        assert config is not None
+        assert config.campaign_table is campaign
+        assert config.stats_table is stats
+
+    def test_campaign_budget_without_campaign_yields_no_config(self):
+        """The state already-affected projects are in: `campaign_budget` synced, `campaign`
+        not. Nothing can serve the campaign slot, so the source must be dropped rather
+        than wired up to a table that will fail to resolve at query time.
+        """
+        tables = [self._make_table("campaign_budget"), self._make_table("campaign_overview_stats")]
+
+        assert self._create_config(tables) is None
+
+    @parameterized.expand([("plain", "analytics_"), ("prefix_repeats_source_type", "googleads_")])
+    def test_user_prefix_is_stripped_before_matching(self, _name: str, prefix: str):
+        """The source prefix is free text, so it can repeat the source type. Exact matching
+        only works if the schema name survives prefix stripping in both cases.
+        """
+        campaign = self._make_table("campaign", prefix=prefix)
+        stats = self._make_table("campaign_overview_stats", prefix=prefix)
+
+        config = self._create_config([campaign, stats])
 
         assert config is not None
         assert config.campaign_table is campaign
