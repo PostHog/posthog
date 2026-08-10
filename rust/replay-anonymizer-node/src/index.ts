@@ -27,6 +27,18 @@ export interface AnonymizeImageEntry {
     len: number
 }
 
+/** One collected remote image URL, ready for the fetch lane. */
+export interface AnonymizeUrlEntry {
+    /** First 22 base64url chars of `HMAC-SHA256(urlKey, dedupUrl)`, where the dedup URL is the
+     *  canonical URL minus its volatile parameters. The ref in the mirrored line ends with this. */
+    hash: string
+    /** The canonical URL with every parameter intact — what the fetcher requests. A signed URL only
+     *  works in this form, which is why it is not the value the hash was taken over. */
+    url: string
+    /** The host, which the fetch topic uses as its Kafka key so one host lands on one partition. */
+    host: string
+}
+
 /** Envelope + per-event metadata parsed from {@link AnonymizeKafkaPayloadResult.meta}. */
 export interface AnonymizeMeta {
     distinctId: string
@@ -46,6 +58,8 @@ export interface AnonymizeMeta {
     events: AnonymizeEventMeta[]
     /** Collected original images (hash-sorted); present only when the collection lane was enabled and images were collected. */
     images?: AnonymizeImageEntry[]
+    /** Collected remote image URLs (hash-sorted); present only when the URL lane was enabled and URLs were collected. */
+    urls?: AnonymizeUrlEntry[]
 }
 
 /**
@@ -117,18 +131,25 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * with `image:<pseudoTeam>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
  * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
  * the scrub topic. Passing one without the other throws.
+ *
+ * `urlKey` enables the URL-collection lane alongside it: a remote image's `src` is replaced with a
+ * ref of the same shape, and its original URL comes back in `meta.urls` for the caller to hand to
+ * the fetch lane. It needs `pseudoTeam` too, since the ref embeds it, and throws without one. The
+ * two lanes are independent: either, both, or neither.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
     pseudoTeam?: string | null,
-    contentKey?: string | null
+    contentKey?: string | null,
+    urlKey?: string | null
 ): Promise<AnonymizeKafkaPayloadResult> {
     const result = await native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
         pseudoTeam ?? undefined,
-        contentKey ?? undefined
+        contentKey ?? undefined,
+        urlKey ?? undefined
     )
     // Timings are best-effort telemetry: a malformed timings blob must never fail the message.
     let timings: AnonymizeTimings | null = null
