@@ -191,6 +191,7 @@ export enum Scene {
     VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
+    WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
