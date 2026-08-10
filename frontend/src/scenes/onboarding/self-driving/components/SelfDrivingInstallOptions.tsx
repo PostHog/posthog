@@ -54,7 +54,7 @@ const WIZARD_SETS_UP = [
 // being left to the experiment flag.
 export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
-    const { reportSelfDrivingOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
+    const { reportOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     // Once the CLI registers a run, the command block and its caption give way to the tracker -
     // the command has been run, so repeating it is noise.
     const isRunActive = useLocalWizardRunActive(SELF_DRIVING_WORKFLOW_ID)
@@ -84,7 +84,7 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
                 hideHog
                 offerCloudRun={false}
                 onQueued={onContinue}
-                onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
+                onModeSelected={reportOnboardingInstallModeSelected}
                 localBlock={
                     <div className="flex flex-col gap-2">
                         {isRunActive ? (

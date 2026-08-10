@@ -5,7 +5,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { ONBOARDING_USE_CASES } from '../../shared/useCases'
-import { productEnablementStepLogic } from '../productEnablementStepLogic'
 import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
 
 /**
@@ -14,7 +13,6 @@ import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
  */
 export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }): JSX.Element {
     const { selectUseCase } = useActions(useCaseSelectionLogic)
-    const { configureUseCase } = useActions(productEnablementStepLogic)
 
     return (
         <div className="flex flex-col gap-4 py-1">
@@ -28,7 +26,6 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
                             type="button"
                             onClick={() => {
                                 selectUseCase(useCase.key)
-                                configureUseCase(useCase.key)
                                 onContinue()
                             }}
                             className="OnboardingProductCard group flex items-center gap-4 p-4 rounded-lg border text-left cursor-pointer transition-all hover:shadow-sm"
@@ -58,7 +55,6 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
                     type="tertiary"
                     size="small"
                     onClick={() => {
-                        configureUseCase(null)
                         onSkip()
                     }}
                 >

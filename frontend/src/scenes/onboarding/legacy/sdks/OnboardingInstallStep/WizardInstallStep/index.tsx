@@ -24,10 +24,10 @@ import { WizardInstallIntro } from './WizardInstallIntro'
 // active cloud run renders inside it (WizardCloudRunBlock pins to the run's progress), so the
 // failed-run "Run it yourself" fallback keeps working — the mode state must not unmount mid-recovery.
 function LegacyInstallOptions(): JSX.Element {
-    const { reportSelfDrivingOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
+    const { reportOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     return (
         <WizardInstallOptions
-            onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
+            onModeSelected={reportOnboardingInstallModeSelected}
             localBlock={<WizardCommandBlock />}
         />
     )

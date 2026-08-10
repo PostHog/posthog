@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -8,14 +8,18 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
+import {
+    onboardingEventUsageLogic,
+    SELF_DRIVING_ONBOARDING_EVENT_PROPS,
+    type SelfDrivingOnboardingStepId,
+} from '../onboardingEventUsageLogic'
 import { resolveSetup } from '../shared/useCases'
 import type { OnboardingExtraStepId, OnboardingUseCaseKey } from '../shared/useCases'
 import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
 import { InstallationTrackerGate } from './components/InstallationTracker'
 import { onboardingLogic } from './onboardingLogic'
-import { productEnablementStepLogic } from './productEnablementStepLogic'
 import { RoughMark } from './RoughMark'
 import { AIObservabilityStep } from './steps/AIObservabilityStep'
 import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
@@ -84,8 +88,7 @@ function buildSteps(useCase: OnboardingUseCaseKey | null): StepDef[] {
             hideContinue: true,
             maxWidth: 'max-w-2xl',
         },
-        // The use case's tool collection, already turned on by the card click - shown before
-        // install so the user knows what they're getting before the ten-minute wizard run.
+        // The use case's tool collection is shown before install so the user knows what they are getting.
         {
             id: 'tools',
             title: 'Your tools',
@@ -114,9 +117,6 @@ const CARD_CLASSES =
     'relative w-full flex flex-col gap-5 overflow-hidden p-0 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-[#f6f5f0] sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(30_50_10_/_25%)] sm:border sm:border-primary'
 
 export function SelfDrivingOnboardingFlow(): JSX.Element {
-    // Mounted for the whole flow so the goal step's fire-and-forget auto-enable calls outlive the
-    // step that fired them.
-    useMountedLogic(productEnablementStepLogic)
     const { claimInlinePanel, releaseInlinePanel } = useActions(wizardSyncUiLogic)
     // The flow surfaces the run itself (install-step tracker, header pill), so claim the inline
     // panel for its whole lifetime - the corner FAB never appears during onboarding.
@@ -127,12 +127,9 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     }, [])
     const { completeOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
-    const {
-        reportSelfDrivingOnboardingStarted,
-        reportSelfDrivingOnboardingStepViewed,
-        reportSelfDrivingOnboardingStepCompleted,
-        reportSelfDrivingOnboardingStepSkipped,
-    } = useActions(onboardingEventUsageLogic)
+    const { reportOnboardingStarted, reportOnboardingStepCompleted, reportOnboardingStepSkipped } =
+        useActions(eventUsageLogic)
+    const { reportOnboardingStepViewed } = useActions(onboardingEventUsageLogic)
     // The step list depends on the declared use case (persisted, so a refresh keeps the
     // conditional steps in place).
     const { selectedUseCase } = useValues(useCaseSelectionLogic)
@@ -161,13 +158,13 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     // including the one this mounts on.
     useOnMountEffect(() => {
         if (stepIndex === 0) {
-            reportSelfDrivingOnboardingStarted()
+            reportOnboardingStarted('welcome', SELF_DRIVING_ONBOARDING_EVENT_PROPS)
         }
     })
     useEffect(() => {
-        reportSelfDrivingOnboardingStepViewed(step.id)
+        reportOnboardingStepViewed(step.id)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [step.id, reportSelfDrivingOnboardingStepViewed])
+    }, [step.id, reportOnboardingStepViewed])
 
     // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
     // (like the integration ids the GitHub callback appends).
@@ -196,11 +193,11 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     // e.g. a queued cloud run or a plan pick) or skipping it — reported separately so the funnel
     // can tell drop-off from opt-out.
     const completeStep = (): void => {
-        reportSelfDrivingOnboardingStepCompleted(step.id)
+        reportOnboardingStepCompleted(step.id, undefined, SELF_DRIVING_ONBOARDING_EVENT_PROPS)
         advance()
     }
     const skipStep = (): void => {
-        reportSelfDrivingOnboardingStepSkipped(step.id)
+        reportOnboardingStepSkipped(step.id, undefined, SELF_DRIVING_ONBOARDING_EVENT_PROPS)
         advance()
     }
     const goBack = (): void => goToStep(Math.max(0, stepIndex - 1))

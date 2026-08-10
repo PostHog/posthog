@@ -15,9 +15,6 @@ export type OnboardingUseCaseKey =
     | 'connect_context'
     | 'ai_app'
 
-/** Stamped on every intent the self-driving onboarding registers, mirroring the flow's event props. */
-export const SELF_DRIVING_INTENT_METADATA = { flow_variant: 'context_first' }
-
 /** A team setting a tool needs to produce data. Keys are ours; each maps to a `Team` field. */
 export type TeamOption =
     | 'session_recording' // session_recording_opt_in
@@ -28,9 +25,6 @@ export type TeamOption =
     | 'heatmaps' // heatmaps_opt_in (admin-gated)
     | 'dead_clicks' // capture_dead_clicks (admin-gated)
     | 'web_vitals' // autocapture_web_vitals_opt_in
-
-/** The product_enablement API's product names. */
-export type EnablementProduct = 'session_replay' | 'error_tracking'
 
 export type OnboardingToolKey =
     | 'product_analytics'
@@ -288,15 +282,4 @@ export function optionsForSetup(setup: OnboardingSetup): TeamOption[] {
     return Array.from(
         new Set([...setup.tools.flatMap((key) => ONBOARDING_TOOLS[key].options), ...(setup.extraOptions ?? [])])
     )
-}
-
-/** The product_enablement recipe covering the tool's options, when one exists. */
-export function toolEnablement(tool: OnboardingTool): EnablementProduct | undefined {
-    if (tool.options.includes('session_recording')) {
-        return 'session_replay'
-    }
-    if (tool.options.includes('exception_autocapture')) {
-        return 'error_tracking'
-    }
-    return undefined
 }
