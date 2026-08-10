@@ -268,6 +268,8 @@ URL: {url}
 COMMUNITY_QUESTIONS_HOSTNAMES = frozenset({"posthog.com", "www.posthog.com"})
 COMMUNITY_QUESTIONS_PATH = "/questions"
 
+GITHUB_HOSTNAMES = frozenset({"github.com", "www.github.com"})
+
 
 def is_community_question_url(url: str) -> bool:
     """Community Questions are user-submitted and often outdated, so docs search must never surface them."""
@@ -277,6 +279,19 @@ def is_community_question_url(url: str) -> bool:
     path = parsed.path.rstrip("/")
     # `/docs/…/common-questions` pages are real docs, so match the path prefix rather than the substring
     return path == COMMUNITY_QUESTIONS_PATH or path.startswith(f"{COMMUNITY_QUESTIONS_PATH}/")
+
+
+def is_github_issue_url(url: str) -> bool:
+    """GitHub issue and pull request threads are discussion, not documentation. They stay indexed long after
+    the feature they describe changes or is removed, so a closed thread can assert a stale fact as if it were
+    current. Inkeep has no reliable open/closed state we can read here, so drop every issue and PR thread.
+    """
+    parsed = urlparse(url)
+    if parsed.hostname not in GITHUB_HOSTNAMES:
+        return False
+    # Threads live at /<owner>/<repo>/issues/... and /<owner>/<repo>/pull/...
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    return len(segments) >= 3 and segments[2] in ("issues", "pull")
 
 
 async def perform_inkeep_docs_search(query: str, *, include_system_reminder: bool = True) -> str:
@@ -302,7 +317,8 @@ def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_
     Shared between the LangChain `InkeepDocsSearchTool` (which uses ChatOpenAI) and the
     typed `MCPToolsViewSet.docs_search` endpoint (which uses the plain openai client).
 
-    Community Questions are dropped here so the results match what the tool prompts promise.
+    Community Questions and GitHub issue/PR threads are dropped here so the results match what the tool
+    prompts promise: current documentation, not user-submitted or outdated discussion.
     """
     docs: list[str] = []
     if rag_context_raw and rag_context_raw.get("content"):
@@ -310,7 +326,7 @@ def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_
         for doc in rag_context.content:
             if doc.type != "document":
                 continue
-            if is_community_question_url(doc.url):
+            if is_community_question_url(doc.url) or is_github_issue_url(doc.url):
                 continue
             text = doc.source.content[0].text if doc.source.content else ""
             docs.append(DOC_ITEM_TEMPLATE.format(title=doc.title, url=doc.url, text=text))

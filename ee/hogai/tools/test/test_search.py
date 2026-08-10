@@ -160,13 +160,15 @@ class TestFormatInkeepDocsResponse(SimpleTestCase):
             ("community_question", "https://posthog.com/questions/how-do-i-mask-inputs", False),
             ("community_question_www", "https://www.posthog.com/questions/how-do-i-mask-inputs", False),
             ("community_questions_index", "https://posthog.com/questions", False),
+            ("github_issue", "https://github.com/PostHog/posthog/issues/29208", False),
+            ("github_issue_other_repo", "https://github.com/PostHog/posthog-js/issues/2292", False),
+            ("github_pull_request", "https://github.com/PostHog/posthog/pull/70623", False),
             ("docs_page", "https://posthog.com/docs/session-replay/privacy", True),
             ("docs_common_questions", "https://posthog.com/docs/data/common-questions", True),
             ("tutorial", "https://posthog.com/tutorials/session-recordings-for-support", True),
-            ("github_issue", "https://github.com/PostHog/posthog-js/issues/2292", True),
         ]
     )
-    def test_filters_community_questions(self, _name: str, url: str, expected_included: bool) -> None:
+    def test_filters_non_documentation_sources(self, _name: str, url: str, expected_included: bool) -> None:
         result = format_inkeep_docs_response(self._payload(url, "https://posthog.com/docs/getting-started"))
 
         self.assertEqual(url in result, expected_included)
