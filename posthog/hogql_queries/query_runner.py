@@ -62,6 +62,7 @@ from posthog.schema import (
     MetricsQuery,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryStatus,
@@ -341,6 +342,7 @@ RunnableQueryNode = Union[
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
+    PathsV2Query,
     StickinessQuery,
     LifecycleQuery,
     ActorsQuery,
@@ -496,6 +498,17 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "PathsV2Query":
+        from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
+
+        return PathsV2QueryRunner(
+            query=cast(PathsV2Query | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "CalendarHeatmapQuery":
         from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
@@ -605,6 +618,7 @@ def get_query_runner(
         "FunnelCorrelationActorsQuery",
         "ExperimentActorsQuery",
         "StickinessActorsQuery",
+        "PathsV2ActorsQuery",
     ):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 

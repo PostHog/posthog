@@ -447,7 +447,7 @@ class TestCreateObservationActivity:
     def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
         scanner = _make_scanner()
         with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.compute_quota_snapshot"
+            "products.replay_vision.backend.temporal.activities.create_observation.quota_state"
         ) as mock_snapshot:
             mock_snapshot.return_value = QuotaSnapshot(
                 credit_limit=5,

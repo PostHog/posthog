@@ -62,6 +62,10 @@ This is the recommended option for most developers.
 
 ### Prerequisites
 
+**GitHub access.**
+Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
+Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
+
 #### macOS
 
 1. Install Xcode Command Line Tools if you haven't already: `xcode-select --install`.
@@ -373,6 +377,10 @@ This command automatically turns any feature flag ending in `_EXPERIMENT` as a m
 Backend side flags are automatically configured in DEBUG mode using the
 dev API key created by `manage.py setup_local_api_key`.
 If you need to override the key, set the `POSTHOG_PERSONAL_API_KEY` env var.
+
+That dev key's full value is also shown in [Settings > Personal API keys](http://localhost:8010/settings/user-api-keys), so you can copy it without rerunning the command.
+This needs `DEBUG=1` and `ALLOW_DEV_API_KEY_REVEAL=1`, both of which are already set in `.env.development`.
+No other personal API key is ever shown in full: the dev key is the only one whose value is a repo constant rather than a hash.
 
 ## Extra: Debugging with VS Code
 

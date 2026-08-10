@@ -48,9 +48,7 @@ function SourceMapsBannerContent({ percent, lookbackHours }: { percent: number; 
 
     return (
         <>
-            {/* Use mb-6 (not mb-2) because IssuesList's SceneStickyBar uses -mt-4 to pull up under the tab bar.
-                The extra bottom margin prevents the sticky bar from overlapping the card's bottom edge. */}
-            <div className="mb-6">
+            <div className="mb-2">
                 <div className="rounded-lg border border-border bg-bg-light pl-3 pr-4 py-3 mt-2">
                     <div className="flex items-center gap-4">
                         {/* The hog is absolutely positioned so it doesn't drive the card height —

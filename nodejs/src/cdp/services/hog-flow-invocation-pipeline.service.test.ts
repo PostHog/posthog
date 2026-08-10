@@ -82,16 +82,19 @@ describe('HogFlowInvocationPipeline', () => {
             hogFlowManager,
             hogFlowExecutor,
             hogWatcher,
-            hogWatcherMirror: null,
+            hogWatcherMirror: hogWatcher,
             hogMasker,
             hogFunctionMonitoringService,
             quotaLimiting,
             redis: {} as any,
-            valkeyShadow: null,
+            valkeyShadow: { writer: {} as any, reader: {} as any },
         })
 
         rateLimitGroupedMock = (pipeline as any).hogRateLimiter.rateLimitGrouped as jest.Mock
         rateLimitGroupedMock.mockResolvedValue([])
+        // Both pools return the same result while reads still come from the primary, so the
+        // mirror shares the primary's mock rather than drifting to a stale default.
+        ;(pipeline as any).hogRateLimiterMirror.rateLimitGrouped = rateLimitGroupedMock
     })
 
     it('returns empty when no hogflows match', async () => {

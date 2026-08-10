@@ -698,11 +698,13 @@ class DataWarehouseSavedQuerySerializer(
                     UnsatisfiableFrequencyError,
                     UnsupportedFrequencyTargetError,
                     apply_saved_query_frequency_target,
+                    declared_targets_by_saved_query,
                 )
 
                 target = (
                     None if sync_frequency == "never" else sync_frequency_to_sync_frequency_interval(sync_frequency)
                 )
+                previous_target = declared_targets_by_saved_query(view.team_id, [view.pk]).get(str(view.pk))
                 try:
                     # Validates inside the transaction (a rejected frequency rolls the whole
                     # update back) and queues the schedule reconcile for after commit.
@@ -766,6 +768,18 @@ class DataWarehouseSavedQuerySerializer(
                 )
                 for change in changes
             ]
+            if dag_managed_frequency and previous_target != target:
+                # The cadence lives on the DAG node, so changes_between() sees nothing and
+                # log_activity would discard the whole updated entry as a no-op.
+                changes.append(
+                    Change(
+                        type="DataWarehouseSavedQuery",
+                        action="changed",
+                        field="sync_frequency_interval",
+                        before=str(previous_target) if previous_target is not None else None,
+                        after=str(target) if target is not None else None,
+                    )
+                )
             activity_log = log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,

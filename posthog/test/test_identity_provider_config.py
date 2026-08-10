@@ -43,6 +43,9 @@ class TestIdentityProviderConfig(BaseTest):
         assert LinkedIdentityProviderConfig.objects.filter(
             organization_domain=domain, identity_provider_config=config
         ).exists()
+        config.refresh_from_db()
+        assert config.saml_relay_state == str(domain.pk)
+        assert config.scim_slug == str(domain.pk)
 
     def test_updating_domain_idp_config_creates_link(self):
         domain = self._create_domain()
@@ -53,6 +56,9 @@ class TestIdentityProviderConfig(BaseTest):
         assert LinkedIdentityProviderConfig.objects.filter(
             organization_domain=domain, identity_provider_config=config
         ).exists()
+        config.refresh_from_db()
+        assert config.saml_relay_state == str(domain.pk)
+        assert config.scim_slug == str(domain.pk)
 
     def test_saving_legacy_idp_columns_does_not_create_or_link_config(self):
         # The domain<->config dual-write mirror has been removed: writing the legacy underscore

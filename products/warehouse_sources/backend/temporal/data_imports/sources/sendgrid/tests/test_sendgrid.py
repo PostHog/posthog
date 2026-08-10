@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -10,7 +11,9 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import (
     SendGridResumeConfig,
     _offset_from_url,
+    _to_date_string,
     _to_epoch_seconds,
+    get_endpoint_permissions,
     get_status_code,
     sendgrid_source,
 )
@@ -80,6 +83,74 @@ class TestToEpochSeconds:
 
     def test_naive_datetime_treated_as_utc(self) -> None:
         assert _to_epoch_seconds(datetime(2023, 11, 14, 22, 13, 20)) == 1700000000
+
+
+class TestToDateString:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("2024-01-15", "2024-01-15"),
+            ("2024-01-15T00:00:00", "2024-01-15"),
+            (date(2024, 1, 15), "2024-01-15"),
+            (datetime(2024, 1, 15, 22, 13, 20, tzinfo=UTC), "2024-01-15"),
+            # Epoch seconds — the cursor may round-trip through storage as a number.
+            (1705270400, "2024-01-14"),
+        ],
+    )
+    def test_to_date_string(self, value: Any, expected: str) -> None:
+        assert _to_date_string(value) == expected
+
+    def test_naive_datetime_treated_as_utc(self) -> None:
+        assert _to_date_string(datetime(2024, 1, 15, 22, 13, 20)) == "2024-01-15"
+
+
+class TestStats:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_nested_daily_metrics_into_one_row_per_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        body = [
+            {"date": "2024-01-01", "stats": [{"metrics": {"requests": 10, "delivered": 8, "bounces": 1}}]},
+            {"date": "2024-01-02", "stats": [{"metrics": {"requests": 5, "delivered": 5, "bounces": 0}}]},
+        ]
+        params, _urls = _wire(session, [_response(body)])
+
+        rows = _rows(_source("stats", _make_manager()))
+
+        # The nested {date, stats:[{metrics}]} shape flattens to flat daily rows the denominator lives on.
+        assert rows == [
+            {"date": "2024-01-01", "requests": 10, "delivered": 8, "bounces": 1},
+            {"date": "2024-01-02", "requests": 5, "delivered": 5, "bounces": 0},
+        ]
+        assert params[0]["aggregated_by"] == "day"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_first_sync_backfills_a_required_start_date(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response([])])
+
+        # /stats rejects a request with no start_date, so a cursorless sync must still send one.
+        _rows(_source("stats", _make_manager()))
+
+        assert "start_date" in params[0]
+        # A YYYY-MM-DD string, not epoch seconds — the format /stats requires.
+        datetime.strptime(params[0]["start_date"], "%Y-%m-%d")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_cursor_becomes_a_date_formatted_start_date(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response([])])
+
+        _rows(
+            _source(
+                "stats",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-10",
+                incremental_field="date",
+            )
+        )
+
+        assert params[0]["start_date"] == "2024-03-10"
 
 
 class TestOffsetFromUrl:
@@ -301,3 +372,63 @@ class TestGetStatusCode:
         session.get.side_effect = Exception("boom")
         with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
             assert get_status_code("k", "/scopes") is None
+
+
+class TestGetEndpointPermissions:
+    @staticmethod
+    def _probe(status: int | None, endpoints: list[str]) -> dict[str, str | None]:
+        session = mock.MagicMock()
+        if status is None:
+            session.get.side_effect = Exception("boom")
+        else:
+            session.get.return_value = mock.MagicMock(status_code=status)
+        with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
+            return get_endpoint_permissions("k", endpoints)
+
+    @pytest.mark.parametrize(
+        ("status", "expect_blocked"),
+        [
+            (200, False),
+            (403, True),
+            (401, True),
+            # A throttle, a 5xx, or a dead connection is not a scope problem. Blocking the table here
+            # would tell users to change permissions that are already correct.
+            (429, False),
+            (500, False),
+            (None, False),
+        ],
+    )
+    def test_only_a_definitive_denial_blocks_a_table(self, status: int | None, expect_blocked: bool) -> None:
+        permissions = self._probe(status, ["marketing_lists"])
+        assert (permissions["marketing_lists"] is not None) is expect_blocked
+
+    def test_403_names_the_scope_and_the_marketing_campaigns_caveat(self) -> None:
+        reason = self._probe(403, ["marketing_lists"])["marketing_lists"]
+        assert reason is not None
+        assert "marketing.read" in reason
+        assert "Marketing Campaigns" in reason
+
+    def test_unknown_endpoint_is_treated_as_reachable(self) -> None:
+        assert self._probe(403, ["not_an_endpoint"]) == {"not_an_endpoint": None}
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_params"),
+        [
+            ("bounces", {"limit": "1"}),
+            # A blanket `limit=1` is not a param the marketing endpoints take, so probing with it
+            # risks a 400 that reads as "reachable" and hides the real denial.
+            ("marketing_lists", {"page_size": "1"}),
+            ("templates", {"page_size": "1", "generations": "legacy,dynamic"}),
+            ("unsubscribe_groups", {}),
+        ],
+    )
+    def test_probe_uses_the_endpoints_own_pagination_params(
+        self, endpoint: str, expected_params: dict[str, str]
+    ) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
+            get_endpoint_permissions("k", [endpoint])
+
+        url = session.get.call_args[0][0]
+        assert parse_qs(urlparse(url).query) == {key: [value] for key, value in expected_params.items()}

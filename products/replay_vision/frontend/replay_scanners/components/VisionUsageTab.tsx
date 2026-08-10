@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
@@ -62,6 +63,7 @@ export function VisionUsageTab(): JSX.Element {
         billedLimitCredits,
         showStartupCap,
     } = useValues(visionQuotaLogic)
+    const showTierNames = useFeatureFlag('REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT', 'test')
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
@@ -152,7 +154,7 @@ export function VisionUsageTab(): JSX.Element {
                     <span className="tabular-nums">
                         {scanner.credits_per_observation} credit{scanner.credits_per_observation === 1 ? '' : 's'}
                     </span>
-                    <span className="text-muted"> · {modelName(scanner.model)}</span>
+                    <span className="text-muted"> · {modelName(scanner.model, showTierNames)}</span>
                 </span>
             ),
         },
