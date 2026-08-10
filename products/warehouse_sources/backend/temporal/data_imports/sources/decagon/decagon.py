@@ -375,4 +375,6 @@ def decagon_source(
         partition_format="month" if partitioned else None,
         partition_keys=[config.partition_key] if config.partition_key is not None else None,
         sort_mode=config.sort_mode,
+        chunk_size=config.chunk_size,
+        chunk_size_bytes=config.chunk_size_bytes,
     )

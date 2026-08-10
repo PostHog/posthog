@@ -504,6 +504,58 @@ class TestAgentAssistActions:
         assert response.sort_mode == "desc"
 
 
+class TestArticleTables:
+    def test_articles_walk_pages_to_the_total_and_dedupes_shifted_rows(self) -> None:
+        # The catalog can mutate between page fetches, so a row can shift pages mid-walk;
+        # full-refresh writes are appends, so the shifted copy must be skipped.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 3}),
+            _make_response({"articles": [{"id": 2}, {"id": 3}], "total": 3}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert sent_params == [
+            {"page": "1", "page_size": "100"},
+            {"page": "2", "page_size": "100"},
+        ]
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3]]
+
+    def test_article_usage_is_a_single_request_pinned_to_utc(self) -> None:
+        # The timezone param changes how usage is bucketed; leaving it to the account
+        # default would let a dashboard setting silently shift the numbers.
+        manager = _fresh_manager()
+        responses = [_make_response({"usage": [{"article_id": 1, "count": 5}]})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="article_usage")
+
+        assert sent_params == [{"timezone": "UTC"}]
+        assert [len(b) for b in batches] == [1]
+        manager.save_state.assert_not_called()
+
+    def test_articles_response_caps_batcher_chunks_for_document_rows(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="articles",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created_at"]
+        assert response.chunk_size == 500
+        assert response.chunk_size_bytes == 50 * 1024 * 1024
+
+    def test_article_usage_response_is_keyless_and_unpartitioned(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="article_usage",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys is None
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+
 class TestToEpochSeconds:
     # The pipeline hands the DateTime watermark back as a datetime, a date, or an epoch
     # number depending on how it round-tripped through storage; the request boundary must
