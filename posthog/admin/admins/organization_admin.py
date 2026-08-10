@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
+from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -149,6 +150,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_ai_training_opted_in",
         "is_ai_training_locked",
         "is_ai_training_cta_shown",
+        "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
     inlines = [
@@ -169,6 +171,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "customer_trust_scores",
         "bulk_delete_data_display",
         "sync_to_billing_display",
+        "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
     search_fields = ("name", "members__email", "team__api_token")
@@ -310,6 +313,20 @@ class OrganizationAdmin(admin.ModelAdmin):
             return "-"
         url = reverse("admin:organization_model_counts", args=[organization.pk])
         return format_html('<a class="button" href="{}">View counts</a>', url)
+
+    @admin.display(description="AI training opt-in history")
+    def ai_training_opt_in_history_display(self, organization: Organization):
+        if not organization.pk:
+            return "-"
+        request = getattr(self, "_current_request", None)
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/organization/ai_training_opt_in_history.html",
+                {"history": get_ai_training_opt_in_history(organization)},
+                request=request,
+            )
+        )
 
     @admin.display(description="Sync to billing")
     def sync_to_billing_display(self, organization: Organization):

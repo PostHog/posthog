@@ -1,0 +1,67 @@
+{% if history.error %}
+<div style="padding: 8px; border-left: 3px solid #dc3545;">
+    Could not load the opt-in history: {{ history.error }}
+</div>
+{% else %}
+<div style="margin-bottom: 12px; padding: 8px; border-left: 3px solid #007bff;">
+    <strong>{{ history.headline }}</strong>
+    <ul style="margin: 6px 0 0 16px;">
+        {% for line in history.lines %}
+        <li>{{ line }}</li>
+        {% endfor %}
+    </ul>
+</div>
+
+<h4 style="margin: 12px 0 4px;">Current status</h4>
+<table style="border-collapse: collapse; width: 100%;">
+    <tbody>
+        {% for name, value in history.raw_status %}
+        <tr style="border-top: 1px solid;">
+            <td style="padding: 6px;"><code>{{ name }}</code></td>
+            <td style="padding: 6px;">{{ value }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h4 style="margin: 16px 0 4px;">Recorded changes</h4>
+{% if history.truncated %}
+<p>Showing the oldest {{ history.changes|length }} changes only. There are more in the activity log.</p>
+{% endif %}
+{% if history.changes %}
+<table style="border-collapse: collapse; width: 100%;">
+    <thead>
+        <tr>
+            <th style="padding: 6px; text-align: left;">When</th>
+            <th style="padding: 6px; text-align: left;">Change</th>
+            <th style="padding: 6px; text-align: left;">Origin</th>
+            <th style="padding: 6px; text-align: left;">Actor</th>
+            <th style="padding: 6px; text-align: left;">Client</th>
+            <th style="padding: 6px; text-align: left;">IP</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for change in history.changes %}
+        <tr style="border-top: 1px solid;">
+            <td style="padding: 6px; white-space: nowrap;">{{ change.changed_at_display }}</td>
+            <td style="padding: 6px;">{{ change.transition_display }}</td>
+            <td style="padding: 6px;">{{ change.origin }}</td>
+            <td style="padding: 6px;">{{ change.actor }}</td>
+            <td style="padding: 6px;">{{ change.client|default_if_none:"-" }}</td>
+            <td style="padding: 6px;">{{ change.ip_address|default_if_none:"-" }}</td>
+        </tr>
+        <tr>
+            <td colspan="6" style="padding: 0 6px 6px;">
+                <details>
+                    <summary style="cursor: pointer;">Raw activity log entry {{ change.activity_log_id }}</summary>
+                    <pre style="white-space: pre-wrap; margin: 4px 0 0;">{{ change.raw_detail }}</pre>
+                </details>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No changes to <code>is_ai_training_opted_in</code> have been recorded for this organization.</p>
+{% endif %}
+{% endif %}
