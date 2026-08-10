@@ -1147,6 +1147,7 @@ export type DataTableNodeSourceUnion =
     | SessionQuery
     | EndpointsUsageTableQuery
     | AccountsQuery
+    | AccountsTableQuery
 
 export type DataTableNodeSource = DataTableNodeSourceUnion
 
@@ -1181,6 +1182,7 @@ export interface DataTableNode
                     | SessionQuery
                     | EndpointsUsageTableQuery
                     | AccountsQuery
+                    | AccountsTableQuery
                 )['response']
             >
         >,

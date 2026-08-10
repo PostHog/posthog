@@ -696,25 +696,25 @@ class TestAccountsTableQueryAPI(APIBaseTest):
     def test_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
         account = create_account(team_id=self.team.id, name="Acme")
         endpoint = f"/api/projects/{self.team.id}/query/"
-        payload = {
-            "query": AccountsTableQuery(columns=[], filters=[]).model_dump(),
-            "refresh": "force_blocking",
-        }
+        accounts_query = AccountsTableQuery(columns=[], filters=[]).model_dump()
 
-        for incomplete_scopes in [["query:read"], ["account:read"]]:
-            denied = self.client.post(
-                endpoint,
-                payload,
-                format="json",
-                headers={"authorization": f"Bearer {self._token(incomplete_scopes)}"},
-            )
-            assert denied.status_code == status.HTTP_403_FORBIDDEN
+        for query in [accounts_query, {"kind": "DataTableNode", "source": accounts_query}]:
+            with self.subTest(query_kind=query["kind"]):
+                payload = {"query": query, "refresh": "force_blocking"}
+                for incomplete_scopes in [["query:read"], ["account:read"]]:
+                    denied = self.client.post(
+                        endpoint,
+                        payload,
+                        format="json",
+                        headers={"authorization": f"Bearer {self._token(incomplete_scopes)}"},
+                    )
+                    assert denied.status_code == status.HTTP_403_FORBIDDEN
 
-        allowed = self.client.post(
-            endpoint,
-            payload,
-            format="json",
-            headers={"authorization": f"Bearer {self._token(['query:read', 'account:read'])}"},
-        )
-        assert allowed.status_code == status.HTTP_200_OK, allowed.content
-        assert [row["id"] for row in allowed.json()["results"]] == [str(account.id)]
+                allowed = self.client.post(
+                    endpoint,
+                    payload,
+                    format="json",
+                    headers={"authorization": f"Bearer {self._token(['query:read', 'account:read'])}"},
+                )
+                assert allowed.status_code == status.HTTP_200_OK, allowed.content
+                assert [row["id"] for row in allowed.json()["results"]] == [str(account.id)]
