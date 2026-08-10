@@ -238,6 +238,37 @@ class TestFetchUnresolvedThreads:
         # The second page must be requested with the first page's cursor.
         assert request.call_args_list[1].args[1]["cursor"] == "c1"
 
+    def test_pages_comment_tail_when_inner_connection_overflows(self) -> None:
+        # A >50-comment thread's newest activity lives past the first page; without the tail the
+        # watermark freezes below the real latest comment and the thread never re-opens to triage.
+        overflowing = _node("PRRT_long")
+        overflowing["comments"]["pageInfo"] = {"hasNextPage": True, "endCursor": "tail-c1"}
+        tail_page = {
+            "node": {
+                "comments": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "databaseId": 900,
+                            "url": "",
+                            "body": "late pushback",
+                            "createdAt": "2026-07-02T00:00:00Z",
+                            "authorAssociation": "MEMBER",
+                            "author": {"login": "bob", "__typename": "User"},
+                        }
+                    ],
+                }
+            }
+        }
+        pages = [_graphql_page([overflowing]), tail_page]
+        with patch(f"{_THREADS}.github_graphql_request", side_effect=pages) as request:
+            threads = fetch_unresolved_threads(token="t", owner="o", repo="r", pr_number=1)
+
+        assert threads[0].latest_comment_id == 900
+        tail_variables = request.call_args_list[1].args[1]
+        assert tail_variables["id"] == "PRRT_long"
+        assert tail_variables["cursor"] == "tail-c1"
+
 
 class TestGithubGraphqlRequest:
     def test_raises_on_graphql_errors_despite_http_200(self) -> None:

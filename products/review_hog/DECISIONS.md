@@ -2843,9 +2843,12 @@ fleet-level control during alpha).
 
 ---
 
-### 🛠️ Stage 7 — the resolution stage (design settled 2026-07-17; BUILT first cut 2026-07-17 — pending live e2e)
+### 🛠️ Stage 7 — the resolution stage (design settled + BUILT 2026-07-17; live e2e GO 2026-07-18; drift re-e2e passed 2026-08-06)
 
-> **Status: built (first cut), not yet exercised live.** Grilled to closure with the maintainer on 2026-07-17;
+> **Status: built and live-qualified.** The live e2e ran 2026-07-18 on the stage's own PR #72074 — verdicts,
+> findings, and the GO call in `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`; a drift-check re-e2e
+> passed 2026-08-06 on PR #78848, and the escalations it produced are recorded under item 8 below.
+> Grilled to closure with the maintainer on 2026-07-17;
 > the settled vocabulary lives in [CONTEXT.md](./CONTEXT.md) (the "Resolution stage" block) and is not repeated here.
 > This section records what was decided, the two decisions it deliberately supersedes, and the build map.
 > The stage was prototyped as an interactive triage skill (verify each unresolved thread against current code,
@@ -2866,10 +2869,11 @@ fleet-level control during alpha).
 > first writers for `task_run` / `commit` / `note`. Entry points: `POST /api/review_hog/resolve` (standalone) and
 > the chained `ReviewPRWorkflow` fire-and-forget ABANDON child dispatch (gating below), `run_resolution` command.
 > Model pin: `RESOLUTION_*` constants (validator's Claude tier); cap: `MAX_THREADS_PER_RUN = 20`, overflow named
-> in the run-summary `note`. **Not yet done:** live e2e on a real PR (verify the installation token can
-> `resolveReviewThread` — the interactive prototype hit token-capability failures there; the qualification run is
-> planned end-to-end in `eval/experiments/2026-07-resolution-e2e/PLAN.md` — the resolver fixes its own PR #72074),
-> the label Action client, and self-driving calling the endpoint after implementation PRs gather comments.
+> in the run-summary `note`. **Live e2e (2026-07-18): GO** — the qualification run in
+> `eval/experiments/2026-07-resolution-e2e/PLAN.md` ran against the stage's own PR #72074; the installation token
+> CAN `resolveReviewThread`, where the interactive prototype's PAT could not (verdicts and findings in
+> `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`). **Still not done:** the label Action client, and
+> self-driving calling the endpoint after implementation PRs gather comments.
 >
 > **Superseded same day — reviewing includes resolving (maintainer decision, 2026-07-17).** The first cut gated
 > chaining on a per-run caller flag (`resolve=true` on the label trigger, default-False `resolve_comments` input);
@@ -2970,6 +2974,17 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    it is not path-derivable. Deferred to pre-GA: structural (JSON) comment rendering in the resolution prompt
    (e2e-gated — forged author headers / fake SAFE TO FIX), and the author-permission gate policy (which
    `author_association`s may drive a write turn; naive filters drop the bot threads the stage exists for).
+   _Built 2026-08-10 (off the second review round on PR #72074):_ three verified findings fixed. **Watermark
+   truncation** — the per-thread `comments(first: 50)` fetch returned the oldest 50 with no overflow detection, so
+   a 51+-comment thread's watermark froze below its real newest comment and the thread went permanently blind to
+   new pushback; the fetch now reads the inner connection's `pageInfo` and pages the tail (stamphog's pattern,
+   `_MAX_COMMENT_PAGES = 20`, failing closed past 1000 comments). **Commit-artefact provenance** — the `commit`
+   artefact was appended at triage time from the model's unverified echo, violating the Commit schema's
+   pushed-commits-only contract; it now appends inside delivery, right after `commit_on_branch` verifies the SHA
+   (exactly once per verdict; restricted commits are still recorded — they are real pushed commits, the
+   restriction gates delivery, not the audit log). **Unverified-fix reply caveat** — a FIXED reply whose commit
+   failed verification used to post the model's success claim verbatim (link withheld but no visible signal); the
+   reply now carries a could-not-confirm warning mirroring the restricted-path one.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on

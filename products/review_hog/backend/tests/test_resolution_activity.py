@@ -1,3 +1,4 @@
+import json
 from contextlib import ExitStack
 
 import pytest
@@ -154,7 +155,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         # The watermark advances to our own posted reply so it can't re-open triage next run.
         assert stored.latest_comment_id == 555
 
-    def test_fixed_reply_links_the_commit(self) -> None:
+    def test_fixed_reply_links_the_commit_and_records_it_once(self) -> None:
         report = self._report()
         verdict = _verdict(outcome="fixed", commit_sha="abc123")
         with (
@@ -164,8 +165,13 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}.commit_restricted_paths", return_value=[]),
             patch(f"{_RESOLUTION}._installation_auth", return_value=("token", None)),
         ):
-            _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
-        assert "https://github.com/posthog/posthog/commit/abc123" in reply.call_args.kwargs["body"]
+            delivered = _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
+            # A redelivery of the already-verified verdict must not duplicate the commit artefact.
+            _deliver_side_effects(self._input(), str(report.id), delivered, branch="feature")
+        assert "https://github.com/posthog/posthog/commit/abc123" in reply.call_args_list[0].kwargs["body"]
+        commits = ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit")
+        assert commits.count() == 1
+        assert json.loads(commits.get().content)["commit_sha"] == "abc123"
 
     def test_unverified_commit_withholds_link_and_resolve(self) -> None:
         # The exact failure this guard exists for: a hallucinated or off-branch SHA must not become
@@ -180,12 +186,18 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         ):
             _deliver_side_effects(self._input(), str(report.id), verdict, branch="feature")
 
-        assert "Fix commit" not in reply.call_args.kwargs["body"]
+        body = reply.call_args.kwargs["body"]
+        assert "Fix commit" not in body
+        assert "could not be found on the PR branch" in body
         assert resolve.call_count == 0
         stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
         assert stored.commit_verified is False
         assert stored.reply_posted is True
         assert stored.resolved is False
+        # An unproven SHA must never enter the commit artefact log (pushed commits only).
+        assert (
+            not ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
+        )
 
     def _prepare_unpinned(self) -> object:
         thread = ReviewThread(
@@ -275,6 +287,8 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert stored.commit_verified is True
         assert stored.commit_restricted is True
         assert stored.resolved is False
+        # Restricted commits are real pushed commits: the restriction gates delivery, not the audit log.
+        assert ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
 
     def test_run_note_names_delivery_failures(self) -> None:
         # A token-expiry tail must be visible in the durable run note, not just worker logs.
