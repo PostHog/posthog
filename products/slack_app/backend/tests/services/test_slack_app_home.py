@@ -24,7 +24,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.models import SlackSettings
+from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
@@ -59,6 +59,7 @@ from products.slack_app.backend.services.slack_app_home import (
     resolve_source,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
+from products.tasks.backend.models import Task, TaskRun
 
 SLACK_WORKSPACE_ID = "T_HOME"
 
@@ -769,6 +770,82 @@ class TestParseModalSubmission:
 # ---------------------------------------------------------------------------
 # Handler tests — Tasks card controls
 # ---------------------------------------------------------------------------
+
+
+class TestTasksControlsRepublishTheList:
+    """A click has to reach Slack as a different view, or the tab looks frozen.
+
+    The rest of the Tasks coverage stops at a boundary — the renderer takes a
+    hand-built `TasksState`, the decoding tests stop at the resolved view state. This
+    joins them: a real `block_actions` payload in, the `views.publish` payload out.
+    """
+
+    def _seed(self, integration, count: int = 12) -> None:
+        for index in range(count):
+            task = Task.objects.create(
+                team=integration.team,
+                title=f"Task {index}",
+                description="d",
+                origin_product=Task.OriginProduct.SLACK,
+                repository="posthog/posthog" if index % 2 == 0 else "posthog/other",
+            )
+            run = TaskRun.objects.create(task=task, team=integration.team, status=TaskRun.Status.IN_PROGRESS)
+            SlackThreadTaskMapping.objects.create(
+                team=integration.team,
+                integration=integration,
+                slack_workspace_id=SLACK_WORKSPACE_ID,
+                channel="C1",
+                thread_ts=f"170000000.{index:06d}",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U001",
+            )
+
+    def _click(self, action_id: str, *, value: str | None = None, repo: str | None = None) -> dict:
+        action: dict[str, Any] = {"action_id": action_id}
+        if value is not None:
+            action["value"] = value
+        controls: dict[str, Any] = {}
+        if repo:
+            controls[ACTION_TASKS_FILTER_REPO] = {"selected_option": {"value": repo}}
+        return {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [action],
+            "view": {"id": "V1", "hash": "H1", "type": "home", "state": {"values": {BLOCK_TASKS_CONTROLS: controls}}},
+        }
+
+    def _published_titles(self, view: dict) -> list[str]:
+        titles = []
+        for block in view["blocks"]:
+            text = (block.get("text") or {}).get("text", "")
+            if text.startswith("*<") and "/tasks/" in text:
+                titles.append(text.split("|", 1)[1].rstrip(">*"))
+        return titles
+
+    def test_next_publishes_a_different_page_and_the_filter_narrows_it(
+        self, slack_integration, mock_slack_client, flag_on
+    ):
+        self._seed(slack_integration)
+
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            first = self._click(ACTION_TASKS_PAGE_NEXT, value="0")
+            handle_ai_preferences_block_action(first, first["actions"][0])
+            page_one = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
+
+            second = self._click(ACTION_TASKS_PAGE_NEXT, value="1")
+            handle_ai_preferences_block_action(second, second["actions"][0])
+            page_two = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
+
+            narrowed = self._click(ACTION_TASKS_FILTER_REPO, repo="posthog/other")
+            handle_ai_preferences_block_action(narrowed, narrowed["actions"][0])
+            filtered = self._published_titles(mock_slack_client.views_publish.call_args.kwargs["view"])
+
+        assert len(page_one) == 10
+        assert page_two and not set(page_two) & set(page_one)
+        # Odd indices carry posthog/other, so the filter must leave only those.
+        assert filtered and all(int(title.split()[1]) % 2 == 1 for title in filtered)
 
 
 class TestTasksControlsResolveViewState:
