@@ -3974,6 +3974,10 @@ describe('PersonState.processEvent()', () => {
                 distinctId: firstUserDistinctId,
             })
 
+            // Revival on create runs only for allowlisted teams.
+            const tombstoneRepository = new PostgresPersonRepository(hub.postgres, {
+                personMergeTombstoneTeamAllowlist: '*',
+            })
             const mergeService: PersonMergeService = personMergeService(
                 {
                     event: '$merge_dangerously',
@@ -3982,7 +3986,7 @@ describe('PersonState.processEvent()', () => {
                     uuid: new UUIDT().toString(),
                 },
                 hub,
-                personRepository,
+                tombstoneRepository,
                 true,
                 timestamp,
                 mainTeam,

@@ -207,6 +207,19 @@ describe('PostgresPersonRepository', () => {
     })
 
     describe('tombstoned rows', () => {
+        // Revival on create/addDistinctId runs only for allowlisted teams; the
+        // default repository exercises the legacy (master) path.
+        let revivalRepository: PostgresPersonRepository
+
+        beforeEach(() => {
+            revivalRepository = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
+                personMergeTombstoneTeamAllowlist: '*',
+            })
+        })
+
         async function tombstonePerson(person: InternalPerson): Promise<void> {
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
@@ -368,18 +381,38 @@ describe('PostgresPersonRepository', () => {
         it('createPerson revives a tombstoned person and its distinct id at death_version + 1', async () => {
             const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
-            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
-                distinctId: 'revive-did',
-            })
+            const first = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { a: 1 },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                {
+                    distinctId: 'revive-did',
+                }
+            )
             if (!first.success) {
                 throw new Error('Failed to create person')
             }
             await tombstonePerson(first.person)
             await tombstoneDistinctId(team.id, 'revive-did')
 
-            const revived = await repository.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, true, uuid, {
-                distinctId: 'revive-did',
-            })
+            const revived = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { b: 2 },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                {
+                    distinctId: 'revive-did',
+                }
+            )
 
             if (!revived.success) {
                 throw new Error('Expected revival to succeed')
@@ -399,16 +432,36 @@ describe('PostgresPersonRepository', () => {
         it('createPerson returns CreationConflict against a live person with the same uuid', async () => {
             const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
-            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
-                distinctId: 'live-uuid-did',
-            })
+            const first = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { a: 1 },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                {
+                    distinctId: 'live-uuid-did',
+                }
+            )
             if (!first.success) {
                 throw new Error('Failed to create person')
             }
 
-            const second = await repository.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, false, uuid, {
-                distinctId: 'live-uuid-did-2',
-            })
+            const second = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { b: 2 },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                {
+                    distinctId: 'live-uuid-did-2',
+                }
+            )
 
             expect(second).toEqual({ success: false, error: 'CreationConflict', distinctIds: ['live-uuid-did-2'] })
             await expect(repository.fetchPerson(team.id, 'live-uuid-did')).resolves.toMatchObject({
@@ -421,7 +474,7 @@ describe('PostgresPersonRepository', () => {
             const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
 
-            const result = await repository.createPerson(
+            const result = await revivalRepository.createPerson(
                 TIMESTAMP,
                 {},
                 {},
@@ -447,7 +500,7 @@ describe('PostgresPersonRepository', () => {
             await createTestPerson(team.id, 'contested-did')
             const uuid = new UUIDT().toString()
 
-            const result = await repository.createPerson(
+            const result = await revivalRepository.createPerson(
                 TIMESTAMP,
                 { secret: 'value' },
                 {},
@@ -478,10 +531,10 @@ describe('PostgresPersonRepository', () => {
             const team = await getFirstTeam(hub.postgres)
             const newOwner = await createTestPerson(team.id, 'adder-did')
             const oldOwner = await createTestPerson(team.id, 'old-owner-did')
-            await repository.addDistinctId(oldOwner, 'recycled-did', 0)
+            await revivalRepository.addDistinctId(oldOwner, 'recycled-did', 0)
             await tombstoneDistinctId(team.id, 'recycled-did')
 
-            const messages = await repository.addDistinctId(newOwner, 'recycled-did', 0)
+            const messages = await revivalRepository.addDistinctId(newOwner, 'recycled-did', 0)
 
             await expect(repository.fetchPerson(team.id, 'recycled-did')).resolves.toMatchObject({
                 uuid: newOwner.uuid,
@@ -501,7 +554,7 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'conflict-adder-did')
             await createTestPerson(team.id, 'already-owned-did')
 
-            await expect(repository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
+            await expect(revivalRepository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
                 DistinctIdConflictError
             )
         })

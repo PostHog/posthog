@@ -530,6 +530,24 @@ export class PostgresPersonRepository
         extraDistinctIds: { distinctId: string; version?: number }[] = [],
         tx?: TransactionClient
     ): Promise<CreatePersonResult> {
+        // Teams outside the tombstone rollout run the query shipped on master,
+        // untouched: clearing the allowlist is a full rollback to it.
+        if (!this.isTombstoneTeam(teamId)) {
+            return await this.createPersonLegacy(
+                createdAt,
+                properties,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                primaryDistinctId,
+                extraDistinctIds,
+                tx
+            )
+        }
+
         // A conflicted create is undone by a compensating statement, which is only
         // atomic with the create inside a transaction. Without one, the created person
         // would be briefly visible to concurrent requests before the undo tombstones it.
@@ -757,6 +775,192 @@ export class PostgresPersonRepository
                 created: true,
             }
         } catch (error) {
+            if (this.isPropertiesSizeConstraintViolation(error)) {
+                // For createPerson, we just log and reject since there's no existing person to update
+                personPropertiesSizeViolationCounter.inc({
+                    violation_type: 'create_person_size_violation',
+                })
+
+                logger.warn('Rejecting person properties create/update, exceeds size limit', {
+                    team_id: teamId,
+                    person_id: undefined,
+                    violation_type: 'create_person_size_violation',
+                })
+
+                throw new PersonPropertiesSizeViolationError(
+                    `Person properties create would exceed size limit`,
+                    teamId,
+                    undefined
+                )
+            }
+
+            // Re-throw other errors
+            throw error
+        }
+    }
+
+    // Master's createPerson, kept byte-for-byte for teams outside the tombstone
+    // rollout. Remove together with the allowlist once tombstone mode is the default.
+    private async createPersonLegacy(
+        createdAt: DateTime,
+        properties: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        teamId: number,
+        isUserId: number | null,
+        isIdentified: boolean,
+        uuid: string,
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds: { distinctId: string; version?: number }[] = [],
+        tx?: TransactionClient
+    ): Promise<CreatePersonResult> {
+        const distinctIds = [primaryDistinctId, ...extraDistinctIds]
+        for (const distinctId of distinctIds) {
+            distinctId.version ||= 0
+        }
+
+        // The Person is being created, and so we can hardcode version 0!
+        const personVersion = 0
+
+        try {
+            const columns = [
+                'created_at',
+                'properties',
+                'properties_last_updated_at',
+                'properties_last_operation',
+                'team_id',
+                'is_user_id',
+                'is_identified',
+                'uuid',
+                'version',
+                'last_seen_at',
+            ]
+            const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+
+            // Sanitize and measure JSON field sizes
+            const sanitizedProperties = sanitizeJsonbValue(properties)
+            const sanitizedPropertiesLastUpdatedAt = sanitizeJsonbValue(propertiesLastUpdatedAt)
+            const sanitizedPropertiesLastOperation = sanitizeJsonbValue(propertiesLastOperation)
+
+            // Record JSON field sizes (using string length as approximation)
+            if (typeof sanitizedProperties === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties' })
+                    .observe(sanitizedProperties.length)
+            }
+            if (typeof sanitizedPropertiesLastUpdatedAt === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_updated_at' })
+                    .observe(sanitizedPropertiesLastUpdatedAt.length)
+            }
+            if (typeof sanitizedPropertiesLastOperation === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_operation' })
+                    .observe(sanitizedPropertiesLastOperation.length)
+            }
+
+            // For new persons, set last_seen_at to the hour-rounded createdAt
+            const lastSeenAt = createdAt.startOf('hour')
+
+            const personParams = [
+                createdAt.toISO(),
+                sanitizedProperties,
+                sanitizedPropertiesLastUpdatedAt,
+                sanitizedPropertiesLastOperation,
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                personVersion,
+                lastSeenAt.toISO(),
+            ]
+
+            // Find the actual index of team_id in the personParams array (1-indexed for SQL)
+            const teamIdParamIndex = personParams.indexOf(teamId) + 1
+            const distinctIdVersionStartIndex = columns.length + 1
+            const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
+
+            const distinctIdsCTE =
+                distinctIds.length > 0
+                    ? `, distinct_ids AS (
+                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                            VALUES ${distinctIds
+                                .map(
+                                    // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                                    // `addDistinctId`
+                                    (_, index) => `(
+                                $${distinctIdStartIndex + index},
+                                (SELECT id FROM inserted_person),
+                                $${teamIdParamIndex},
+                                $${distinctIdVersionStartIndex + index}
+                            )`
+                                )
+                                .join(', ')}
+                        )`
+                    : ''
+
+            const query =
+                `WITH inserted_person AS (
+                        INSERT INTO posthog_person (${columns.join(', ')})
+                        VALUES (${valuePlaceholders})
+                        RETURNING ${PERSON_COLUMNS}
+                    )` +
+                distinctIdsCTE +
+                ` SELECT * FROM inserted_person;`
+
+            const { rows } = await this.postgres.query<RawPerson>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                query,
+                [
+                    ...personParams,
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ version }) => version),
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ distinctId }) => distinctId),
+                ],
+                'insertPerson',
+                'warn'
+            )
+            const person = this.toPerson(rows[0])
+
+            const kafkaMessages: PersonMessage[] = [generateKafkaPersonUpdateMessage(person)]
+
+            for (const distinctId of distinctIds) {
+                kafkaMessages.push({
+                    output: PERSON_DISTINCT_IDS_OUTPUT,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            person_id: person.uuid,
+                            team_id: teamId,
+                            distinct_id: distinctId.distinctId,
+                            version: distinctId.version,
+                            is_deleted: 0,
+                        })
+                    ),
+                })
+            }
+
+            return {
+                success: true,
+                person,
+                messages: kafkaMessages,
+                created: true,
+            }
+        } catch (error) {
+            // Handle constraint violation - another process created the person concurrently
+            if (error instanceof Error && error.message.includes('unique constraint')) {
+                // This is not of type CreatePersonResult?
+                return {
+                    success: false,
+                    error: 'CreationConflict',
+                    distinctIds: distinctIds.map((d) => d.distinctId),
+                }
+            }
+
             if (this.isPropertiesSizeConstraintViolation(error)) {
                 // For createPerson, we just log and reject since there's no existing person to update
                 personPropertiesSizeViolationCounter.inc({
@@ -1021,6 +1225,12 @@ export class PostgresPersonRepository
         version: number,
         tx?: TransactionClient
     ): Promise<PersonMessage[]> {
+        // Teams outside the tombstone rollout run the query shipped on master,
+        // untouched: clearing the allowlist is a full rollback to it.
+        if (!this.isTombstoneTeam(person.team_id)) {
+            return await this.addDistinctIdLegacy(person, distinctId, version, tx)
+        }
+
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`.
@@ -1061,6 +1271,39 @@ export class PostgresPersonRepository
                     JSON.stringify({
                         ...personDistinctIdCreated,
                         version: Number(insertedVersion || 0),
+                        person_id: person.uuid,
+                        is_deleted: 0,
+                    })
+                ),
+            },
+        ]
+    }
+
+    // Master's addDistinctId, kept byte-for-byte for teams outside the tombstone
+    // rollout. Remove together with the allowlist once tombstone mode is the default.
+    private async addDistinctIdLegacy(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        tx?: TransactionClient
+    ): Promise<PersonMessage[]> {
+        const insertResult = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
+            [distinctId, person.id, person.team_id, version],
+            'addDistinctId',
+            'warn'
+        )
+
+        const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
+        return [
+            {
+                output: PERSON_DISTINCT_IDS_OUTPUT,
+                value: Buffer.from(
+                    JSON.stringify({
+                        ...personDistinctIdCreated,
+                        version,
                         person_id: person.uuid,
                         is_deleted: 0,
                     })
