@@ -147,6 +147,9 @@ tools:
     canvases-draft-create:
         operation: canvases_draft_create
         enabled: false
+    canvases-drafts-retrieve:
+        operation: canvases_drafts_retrieve
+        enabled: false
     canvases-partial-update:
         operation: canvases_partial_update
         enabled: false
