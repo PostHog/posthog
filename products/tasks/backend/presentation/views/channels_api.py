@@ -18,6 +18,7 @@ from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import compute_quota_limit_response
+from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
     ChannelFeedMessageSerializer,
@@ -555,13 +556,9 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="send_to_agent", required_scopes=["task:write"])
     def send_to_agent(self, request, pk=None, **kwargs):
-        from products.tasks.backend.exceptions import (
-            ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
-        )
-
         try:
             kind, message = tasks_facade.forward_thread_message(pk, self._task_id(), self.team_id, self._user_id())
-        except ComputeBillingLimitError:
+        except ComputeBillingLimitExceeded:
             return compute_quota_limit_response()
         if kind == "not_found":
             raise NotFound()
