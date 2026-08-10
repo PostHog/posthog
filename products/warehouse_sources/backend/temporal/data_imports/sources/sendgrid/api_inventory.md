@@ -16,16 +16,17 @@ on the primary key — wasted API calls, not corrupted data.
 
 ## Endpoints
 
-| Schema                | Path                          | Pagination    | Data shape          | Primary key | Incremental                        |
-| --------------------- | ----------------------------- | ------------- | ------------------- | ----------- | ---------------------------------- |
-| `bounces`             | `/suppression/bounces`        | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
-| `blocks`              | `/suppression/blocks`         | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
-| `invalid_emails`      | `/suppression/invalid_emails` | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
-| `spam_reports`        | `/suppression/spam_reports`   | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
-| `global_unsubscribes` | `/suppression/unsubscribes`   | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
-| `unsubscribe_groups`  | `/asm/groups`                 | none (single) | bare array          | `id`        | full refresh                       |
-| `marketing_lists`     | `/marketing/lists`            | `_metadata`   | `{"result": [...]}` | `id`        | full refresh                       |
-| `templates`           | `/templates`                  | `_metadata`   | `{"result": [...]}` | `id`        | full refresh                       |
+| Schema                | Path                          | Pagination    | Data shape          | Primary key | Incremental                          |
+| --------------------- | ----------------------------- | ------------- | ------------------- | ----------- | ------------------------------------ |
+| `bounces`             | `/suppression/bounces`        | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time`   |
+| `blocks`              | `/suppression/blocks`         | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time`   |
+| `invalid_emails`      | `/suppression/invalid_emails` | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time`   |
+| `spam_reports`        | `/suppression/spam_reports`   | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time`   |
+| `global_unsubscribes` | `/suppression/unsubscribes`   | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time`   |
+| `stats`               | `/stats`                      | none (single) | nested daily stats  | `date`      | `date` via `start_date` (YYYY-MM-DD) |
+| `unsubscribe_groups`  | `/asm/groups`                 | none (single) | bare array          | `id`        | full refresh                         |
+| `marketing_lists`     | `/marketing/lists`            | `_metadata`   | `{"result": [...]}` | `id`        | full refresh                         |
+| `templates`           | `/templates`                  | `_metadata`   | `{"result": [...]}` | `id`        | full refresh                         |
 
 Notes:
 
@@ -36,6 +37,13 @@ Notes:
   and paginate by following `_metadata.next`. `/templates` requires `generations=legacy,dynamic` to return
   both template types. Neither exposes a server-side timestamp filter, so both are full-refresh only.
 - `/asm/groups` returns the full set of unsubscribe groups in a single response with no pagination params.
+- `/stats` returns global email statistics as a bare array of `{date, stats: [{metrics: {...}}]}`
+  buckets. With `aggregated_by=day` (and no breakdown dimension) each bucket holds one `metrics`
+  object, so it flattens to one flat row per day carrying `requests`, `delivered`, `opens`,
+  `clicks`, `bounces`, `spam_reports`, etc. — the send-side denominators the suppression tables
+  lack. `start_date` (YYYY-MM-DD) is a real server-side filter, so it syncs incrementally on the
+  daily `date`; it is also required on every request, so the first sync backfills a fixed window.
+  Free on every SendGrid plan (`stats.read`).
 - Rate limits: most v3 endpoints are generous, but the Email Activity API (`/messages`, deliberately not
   synced here) is capped at ~6 req/min — webhook ingestion is the recommended path for per-event data and
   is left as a follow-up.
