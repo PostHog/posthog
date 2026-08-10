@@ -356,11 +356,6 @@ class TestBackfillTickActivities:
 class TestBackfillsApi(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         self.scanner = ReplayScanner.objects.create(
             team=self.team,
             name="backfill-api-scanner",
@@ -371,7 +366,6 @@ class TestBackfillsApi(APIBaseTest):
         self.base_url = f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/backfills"
 
     def tearDown(self) -> None:
-        self.flag_patcher.stop()
         super().tearDown()
 
     def _window_body(self) -> dict:
