@@ -421,7 +421,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 document.addEventListener('visibilitychange', cache.onVisibilityChange)
             }
         },
-        loadTickets: async () => {
+        loadTickets: async (_, breakpoint) => {
             // We don't support self-hosted, and the conversations extension is cloud-only — both the
             // panel and the tickets scene already render a community-forum message instead. This logic
             // still mounts there (the scene declares it in its SceneExport), so without this it would
@@ -466,6 +466,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             actions.setTicketsLoading(true)
             try {
                 const response = await posthog.conversations.getTickets({ limit: 50 })
+                // Same unmount race as loadMessages: polling and the visibility listener keep this
+                // in flight while the panel can close under it, and kea has dropped the state the
+                // branches below read by then.
+                breakpoint()
                 if (response) {
                     actions.setTickets(response.results as ConversationTicket[])
                     if (response.results.length > 0) {
@@ -473,6 +477,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     }
                 }
             } catch (e) {
+                // The request can also reject after the unmount, so re-check before reading values
+                // below and reporting a panel nobody has open as a failure the customer saw.
+                breakpoint()
                 console.error('Failed to load tickets:', e)
                 // Reported because a customer who can't see their tickets can't reply to support on
                 // them either, and the toast alone left us blind to how often that happens
@@ -506,7 +513,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 cache.pollTimer = null
             }
         },
-        loadMessages: async ({ ticketId }) => {
+        loadMessages: async ({ ticketId }, breakpoint) => {
             if (!ticketId || !posthog.conversations) {
                 return
             }
@@ -519,6 +526,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Fetch all pages of messages using `after` timestamp pagination
                 while (hasMore) {
                     const response = await (posthog.conversations.getMessages as any)(ticketId, after)
+                    // Closing the side panel unmounts this logic and kea drops its state from the
+                    // store, so the `values` read below would throw instead of returning a ticket.
+                    // Breaking out also discards the pages fetched so far, which is what we want:
+                    // nothing renders them, and reopening the panel loads the thread again.
+                    breakpoint()
                     // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
                     if (!response || values.currentTicket?.id !== ticketId) {
                         return
@@ -543,6 +555,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setMessages(transformedMessages)
                 actions.setHasMoreMessages(false)
             } catch (e) {
+                // The request can also reject after the unmount, so re-check before reporting.
+                // A thread nobody is looking at anymore is not a failure the customer saw, and
+                // counting it inflates the thread_load_failed rate we watch.
+                breakpoint()
                 console.error('Failed to load messages:', e)
                 // A thread that won't open is a customer who can't continue a conversation they
                 // already started, so it belongs in the same rate signal as a dead panel
@@ -560,6 +576,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!content.trim() || values.messageSending) {
                 return
             }
+            // In "new" view we force creation of a new ticket. Read once up front, because the send
+            // can outlive the panel: closing it unmounts this logic and kea drops its state from the
+            // store, so reading `values.view` again after the await would throw and report a send
+            // that actually succeeded as a failure.
+            const isNewTicket = values.view === 'new'
             // Bailing quietly here left the button un-loaded and the typed message sitting in the box
             // with no explanation, which is the worst version of this now conversations is the only channel
             if (!posthog.conversations) {
@@ -567,7 +588,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     surface: 'side_panel_composer',
                     reason: 'widget_unavailable',
                     message: content,
-                    is_new_ticket: values.view === 'new',
+                    is_new_ticket: isNewTicket,
                 })
                 warnSupportWidgetUnavailable()
                 return
@@ -577,19 +598,16 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     surface: 'side_panel_composer',
                     reason: 'message_too_long',
                     message: content,
-                    is_new_ticket: values.view === 'new',
+                    is_new_ticket: isNewTicket,
                 })
                 return
             }
             actions.setMessageSending(true)
             try {
-                // If we're in "new" view, force creation of a new ticket
-                const forceNewTicket = values.view === 'new'
-
-                const response = await posthog.conversations.sendMessage(content, {}, forceNewTicket)
+                const response = await posthog.conversations.sendMessage(content, {}, isNewTicket)
                 if (response) {
                     // If we just created a new ticket, set it as current and switch to chat view
-                    if (values.view === 'new') {
+                    if (isNewTicket) {
                         actions.setCurrentTicket({
                             id: response.ticket_id,
                             status: response.ticket_status,
@@ -614,7 +632,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         surface: 'side_panel_composer',
                         reason: 'widget_declined',
                         message: content,
-                        is_new_ticket: values.view === 'new',
+                        is_new_ticket: isNewTicket,
                     })
                     lemonToast.error('Failed to send message. Please try again.', {
                         button: EMAIL_SUPPORT_BUTTON,
@@ -627,7 +645,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     reason: 'send_failed',
                     message: content,
                     error: e,
-                    is_new_ticket: values.view === 'new',
+                    is_new_ticket: isNewTicket,
                 })
                 lemonToast.error('Failed to send message. Please try again.', { button: EMAIL_SUPPORT_BUTTON })
             } finally {

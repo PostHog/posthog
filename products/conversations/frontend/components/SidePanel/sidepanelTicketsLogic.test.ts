@@ -302,6 +302,44 @@ describe('sidepanelTicketsLogic', () => {
         expect(supportLogic.values.pendingViewTicket).toBeNull()
     })
 
+    // Closing the panel unmounts this logic, and kea removes its state from the store with it. The
+    // fetch still in flight then resumed against a store that no longer held the ticket it reads, and
+    // the error that threw was reported as a failed thread, so the customer got a "Failed to load
+    // messages" toast over a panel they had already closed.
+    it('stays quiet when the panel closes while a thread is still loading', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        let deliverMessages: (response: unknown) => void = () => {}
+        ;(posthog as any).conversations.getMessages = jest.fn(
+            () =>
+                new Promise((resolve) => {
+                    deliverMessages = resolve
+                })
+        )
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.setCurrentTicket({
+            id: 'ticket-1',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-13T00:00:00Z',
+            unread_count: 0,
+            last_message_at: '2026-07-13T00:00:00Z',
+        })
+        logic.unmount()
+        deliverMessages({ messages: [], has_more: false })
+        await new Promise(process.nextTick)
+
+        expect(errorToast).not.toHaveBeenCalled()
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support widget load failed')
+        ).toHaveLength(0)
+        errorToast.mockRestore()
+    })
+
     // The panel already shows free plans the community and upgrade options, and they have no email
     // channel, so warning them the chat failed would offer support they don't actually get.
     it.each([
