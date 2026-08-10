@@ -86,6 +86,8 @@ def _opt_in_change_in(entry: ActivityLog) -> Optional[dict]:
     for change in (entry.detail or {}).get("changes") or []:
         if isinstance(change, dict) and change.get("field") == AI_TRAINING_OPT_IN_FIELD:
             return change
+    # Unreachable for any row the containment filter admits, since both encode the same predicate.
+    # It is what keeps them agreeing if that filter is ever loosened.
     return None
 
 
