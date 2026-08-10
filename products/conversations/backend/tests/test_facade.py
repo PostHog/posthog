@@ -14,10 +14,12 @@ from products.conversations.backend.facade.api import (
     SupportMessageSendError,
     list_account_tickets,
     post_support_message,
+    trigger_immediate_channel_summary,
 )
 from products.conversations.backend.models.ticket import Ticket
 
 CLIENT = "products.conversations.backend.facade.api.get_slack_client"
+FACADE = "products.conversations.backend.facade.api"
 
 
 class FakeSlackResponse(dict):
@@ -124,3 +126,58 @@ class TestListAccountTickets(BaseTest):
         self._create_ticket(team=self.team, organization_id="acct-1", number=1)
 
         assert list_account_tickets(self.team.pk, "") == []
+
+
+class TestTriggerImmediateChannelSummary(BaseTest):
+    def _trigger(self) -> bool:
+        return trigger_immediate_channel_summary(
+            team_id=self.team.pk,
+            account_id="e1f4a5b6-0000-4000-8000-000000000001",
+            account_name="Acme Corp",
+            slack_channel_id="C123",
+            cadence="daily",
+            period_start=timezone.now() - timedelta(days=7),
+            period_end=timezone.now(),
+        )
+
+    @parameterized.expand(
+        [
+            ("eligible", True, "xoxb-token", True),
+            # Channel messages go to an LLM, so an org that hasn't approved AI data
+            # processing must never have its channels summarized.
+            ("ai_processing_not_approved", False, "xoxb-token", False),
+            ("support_bot_not_configured", True, "", False),
+        ]
+    )
+    def test_gates_on_org_approval_and_bot_config(self, _name, ai_approved, bot_token, expected_dispatch):
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+
+        with (
+            patch(f"{FACADE}.get_support_slack_bot_token", return_value=bot_token),
+            patch(f"{FACADE}.sync_connect") as connect,
+            patch(f"{FACADE}.asyncio.run") as run,
+        ):
+            dispatched = self._trigger()
+
+        assert dispatched is expected_dispatch
+        assert connect.called is expected_dispatch
+        assert run.called is expected_dispatch
+
+    def test_dispatch_is_keyed_per_account_and_day(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        client = MagicMock()
+
+        with (
+            patch(f"{FACADE}.get_support_slack_bot_token", return_value="xoxb-token"),
+            patch(f"{FACADE}.sync_connect", return_value=client),
+            patch(f"{FACADE}.asyncio.run"),
+        ):
+            self._trigger()
+
+        kwargs = client.start_workflow.call_args.kwargs
+        assert kwargs["id"].startswith("account-channel-summary-initial-e1f4a5b6-0000-4000-8000-000000000001-")
+        workflow_input = client.start_workflow.call_args.args[1]
+        assert workflow_input.slack_channel_id == "C123"
+        assert workflow_input.cadence == "daily"

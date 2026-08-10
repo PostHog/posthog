@@ -10,6 +10,7 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountChannelSummaryApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { periodLabel } from './AccountSummariesExpansion'
 import { accountSummariesLogic } from './accountSummariesLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
@@ -103,6 +104,47 @@ describe('accountSummariesLogic', () => {
         expect(mockPatch).toHaveBeenCalledWith(expect.any(String), 'acc-1', { slack_summary_cadence: 'monthly' })
         expect(logic.values.summariesResult.cadence).toBe('monthly')
         expect(logic.values.cadenceSaving).toBe(false)
+    })
+
+    it('watches for the backfilled first summary after turning summaries on, and stops once it lands', async () => {
+        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        mockPatch.mockResolvedValue(ACCOUNT)
+        await mount()
+
+        logic.actions.setCadence('daily')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.generatingFirstSummary).toBe(true)
+
+        // What the poll's interval does once the backfill lands.
+        mockList.mockResolvedValue({ count: 1, next: null, previous: null, results: [SUMMARY] })
+        logic.actions.loadSummaries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.summariesResult.summaries).toEqual([SUMMARY])
+        expect(logic.values.generatingFirstSummary).toBe(false)
+    })
+
+    it.each([
+        ['the account already has summaries', [SUMMARY], 'daily' as const],
+        ['summaries are being turned off', [], null],
+    ])('does not poll when %s', async (_name, results, cadence) => {
+        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockList.mockResolvedValue({ count: results.length, next: null, previous: null, results })
+        mockPatch.mockResolvedValue(ACCOUNT)
+        await mount()
+
+        logic.actions.setCadence(cadence)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.generatingFirstSummary).toBe(false)
+    })
+
+    it.each([
+        ['2026-07-27T00:00:00Z', '2026-07-28T00:00:00Z', '2026-07-27'],
+        ['2026-07-21T00:00:00Z', '2026-07-28T15:30:00Z', '2026-07-21 to 2026-07-28'],
+    ])('labels a daily summary spanning %s to %s as "%s"', (period_start, period_end, expected) => {
+        expect(periodLabel({ ...SUMMARY, cadence: 'daily', period_start, period_end })).toBe(expected)
     })
 
     it('a failed cadence save keeps the previous cadence and resets the saving flag', async () => {

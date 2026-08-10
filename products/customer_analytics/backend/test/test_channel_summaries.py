@@ -1,7 +1,8 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,7 +10,10 @@ from rest_framework import status
 from posthog.models import Team
 
 from products.customer_analytics.backend.facade import api as facade
-from products.customer_analytics.backend.logic.channel_summaries import get_last_closed_period
+from products.customer_analytics.backend.logic.channel_summaries import (
+    get_initial_summary_period,
+    get_last_closed_period,
+)
 from products.customer_analytics.backend.models import Account, AccountChannelSummary
 from products.customer_analytics.backend.test.factories import create_account
 
@@ -65,6 +69,28 @@ class TestGetLastClosedPeriod:
         assert end == expected_end
 
 
+class TestGetInitialSummaryPeriod:
+    @parameterized.expand(
+        [
+            ("daily_looks_back_a_week", "daily", datetime(2026, 7, 21, 0, 0, tzinfo=SP)),
+            ("weekly_looks_back_a_week", "weekly", datetime(2026, 7, 21, 0, 0, tzinfo=SP)),
+            ("monthly_looks_back_a_month", "monthly", datetime(2026, 6, 28, 0, 0, tzinfo=SP)),
+        ]
+    )
+    def test_window_starts_at_local_midnight_and_ends_now(self, _name, cadence, expected_start):
+        now = datetime(2026, 7, 28, 15, 30, tzinfo=UTC)
+
+        start, end = get_initial_summary_period(cadence, now, SP)
+
+        assert start == expected_start
+        assert end == now
+
+    def test_monthly_across_a_year_boundary(self):
+        start, _ = get_initial_summary_period("monthly", datetime(2026, 1, 15, 12, 0, tzinfo=UTC), SP)
+
+        assert start == datetime(2025, 12, 15, 0, 0, tzinfo=SP)
+
+
 class TestListAccountsDueForSlackSummary(BaseTest):
     NOW = datetime(2026, 7, 28, 15, 30, tzinfo=UTC)
 
@@ -115,6 +141,28 @@ class TestListAccountsDueForSlackSummary(BaseTest):
         )
 
         assert facade.list_accounts_due_for_slack_summary(now=self.NOW) == []
+
+    def test_opt_in_summary_covers_the_closed_period_then_stops_covering_the_next_one(self):
+        account = self._opted_in_account()
+        period_start, period_end = get_initial_summary_period("daily", self.NOW, ZoneInfo("UTC"))
+        facade.record_channel_summary(
+            team_id=self.team.id,
+            account_id=str(account.id),
+            slack_channel_id="C123",
+            cadence="daily",
+            period_start=period_start,
+            period_end=period_end,
+            content="opt-in backfill",
+            message_count=9,
+        )
+
+        assert facade.list_accounts_due_for_slack_summary(now=self.NOW) == []
+
+        tomorrow = self.NOW + timedelta(days=1)
+        due = facade.list_accounts_due_for_slack_summary(now=tomorrow)
+
+        assert [d.account_id for d in due] == [str(account.id)]
+        assert due[0].period_start == datetime(2026, 7, 28, 0, 0, tzinfo=UTC)
 
     def test_summary_for_another_cadence_does_not_satisfy_the_period(self):
         account = self._opted_in_account(slack_summary_cadence="monthly")
@@ -240,6 +288,48 @@ class TestAccountSummariesEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         self.account.refresh_from_db()
         assert self.account.slack_summary_cadence is None
+
+    @parameterized.expand(
+        [
+            ("turning_on", None, {"slack_channel_id": "C123"}, {"slack_summary_cadence": "daily"}, True),
+            ("turning_off", "daily", {"slack_channel_id": "C123"}, {"slack_summary_cadence": None}, False),
+            ("switching_cadence", "daily", {"slack_channel_id": "C123"}, {"slack_summary_cadence": "weekly"}, False),
+            ("no_channel_bound", None, {}, {"slack_summary_cadence": "daily"}, False),
+            ("unrelated_field", None, {"slack_channel_id": "C123"}, {"name": "Renamed"}, False),
+        ]
+    )
+    def test_turning_summaries_on_backfills_immediately(self, _name, cadence, properties, payload, expected_dispatch):
+        account = create_account(team_id=self.team.id, slack_summary_cadence=cadence, _properties=properties)
+
+        with patch("products.customer_analytics.backend.facade.api.trigger_immediate_channel_summary") as dispatch:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/accounts/{account.id}/", payload, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert dispatch.called is expected_dispatch
+        if expected_dispatch:
+            kwargs = dispatch.call_args.kwargs
+            assert kwargs["slack_channel_id"] == "C123"
+            assert kwargs["cadence"] == "daily"
+            assert kwargs["period_start"] < kwargs["period_end"]
+
+    def test_a_failed_backfill_does_not_fail_the_update(self):
+        account = create_account(team_id=self.team.id, _properties={"slack_channel_id": "C123"})
+
+        with patch(
+            "products.customer_analytics.backend.facade.api.trigger_immediate_channel_summary",
+            side_effect=RuntimeError("temporal is down"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/accounts/{account.id}/",
+                {"slack_summary_cadence": "daily"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        account.refresh_from_db()
+        assert account.slack_summary_cadence == "daily"
 
     def test_invalid_cadence_is_rejected(self):
         response = self.client.patch(

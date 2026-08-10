@@ -2,10 +2,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonDropdown, LemonSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDropdown, LemonSelect, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
@@ -57,10 +58,15 @@ function CadencePicker({ accountId }: { accountId: string }): JSX.Element {
     )
 }
 
-function periodLabel(summary: AccountChannelSummaryApi): string {
+export function periodLabel(summary: AccountChannelSummaryApi): string {
     const start = summary.period_start.slice(0, 10)
-    // period_end is exclusive; a daily summary covers a single day.
-    return summary.cadence === 'daily' ? start : `${start} to ${summary.period_end.slice(0, 10)}`
+    // Span, not cadence: the summary written when summaries are turned on covers a trailing
+    // week or month under whichever cadence was picked, so a daily one isn't always a day.
+    if (dayjs(summary.period_end).diff(summary.period_start, 'day') <= 1) {
+        // period_end is exclusive, so a single day's end already reads as the next date.
+        return start
+    }
+    return `${start} to ${summary.period_end.slice(0, 10)}`
 }
 
 function MessageCountBadge({ summary }: { summary: AccountChannelSummaryApi }): JSX.Element {
@@ -136,7 +142,7 @@ function SummaryCard({
 }
 
 export function AccountSummariesExpansion({ accountId }: { accountId: string }): JSX.Element {
-    const { summariesResult, summariesResultLoading, page, expandedSummaryIds } = useValues(
+    const { summariesResult, summariesResultLoading, page, expandedSummaryIds, generatingFirstSummary } = useValues(
         accountSummariesLogic({ accountId })
     )
     const { loadSummariesPage, toggleSummaryExpanded } = useActions(accountSummariesLogic({ accountId }))
@@ -166,6 +172,19 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
     }
 
     if (!summaries || summaries.length === 0) {
+        if (generatingFirstSummary) {
+            return (
+                <SummariesEmptyState
+                    title="Generating your first summary"
+                    detail={`We're summarizing the last ${
+                        cadence === SlackSummaryCadenceEnumApi.Monthly ? 'month' : '7 days'
+                    } of this channel. This usually takes a minute.`}
+                >
+                    <Spinner className="text-xl" />
+                    <CadencePicker accountId={accountId} />
+                </SummariesEmptyState>
+            )
+        }
         return (
             <SummariesEmptyState
                 title={cadence ? 'No summaries yet' : 'Summaries are off'}

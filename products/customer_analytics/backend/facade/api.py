@@ -38,6 +38,7 @@ from django.db.models import (
     Field,
     FloatField,
     IntegerField,
+    Max,
     OuterRef,
     Prefetch,
     Q,
@@ -71,6 +72,7 @@ from products.conversations.backend.facade.api import (
     SupportSlackNotConfigured,
     TicketSummary as TicketSummary,
     list_account_tickets,
+    trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.events import emit_account_tags_added
@@ -2798,7 +2800,37 @@ def update_account_for_view(
         was_impersonated=was_impersonated,
         previous=previous,
     )
+    # Off-to-on only. A cadence change while already on doesn't qualify, because the
+    # coordinator picks the new cadence's closed period up within the hour and one summary
+    # per switch is LLM spend nobody asked for.
+    if not previous.slack_summary_cadence and account.slack_summary_cadence:
+        _dispatch_initial_channel_summary(account)
     return _to_account_view(account)
+
+
+def _dispatch_initial_channel_summary(account: Account) -> None:
+    """Summarize the account's channel now so the user sees a summary without waiting for
+    the first period to close."""
+    cadence = account.slack_summary_cadence
+    slack_channel_id = (account._properties or {}).get("slack_channel_id")
+    if not cadence or not slack_channel_id:
+        return
+    period_start, period_end = _channel_summaries_logic.get_initial_summary_period(
+        cadence, timezone.now(), account.team.timezone_info
+    )
+    try:
+        trigger_immediate_channel_summary(
+            team_id=account.team_id,
+            account_id=str(account.id),
+            account_name=account.name,
+            slack_channel_id=slack_channel_id,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+        )
+    except Exception as e:
+        # The cadence is already saved and the coordinator will catch up. Never fail the write.
+        capture_exception(e, {"team_id": account.team_id, "account_id": str(account.id)})
 
 
 def delete_account_for_view(
@@ -2987,15 +3019,21 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
         )
     if not candidates:
         return []
-    existing = set(
-        AccountChannelSummary.objects.unscoped()
-        .filter(
-            account_id__in=[c.account_id for c in candidates],
-            period_start__in={c.period_start for c in candidates},
-        )
-        .values_list("account_id", "cadence", "period_start")
-    )
-    return [c for c in candidates if (UUID(c.account_id), c.cadence, c.period_start) not in existing]
+    # Coverage, not an exact period match: the summary written when an account opts in spans a
+    # trailing window ending at that moment, so it already covers the last closed period and
+    # must suppress it. The next period reaches past that window and is due normally.
+    covered_through = {
+        (str(row["account_id"]), row["cadence"]): row["latest_period_end"]
+        for row in AccountChannelSummary.objects.unscoped()
+        .filter(account_id__in=[c.account_id for c in candidates])
+        .values("account_id", "cadence")
+        .annotate(latest_period_end=Max("period_end"))
+    }
+    return [
+        c
+        for c in candidates
+        if (covered := covered_through.get((c.account_id, c.cadence))) is None or covered < c.period_end
+    ]
 
 
 def get_account_slack_summary_binding(team_id: int, account_id: str) -> contracts.AccountSlackSummaryBinding | None:
