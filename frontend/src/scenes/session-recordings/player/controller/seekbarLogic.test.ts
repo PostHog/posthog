@@ -47,5 +47,7 @@ describe('seekbarLogic', () => {
         logic.actions.setThumbLeftPos(thumbLeftPos, false)
 
         expect(logic.values.scrubbingTime).toBe(expected)
+        // scrubbingTimeSeconds is what the drag label renders, so lock it too
+        expect(logic.values.scrubbingTimeSeconds).toBe(Math.floor(expected / 1000))
     })
 })
