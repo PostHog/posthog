@@ -65,6 +65,7 @@ DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-regist
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 S3_COPY_BATCH_SIZE = 16
+_PARQUET_FILE_GLOB = "**/*.[pP][aA][rR][qQ][uU][eE][tT]"
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 
 
@@ -295,6 +296,7 @@ async def prepare_ducklake_data_imports_registration_activity(
             ducklake_table_name=ducklake_table_name,
             source_schema_id=str(inputs.schema_id),
             job_id=inputs.job_id,
+            prepared_queryable_folder=inputs.prepared_queryable_folder,
         )
         return DuckLakeRegisterDataImportsMetadata(
             source_schema_id=str(schema.id),
@@ -322,10 +324,15 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
         logger=logger,
     )
     with heartbeater:
+        landing_uri = _generation_scoped_landing_uri(
+            inputs.metadata.landing_uri,
+            job_id=inputs.job_id,
+            prepared_queryable_folder=inputs.metadata.prepared_queryable_folder,
+        )
         with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
             landing_paths, copied_bytes = _copy_prepared_parquet_files(
                 inputs.metadata.prepared_source_uri,
-                inputs.metadata.landing_uri,
+                landing_uri,
             )
         if not _prepared_generation_is_current(inputs):
             get_ducklake_register_data_imports_stale_metric(
@@ -358,7 +365,7 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             "Copied, verified, and registered prepared Parquet files in DuckLake",
             ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
             file_count=len(landing_paths),
-            landing_uri=inputs.metadata.landing_uri,
+            landing_uri=landing_uri,
         )
         return True
 
@@ -411,6 +418,7 @@ def _resolve_data_imports_landing_uri(
     ducklake_table_name: str,
     source_schema_id: str,
     job_id: str,
+    prepared_queryable_folder: str,
 ) -> str:
     if is_dev_mode():
         bucket = get_config().get("DUCKLAKE_BUCKET")
@@ -421,10 +429,33 @@ def _resolve_data_imports_landing_uri(
         raise ApplicationError(f"No S3 bucket configured for team {team_id}", non_retryable=True)
 
     safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
-    return (
+    job_landing_uri = (
         f"s3://{bucket}/{ducklake_schema_name}/{ducklake_table_name}/"
         f"{DATA_IMPORTS_GENERATIONS_PREFIX}/{source_schema_id}/{safe_job_id}"
     )
+    return _generation_scoped_landing_uri(
+        job_landing_uri,
+        job_id=job_id,
+        prepared_queryable_folder=prepared_queryable_folder,
+    )
+
+
+def _generation_scoped_landing_uri(
+    landing_uri: str,
+    *,
+    job_id: str,
+    prepared_queryable_folder: str,
+) -> str:
+    normalized_uri = landing_uri.rstrip("/")
+    safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
+    generation_token = _generation_token(prepared_queryable_folder)
+    generation_suffix = f"/{safe_job_id}/{generation_token}"
+    if normalized_uri.endswith(generation_suffix):
+        return normalized_uri
+    if normalized_uri.endswith(f"/{safe_job_id}"):
+        # Activity inputs can outlive worker deployments, so accept a recorded job-scoped URI.
+        return f"{normalized_uri}/{generation_token}"
+    raise ApplicationError("DuckLake landing URI does not match the registration job", non_retryable=True)
 
 
 def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[list[str], int]:
@@ -497,8 +528,13 @@ def _register_prepared_parquet_files(
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
     shadow_name, previous_name = _new_registration_table_names()
-    parquet_paths = psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(path) for path in landing_paths))
-    partition_columns = _hive_partition_columns(inputs.metadata.landing_uri, landing_paths)
+    landing_uri = _generation_scoped_landing_uri(
+        inputs.metadata.landing_uri,
+        job_id=inputs.job_id,
+        prepared_queryable_folder=inputs.metadata.prepared_queryable_folder,
+    )
+    parquet_glob = psql.Literal(f"{landing_uri}/{_PARQUET_FILE_GLOB}")
+    partition_columns = _hive_partition_columns(landing_uri, landing_paths)
 
     setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
     shadow_is_published = False
@@ -513,7 +549,7 @@ def _register_prepared_parquet_files(
                 ).format(
                     psql.Identifier(schema_name),
                     psql.Identifier(shadow_name),
-                    parquet_paths,
+                    parquet_glob,
                 )
             )
             if partition_columns:
@@ -531,7 +567,7 @@ def _register_prepared_parquet_files(
                 ).format(
                     psql.Literal("ducklake"),
                     psql.Literal(shadow_name),
-                    parquet_paths,
+                    parquet_glob,
                     psql.Literal(schema_name),
                 )
             )
@@ -539,7 +575,7 @@ def _register_prepared_parquet_files(
         with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             source_row = conn.execute(
                 psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
-                    parquet_paths
+                    parquet_glob
                 )
             ).fetchone()
             registered_row = conn.execute(

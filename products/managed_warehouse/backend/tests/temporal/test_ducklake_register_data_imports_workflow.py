@@ -137,10 +137,31 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
     folder_path = await database_sync_to_async(schema.folder_path)()
     assert metadata.prepared_source_uri.endswith(f"/{folder_path}/{prepared_queryable_folder}")
     assert metadata.landing_uri == (
-        f"s3://ducklake-dev/posthog_data_imports_team_{ateam.id}/postgres_customers/_imports/{schema.id}/job-123"
+        f"s3://ducklake-dev/posthog_data_imports_team_{ateam.id}/postgres_customers/"
+        f"_imports/{schema.id}/job-123/1234567890_abcdef12"
     )
     assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "postgres_customers"
+
+
+@parameterized.expand(
+    [
+        (
+            "job_scoped",
+            "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job",
+        ),
+        (
+            "generation_scoped",
+            "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/1234567890_abcdef12",
+        ),
+    ]
+)
+def test_landing_uri_normalizes_to_prepared_generation(_name: str, landing_uri: str) -> None:
+    assert registration_module._generation_scoped_landing_uri(
+        landing_uri,
+        job_id="job",
+        prepared_queryable_folder="customers__query_1234567890_abcdef12",
+    ) == ("s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/1234567890_abcdef12")
 
 
 def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monkeypatch):
@@ -219,14 +240,14 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     assert s3.copy_calls == [
         (
             [
-                "source/team/customers__query/_ph_partition_key=2026-07/a.parquet",
-                "source/team/customers__query/_ph_partition_key=2026-08/b.parquet",
+                "source/team/customers__query_1234567890_abcdef12/_ph_partition_key=2026-07/a.parquet",
+                "source/team/customers__query_1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet",
             ],
             [
                 "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-                "_ph_partition_key=2026-07/a.parquet",
+                "1234567890_abcdef12/_ph_partition_key=2026-07/a.parquet",
                 "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-                "_ph_partition_key=2026-08/b.parquet",
+                "1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet",
             ],
             S3_COPY_BATCH_SIZE,
         )
@@ -240,8 +261,14 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     )
     assert len(registration_indexes) == 1
     registration_query = executed[registration_indexes[0]]
-    assert "_ph_partition_key=2026-07/a.parquet" in registration_query
-    assert "_ph_partition_key=2026-08/b.parquet" in registration_query
+    parquet_glob = (
+        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+        "1234567890_abcdef12/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
+    )
+    assert parquet_glob in registration_query
+    assert sum(parquet_glob in query for query in executed) == 3
+    assert not any("_ph_partition_key=2026-07/a.parquet" in query for query in executed)
+    assert not any("_ph_partition_key=2026-08/b.parquet" in query for query in executed)
     assert len(verification_indexes) == 2
     assert len(rename_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
@@ -649,8 +676,8 @@ def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
         job_id="job",
         metadata=DuckLakeRegisterDataImportsMetadata(
             source_schema_id="schema",
-            prepared_queryable_folder="customers__query",
-            prepared_source_uri="s3://source/team/customers__query",
+            prepared_queryable_folder="customers__query_1234567890_abcdef12",
+            prepared_source_uri="s3://source/team/customers__query_1234567890_abcdef12",
             landing_uri="s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job",
             ducklake_schema_name="posthog_data_imports_team_1",
             ducklake_table_name="postgres_customers",
