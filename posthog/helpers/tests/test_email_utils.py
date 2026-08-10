@@ -18,9 +18,11 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    reject_plus_addressed_email,
     sanitize_display_name,
     sanitize_email_string,
     sanitize_message_body,
+    strip_email_alias,
     validate_display_name,
     validate_message_body,
 )
@@ -93,6 +95,58 @@ class TestEmailValidationHelper(TestCase):
                 with self.subTest(email=email_variation):
                     result = EmailValidationHelper.user_exists(email_variation)
                     self.assertTrue(result)
+        finally:
+            user.delete()
+
+
+class TestStripEmailAlias(SimpleTestCase):
+    def test_strip_email_alias(self):
+        test_cases = [
+            ("someuser+someprefix@domain.com", "someuser@domain.com"),
+            ("someuser@domain.com", "someuser@domain.com"),
+            ("Someuser+Tag@Domain.com", "Someuser@Domain.com"),
+            ("a+b+c@domain.com", "a@domain.com"),
+            ("", ""),
+        ]
+
+        for input_email, expected in test_cases:
+            with self.subTest(input_email=input_email):
+                self.assertEqual(strip_email_alias(input_email), expected)
+
+
+class TestRejectPlusAddressedEmail(SimpleTestCase):
+    def test_rejects_plus_in_local_part(self):
+        with self.assertRaises(serializers.ValidationError) as ctx:
+            reject_plus_addressed_email("someuser+alias@domain.com")
+        self.assertEqual(ctx.exception.get_codes(), ["plus_addressing_not_allowed"])
+
+    def test_allows_email_without_plus(self):
+        # Should not raise.
+        reject_plus_addressed_email("someuser@domain.com")
+
+
+class TestUserExistsWithStrippedAlias(TestCase):
+    def test_no_match(self):
+        self.assertFalse(EmailValidationHelper.user_exists_with_stripped_alias("nobody@example.com"))
+
+    def test_matches_existing_plain_email(self):
+        user = User.objects.create_user(email="based@example.com", password=None, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias("based+new@example.com"))
+        finally:
+            user.delete()
+
+    def test_matches_existing_aliased_email(self):
+        user = User.objects.create_user(email="based+old@example.com", password=None, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias("based@example.com"))
+        finally:
+            user.delete()
+
+    def test_does_not_match_different_local_part(self):
+        user = User.objects.create_user(email="based@example.com", password=None, first_name="Base")
+        try:
+            self.assertFalse(EmailValidationHelper.user_exists_with_stripped_alias("basedxyz@example.com"))
         finally:
             user.delete()
 
@@ -356,18 +410,18 @@ class TestValidateDisplayName(SimpleTestCase):
             ("tab", "foo\tbar", "invalid_control_char"),
             ("null", "foo\x00bar", "invalid_control_char"),
             ("del", "foo\x7fbar", "invalid_control_char"),
-            ("line_separator", "foo\u2028bar", "invalid_control_char"),
-            ("paragraph_separator", "foo\u2029bar", "invalid_control_char"),
-            ("next_line", "foo\u0085bar", "invalid_control_char"),
+            ("line_separator", "foo bar", "invalid_control_char"),
+            ("paragraph_separator", "foo bar", "invalid_control_char"),
+            ("next_line", "foobar", "invalid_control_char"),
             ("www_embedded", "myname www.scam.io", "invalid_url"),
             ("javascript_scheme", "click javascript:alert(1)", "invalid_url"),
             ("data_scheme", "see data:text/html,x", "invalid_url"),
             ("vbscript_scheme", "run vbscript:msgbox", "invalid_url"),
-            ("fullwidth_url", "go \uff48\uff54\uff54\uff50\uff1a\uff0f\uff0fevil.com", "invalid_url"),
+            ("fullwidth_url", "go ｈｔｔｐ：／／evil.com", "invalid_url"),
             ("lt", "foo<bar", "invalid_bracket"),
             ("gt", "link > here", "invalid_bracket"),
-            ("zero_width", "foo\u200bbar", "invalid_invisible_char"),
-            ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+            ("zero_width", "foo​bar", "invalid_invisible_char"),
+            ("rtl_override", "foo‮bar", "invalid_invisible_char"),
         ]
     )
     def test_rejects(self, _name: str, value: str, expected_code: str) -> None:
@@ -398,14 +452,14 @@ class TestValidateMessageBody(SimpleTestCase):
             ("www", "Visit www.scam.io", "invalid_url"),
             ("javascript_scheme", "click javascript:alert(1)", "invalid_url"),
             ("data_scheme", "see data:text/html,x", "invalid_url"),
-            ("fullwidth_url", "go \uff48\uff54\uff54\uff50\uff1a\uff0f\uff0fevil.com", "invalid_url"),
+            ("fullwidth_url", "go ｈｔｔｐ：／／evil.com", "invalid_url"),
             ("bracket", "hello <there>", "invalid_bracket"),
-            ("invisible", "foo\u200bbar", "invalid_invisible_char"),
-            ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+            ("invisible", "foo​bar", "invalid_invisible_char"),
+            ("rtl_override", "foo‮bar", "invalid_invisible_char"),
             ("non_newline_control", "foo\x01bar", "invalid_control_char"),
             ("carriage_return", "foo\rbar", "invalid_control_char"),
             ("del", "foo\x7fbar", "invalid_control_char"),
-            ("line_separator", "foo\u2028bar", "invalid_control_char"),
+            ("line_separator", "foo bar", "invalid_control_char"),
         ]
     )
     def test_rejects(self, _name: str, value: str, expected_code: str) -> None:
@@ -430,7 +484,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
         [
             ("plain", "Acme Inc", "Acme Inc"),
             ("strips_whitespace", "  Acme Inc  ", "Acme Inc"),
-            ("unicode_name", "\u00c9mile", "\u00c9mile"),
+            ("unicode_name", "Émile", "Émile"),
             # Bare-domain org names round-trip; the defang happens later in
             # `sanitize_email_properties` at render time.
             ("bare_domain", "acme.com", "acme.com"),
@@ -445,7 +499,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
             ("www", "www.scam.io"),
             ("javascript_scheme", "javascript:alert(1)"),
             ("bracket", "<acme>"),
-            ("zero_width", "foo\u200bbar"),
+            ("zero_width", "foo​bar"),
             ("newline", "line1\nline2"),
         ]
     )

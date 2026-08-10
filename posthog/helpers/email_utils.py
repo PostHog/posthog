@@ -17,7 +17,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 import requests
 import structlog
@@ -40,10 +40,10 @@ _BARE_DOMAIN_RE = re.compile(
     r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b",
     re.IGNORECASE,
 )
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
-_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f  ]")
+_NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f  ]")
 _BRACKET_RE = re.compile(r"[<>]")
-_INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+_INVISIBLE_CHAR_RE = re.compile(r"[​-‏‪-‮⁦-⁩﻿]")
 
 _URL_ERROR = "URLs are not allowed in this field."
 _CONTROL_ERROR = "Line breaks and control characters are not allowed in this field."
@@ -55,7 +55,7 @@ def _check_shared(value: str) -> None:
     """
     Run the checks shared between display names and message bodies against an
     NFKC-normalized copy of `value`. Normalization folds fullwidth / compat
-    variants (e.g. `ｈｔｔｐ：／／` \u2192 `http://`) before regex matching.
+    variants (e.g. `ｈｔｔｐ：／／` → `http://`) before regex matching.
     """
     normalized = unicodedata.normalize("NFKC", value)
     if _INVISIBLE_CHAR_RE.search(normalized):
@@ -247,6 +247,29 @@ class EmailNormalizer:
         return email.lower()
 
 
+def strip_email_alias(email: str) -> str:
+    """
+    Strip a Gmail-style '+suffix' from the local part of an email (e.g.
+    'someuser+alias@domain.com' -> 'someuser@domain.com'). Comparison-only —
+    never use this for the email that actually gets stored.
+    """
+    if not email:
+        return email
+    local, _, domain = email.rpartition("@")
+    local = local.split("+", 1)[0]
+    return f"{local}@{domain}"
+
+
+def reject_plus_addressed_email(value: str) -> None:
+    """Raise if the local part of `value` contains '+'."""
+    local = value.split("@", 1)[0]
+    if "+" in local:
+        raise serializers.ValidationError(
+            "Email addresses with a '+' aren't supported. Please use your primary email address.",
+            code="plus_addressing_not_allowed",
+        )
+
+
 class EmailLookupHandler:
     @staticmethod
     def get_user_by_email(email: str, is_active: Optional[bool] = True) -> Optional["User"]:
@@ -326,6 +349,19 @@ class EmailValidationHelper:
     @staticmethod
     def user_exists(email: str) -> bool:
         return EmailLookupHandler.get_user_by_email(email) is not None
+
+    @staticmethod
+    def user_exists_with_stripped_alias(email: str) -> bool:
+        """True if any existing active user's email, once its '+alias' is stripped, equals `email`."""
+        from posthog.models.user import User
+
+        stripped = strip_email_alias(email)
+        local, _, domain = stripped.rpartition("@")
+        return (
+            User.objects.filter(is_active=True)
+            .filter(Q(email__iexact=stripped) | (Q(email__istartswith=f"{local}+") & Q(email__iendswith=f"@{domain}")))
+            .exists()
+        )
 
 
 ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day
