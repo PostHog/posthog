@@ -37,7 +37,7 @@ pub fn is_media_src_attr(name: &str) -> bool {
 /// holds several candidates with descriptors, so it needs a parse and a choice of which candidate
 /// to fetch. `href` and `xlink:href` on a media tag are as often a link or an SVG fragment
 /// reference as they are an image. Both can be added later without changing anything else here.
-fn is_fetchable_src_attr(name: &str) -> bool {
+pub(crate) fn is_fetchable_src_attr(name: &str) -> bool {
     matches!(name, "src" | "rr_src" | "poster")
 }
 

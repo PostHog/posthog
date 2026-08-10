@@ -73,8 +73,8 @@ pub use event::{
 };
 pub use images::ImagePolicy;
 pub use snapshot::{
-    anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_kafka_payload_timed,
-    AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,
+    anonymize_kafka_payload, anonymize_kafka_payload_collecting, anonymize_kafka_payload_opts,
+    anonymize_kafka_payload_timed, AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,
 };
 pub use timings::{PhaseTimings, PhaseTimingsSnapshot};
 #[cfg(feature = "typed-parse")]

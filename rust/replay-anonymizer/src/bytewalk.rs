@@ -13,7 +13,9 @@
 //! scrubber), any object with more keys than the dup check covers, or any structural surprise makes
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
-use crate::assets::{is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
+use crate::assets::{
+    is_fetchable_src_attr, is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
+};
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
@@ -883,7 +885,8 @@ impl<'c, 'a> Walker<'c, 'a> {
     }
 
     /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
-    /// blurred; remote URLs become the placeholder with the host-scrubbed original stashed.
+    /// blurred; a remote URL becomes a fetch-lane ref when collection is on, and the placeholder
+    /// otherwise. Either way the host-scrubbed original is stashed alongside.
     fn blur_media_src(
         &mut self,
         name: &str,
@@ -907,8 +910,14 @@ impl<'c, 'a> Walker<'c, 'a> {
             let blurred = self.ctx.scrub_image(&existing, ImageFallback::Placeholder);
             scan::write_json_string(&blurred, out);
         } else {
+            let collected = is_fetchable_src_attr(name)
+                .then(|| self.ctx.collect_url(&existing))
+                .flatten();
             let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
-            scan::write_json_string(PLACEHOLDER_SRC, out);
+            match collected {
+                Some(url_ref) => scan::write_json_string(&url_ref, out),
+                None => scan::write_json_string(PLACEHOLDER_SRC, out),
+            }
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }
         self.changed = true;
