@@ -6,7 +6,11 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gladly import GladlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import GladlyResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import ENDPOINTS, REPORT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
+    ENDPOINTS,
+    REPORT_ENDPOINTS,
+    REPORT_INCREMENTAL_LOOKBACK_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source import GladlySource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -74,17 +78,32 @@ class TestGladlySource:
 
         for schema in schemas:
             # Job-export streams cursor on the injected job watermark; report
-            # streams cursor on the event's own recorded time.
-            expected = ["timestamp"] if schema.name in REPORT_ENDPOINTS else ["_job_updated_at"]
+            # streams cursor on the event's own recorded time, and the
+            # conversations report on the conversation's creation timestamp.
+            expected = {
+                "conversations": ["created_at"],
+                "conversation_timestamps": ["timestamp"],
+                "contact_timestamps": ["timestamp"],
+            }.get(schema.name, ["_job_updated_at"])
             assert [f["field"] for f in schema.incremental_fields] == expected
 
-    def test_report_schemas_start_opt_in(self):
+    def test_event_grain_report_schemas_start_opt_in(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         # Event-grain report tables are high-volume, so enabling them must be
-        # an explicit choice; job-export streams keep syncing by default.
+        # an explicit choice; the conversations report and job-export streams
+        # keep syncing by default.
         for schema in schemas:
-            assert schema.should_sync_default is (schema.name not in REPORT_ENDPOINTS)
+            assert schema.should_sync_default is (schema.name not in {"conversation_timestamps", "contact_timestamps"})
+
+    def test_conversations_schema_defaults_to_a_restatement_lookback(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        # Conversation-report rows restate in place, so only that schema
+        # re-reads a trailing window on incremental runs.
+        lookbacks = {schema.name: schema.default_incremental_lookback_seconds for schema in schemas}
+        assert lookbacks.pop("conversations") == REPORT_INCREMENTAL_LOOKBACK_SECONDS
+        assert all(seconds is None for seconds in lookbacks.values())
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["customers"])
