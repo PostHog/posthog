@@ -294,13 +294,77 @@ export function filterExists<T>(value: T): value is NonNullable<T> {
     return Boolean(value)
 }
 
-export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxLength = MAX_LOG_LENGTH): string => {
-    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
+/**
+ * Every configured secret for a hog function, so callers can mask them out of anything they surface.
+ *
+ * A destination's error text is not safe just because we wrote the format string: it routinely
+ * embeds the third party's response body, and an API that rejects a credential tends to quote the
+ * credential back. Anything built from a response body has to go through `redactSensitiveValues`
+ * with this list before it reaches a log, an error, or ClickHouse.
+ */
+export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<string, any>): string[] => {
+    const values: string[] = []
 
-    // Find and replace any sensitive values
-    sensitiveValues?.forEach((sensitiveValue) => {
-        message = message.replaceAll(sensitiveValue, '***REDACTED***')
+    const collectStringValues = (obj: any): void => {
+        if (obj && typeof obj === 'object') {
+            // Assume the values are the sensitive parts
+            Object.values(obj).forEach((val: any) => {
+                if (typeof val === 'string') {
+                    values.push(val)
+                }
+            })
+        }
+    }
+
+    hogFunction.inputs_schema?.forEach((schema) => {
+        if (
+            schema.secret ||
+            schema.type === 'integration' ||
+            schema.type === 'integration_multi' ||
+            schema.type === 'push_subscription'
+        ) {
+            const value = inputs[schema.key]
+            if (typeof value === 'string') {
+                values.push(value)
+            } else if (schema.type === 'integration_multi' && Array.isArray(value)) {
+                // integration_multi resolves to an array of integration objects, each carrying its own
+                // sensitive_config (e.g. APNs signing_key, FCM access_token_raw) — mask every one.
+                value.forEach(collectStringValues)
+            } else if (
+                (schema.type === 'dictionary' ||
+                    schema.type === 'integration' ||
+                    schema.type === 'push_subscription') &&
+                typeof value === 'object'
+            ) {
+                collectStringValues(value)
+            }
+        }
     })
+
+    // We don't want to add "REDACTED" for empty strings
+    return values.filter((v) => v.trim())
+}
+
+export const redactSensitiveValues = (message: string, sensitiveValues?: string[]): string => {
+    // Callers pass `err.message` straight from a catch, where `err` is `any` and need not be an
+    // Error at all, so a non-string reaches this despite the signature. Hand it back untouched
+    // rather than throwing inside the code path that is reporting someone else's failure.
+    if (!message || typeof message !== 'string' || !sensitiveValues?.length) {
+        return message
+    }
+
+    let redacted = message
+    sensitiveValues.forEach((sensitiveValue) => {
+        redacted = redacted.replaceAll(sensitiveValue, '***REDACTED***')
+    })
+    return redacted
+}
+
+export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxLength = MAX_LOG_LENGTH): string => {
+    let message = redactSensitiveValues(
+        args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', '),
+        sensitiveValues
+    )
 
     let truncateAt = maxLength
 
