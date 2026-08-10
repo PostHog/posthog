@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
+    STATS_SUMMARY_REJECTED_MESSAGE,
     SentryResumeConfig,
     _normalize_organization_slug,
     sentry_source,
@@ -122,6 +123,10 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             + ", ".join(REQUIRED_SENTRY_SCOPES)
             + ".",
             "404 Client Error": "Sentry organization not found. Verify your organization slug.",
+            # Raised as `SentryStatsSummaryRejectedError` for any stats-summary 400 other than the
+            # skipped no-projects case (see sentry.py). Deterministic for the request we build, so
+            # stop retrying; the message is defined at the raise site so it stays credential-safe.
+            STATS_SUMMARY_REJECTED_MESSAGE: None,
         }
 
     def get_schemas(

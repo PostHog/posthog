@@ -7,11 +7,13 @@ from unittest.mock import Mock, patch
 from parameterized import parameterized
 from requests.exceptions import HTTPError, JSONDecodeError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
     SentryResumeConfig,
+    SentryStatsSummaryRejectedError,
     _custom_endpoint_rows,
     _normalize_api_base_url,
     _normalize_organization_slug,
@@ -1524,7 +1526,10 @@ class TestSentryCustomIteratorEndpoints:
         assert list(cast(Any, resp.items())) == []
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
-    def test_stats_summary_propagates_other_400_errors(self, mock_request) -> None:
+    def test_stats_summary_other_400_is_classified_non_retryable(self, mock_request) -> None:
+        # Any stats-summary 400 that isn't the skipped no-projects case is deterministic, so it must
+        # fail fast with a credential-safe message the source classifies non-retryable — not burn
+        # retries on the raw HTTPError (whose URL embeds the org slug).
         mock_request.return_value = _response({"detail": 'Invalid field: "bogus"'}, status_code=400)
 
         resp = sentry_source(
@@ -1536,8 +1541,12 @@ class TestSentryCustomIteratorEndpoints:
             job_id="job-id",
         )
 
-        with pytest.raises(HTTPError):
+        with pytest.raises(SentryStatsSummaryRejectedError) as exc_info:
             list(cast(Any, resp.items()))
+
+        message = str(exc_info.value)
+        assert "acme" not in message and "sentry.io" not in message
+        assert error_message_matches(message, SentrySource().get_non_retryable_errors())
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_trace_item_attributes_stamps_dataset_and_skips_unavailable_ones(self, mock_request) -> None:
