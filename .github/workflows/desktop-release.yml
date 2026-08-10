@@ -105,6 +105,17 @@ jobs:
                   node-version: 22
                   package-manager-cache: false
 
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
             - name: Extract version from tag
               id: version
               run: |
@@ -217,9 +228,6 @@ jobs:
                     fi
                     echo "OK: codex-acp/$f"
                   done
-
-            - name: Install Playwright
-              run: pnpm --filter code exec playwright install
 
             - name: Smoke test packaged app
               env:
