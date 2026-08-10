@@ -29,8 +29,8 @@ use std::time::{Duration, Instant};
 use std::{fmt, mem};
 
 use common_kafka::config::KafkaConfig;
-use common_kafka::transaction::TransactionalProducer;
-use dashmap::DashMap;
+use common_kafka::transaction::{ConnectedTransactionalProducer, TransactionalProducer};
+use dashmap::{DashMap, DashSet};
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
 use rdkafka::client::ClientContext;
@@ -135,6 +135,19 @@ struct Gate {
 /// last, which is rarer than the common case this moves.
 fn drop_fence_off_worker(fence: Arc<PartitionFence>) {
     tokio::task::spawn_blocking(move || drop(fence));
+}
+
+/// Clears a partition's preconnect-in-flight mark on drop, so the mark
+/// cannot outlive the preconnect that set it.
+struct ClearPreconnecting<'a> {
+    set: &'a DashSet<u32>,
+    partition: u32,
+}
+
+impl Drop for ClearPreconnecting<'_> {
+    fn drop(&mut self) {
+        self.set.remove(&self.partition);
+    }
 }
 
 struct PartitionFence {
@@ -433,6 +446,17 @@ pub struct FencedChangelogProducers {
     /// payload: the pass re-derives what needs converging, the same way
     /// the tick does. `None` leaves repair to the tick alone.
     repair_nudge: Option<Arc<Notify>>,
+    /// Connected-but-uninitialized producers, one per partition at most,
+    /// parked by `preconnect` for a later `acquire` to claim. Connection
+    /// setup is the slow half of acquisition and touches no broker
+    /// transactional state, so it can run ahead of the authority
+    /// transition; `init_transactions` — the fencing action — still
+    /// happens only inside `acquire`.
+    prepared: DashMap<u32, (Instant, ConnectedTransactionalProducer)>,
+    /// Partitions with a preconnect in flight, so converging repeatedly
+    /// through the pending-ownership window builds one client, not one
+    /// per convergence.
+    preconnecting: DashSet<u32>,
     /// Outcomes a test stages for the next produce on a partition.
     ///
     /// The uncertain outcomes need a broker fault landing inside a
@@ -479,6 +503,8 @@ impl FencedChangelogProducers {
             settle_budget,
             partitions: DashMap::new(),
             repair_nudge: None,
+            prepared: DashMap::new(),
+            preconnecting: DashSet::new(),
             #[cfg(any(test, feature = "test-support"))]
             staged_failures: DashMap::new(),
         }
@@ -498,22 +524,74 @@ impl FencedChangelogProducers {
     /// partition's transactional id. Runs on the blocking pool — init is
     /// a synchronous broker round trip.
     async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionFence>, String> {
-        let kafka = self.kafka.clone();
-        let tid = transactional_id(&self.topic, partition);
         let timeout = self.init_timeout;
-        let broker_txn_timeout = self.broker_txn_timeout;
-        let start = Instant::now();
-        let producer = spawn_blocking(move || {
-            TransactionalProducer::from_config_bounded(&kafka, &tid, timeout, broker_txn_timeout)
-        })
-        .await
-        .map_err(|e| format!("fence init join: {e}"))?
-        .map_err(|e| {
-            counter!("personhog_leader_fence_init_total", "outcome" => "error").increment(1);
-            format!("fence init: {e}")
-        })?;
+        let mut start = Instant::now();
+        // A parked connection skips straight to the init round trip. Its
+        // init failing falls through to the cold path rather than
+        // failing the acquisition: the parked client may simply have
+        // gone stale, and the cold path is exactly the retry that
+        // discards it.
+        let mut path = "cold";
+        let mut producer = None;
+        if let Some((_, (_, connected))) = self.prepared.remove(&partition) {
+            // Every failure shape of the parked client falls through to
+            // the cold path — including its init task dying — because
+            // the cold path is exactly the retry that replaces it.
+            match spawn_blocking(move || connected.init(timeout)).await {
+                Ok(Ok(ready)) => {
+                    path = "prepared";
+                    producer = Some(ready);
+                }
+                Ok(Err((e, connected))) => {
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "init_failed")
+                        .increment(1);
+                    warn!(
+                        partition,
+                        error = %e,
+                        "prepared connection failed to init; falling back to a fresh one"
+                    );
+                    spawn_blocking(move || drop(connected));
+                }
+                Err(e) => {
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "init_failed")
+                        .increment(1);
+                    warn!(
+                        partition,
+                        error = %e,
+                        "prepared init task died; falling back to a fresh connection"
+                    );
+                }
+            }
+        }
+        let producer = match producer {
+            Some(ready) => ready,
+            None => {
+                // Timed from here so a failed prepared attempt cannot
+                // contaminate the cold path's histogram.
+                start = Instant::now();
+                let kafka = self.kafka.clone();
+                let tid = transactional_id(&self.topic, partition);
+                let broker_txn_timeout = self.broker_txn_timeout;
+                spawn_blocking(move || {
+                    TransactionalProducer::from_config_bounded(
+                        &kafka,
+                        &tid,
+                        timeout,
+                        broker_txn_timeout,
+                    )
+                })
+                .await
+                .map_err(|e| format!("fence init join: {e}"))?
+                .map_err(|e| {
+                    counter!("personhog_leader_fence_init_total", "outcome" => "error")
+                        .increment(1);
+                    format!("fence init: {e}")
+                })?
+            }
+        };
         counter!("personhog_leader_fence_init_total", "outcome" => "ok").increment(1);
-        histogram!("personhog_leader_fence_init_ms").record(start.elapsed().as_secs_f64() * 1000.0);
+        histogram!("personhog_leader_fence_init_ms", "path" => path)
+            .record(start.elapsed().as_secs_f64() * 1000.0);
         let installed = Arc::new(PartitionFence {
             producer,
             gate: Mutex::new(Gate {
@@ -558,6 +636,137 @@ impl FencedChangelogProducers {
     pub fn release(&self, partition: u32) {
         if let Some((_, fence)) = self.partitions.remove(&partition) {
             drop_fence_off_worker(fence);
+        }
+        self.discard_prepared(partition);
+    }
+
+    /// Connect the partition's producer ahead of acquisition, so the
+    /// acquire that follows pays only the init round trip. Runs the
+    /// connection on the blocking pool and parks it; a failure is only
+    /// logged and counted, because the cold acquire path covers it. At
+    /// most one parked connection per partition — a racing duplicate is
+    /// discarded.
+    pub async fn preconnect(&self, partition: u32) {
+        if !self.preconnecting.insert(partition) {
+            return;
+        }
+        // Checked under the guard, so two racing preconnects cannot both
+        // observe an empty slot and both build a client.
+        if self.prepared.contains_key(&partition) {
+            self.preconnecting.remove(&partition);
+            return;
+        }
+        // Cleared however this future ends — completing, or dropped by a
+        // torn-down caller — so one abandoned preconnect cannot block
+        // the partition's preconnects for the life of the process.
+        let _clear = ClearPreconnecting {
+            set: &self.preconnecting,
+            partition,
+        };
+        let kafka = self.kafka.clone();
+        let tid = transactional_id(&self.topic, partition);
+        let timeout = self.init_timeout;
+        let broker_txn_timeout = self.broker_txn_timeout;
+        let start = Instant::now();
+        let connected = spawn_blocking(move || {
+            ConnectedTransactionalProducer::connect_bounded(
+                &kafka,
+                &tid,
+                timeout,
+                broker_txn_timeout,
+            )
+        })
+        .await;
+        match connected {
+            Ok(Ok(connected)) => {
+                // The acquire this connect was racing may have already
+                // won cold; a partition serving on a usable fence has no
+                // consumer for a parked connection, and parking one
+                // anyway leaves it idling for the whole ownership
+                // tenure.
+                let serving = self
+                    .partitions
+                    .get(&partition)
+                    .is_some_and(|fence| fence.is_usable());
+                if serving {
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "superseded")
+                        .increment(1);
+                    spawn_blocking(move || drop(connected));
+                    return;
+                }
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "ok").increment(1);
+                histogram!("personhog_leader_fence_preconnect_ms")
+                    .record(start.elapsed().as_secs_f64() * 1000.0);
+                if let Some((_, displaced)) =
+                    self.prepared.insert(partition, (Instant::now(), connected))
+                {
+                    // A racing preconnect parked first; one connection is
+                    // as good as the other, keep the newer.
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "duplicate")
+                        .increment(1);
+                    spawn_blocking(move || drop(displaced));
+                }
+            }
+            Ok(Err(e)) => {
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
+                    .increment(1);
+                warn!(partition, error = %e, "fence preconnect failed; acquisition will connect cold");
+            }
+            Err(e) => {
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
+                    .increment(1);
+                warn!(partition, error = %e, "fence preconnect join failed; acquisition will connect cold");
+            }
+        }
+    }
+
+    /// Drop a parked connection on the blocking pool — librdkafka's
+    /// client teardown blocks, same as a full fence's.
+    fn discard_prepared(&self, partition: u32) {
+        if let Some((_, (_, connected))) = self.prepared.remove(&partition) {
+            spawn_blocking(move || drop(connected));
+        }
+    }
+
+    /// Discard parked connections older than `max_age` and publish the
+    /// map's size. A connection is normally consumed within a drain
+    /// window; one that outlives `max_age` belongs to an acquire that
+    /// went cold first or to a cancelled inbound handoff — and a
+    /// cancelled inbound handoff leaves no convergence behind to notice
+    /// it, so a periodic sweep is the only owner its lifetime has.
+    pub fn sweep_prepared(&self, max_age: Duration) {
+        let stale: Vec<u32> = self
+            .prepared
+            .iter()
+            .filter(|entry| entry.value().0.elapsed() > max_age)
+            .map(|entry| *entry.key())
+            .collect();
+        for partition in stale {
+            if let Some((_, (_, connected))) = self.prepared.remove(&partition) {
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "swept")
+                    .increment(1);
+                warn!(
+                    partition,
+                    "swept a parked changelog connection nothing consumed"
+                );
+                spawn_blocking(move || drop(connected));
+            }
+        }
+        metrics::gauge!("personhog_leader_fence_prepared_connections")
+            .set(self.prepared.len() as f64);
+    }
+
+    /// Whether a parked connection exists for the partition.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn has_prepared(&self, partition: u32) -> bool {
+        self.prepared.contains_key(&partition)
+    }
+
+    /// Backdate a parked connection, so sweep tests need no real clock.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn age_prepared_for_test(&self, partition: u32, age: Duration) {
+        if let Some(mut entry) = self.prepared.get_mut(&partition) {
+            entry.0 = Instant::now() - age;
         }
     }
 
@@ -1376,6 +1585,16 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_failed_total").increment(0);
+    for outcome in [
+        "ok",
+        "error",
+        "duplicate",
+        "superseded",
+        "swept",
+        "init_failed",
+    ] {
+        counter!("personhog_leader_fence_preconnect_total", "outcome" => outcome).increment(0);
+    }
     // The healing counters fire exactly during the incidents an operator
     // would reach for them in, and rarely enough that lazy registration
     // can swallow the first burst between scrapes.
