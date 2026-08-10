@@ -1,7 +1,7 @@
 # SQLV2 frame materialization via object storage
 
 Design notes for moving python-node frame materialization off the Redis JSON transport and onto an object-storage handoff.
-Status: **phase 1 shipped** (env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`, default off) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. Phases 2+ not started.
+Status: **phase 1 shipped** (env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`, default off, **and** per-user by the `notebooks-frame-store` feature flag) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. Phases 2+ not started.
 
 ## Problem
 
@@ -195,6 +195,17 @@ The worker therefore refuses to finalize unless the streamed bytes end with the 
 ClickHouse error from `system.query_log` — a confirmed query-side exception is terminal (no doomed
 re-scans), an unconfirmed failure stays retryable.
 The Redis path stays as fallback when the frame store is disabled or unconfigured (dev parity, degraded mode).
+
+_Two gates, both required (`sql_v2_data_plane.py`):_ `NOTEBOOKS_FRAME_STORE_ENABLED` says the deployment can
+serve objects at all, and the `notebooks-frame-store` feature flag says a given user is in the rollout.
+Failing either one degrades that request to the inline transport and its 50k clamp, so the environment
+setting can be enabled estate-wide while the flag stays targeted at a handful of users. The flag is checked
+in the web process at delivery-decision time, which is the only place a materialization is ever enqueued —
+nothing downstream re-checks it. `DEBUG` stands in for the flag, so local dev only needs
+`NOTEBOOKS_FRAME_STORE_ENABLED=1` on the web and worker processes to exercise the object path.
+The `reason` label on `posthog_notebooks_frame_store_fallback_inline`
+separates the two: `not_in_rollout` is the expected state during a ramp, `not_configured` means the
+deployment cannot serve objects and should be near zero once provisioned.
 
 _Rollout prerequisites (per environment, before flipping the flag on):_
 
