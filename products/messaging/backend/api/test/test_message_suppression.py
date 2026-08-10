@@ -2,6 +2,11 @@ from posthog.test.base import APIBaseTest
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.messaging.backend.api.message_suppression import MessageSuppressionViewSet
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
@@ -22,6 +27,38 @@ class TestMessageSuppressionViewSetScope(SimpleTestCase):
             "add_suppression",
             "remove_suppression",
         }
+
+
+class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):
+    """
+    Guards against the read action losing its scope mapping. `suppressions` is a custom @action, so
+    APIScopePermission only resolves a required scope for it if it is named in
+    scope_object_read_actions — otherwise it resolves none and rejects every token with "does not
+    support personal API key access", while session auth (which skips scope checks) still works.
+    """
+
+    def _key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    @parameterized.expand([("hog_flow:read", 200), ("insight:read", 403)])
+    def test_suppressions_read_requires_hog_flow_read_scope(self, scope: str, expected_status: int) -> None:
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_suppressions/suppressions/",
+            HTTP_AUTHORIZATION=f"Bearer {self._key([scope])}",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 200:
+            assert set(response.json()) == {"count", "next", "previous", "results"}
 
 
 class TestRemoveSuppressionResetsSource(APIBaseTest):
