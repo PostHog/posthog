@@ -20,6 +20,13 @@ REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
 REVIEW_INITIAL_PERMISSION_MODE = None
 
+# Least-privilege PostHog MCP scopes for every ReviewHog sandbox session. The sessions process
+# untrusted PR-comment text, and their only legitimate MCP use is reading their criteria skill
+# (skill-get / skill-file-get) — without this the context defaults to "full", handing an injectable
+# agent execute-sql and every write tool. Internal sandbox-plumbing scopes are re-added by the
+# resolver, so this cannot break session mechanics.
+REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read"]
+
 
 @dataclass(frozen=True)
 class ReviewArm:

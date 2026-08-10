@@ -3016,6 +3016,13 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    **the security-code floor is absolute** — the "on comment guidance alone" qualifier was removable by the
    agent's own mandated investigation ("I verified it myself, so the floor doesn't apply"); security-sensitive
    code is now always `escalate`, regardless of who asked or what the investigation concluded.
+   _Same date (least-privilege MCP scopes, maintainer decision — verified by the next live run):_ every
+   ReviewHog sandbox session (perspectives, validation, resolution) ran with the context default of **full**
+   PostHog MCP access — execute-sql and every write tool — while reading untrusted PR-comment text; no prompt
+   ever uses more than `skill-get`/`skill-file-get`. The executor now pins `posthog_mcp_scopes` to
+   `REVIEW_MCP_SCOPES = ["llm_skill:read"]` at both context constructions (internal sandbox-plumbing scopes
+   are re-added by the resolver). A future skill that legitimately needs product data adds its specific read
+   scope with that feature.
 9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
    schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
    is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on
