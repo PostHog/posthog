@@ -256,11 +256,13 @@ def _deliver_side_effects(
     The installation token is resolved fresh here, not carried from run start: a 20-thread session
     can outlive the ~1h token TTL, and `_installation_auth` auto-refreshes an expired one.
     A FIXED verdict's `commit_sha` is the model's echo, so it is verified server-side first
-    (`commit_on_branch`, persisted as `commit_verified`): an unproven SHA delivers the reply without
-    the public commit link and never auto-resolves — the thread stays open for a human. A real commit
-    is then checked against the hard-floor path backstop (`commit_restricted_paths`): one touching
-    CI/CODEOWNERS/dependency files delivers a human-review warning instead of the link and never
-    auto-resolves either.
+    (`commit_on_branch`, persisted as `commit_verified`): an unproven SHA delivers the reply with a
+    visible could-not-confirm caveat instead of the commit link and never auto-resolves — the thread
+    stays open for a human. A real commit is then checked against the hard-floor path backstop
+    (`commit_restricted_paths`): one touching CI/CODEOWNERS/dependency files delivers a human-review
+    warning instead of the link and never auto-resolves either. Only a verified commit gets a
+    `commit` artefact (the schema records pushed commits only), appended right after the
+    verification persists so it happens exactly once per verdict.
     The reply lands first (the outcome must be readable even if resolving then fails); the watermark
     advances to our own posted reply so it doesn't re-open triage. A crash between posting the reply
     and recording it (the persist below) leaves the watermark un-advanced, so the retry re-triages the
@@ -305,6 +307,8 @@ def _deliver_side_effects(
                 )
         updated = updated.model_copy(update={"commit_verified": verified, "commit_restricted": restricted})
         persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=updated)
+        if verified:
+            _append_commit_artefact(input, report_id, branch, updated)
     if not updated.reply_posted:
         body = updated.reply
         if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha:
@@ -316,6 +320,11 @@ def _deliver_side_effects(
                 )
             elif updated.commit_verified:
                 body += f"\n\nFix commit: https://github.com/{input.owner}/{input.repo}/commit/{updated.commit_sha}"
+            else:
+                body += (
+                    "\n\n⚠️ The fix commit claimed in this reply could not be found on the PR branch, "
+                    "so a human should verify the fix before trusting it. The thread stays open."
+                )
         comment_id, comment_url = reply_to_thread(
             token=token, thread_id=updated.thread_id, body=body, installation_id=installation_id
         )
@@ -387,7 +396,11 @@ def _idle_report(team_id: int, report_id: str) -> None:
 def _append_commit_artefact(
     input: ResolveThreadsInput, report_id: str, branch: str, verdict: ThreadVerdictArtefact
 ) -> None:
-    """One `commit` artefact per FIXED thread — the report-side record of what the stage pushed."""
+    """One `commit` artefact per verified FIXED thread — the report-side record of what the stage pushed.
+
+    Called only after `commit_on_branch` proved the SHA reachable: the Commit schema records pushed
+    commits only, so the model's unverified echo must never land here.
+    """
     try:
         ReviewReportArtefact.add_log(
             team_id=input.team_id,
@@ -516,10 +529,6 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 verdict = await database_sync_to_async(_persist_turn_verdict_row, thread_sensitive=False)(
                     input, prepared.report_id, thread, resolution
                 )
-                if resolution.outcome == ThreadOutcome.FIXED:
-                    await database_sync_to_async(_append_commit_artefact, thread_sensitive=False)(
-                        input, prepared.report_id, prepared.pr_metadata.head_branch, verdict
-                    )
                 result.triaged += 1
                 result.outcomes[resolution.outcome.value] = result.outcomes.get(resolution.outcome.value, 0) + 1
                 try:
