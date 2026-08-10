@@ -63,15 +63,17 @@ class ResolutionResult:
     candidates: list[Integration] = field(default_factory=list)
 
     def resolved_or_first(self) -> Integration | None:
-        """The resolved integration, falling back to the first candidate.
+        """The resolved integration, falling back to the workspace's oldest install.
 
         Surfaces that must act on *some* integration rather than prompt for one share this
-        tie-break, so a workspace's traffic is answered for the same project whichever
-        surface handles it. `candidates` is ordered, so the fallback is stable.
+        tie-break, so a workspace with no saved pick is answered for the same project
+        whichever surface handles it. Ordered by id rather than taken off the front of
+        `candidates`: the auth filter sorts that list freshest-verdict-first, which
+        reshuffles as cache entries expire and would make the fallback drift.
         """
         if self.integration is not None and self.integration in self.candidates:
             return self.integration
-        return self.candidates[0] if self.candidates else None
+        return min(self.candidates, key=lambda candidate: candidate.id, default=None)
 
 
 def format_project_candidate_list(candidates: list[Integration]) -> str:

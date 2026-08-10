@@ -1144,3 +1144,19 @@ class TestInteractionResolvesTheViewersIntegration:
 
     def test_unknown_workspace_resolves_to_nothing(self, db):
         assert slack_app_home._resolve_interaction_integration("T_NOT_CONNECTED", "U001") is None
+
+    def test_no_pick_falls_back_to_the_same_install_regardless_of_candidate_order(self, slack_integration):
+        # The auth filter hands back candidates freshest-verdict-first, so the fallback
+        # can't take the front of that list and stay put across cache expiries.
+        newer = self._second_org_integration()
+        oldest = min(slack_integration.id, newer.id)
+
+        first = slack_app_home._resolve_interaction_integration(SLACK_WORKSPACE_ID, "U001")
+        with patch(
+            "products.slack_app.backend.services.slack_auth.check_integrations_auth_and_filter",
+            side_effect=lambda candidates, **_: list(reversed(candidates)),
+        ):
+            reordered = slack_app_home._resolve_interaction_integration(SLACK_WORKSPACE_ID, "U001")
+
+        assert first is not None and reordered is not None
+        assert first.id == reordered.id == oldest
