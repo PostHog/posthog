@@ -1675,7 +1675,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
 
         frame_uuid = "018e0e7a-1111-2222-3333-444444444444"
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             self.addCleanup(self._delete_team_frames)
             response = self._run_to_completion(
                 {
@@ -1698,11 +1698,11 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("frame_store_disabled", False, True),
+            ("object_storage_unconfigured", False, True),
             ("user_not_in_rollout", True, False),
         ]
     )
-    def test_object_delivery_falls_back_to_inline(self, _name, frame_store_enabled, in_rollout):
+    def test_object_delivery_falls_back_to_inline(self, _name, object_storage_enabled, in_rollout):
         # Either gate failing must degrade to the inline (Redis) path rather than hard-fail
         # the cell, and must write no object. The rollout case is the one that matters for
         # the flag: dropping that check would put every user's frames on object storage.
@@ -1710,7 +1710,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
 
         from products.notebooks.backend import frame_store
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=frame_store_enabled, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=object_storage_enabled):
             with patch(
                 "products.notebooks.backend.sql_v2_data_plane.is_frame_store_enabled",
                 return_value=in_rollout,
@@ -1719,6 +1719,9 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
             self.assertEqual(response.status_code, 200, response.content)
             _columns, rows, _types = decode_arrow_stream(response.content)
             self.assertEqual(len(rows), 3)
+        # Checked with storage back on: the unconfigured client returns None for any prefix,
+        # so asserting inside the block above would pass even if a frame had been written.
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             self.assertIsNone(object_storage.list_objects(frame_store.team_prefix(self.team.id)))
 
     def test_object_delivery_failure_surfaces_error_and_stores_no_object(self):
@@ -1729,7 +1732,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
         from products.notebooks.backend.temporal import frame_materialize
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             with patch.object(frame_materialize.frame_store, "write_stream", side_effect=Exception("upload torn")):
                 response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
             self.assertEqual(response.status_code, 400, response.content)
@@ -1741,7 +1744,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         # job instead of stacking a second ClickHouse execution.
         from products.notebooks.backend.temporal import frame_materialize
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             # Leave the job "running": the materialize body never executes, so the status
             # stays incomplete and the cache-key mapping stays registered.
             with patch.object(frame_materialize, "materialize_frame"):
