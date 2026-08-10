@@ -2,7 +2,7 @@ import './CommandBlock.scss'
 
 import { useRef, useState } from 'react'
 
-import { IconCheck, IconCopy, IconTerminal } from '@posthog/icons'
+import { IconCopy, IconTerminal } from '@posthog/icons'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -25,10 +25,6 @@ const BOUNCE_KEYFRAMES: Keyframe[] = [
     { transform: 'scale(1.008)', offset: 0.7 },
     { transform: 'scale(1)' },
 ]
-
-// How long the copy icon stays a checkmark after a click. A lingering state, on top of the toast
-// and bounce, so a click clearly registers and a second click reads as redundant rather than unheard.
-const COPIED_RESET_MS = 1700
 
 interface CommandBlockProps {
     command: string
@@ -73,19 +69,13 @@ export function CommandBlock({
     condensed = false,
 }: CommandBlockProps): JSX.Element {
     const [copyKey, setCopyKey] = useState(0)
-    const [copied, setCopied] = useState(false)
     const buttonRef = useRef<HTMLButtonElement>(null)
     const sizeStyle = SIZE_STYLES[size]
     const isStorybook = inStorybook() || inStorybookTestRunner()
     const displayCommand = condensed ? condenseCommand(command) : command
 
     const handleCopy = (): void => {
-        void copyToClipboard(command, copyLabel, { silent: silentCopy }).then((didCopy) => {
-            if (didCopy) {
-                setCopied(true)
-                window.setTimeout(() => setCopied(false), COPIED_RESET_MS)
-            }
-        })
+        void copyToClipboard(command, copyLabel, { silent: silentCopy })
         const next = copyKey + 1
         setCopyKey(next)
         // WAAPI (not a CSS-class remount) so the bounce replays without resetting the rainbow scroll.
@@ -131,11 +121,7 @@ export function CommandBlock({
                     </code>
                 )}
             </span>
-            {copied ? (
-                <IconCheck className={cn(sizeStyle.icon, 'text-success')} />
-            ) : (
-                <IconCopy className={cn(sizeStyle.icon, 'text-muted group-hover:text-primary')} />
-            )}
+            <IconCopy className={cn(sizeStyle.icon, 'text-muted group-hover:text-primary')} />
         </button>
     )
 }

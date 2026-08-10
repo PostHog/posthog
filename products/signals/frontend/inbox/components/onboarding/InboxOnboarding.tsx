@@ -1,8 +1,9 @@
 import './InboxOnboarding.scss'
 
 import { useActions } from 'kea'
+import { useState } from 'react'
 
-import { IconBolt, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
+import { IconBolt, IconCheck, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
@@ -82,22 +83,39 @@ const BEATS: Beat[] = [
     },
 ]
 
+/** How long the inline "Copied" confirmation stays after a copy click. */
+const COPIED_RESET_MS = 1700
+
 /**
  * The wizard command as a click-to-copy pill – the single call-to-action of the whole onboarding.
  * Reuses the shared `CommandBlock` (same one MCP install uses) with the `rainbow` AI gradient, so
- * it reads as "enable a capability" rather than a code dump.
+ * it reads as "enable a capability" rather than a code dump. A "Copied" tick shows right at the pill
+ * after a click – the corner toast is easy to miss, which reads as the click not registering.
  */
 function SelfDrivingCommand({ size = 'md' }: { size?: 'sm' | 'md' }): JSX.Element {
+    const [copied, setCopied] = useState(false)
+
     return (
-        <CommandBlock
-            command={SELF_DRIVING_WIZARD_COMMAND}
-            copyLabel="self-driving setup command"
-            ariaLabel="Copy self-driving setup command"
-            decoration="rainbow"
-            size={size}
-            // rounded-md sits one step inside the rounded-lg card/banner it nests in.
-            className="!m-0 rounded-md border border-primary bg-surface-secondary hover:border-accent"
-        />
+        <div className="flex items-center gap-2">
+            <CommandBlock
+                command={SELF_DRIVING_WIZARD_COMMAND}
+                copyLabel="self-driving setup command"
+                ariaLabel="Copy self-driving setup command"
+                decoration="rainbow"
+                size={size}
+                // rounded-md sits one step inside the rounded-lg card/banner it nests in.
+                className="!m-0 rounded-md border border-primary bg-surface-secondary hover:border-accent"
+                onCopy={() => {
+                    setCopied(true)
+                    window.setTimeout(() => setCopied(false), COPIED_RESET_MS)
+                }}
+            />
+            {copied ? (
+                <span className="flex items-center gap-1 text-sm font-medium text-success" aria-live="polite">
+                    <IconCheck /> Copied
+                </span>
+            ) : null}
+        </div>
     )
 }
 
