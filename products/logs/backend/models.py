@@ -10,6 +10,7 @@ from django.db import models
 from django.db.models import Value
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -457,3 +458,46 @@ class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
 
     def __str__(self) -> str:
         return f"{self.name} (team={self.team_id})"
+
+
+class LogsVolumeBucketCompletion(models.Model):
+    """Commit record for the logs_volume_buckets ClickHouse rollup: one row per
+    (team, bucket_start, generation) insert attempt. A set `committed_at` means every
+    required partition INSERT succeeded and detection may read that generation; null
+    means in-flight or abandoned. Abandoned attempts are only marked here: their
+    uncommitted ClickHouse rows are invisible to readers and age out with the table TTL.
+    A bucket's committed generation is the max committed `generation` for it, so
+    commits only ever advance the pointer — a late-committing older generation
+    (backfill under tick overlap) never becomes it."""
+
+    # db_constraint=False keeps the CreateModel migration lock-free on posthog_team
+    # (enforcement stays at the ORM level).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    # Start of the fixed 5-minute UTC wall-clock window this row commits (never sliding).
+    bucket_start = models.DateTimeField()
+    # Unix-millis start of the insert attempt that wrote the ClickHouse rows, allocated
+    # here before the INSERT is issued. A generation that has had any INSERT issued is
+    # never inserted into again — retries allocate a fresh one.
+    generation = models.PositiveBigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    committed_at = models.DateTimeField(null=True, blank=True)
+
+    # Environment-scoped, not TeamScopedRootMixin: team_id here must equal the ClickHouse
+    # rollup's team_id (the ingesting environment's team). The root mixin's canonical-team
+    # save() rewrite would silently repoint child-environment rows at the parent, and plain
+    # TeamScopedManager reads would canonicalize the filter the same way — both break the
+    # committed-pair join. EnvironmentScopedManager stays fail-closed but filters for_team()
+    # by the literal id and refuses ambient-context reads.
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "logs_logsvolumebucketcompletion"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "bucket_start", "generation"],
+                name="logs_volume_completion_pair_uniq",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"logs_volume_buckets ({self.bucket_start}, {self.generation}) team={self.team_id}"

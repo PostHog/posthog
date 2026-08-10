@@ -209,6 +209,7 @@ rules:
                               |LogsExclusionRule
                               |LogsMetricRule
                               |LogsRetentionRule
+                              |LogsVolumeBucketCompletion
                               |LogsView
                               |Loop
                               |LoopFire
