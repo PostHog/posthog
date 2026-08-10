@@ -2,34 +2,17 @@ import dataclasses
 
 from temporalio import activity
 
-from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.models import DataModelingJobEngine, Edge, Node, NodeType
 
-from .utils import is_node_suspended
+from .utils import (
+    is_node_suspended,
+    is_suspension_enforced as _is_suspension_enforced,
+)
 
 LOGGER = get_logger(__name__)
-
-SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
-
-
-def _is_suspension_enforced(team_id: int) -> bool:
-    try:
-        team = Team.objects.only("organization_id").get(id=team_id)
-        return feature_enabled_or_false(
-            SUSPENSION_ENFORCEMENT_FLAG,
-            str(team_id),
-            groups={"organization": str(team.organization_id), "project": str(team_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        LOGGER.warning("Failed to evaluate suspension enforcement flag; treating as disabled", team_id=team_id)
-        return False
 
 
 @dataclasses.dataclass
