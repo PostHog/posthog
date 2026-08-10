@@ -1,49 +1,83 @@
-import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
 import { InternalPerson } from '~/types'
 
 import { PersonHogClient } from './client'
 import { withRetry } from './grpc-retry'
-import { GetOrCreatePersonEntry, PersonhogIdentityOperations } from './identity'
+import { DistinctIdKey, GetOrCreatePersonEntry, PersonhogIdentityOperations } from './identity'
+import { PersonDeleteOutcome, PersonhogLifecycleOperations } from './lifecycle'
 import { timedGrpc } from './metrics'
 import { FoldedPersonUpdate } from './persons'
 
 /**
  * Write-side person repository backed by personhog gRPC — the
  * counterpart to PersonHogPersonReadRepository, speaking personhog's own
- * vocabulary rather than the Postgres-shaped contract: folded updates
- * resolved by the leader, identity get-or-create with server-derived
- * uuids, and strong reads. The ingestion personhog store is its
- * consumer, and it grows a verb whenever the leader does. Deliberately
- * no deletes: the service's DeletePersons routes to the replica, a
- * direct Postgres write the leader's cache and changelog never see.
+ * vocabulary rather than the Postgres-shaped contract. No verb here
+ * touches the replica: resolution goes to the identity service (primary),
+ * person state and folded updates go through the router to the
+ * partition's leader, and deletes run the lifecycle saga. The ingestion
+ * personhog store is its consumer, and it grows a verb whenever the
+ * services do.
  *
- * Two endpoints sit behind it: person operations go through the router,
- * and identity get-or-create goes to the identity service's own
- * address — the router does not proxy the identity API.
+ * Two endpoints sit behind it: person operations go through the router;
+ * identity resolution, get-or-create, and the co-served lifecycle service
+ * go to the identity server's own address — the router does not proxy
+ * either API.
  *
- * Every verb here is idempotent (folds, get-or-create, reads), so
- * transient-error retries are safe.
+ * Every verb here is idempotent (folds, get-or-create, reads, saga-keyed
+ * deletes), so transient-error retries are safe.
  */
 export class PersonHogPersonWriteRepository {
     constructor(
         private grpcClient: PersonHogClient,
         private identity: PersonhogIdentityOperations,
+        private lifecycle: PersonhogLifecycleOperations,
         private clientLabel: string = 'unknown'
     ) {}
 
-    fetchPersonsByDistinctIds(
-        teamPersons: { teamId: number; distinctId: string }[],
-        callerTag?: string,
-        options?: { consistency?: 'strong' | 'eventual' }
-    ): Promise<InternalPersonWithDistinctId[]> {
-        const method = 'fetchPersonsByDistinctIds'
+    /**
+     * Primary-backed distinct-id resolution; never creates. Results in
+     * request order, null person for an unresolved key. State freshness
+     * is writer-applied — callers that need the leader's view fetch the
+     * person by id afterwards.
+     */
+    resolvePersonsByDistinctIds(
+        keys: DistinctIdKey[],
+        callerTag?: string
+    ): Promise<{ teamId: number; distinctId: string; person: InternalPerson | null }[]> {
+        const method = 'resolvePersonsByDistinctIds'
+        return withRetry(
+            () => timedGrpc(this.clientLabel, method, () => this.identity.getPersonsByDistinctIds(keys, callerTag)),
+            this.clientLabel,
+            method
+        )
+    }
+
+    /** Leader-routed strong person read; null when deleted or merged away. */
+    fetchPersonById(teamId: number, personId: string, callerTag?: string): Promise<InternalPerson | null> {
+        const method = 'fetchPersonById'
         return withRetry(
             () =>
                 timedGrpc(this.clientLabel, method, () =>
-                    this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons, callerTag, options)
+                    this.grpcClient.persons.fetchPersonById(teamId, personId, callerTag)
                 ),
             this.clientLabel,
             method
+        )
+    }
+
+    /**
+     * Destroys persons through the lifecycle saga. Not retried here: the
+     * saga is keyed by op_id and the store decides whether a retry
+     * reuses the operation.
+     */
+    deletePersons(
+        teamId: number,
+        personIds: string[],
+        opId: string,
+        callerTag?: string
+    ): Promise<Map<string, PersonDeleteOutcome>> {
+        const method = 'deletePersons'
+        return timedGrpc(this.clientLabel, method, () =>
+            this.lifecycle.deletePersons(teamId, personIds, opId, callerTag)
         )
     }
 
@@ -63,11 +97,7 @@ export class PersonHogPersonWriteRepository {
         )
     }
 
-    /**
-     * Replica-routed and eventually consistent — acceptable for the
-     * merge pre-checks that consume it today, revisit for read-your-write
-     * once merge execution reaches this world.
-     */
+    /** Primary-backed expansion via identity — the merge pre-checks read their own writes. */
     getDistinctIdsForPersons(
         teamId: number,
         personIntIds: string[],
@@ -78,7 +108,7 @@ export class PersonHogPersonWriteRepository {
         return withRetry(
             () =>
                 timedGrpc(this.clientLabel, method, () =>
-                    this.grpcClient.persons.getDistinctIdsForPersons(teamId, personIntIds, limitPerPerson, callerTag)
+                    this.identity.getDistinctIdsForPersons(teamId, personIntIds, limitPerPerson, callerTag)
                 ),
             this.clientLabel,
             method

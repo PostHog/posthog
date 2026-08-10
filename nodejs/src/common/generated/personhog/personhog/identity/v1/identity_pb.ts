@@ -4,7 +4,7 @@ import type { Message } from '@bufbuild/protobuf'
 import type { GenFile, GenMessage, GenService } from '@bufbuild/protobuf/codegenv2'
 import { fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf/codegenv2'
 
-import type { Person } from '../../types/v1/person_pb'
+import type { Person, PersonDistinctIds } from '../../types/v1/person_pb'
 import { file_personhog_types_v1_person } from '../../types/v1/person_pb'
 
 /**
@@ -13,7 +13,7 @@ import { file_personhog_types_v1_person } from '../../types/v1/person_pb'
 export const file_personhog_identity_v1_identity: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiRwZXJzb25ob2cvaWRlbnRpdHkvdjEvaWRlbnRpdHkucHJvdG8SFXBlcnNvbmhvZy5pZGVudGl0eS52MSLOAQoWR2V0T3JDcmVhdGVQZXJzb25FbnRyeRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEhoKEmV4dHJhX2Rpc3RpbmN0X2lkcxgDIAMoCRISCgpldmVudF9uYW1lGAQgASgJEhYKDnNldF9wcm9wZXJ0aWVzGAUgASgMEhsKE3NldF9vbmNlX3Byb3BlcnRpZXMYBiABKAwSEgoKY3JlYXRlZF9hdBgHIAEoAxIVCg1pc19pZGVudGlmaWVkGAggASgIImQKJEdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBI8CgVlbnRyeRgBIAEoCzItLnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbkVudHJ5ImQKJUdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USKgoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbhIPCgdjcmVhdGVkGAIgASgIImgKJkdldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXF1ZXN0Ej4KB2VudHJpZXMYASADKAsyLS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25FbnRyeSKqAQoXR2V0T3JDcmVhdGVQZXJzb25SZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESDwoHY3JlYXRlZBgEIAEoCBISCgVlcnJvchgFIAEoCUgBiAEBQgkKB19wZXJzb25CCAoGX2Vycm9yImoKJ0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRI/CgdyZXN1bHRzGAEgAygLMi4ucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uUmVzdWx0MtMCChFQZXJzb25Ib2dJZGVudGl0eRKaAQodR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWQSOy5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWRSZXF1ZXN0GjwucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USoAEKH0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHMSPS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QaPi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlYgZwcm90bzM',
+        'CiRwZXJzb25ob2cvaWRlbnRpdHkvdjEvaWRlbnRpdHkucHJvdG8SFXBlcnNvbmhvZy5pZGVudGl0eS52MSLOAQoWR2V0T3JDcmVhdGVQZXJzb25FbnRyeRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEhoKEmV4dHJhX2Rpc3RpbmN0X2lkcxgDIAMoCRISCgpldmVudF9uYW1lGAQgASgJEhYKDnNldF9wcm9wZXJ0aWVzGAUgASgMEhsKE3NldF9vbmNlX3Byb3BlcnRpZXMYBiABKAwSEgoKY3JlYXRlZF9hdBgHIAEoAxIVCg1pc19pZGVudGlmaWVkGAggASgIImQKJEdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBI8CgVlbnRyeRgBIAEoCzItLnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbkVudHJ5ImQKJUdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USKgoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbhIPCgdjcmVhdGVkGAIgASgIImgKJkdldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXF1ZXN0Ej4KB2VudHJpZXMYASADKAsyLS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25FbnRyeSKqAQoXR2V0T3JDcmVhdGVQZXJzb25SZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESDwoHY3JlYXRlZBgEIAEoCBISCgVlcnJvchgFIAEoCUgBiAEBQgkKB19wZXJzb25CCAoGX2Vycm9yImoKJ0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRI/CgdyZXN1bHRzGAEgAygLMi4ucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uUmVzdWx0IjEKCVBlcnNvbktleRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJIlAKHkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBIuCgRrZXlzGAEgAygLMiAucGVyc29uaG9nLmlkZW50aXR5LnYxLlBlcnNvbktleSJ/ChtHZXRQZXJzb25CeURpc3RpbmN0SWRSZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQFCCQoHX3BlcnNvbiJmCh9HZXRQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEkMKB3Jlc3VsdHMYASADKAsyMi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uQnlEaXN0aW5jdElkUmVzdWx0InoKH0dldERpc3RpbmN0SWRzRm9yUGVyc29uc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEh0KEGxpbWl0X3Blcl9wZXJzb24YAyABKANIAIgBAUITChFfbGltaXRfcGVyX3BlcnNvbiJmCiBHZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXNwb25zZRJCChNwZXJzb25fZGlzdGluY3RfaWRzGAEgAygLMiUucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkRpc3RpbmN0SWRzMuwEChFQZXJzb25Ib2dJZGVudGl0eRKaAQodR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWQSOy5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWRSZXF1ZXN0GjwucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USoAEKH0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHMSPS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QaPi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEogBChdHZXRQZXJzb25zQnlEaXN0aW5jdElkcxI1LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QaNi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRKLAQoYR2V0RGlzdGluY3RJZHNGb3JQZXJzb25zEjYucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldERpc3RpbmN0SWRzRm9yUGVyc29uc1JlcXVlc3QaNy5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0RGlzdGluY3RJZHNGb3JQZXJzb25zUmVzcG9uc2ViBnByb3RvMw',
         [file_personhog_types_v1_person]
     )
 
@@ -232,6 +232,159 @@ export const GetOrCreatePersonsByDistinctIdsResponseSchema: GenMessage<GetOrCrea
     messageDesc(file_personhog_identity_v1_identity, 5)
 
 /**
+ * A single resolution key: distinct_id within team_id.
+ *
+ * @generated from message personhog.identity.v1.PersonKey
+ */
+export type PersonKey = Message<'personhog.identity.v1.PersonKey'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: string distinct_id = 2;
+     */
+    distinctId: string
+}
+
+/**
+ * Describes the message personhog.identity.v1.PersonKey.
+ * Use `create(PersonKeySchema)` to create a new message.
+ */
+export const PersonKeySchema: GenMessage<PersonKey> = /*@__PURE__*/ messageDesc(file_personhog_identity_v1_identity, 6)
+
+/**
+ * @generated from message personhog.identity.v1.GetPersonsByDistinctIdsRequest
+ */
+export type GetPersonsByDistinctIdsRequest = Message<'personhog.identity.v1.GetPersonsByDistinctIdsRequest'> & {
+    /**
+     * Max 250 per request. Keys may span teams.
+     *
+     * @generated from field: repeated personhog.identity.v1.PersonKey keys = 1;
+     */
+    keys: PersonKey[]
+}
+
+/**
+ * Describes the message personhog.identity.v1.GetPersonsByDistinctIdsRequest.
+ * Use `create(GetPersonsByDistinctIdsRequestSchema)` to create a new message.
+ */
+export const GetPersonsByDistinctIdsRequestSchema: GenMessage<GetPersonsByDistinctIdsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_identity_v1_identity, 7)
+
+/**
+ * The per-key outcome of a batch resolve. Mirrors GetOrCreatePersonResult
+ * minus the creation fields: resolution never creates, so an absent key
+ * is a result, not an error.
+ *
+ * @generated from message personhog.identity.v1.GetPersonByDistinctIdResult
+ */
+export type GetPersonByDistinctIdResult = Message<'personhog.identity.v1.GetPersonByDistinctIdResult'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: string distinct_id = 2;
+     */
+    distinctId: string
+
+    /**
+     * Absent when the distinct id resolves to no live person — unknown,
+     * tombstoned, or its person deleted.
+     *
+     * @generated from field: optional personhog.types.v1.Person person = 3;
+     */
+    person?: Person
+}
+
+/**
+ * Describes the message personhog.identity.v1.GetPersonByDistinctIdResult.
+ * Use `create(GetPersonByDistinctIdResultSchema)` to create a new message.
+ */
+export const GetPersonByDistinctIdResultSchema: GenMessage<GetPersonByDistinctIdResult> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_identity_v1_identity, 8)
+
+/**
+ * @generated from message personhog.identity.v1.GetPersonsByDistinctIdsResponse
+ */
+export type GetPersonsByDistinctIdsResponse = Message<'personhog.identity.v1.GetPersonsByDistinctIdsResponse'> & {
+    /**
+     * Same order as the request keys.
+     *
+     * @generated from field: repeated personhog.identity.v1.GetPersonByDistinctIdResult results = 1;
+     */
+    results: GetPersonByDistinctIdResult[]
+}
+
+/**
+ * Describes the message personhog.identity.v1.GetPersonsByDistinctIdsResponse.
+ * Use `create(GetPersonsByDistinctIdsResponseSchema)` to create a new message.
+ */
+export const GetPersonsByDistinctIdsResponseSchema: GenMessage<GetPersonsByDistinctIdsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_identity_v1_identity, 9)
+
+/**
+ * The identity-side twin of the service RPC of the same name, minus
+ * ReadOptions: identity always reads the primary, so there is no
+ * consistency to choose.
+ *
+ * @generated from message personhog.identity.v1.GetDistinctIdsForPersonsRequest
+ */
+export type GetDistinctIdsForPersonsRequest = Message<'personhog.identity.v1.GetDistinctIdsForPersonsRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * Max 250 per request.
+     *
+     * @generated from field: repeated int64 person_ids = 2;
+     */
+    personIds: bigint[]
+
+    /**
+     * Max distinct ids returned per person; identified ids survive the
+     * cut. 0 or absent = no limit.
+     *
+     * @generated from field: optional int64 limit_per_person = 3;
+     */
+    limitPerPerson?: bigint
+}
+
+/**
+ * Describes the message personhog.identity.v1.GetDistinctIdsForPersonsRequest.
+ * Use `create(GetDistinctIdsForPersonsRequestSchema)` to create a new message.
+ */
+export const GetDistinctIdsForPersonsRequestSchema: GenMessage<GetDistinctIdsForPersonsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_identity_v1_identity, 10)
+
+/**
+ * @generated from message personhog.identity.v1.GetDistinctIdsForPersonsResponse
+ */
+export type GetDistinctIdsForPersonsResponse = Message<'personhog.identity.v1.GetDistinctIdsForPersonsResponse'> & {
+    /**
+     * @generated from field: repeated personhog.types.v1.PersonDistinctIds person_distinct_ids = 1;
+     */
+    personDistinctIds: PersonDistinctIds[]
+}
+
+/**
+ * Describes the message personhog.identity.v1.GetDistinctIdsForPersonsResponse.
+ * Use `create(GetDistinctIdsForPersonsResponseSchema)` to create a new message.
+ */
+export const GetDistinctIdsForPersonsResponseSchema: GenMessage<GetDistinctIdsForPersonsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_identity_v1_identity, 11)
+
+/**
  * PersonHogIdentity owns the identity graph: distinct id resolution and
  * get-or-create orchestration across the sync plane (Postgres primary) and
  * the async plane (leader-owned properties). Ingestion calls this service
@@ -263,5 +416,29 @@ export const PersonHogIdentity: GenService<{
         methodKind: 'unary'
         input: typeof GetOrCreatePersonsByDistinctIdsRequestSchema
         output: typeof GetOrCreatePersonsByDistinctIdsResponseSchema
+    }
+    /**
+     * Resolve-only counterpart of get-or-create: same primary-backed
+     * resolution, same Person payload, never creates. This is the strong
+     * resolve — the router's GetPersonsByDistinctIds reads the replica and
+     * its consistency option does not change that.
+     *
+     * @generated from rpc personhog.identity.v1.PersonHogIdentity.GetPersonsByDistinctIds
+     */
+    getPersonsByDistinctIds: {
+        methodKind: 'unary'
+        input: typeof GetPersonsByDistinctIdsRequestSchema
+        output: typeof GetPersonsByDistinctIdsResponseSchema
+    }
+    /**
+     * Person-id to distinct-ids expansion on the primary; the strong twin
+     * of the router RPC of the same name (which reads the replica).
+     *
+     * @generated from rpc personhog.identity.v1.PersonHogIdentity.GetDistinctIdsForPersons
+     */
+    getDistinctIdsForPersons: {
+        methodKind: 'unary'
+        input: typeof GetDistinctIdsForPersonsRequestSchema
+        output: typeof GetDistinctIdsForPersonsResponseSchema
     }
 }> = /*@__PURE__*/ serviceDesc(file_personhog_identity_v1_identity, 0)

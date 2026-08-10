@@ -5,6 +5,7 @@ import { PersonHogService } from '~/common/generated/personhog/personhog/service
 import { TeamDistinctIdSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
 import {
     GetDistinctIdsForPersonsRequestSchema,
+    GetPersonRequestSchema,
     GetPersonsByDistinctIdsRequestSchema,
     GetPersonsByUuidsRequestSchema,
     UpdatePersonPropertiesRequestSchema,
@@ -144,6 +145,31 @@ export class PersonHogPersonOperations {
             result[String(pd.personId)] = pd.distinctIds.map((d) => d.distinctId)
         }
         return result
+    }
+
+    /**
+     * Person state by id, strong: the router sends strong GetPerson to the
+     * partition's leader, whose cache is the write-path authority — the
+     * primary lags it by writer apply lag. Returns null for a person that
+     * does not exist (deleted, or merged away).
+     */
+    async fetchPersonById(teamId: number, personId: string, callerTag?: string): Promise<InternalPerson | null> {
+        try {
+            const response = await this.client.getPerson(
+                create(GetPersonRequestSchema, {
+                    teamId: BigInt(teamId),
+                    personId: BigInt(personId),
+                    readOptions: strongReadOptions(),
+                }),
+                callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+            )
+            return response.person ? protoPersonToDomain(response.person) : null
+        } catch (error) {
+            if (error instanceof ConnectError && error.code === Code.NotFound) {
+                return null
+            }
+            throw error
+        }
     }
 
     /**
