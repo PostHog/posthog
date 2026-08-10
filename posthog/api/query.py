@@ -172,6 +172,16 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
 }
 
 
+def _required_scopes_for_query_payload(query: object) -> list[str] | None:
+    current_query = query
+    while isinstance(current_query, dict):
+        kind = current_query.get("kind")
+        if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
+            return _QUERY_KIND_SCOPES[kind]
+        current_query = current_query.get("source")
+    return None
+
+
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -185,8 +195,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         if getattr(view, "action", None) != "create":
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
-        kind = query.get("kind") if isinstance(query, dict) else None
-        return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
+        return _required_scopes_for_query_payload(query)
 
     def get_throttles(self):
         if self.action == "draft_sql":
