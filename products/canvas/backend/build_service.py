@@ -573,6 +573,12 @@ def create_draft_version(
     head's, so callers can surface manifest growth before anything ships. Raises
     CanvasBuildCapacityExceeded or ObjectStorageError.
     """
+    # Lock-free fail-fast, mirroring publish: reject a doomed draft before
+    # paying for the upload. The commit transaction re-checks authoritatively
+    # under the locks in _claim_canvas_head.
+    with team_scope(canvas.team_id):
+        _assert_build_capacity(canvas.team_id)
+
     key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(canvas, has_expected_version=False, expected_version_id=None)
@@ -610,12 +616,16 @@ def promote_draft_version(
     user: User | None = None,
     was_impersonated: bool = False,
 ) -> tuple[Canvas, CanvasBuild]:
-    """Make a draft version the canvas head, adopting its ready build when one survives.
+    """Make a draft version the canvas head, adopting its build when one exists.
 
     A ready build whose artifacts have not been pruned by the retention sweep goes
-    live directly with no rebuild, which is why the capacity cap is only checked on
-    the rebuild path. The version guard is required, like revert: a successful
-    promote proves the caller saw the head it replaced. Raises
+    live directly with no rebuild. A build still in flight is adopted as-is — the
+    version is the head by the time it finalizes, so _finalize_ready advances the
+    live pointer; queuing another would double the work (and _queue_build only
+    supersedes queued builds, not building ones). Only when no usable build exists
+    (failed, or pruned) is a fresh one queued, which is why the capacity cap is
+    only checked on that path. The version guard is required, like revert: a
+    successful promote proves the caller saw the head it replaced. Raises
     CanvasSourceVersion.DoesNotExist for a version that isn't one of this canvas's
     drafts, CanvasVersionConflict, and CanvasBuildCapacityExceeded (rebuilds only).
     """
@@ -642,9 +652,11 @@ def promote_draft_version(
             canvas.published_build = build
             update_fields.append("published_build")
         else:
-            _lock_team_build_capacity(canvas.team_id)
-            _assert_build_capacity(canvas.team_id)
-            build = _queue_build(version)
+            build = version.builds.filter(status__in=CanvasBuild.ACTIVE_STATUSES).order_by("-created_at").first()
+            if build is None:
+                _lock_team_build_capacity(canvas.team_id)
+                _assert_build_capacity(canvas.team_id)
+                build = _queue_build(version)
         canvas.save(update_fields=update_fields)
 
     changes = _capabilities_changes(_version_capabilities(canvas.team_id, previous_head_id), version.capabilities)

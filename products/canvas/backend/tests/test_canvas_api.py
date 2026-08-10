@@ -724,6 +724,45 @@ class TestCanvasDraftBuilds(CanvasAPIBaseTest):
         assert response.json()["id"] != draft_body["build"]["id"]
         assert response.json()["build_status"] == "queued"
 
+    def test_promote_adopts_in_flight_build_without_requeuing(self):
+        # Promoting while the draft's build is still running must adopt that
+        # build, not queue a duplicate of the same version — _finalize_ready
+        # advances the live pointer once it completes, now that the version is
+        # the head.
+        canvas_id, head_id = self._published_canvas()
+        draft_body = self._draft(canvas_id).json()
+        CanvasBuild.objects.for_team(self.team.id).filter(id=draft_body["build"]["id"]).update(
+            status=CanvasBuild.STATUS_BUILDING
+        )
+        published_before = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()[
+            "published_build_id"
+        ]
+        enqueued_before = self.enqueue.call_count
+
+        response = self._promote(canvas_id, draft_body["version_id"], expected=head_id)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == draft_body["build"]["id"]
+        assert response.json()["build_status"] == "building"
+        assert self.enqueue.call_count == enqueued_before
+        assert (
+            CanvasBuild.objects.for_team(self.team.id).filter(source_version_id=draft_body["version_id"]).count() == 1
+        )
+
+        builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
+        assert builds["current_version_id"] == draft_body["version_id"]
+        # The live artifact does not move until the adopted build finalizes.
+        assert builds["published_build_id"] == published_before
+
+    def test_draft_rejects_at_capacity_before_uploading(self):
+        canvas_id, _ = self._published_canvas()
+        objects_before = set(self.storage.objects)
+
+        with patch.object(build_service, "MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM", 0):
+            response = self._draft(canvas_id, self._project("export default function C() { return 3 }"))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert set(self.storage.objects) == objects_before
+
     def test_promote_rejects_stale_guard_and_non_draft_versions(self):
         canvas_id, head_id = self._published_canvas()
         draft_version_id = self._draft(canvas_id).json()["version_id"]
