@@ -2,8 +2,7 @@ import { MakeLogicType, afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
-import { ApiError, TRANSIENT_GATEWAY_STATUSES } from 'lib/api-error'
+import api, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -11,11 +10,14 @@ import { hogql } from '~/queries/utils'
 
 const CHECK_INTERVAL_MS = 1000 * 60 * 10 // 10 minutes
 
+// Gateway/proxy hiccups, mirroring the list in `initKea`. 500 is intentionally excluded: those
+// are genuine backend exceptions worth capturing.
+const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+
 // Network hiccups that say nothing about the user's setup: the tab closed mid-request,
 // connectivity dropped, an extension cut the request, or a gateway answered 502/503/504. Each
 // carries a content-hashed bundle name in its stack, so every deploy re-fingerprints the same
-// failure as first-seen. A 500 is a genuine backend exception and stays reported. Exported for
-// testing.
+// failure as first-seen. Exported for testing.
 export function isTransientNetworkError(error: unknown): boolean {
     // A gateway/proxy hiccup carries a 5xx status; the api layer wraps a dropped `fetch` in a
     // statusless ApiError, so those fall through to the message check below.
