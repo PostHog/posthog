@@ -28,7 +28,6 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
 
 def _make_factory(team) -> MarketingSourceFactory:
@@ -492,7 +491,9 @@ class TestNativeCampaignTableResolution(BaseTest):
 
     def _make_table(self, schema_name: str, prefix: str = "") -> DataWarehouseTable:
         table = Mock()
-        table.name = build_table_name(self._make_source(prefix), schema_name)
+        # Duplicates `build_table_name`, which warehouse_sources keeps out of its public
+        # interface — this format is what the factory parses back apart, so it has to match.
+        table.name = f"{prefix}googleads_{schema_name}".lower()
         return cast(DataWarehouseTable, table)
 
     def _create_config(self, tables: list[DataWarehouseTable]) -> GoogleAdsConfig | None:
