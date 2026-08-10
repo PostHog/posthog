@@ -7,22 +7,24 @@ from unittest import mock
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscale import (
-    PlanetScaleSourceConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
+    PlanetScaleMySQLSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.planetscale import (
-    PlanetScaleImplementation,
+from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql import (
+    PlanetScaleMySQLImplementation,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.source import PlanetScaleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source import (
+    PlanetScaleMySQLSource,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(host: str = "aws.connect.psdb.cloud") -> MySQLSourceConfig:
-    # The runtime config for this source is the generated `PlanetScaleSourceConfig`; the driver
+    # The runtime config for this source is the generated `PlanetScaleMySQLSourceConfig`; the driver
     # signatures are typed against the MySQL one it structurally matches.
     return cast(
         MySQLSourceConfig,
-        PlanetScaleSourceConfig(
+        PlanetScaleMySQLSourceConfig(
             host=host,
             database="my-database",
             user="user",
@@ -36,21 +38,21 @@ def _config(host: str = "aws.connect.psdb.cloud") -> MySQLSourceConfig:
 def _field(name: str) -> SourceFieldInputConfig:
     return next(
         field
-        for field in PlanetScaleSource().get_source_config.fields
+        for field in PlanetScaleMySQLSource().get_source_config.fields
         if isinstance(field, SourceFieldInputConfig) and field.name == name
     )
 
 
 def test_source_type_and_implementation():
-    source = PlanetScaleSource()
+    source = PlanetScaleMySQLSource()
 
-    assert source.source_type == ExternalDataSourceType.PLANETSCALE
+    assert source.source_type == ExternalDataSourceType.PLANETSCALEMYSQL
     # The MySQL driver reads `config.using_ssl`, which this source's config has no field for.
-    assert isinstance(source.get_implementation, PlanetScaleImplementation)
+    assert isinstance(source.get_implementation, PlanetScaleMySQLImplementation)
 
 
 def test_source_is_visible_and_alpha():
-    config = PlanetScaleSource().get_source_config
+    config = PlanetScaleMySQLSource().get_source_config
 
     assert not config.unreleasedSource
     assert config.featureFlag is None
@@ -61,14 +63,14 @@ def test_source_is_visible_and_alpha():
 @pytest.mark.parametrize("name", ["ssh_tunnel", "using_ssl"])
 def test_mysql_only_fields_are_not_offered(name):
     # PlanetScale mandates TLS and has no SSH tunnel story, so neither field applies.
-    assert all(field.name != name for field in PlanetScaleSource().get_source_config.fields)
+    assert all(field.name != name for field in PlanetScaleMySQLSource().get_source_config.fields)
 
 
 def test_generated_config_matches_the_offered_fields():
     # The generated config is what the pipeline actually receives, so a field added to the form
     # without regenerating would surface as a missing attribute mid-sync.
-    form_fields = {field.name for field in PlanetScaleSource().get_source_config.fields}
-    config_fields = {field.name for field in dataclasses.fields(PlanetScaleSourceConfig)}
+    form_fields = {field.name for field in PlanetScaleMySQLSource().get_source_config.fields}
+    config_fields = {field.name for field in dataclasses.fields(PlanetScaleMySQLSourceConfig)}
 
     assert form_fields == config_fields
 
@@ -93,7 +95,7 @@ def test_host_field_guides_to_the_branch_connect_host():
 
 
 def test_tls_error_replaces_the_mysql_advice_to_disable_ssl():
-    errors = PlanetScaleSource().get_non_retryable_errors()
+    errors = PlanetScaleMySQLSource().get_non_retryable_errors()
     message = errors["[SSL: WRONG_VERSION_NUMBER]"]
 
     assert message is not None
@@ -107,8 +109,8 @@ def test_tls_error_replaces_the_mysql_advice_to_disable_ssl():
     ["mysql://aws.connect.psdb.cloud", "https://aws.connect.psdb.cloud"],
 )
 def test_url_in_host_field_is_rejected_before_connecting(host):
-    with mock.patch.object(PlanetScaleSource, "get_schemas") as get_schemas:
-        success, error = PlanetScaleSource().validate_credentials(_config(host), team_id=1)
+    with mock.patch.object(PlanetScaleMySQLSource, "get_schemas") as get_schemas:
+        success, error = PlanetScaleMySQLSource().validate_credentials(_config(host), team_id=1)
 
     get_schemas.assert_not_called()
     assert success is False
@@ -118,8 +120,8 @@ def test_url_in_host_field_is_rejected_before_connecting(host):
 
 @pytest.mark.parametrize("host", ["app.planetscale.com", "PLANETSCALE.COM", "  planetscale.com  "])
 def test_dashboard_host_is_rejected_with_connect_guidance(host):
-    with mock.patch.object(PlanetScaleSource, "get_schemas") as get_schemas:
-        success, error = PlanetScaleSource().validate_credentials(_config(host), team_id=1)
+    with mock.patch.object(PlanetScaleMySQLSource, "get_schemas") as get_schemas:
+        success, error = PlanetScaleMySQLSource().validate_credentials(_config(host), team_id=1)
 
     get_schemas.assert_not_called()
     assert success is False
@@ -129,10 +131,10 @@ def test_dashboard_host_is_rejected_with_connect_guidance(host):
 
 def test_psdb_host_is_not_treated_as_the_dashboard():
     with (
-        mock.patch.object(PlanetScaleSource, "is_database_host_valid", return_value=(True, None)),
-        mock.patch.object(PlanetScaleSource, "get_schemas", return_value=[]) as get_schemas,
+        mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(True, None)),
+        mock.patch.object(PlanetScaleMySQLSource, "get_schemas", return_value=[]) as get_schemas,
     ):
-        success, error = PlanetScaleSource().validate_credentials(_config(), team_id=1)
+        success, error = PlanetScaleMySQLSource().validate_credentials(_config(), team_id=1)
 
     get_schemas.assert_called_once()
     assert success is True
@@ -141,10 +143,10 @@ def test_psdb_host_is_not_treated_as_the_dashboard():
 
 def test_unsafe_host_is_rejected_before_connecting():
     with (
-        mock.patch.object(PlanetScaleSource, "is_database_host_valid", return_value=(False, "host not allowed")),
-        mock.patch.object(PlanetScaleSource, "get_schemas") as get_schemas,
+        mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(False, "host not allowed")),
+        mock.patch.object(PlanetScaleMySQLSource, "get_schemas") as get_schemas,
     ):
-        success, error = PlanetScaleSource().validate_credentials(_config("127.0.0.1"), team_id=1)
+        success, error = PlanetScaleMySQLSource().validate_credentials(_config("127.0.0.1"), team_id=1)
 
     get_schemas.assert_not_called()
     assert success is False
@@ -155,11 +157,11 @@ def test_validate_credentials_never_opens_an_ssh_tunnel():
     # `MySQLSource.validate_credentials` reads `config.ssh_tunnel`, which this config has no
     # field for, so the override must not fall through to it.
     with (
-        mock.patch.object(PlanetScaleSource, "is_database_host_valid", return_value=(True, None)),
-        mock.patch.object(PlanetScaleSource, "get_schemas", return_value=[]),
-        mock.patch.object(PlanetScaleSource, "ssh_tunnel_is_valid") as ssh_tunnel_is_valid,
+        mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(True, None)),
+        mock.patch.object(PlanetScaleMySQLSource, "get_schemas", return_value=[]),
+        mock.patch.object(PlanetScaleMySQLSource, "ssh_tunnel_is_valid") as ssh_tunnel_is_valid,
     ):
-        success, _ = PlanetScaleSource().validate_credentials(_config(), team_id=1)
+        success, _ = PlanetScaleMySQLSource().validate_credentials(_config(), team_id=1)
 
     ssh_tunnel_is_valid.assert_not_called()
     assert success is True
@@ -179,13 +181,13 @@ def test_validate_credentials_never_opens_an_ssh_tunnel():
 )
 def test_connection_failures_map_to_actionable_messages(raw_error, expected_fragment):
     with (
-        mock.patch.object(PlanetScaleSource, "is_database_host_valid", return_value=(True, None)),
-        mock.patch.object(PlanetScaleSource, "get_schemas", side_effect=Exception(raw_error)),
+        mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(True, None)),
+        mock.patch.object(PlanetScaleMySQLSource, "get_schemas", side_effect=Exception(raw_error)),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.source.capture_exception"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source.capture_exception"
         ) as capture,
     ):
-        success, error = PlanetScaleSource().validate_credentials(_config(), team_id=1)
+        success, error = PlanetScaleMySQLSource().validate_credentials(_config(), team_id=1)
 
     assert success is False
     assert error is not None
@@ -224,14 +226,14 @@ def test_retryable_sync_errors_are_not_captured_during_validation(raw_error):
 
 def test_unrecognized_failure_is_captured_and_reported_generically():
     with (
-        mock.patch.object(PlanetScaleSource, "is_database_host_valid", return_value=(True, None)),
-        mock.patch.object(PlanetScaleSource, "get_schemas", side_effect=Exception("something unexpected")),
+        mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(True, None)),
+        mock.patch.object(PlanetScaleMySQLSource, "get_schemas", side_effect=Exception("something unexpected")),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.source.capture_exception"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source.capture_exception"
         ) as capture,
     ):
-        success, error = PlanetScaleSource().validate_credentials(_config(), team_id=1)
+        success, error = PlanetScaleMySQLSource().validate_credentials(_config(), team_id=1)
 
     capture.assert_called_once()
     assert success is False
-    assert error == "Could not connect to PlanetScale. Please check all connection details are valid."
+    assert error == "Could not connect to PlanetScale MySQL. Please check all connection details are valid."
