@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.source import MailchimpSource
 
 
 class TestExtractDataCenter:
@@ -848,3 +849,34 @@ class TestSourceResponseForNewEndpoints:
 
         assert response.primary_keys == expected_primary_keys
         assert response.partition_keys == expected_partition_keys
+
+
+class TestMailchimpRetryableErrors:
+    @pytest.mark.parametrize(
+        ("name", "observed_error"),
+        [
+            (
+                "429",
+                "429 Client Error: Too Many Requests for url: "
+                "https://us15.api.mailchimp.com/3.0/lists/c825cb5a63/members?count=1000&offset=0",
+            ),
+            ("500", "500 Server Error: Internal Server Error for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("502", "502 Server Error: Bad Gateway for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("503", "503 Server Error: Service Unavailable for url: https://us15.api.mailchimp.com/3.0/lists"),
+        ],
+    )
+    def test_transient_errors_are_recognised_as_retryable(self, name: str, observed_error: str) -> None:
+        retryable_errors = MailchimpSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors), observed_error
+
+    @pytest.mark.parametrize(
+        ("name", "observed_error"),
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("403", "403 Client Error: Forbidden for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("invalid_key_format", "Invalid Mailchimp API key format. Expected format: key-dc"),
+        ],
+    )
+    def test_non_retryable_errors_do_not_match(self, name: str, observed_error: str) -> None:
+        retryable_errors = MailchimpSource().get_retryable_errors()
+        assert not any(key in observed_error for key in retryable_errors), observed_error
