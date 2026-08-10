@@ -48,7 +48,7 @@ function thread(overrides: Partial<CommentWithRepliesType> = {}): CommentWithRep
 
 afterEach(cleanup)
 
-describe('ThreadDiscussionEntry', () => {
+describe('ThreadDiscussions', () => {
     it('marks the discussion team-only and names who started it', () => {
         render(<ThreadDiscussionEntry thread={thread()} onOpen={jest.fn()} />)
 
@@ -156,30 +156,30 @@ describe('ThreadDiscussionEntry', () => {
 
         expect(onOpen).toHaveBeenCalledWith('comment-1')
     })
-})
 
-describe('discussionTimelineExtras', () => {
-    it('anchors each entry at the root comment', () => {
-        expect(discussionTimelineExtras([thread()], jest.fn())[0].at).toBe('2026-01-01T00:00:00Z')
-    })
+    describe('discussionTimelineExtras', () => {
+        it('anchors each entry at the root comment', () => {
+            expect(discussionTimelineExtras([thread()], jest.fn())[0].at).toBe('2026-01-01T00:00:00Z')
+        })
 
-    it('falls back to the first reply when the root was deleted', () => {
-        const extras = discussionTimelineExtras(
-            [
-                thread({
-                    comment: undefined,
-                    replies: [comment({ id: 'r1', created_at: '2026-01-02T00:00:00Z' })],
-                }),
-            ],
-            jest.fn()
-        )
+        it('falls back to the first reply when the root was deleted', () => {
+            const extras = discussionTimelineExtras(
+                [
+                    thread({
+                        comment: undefined,
+                        replies: [comment({ id: 'r1', created_at: '2026-01-02T00:00:00Z' })],
+                    }),
+                ],
+                jest.fn()
+            )
 
-        expect(extras[0].at).toBe('2026-01-02T00:00:00Z')
-    })
+            expect(extras[0].at).toBe('2026-01-02T00:00:00Z')
+        })
 
-    // MessageList sorts on new Date(at).getTime(); one NaN reorders the whole timeline, not just
-    // this entry, so a thread with no usable timestamp is dropped rather than emitted.
-    it('drops a thread with no timestamp to anchor on', () => {
-        expect(discussionTimelineExtras([{ id: 'x', comment: undefined, replies: [] }], jest.fn())).toEqual([])
+        // MessageList sorts on new Date(at).getTime(); one NaN reorders the whole timeline, not just
+        // this entry, so a thread with no usable timestamp is dropped rather than emitted.
+        it('drops a thread with no timestamp to anchor on', () => {
+            expect(discussionTimelineExtras([{ id: 'x', comment: undefined, replies: [] }], jest.fn())).toEqual([])
+        })
     })
 })

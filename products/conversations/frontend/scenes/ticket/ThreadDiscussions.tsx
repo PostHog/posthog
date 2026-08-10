@@ -17,11 +17,6 @@ import { ActivityScope, CommentType, SidePanelTab } from '~/types'
 import type { TimelineExtra } from '../../components/Chat/MessageList'
 import { TeamOnlyBadge } from '../../components/Chat/TeamOnlyBadge'
 
-/** The thread root, or undefined when it was deleted out from under its replies. */
-function rootOf(thread: CommentWithRepliesType): CommentType | undefined {
-    return thread.comment
-}
-
 /**
  * When the discussion happened. The root's timestamp is what the reader means by "when this started",
  * but a deleted root leaves only replies, so fall back to the first of those rather than emitting an
@@ -44,13 +39,12 @@ const MAX_NAMED_SLACK_PARTICIPANTS = 2
  * (the case this whole surface exists for) would show no one. So they get named in the open instead.
  */
 function participantsOf(thread: CommentWithRepliesType): {
-    people: { email: string; name?: string }[]
-    peopleTooltip: string
+    people: { email: string; name: string }[]
     slackNames: string[]
 } {
-    const all = [rootOf(thread), ...thread.replies].filter((comment): comment is CommentType => !!comment)
+    const all = [thread.comment, ...thread.replies].filter((comment): comment is CommentType => !!comment)
 
-    const people: { email: string; name?: string }[] = []
+    const people: { email: string; name: string }[] = []
     const seenEmails = new Set<string>()
     const slackNames = new Set<string>()
 
@@ -66,11 +60,7 @@ function participantsOf(thread: CommentWithRepliesType): {
         }
     }
 
-    return {
-        people,
-        peopleTooltip: people.map((person) => person.name ?? person.email).join(', '),
-        slackNames: [...slackNames],
-    }
+    return { people, slackNames: [...slackNames] }
 }
 
 /** Slack participants as a short readable list: "Marius", "Marius, Ben", "Marius, Ben +3". */
@@ -99,10 +89,10 @@ export function ThreadDiscussionEntry({
     thread: CommentWithRepliesType
     onOpen: (threadId: string) => void
 }): JSX.Element {
-    const root = rootOf(thread)
+    const root = thread.comment
     const anchor = anchorOf(thread)
     const slackThread = root?.slack_thread
-    const { people, peopleTooltip, slackNames } = participantsOf(thread)
+    const { people, slackNames } = participantsOf(thread)
 
     return (
         // Full width, unlike a message: messages are inset because they belong to one side of the
@@ -153,7 +143,13 @@ export function ThreadDiscussionEntry({
                 )}
                 <div className="mt-1.5 flex items-center gap-2 text-xs text-muted">
                     <span className="shrink-0">{pluralize(thread.replies.length, 'reply', 'replies')}</span>
-                    {people.length > 0 ? <ProfileBubbles people={people} tooltip={peopleTooltip} limit={4} /> : null}
+                    {people.length > 0 ? (
+                        <ProfileBubbles
+                            people={people}
+                            tooltip={people.map((person) => person.name).join(', ')}
+                            limit={4}
+                        />
+                    ) : null}
                     {slackNames.length > 0 ? (
                         <span className="ph-no-capture truncate">{summariseSlackNames(slackNames)}</span>
                     ) : null}
@@ -175,13 +171,10 @@ export function discussionTimelineExtras(
     threads: CommentWithRepliesType[],
     onOpen: (threadId: string) => void
 ): TimelineExtra[] {
-    return threads
-        .map((thread) => ({ thread, at: anchorOf(thread) }))
-        .filter((entry): entry is { thread: CommentWithRepliesType; at: string } => !!entry.at)
-        .map(({ thread, at }) => ({
-            at,
-            element: <ThreadDiscussionEntry key={thread.id} thread={thread} onOpen={onOpen} />,
-        }))
+    return threads.flatMap((thread) => {
+        const at = anchorOf(thread)
+        return at ? [{ at, element: <ThreadDiscussionEntry key={thread.id} thread={thread} onOpen={onOpen} /> }] : []
+    })
 }
 
 /**
