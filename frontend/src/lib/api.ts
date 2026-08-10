@@ -429,6 +429,10 @@ export class ApiConfig {
         return this._currentOrganizationId
     }
 
+    static hasCurrentOrganizationId(): boolean {
+        return !!this._currentOrganizationId
+    }
+
     static setCurrentOrganizationId(id: OrganizationType['id'] | null): void {
         this._currentOrganizationId = id
     }
@@ -2101,8 +2105,24 @@ const prepareUrl = (url: string): string => {
             })
     }
 
+    // The billing endpoints have no org id in their route, so scope them to the organization the
+    // client is showing. Without this the backend falls back to the user's persisted current
+    // organization, which a stale tab or deep link can point at the wrong org.
+    if (
+        BILLING_URL_REGEX.test(output) &&
+        output.indexOf('organization_id=') === -1 &&
+        ApiConfig.hasCurrentOrganizationId()
+    ) {
+        output =
+            output +
+            (output.indexOf('?') === -1 ? '?' : '&') +
+            encodeParams({ organization_id: ApiConfig.getCurrentOrganizationId() })
+    }
+
     return output
 }
+
+const BILLING_URL_REGEX = /\/api\/billing(\/|\?|$)/
 
 /**
  * Bearer auth header for standalone OAuth mode, attached only to requests bound for the OAuth

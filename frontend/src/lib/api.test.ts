@@ -61,6 +61,30 @@ describe('API helper', () => {
         })
     })
 
+    describe('billing organization scoping', () => {
+        // The billing route carries no org id, so api must attach the org the client is showing —
+        // otherwise the backend falls back to the persisted current org and a stale tab bills the wrong one.
+        afterEach(() => {
+            ApiConfig.setCurrentOrganizationId(null)
+        })
+
+        it('attaches the current organization id to billing requests', async () => {
+            ApiConfig.setCurrentOrganizationId('org-on-screen')
+
+            await api.get('api/billing')
+
+            expect(fakeFetch.mock.calls[0][0]).toContain('organization_id=org-on-screen')
+        })
+
+        it('does not attach the organization id to non-billing requests', async () => {
+            ApiConfig.setCurrentOrganizationId('org-on-screen')
+
+            await api.get('api/projects/@current')
+
+            expect(fakeFetch.mock.calls[0][0]).not.toContain('organization_id=')
+        })
+    })
+
     describe('dashboard tile streaming', () => {
         it.each([
             { status: 401, body: { detail: 'Authentication expired.' }, expectedCode: null },

@@ -18,7 +18,7 @@ from requests import Response, get
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -1334,3 +1334,45 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         self.assertIn(
             response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
         )
+
+
+class TestBillingOrganizationScoping(APILicensedTest):
+    """The billing route has no org id, so the client passes the org it is showing. These lock in
+    that the endpoint bills that org (scoped to membership) rather than the user's persisted
+    current organization."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # A second org the user also belongs to, distinct from their current organization.
+        self.other_organization = Organization.objects.create(name="Other Org")
+        OrganizationMembership.objects.create(
+            user=self.user, organization=self.other_organization, level=OrganizationMembership.Level.ADMIN
+        )
+
+        # An org the user is not a member of.
+        self.foreign_organization = Organization.objects.create(name="Foreign Org")
+
+    @patch("ee.billing.billing_manager.BillingManager._get_stripe_portal_url")
+    def test_portal_uses_requested_org_over_current(self, mock_portal):
+        mock_portal.return_value = "https://billing.stripe.com/p/session/test"
+
+        response = self.client.get(f"/api/billing/portal?organization_id={self.other_organization.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        mock_portal.assert_called_once_with(self.other_organization)
+
+    @parameterized.expand(
+        [
+            ("not_a_member", "foreign"),
+            ("malformed", "not-a-uuid"),
+        ]
+    )
+    def test_requested_org_not_accessible_returns_404(self, _name, which):
+        org_id = str(self.foreign_organization.id) if which == "foreign" else which
+
+        response = self.client.get(f"/api/billing?organization_id={org_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

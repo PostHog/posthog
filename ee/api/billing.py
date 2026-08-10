@@ -2,6 +2,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect
 
@@ -649,11 +650,25 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return {}
 
     def _get_org(self) -> Optional[Organization]:
-        # root-router viewset with param_derived_from_user_current_team — no URL-scoped org to mismatch
-        # nosemgrep: cross-org-bypass-user-organization
-        org = None if self.request.user.is_anonymous else self.request.user.organization
+        if self.request.user.is_anonymous:
+            return None
 
-        return org
+        # The billing scene has no org id in its route, so the client sends the organization it is
+        # showing. Honor it — scoped to the user's memberships — so a stale tab or deep link bills
+        # the org on screen instead of the user's persisted current organization.
+        requested_org_id = self.request.query_params.get("organization_id")
+        if requested_org_id:
+            try:
+                # nosemgrep: cross-org-bypass-user-organization
+                org = self.request.user.organizations.filter(id=requested_org_id).first()
+            except (ValueError, DjangoValidationError):
+                org = None
+            if org is None:
+                raise NotFound("Organization not found.")
+            return org
+
+        # nosemgrep: cross-org-bypass-user-organization
+        return self.request.user.organization
 
     def _get_org_required(self) -> Organization:
         org = self._get_org()
