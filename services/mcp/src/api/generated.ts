@@ -19178,6 +19178,7 @@ export namespace Schemas {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -20466,6 +20467,7 @@ export namespace Schemas {
       FloatApp: 'FloatApp',
       Flowlu: 'Flowlu',
       Formbricks: 'Formbricks',
+      Framer: 'Framer',
       FreeAgent: 'FreeAgent',
       Freightview: 'Freightview',
       Freshcaller: 'Freshcaller',
@@ -21768,6 +21770,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -23758,6 +23761,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -31446,6 +31450,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -32766,6 +32771,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -69104,6 +69110,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -70434,6 +70441,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -71754,6 +71762,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
