@@ -2487,6 +2487,7 @@ class ExternalDataSourceType(StrEnum):
     WIX = "Wix"
     SEVALLA = "Sevalla"
     MOTION = "Motion"
+    FRAMER = "Framer"
 
 
 class ExternalQueryErrorCode(StrEnum):
