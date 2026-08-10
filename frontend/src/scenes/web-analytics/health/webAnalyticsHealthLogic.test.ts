@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -13,6 +14,7 @@ describe('webAnalyticsHealthLogic', () => {
     let logic: ReturnType<typeof webAnalyticsHealthLogic.build>
 
     beforeEach(() => {
+        silenceKeaLoadersErrors()
         initKeaTests()
         featureFlagLogic.mount()
         teamLogic.mount()
@@ -20,6 +22,7 @@ describe('webAnalyticsHealthLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        resumeKeaLoadersErrors()
     })
 
     it('fails closed when the health_issues fetch errors and there is no data', async () => {
