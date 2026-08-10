@@ -994,6 +994,7 @@ export interface sourceWizardLogicActions {
             | 'Formbricks'
             | 'Fortnox'
             | 'Fourthwall'
+            | 'Framer'
             | 'Fred'
             | 'FreeAgent'
             | 'Freightview'
