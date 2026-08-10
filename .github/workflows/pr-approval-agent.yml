@@ -52,7 +52,6 @@ jobs:
         # nothing unless a run hangs; runners bill actual minutes.
         timeout-minutes: 20
         outputs:
-            dismiss_approval: ${{ steps.decide.outputs.dismiss_approval }}
             reason: ${{ steps.decide.outputs.reason }}
 
         steps:
@@ -128,6 +127,36 @@ jobs:
                     echo "reason=$(echo "$decision" | jq -r .reason)"
                   } >> "$GITHUB_OUTPUT"
 
+            # Clear stale bot approvals BEFORE the LLM review runs. Master
+            # ruleset has dismiss_stale_reviews_on_push=false, so a prior-commit
+            # approval could otherwise satisfy the required-approval gate for the
+            # whole length of Run review — a merge window this dismissal exists
+            # to close. Runs only on the dismiss path (non-trivial delta, or the
+            # decide step failing closed). No commit_id filter is needed: this
+            # runs before Run review posts any approval, and a synchronize head
+            # is always a new commit, so no fresh approval exists yet. The
+            # dismiss job below is the fallback for when this step cannot run
+            # (review skipped or failed before it).
+            - name: Dismiss stale bot approvals
+              if: steps.decide.outputs.dismiss_approval == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+                  REASON: ${{ steps.decide.outputs.reason }}
+              run: |
+                  set -euo pipefail
+                  mapfile -t REVIEW_IDS < <(
+                      gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+                        --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "stamphog[bot]") and .state == "APPROVED") | .id'
+                  )
+                  for id in "${REVIEW_IDS[@]}"; do
+                      [ -z "$id" ] && continue
+                      gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" \
+                        -f message="New commits pushed (delta classified \`$REASON\`) — stamphog approval dismissed; re-review is running." \
+                        -f event=DISMISS
+                  done
+
             # Only post the comment on actual retention reasons — not on
             # no_prior_approval (nothing to retain) or empty_delta (HEAD
             # didn't move, comment would be noise).
@@ -169,10 +198,18 @@ jobs:
 
             - name: Post review
               # Post whenever the review was attempted, even if it crashed — but
-              # never on a synchronize the decide step chose to retain.
+              # never on a synchronize the decide step chose to retain. The
+              # `outcome != 'success'` clause keeps the crash comment when shared
+              # setup (token / checkout / fetch / uv) failed before the decide
+              # step could run: the step is skipped then, run_review is empty,
+              # and without this the author would get a red run and no comment.
               if: >-
                   always()
-                  && (github.event.action != 'synchronize' || steps.decide.outputs.run_review == 'true')
+                  && (
+                    github.event.action != 'synchronize'
+                    || steps.decide.outputs.run_review == 'true'
+                    || steps.decide.outcome != 'success'
+                  )
               env:
                   # Everything stamphog does — the approval, the sticky comment,
                   # the label strip — posts as the Stamphog app (GH_TOKEN) so it
@@ -323,28 +360,31 @@ jobs:
                   path: /tmp/review.json
                   retention-days: 30
 
-    # hogli-lint: not-a-required-gate — branches on the review job's delta
-    # classification to decide whether to dismiss a stale approval; it emits no
-    # required status check.
+    # hogli-lint: not-a-required-gate — branches on the review job's result to
+    # decide whether to dismiss a stale approval; it emits no required status check.
     dismiss:
         needs: review
-        # Fail closed on three cases:
-        #   - the review job's Decide-delta step said dismiss (smart path)
-        #   - review failed (uv install / checkout / fetch timeout) — a stale
+        # Fallback dismissal for the two cases the review job's in-line
+        # "Dismiss stale bot approvals" step could not cover, because it never
+        # ran:
+        #   - review failed (app-token / checkout / fetch / uv error before the
+        #     in-line dismiss step, or that step itself erroring) — a stale
         #     approval must not survive an aborted run
         #   - review was skipped (label removed out-of-band) — mirrors the
         #     pre-split unconditional dismiss-on-push behavior so a stale bot
         #     approval can't outlive the label under master ruleset's
         #     dismiss_stale_reviews_on_push=false / require_last_push_approval=false
-        # Explicit synchronize + draft gates stop spurious dismissal on
+        # The normal non-trivial path dismisses inside review, before Run review,
+        # so a stale approval never stays valid during the long LLM step.
+        # Explicit synchronize + draft gates stop spurious runs on
         # labeled / ready_for_review events where review's result is also
         # 'skipped'.
         # Bot authors are deliberately NOT excluded here: a bot-authored PR may
         # still carry a stale github-actions[bot] approval from before the
         # bot-author gate landed, and it must get dismissed on push. review is
-        # skipped for bots, which routes here via the 'skipped' fail-closed
-        # path. This only ever touches github-actions[bot] approvals, so it's a
-        # no-op when there's nothing to dismiss.
+        # skipped for bots, which routes here via the 'skipped' path. This only
+        # ever touches github-actions[bot] approvals, so it's a no-op when
+        # there's nothing to dismiss.
         # Same-repo only: forked / Dependabot PRs don't receive the app secrets,
         # so the app-token step below would fail on every such synchronize. There
         # is nothing to dismiss there anyway, since stamphog can never have
@@ -356,8 +396,7 @@ jobs:
             && !github.event.pull_request.draft
             && github.event.pull_request.head.repo.full_name == github.repository
             && (
-              needs.review.outputs.dismiss_approval == 'true'
-              || needs.review.result == 'failure'
+              needs.review.result == 'failure'
               || needs.review.result == 'skipped'
             )
         runs-on: ubuntu-latest
@@ -388,19 +427,22 @@ jobs:
                   # Dismiss APPROVED reviews from either Stamphog identity —
                   # github-actions[bot] (legacy bodyless approval) and
                   # stamphog[bot] (the app approval carrying the review body) —
-                  # EXCEPT one on the current head. This job now runs after the
-                  # review job, so a fresh approval this same push just posted on
-                  # HEAD_SHA must survive while stale approvals on older commits
-                  # are cleared. Human and non-approval reviews are untouched.
+                  # EXCEPT one on the current head. review either failed after
+                  # posting a fresh approval on HEAD_SHA, or was skipped; keep
+                  # that fresh approval and clear only stale approvals on older
+                  # commits. Human and non-approval reviews are untouched.
                   mapfile -t REVIEW_IDS < <(
                       gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
                         --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "stamphog[bot]") and .state == "APPROVED" and .commit_id != env.HEAD_SHA) | .id'
                   )
 
+                  # This run did not re-review (review failed or was skipped), so
+                  # the message points at the manual retry rather than promising
+                  # an automatic one.
                   for id in "${REVIEW_IDS[@]}"; do
                       [ -z "$id" ] && continue
                       gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" \
-                        -f message="New commits pushed (delta classified \`$REASON\`) — stamphog approval dismissed; re-review running automatically." \
+                        -f message="New commits pushed (delta classified \`$REASON\`) — stamphog approval dismissed; re-apply the label or push again to re-review." \
                         -f event=DISMISS
                   done
 
