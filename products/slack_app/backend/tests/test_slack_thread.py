@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.services.message_footer import RunProvenance
+from products.slack_app.backend.services.message_footer import RunFooter
 from products.slack_app.backend.slack_thread import (
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
@@ -335,7 +335,7 @@ class TestReplyFooterGate(SimpleTestCase):
             thread_ts="1234.5678",
             mentioning_slack_user_id="U123",
         )
-        return SlackThreadHandler(context, RunProvenance(model="claude-opus-5"))
+        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
 
     @parameterized.expand([("off", False, False), ("on", True, True)])
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
@@ -368,15 +368,15 @@ class TestReplyFooterGate(SimpleTestCase):
 
 
 class TestRelayedAnswerFooter(SimpleTestCase):
-    def _handler(self, provenance: RunProvenance) -> SlackThreadHandler:
+    def _handler(self, footer: RunFooter) -> SlackThreadHandler:
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
-        return SlackThreadHandler(context, provenance)
+        return SlackThreadHandler(context, footer)
 
     @parameterized.expand(
         [
-            ("final_chunk_with_model", RunProvenance(model="claude-opus-5"), True, True),
-            ("final_chunk_nothing_to_say", RunProvenance(), True, False),
-            ("earlier_chunk", RunProvenance(model="claude-opus-5"), False, False),
+            ("final_chunk_with_model", RunFooter(model="claude-opus-5"), True, True),
+            ("final_chunk_nothing_to_say", RunFooter(), True, False),
+            ("earlier_chunk", RunFooter(model="claude-opus-5"), False, False),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
@@ -386,7 +386,7 @@ class TestRelayedAnswerFooter(SimpleTestCase):
     def test_footer_rides_the_last_chunk_only(
         self,
         _name: str,
-        provenance: RunProvenance,
+        footer: RunFooter,
         with_footer: bool,
         expected: bool,
         mock_get_client,
@@ -400,7 +400,7 @@ class TestRelayedAnswerFooter(SimpleTestCase):
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(config={}, integration_id="T1")
 
-        self._handler(provenance).post_thread_message("the answer", with_footer=with_footer)
+        self._handler(footer).post_thread_message("the answer", with_footer=with_footer)
 
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["text"] == "the answer"

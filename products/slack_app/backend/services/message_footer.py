@@ -11,13 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from posthog.models.integration import Integration
-
+from products.slack_app.backend.services.blocks import context_block
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 
 
 @dataclass(frozen=True)
-class RunProvenance:
+class RunFooter:
     """What a reply can say about the run behind it.
 
     Constant for the life of a handler, so it is supplied once at construction rather
@@ -30,37 +29,17 @@ class RunProvenance:
     model: str | None = None
     reasoning_effort: str | None = None
 
-    def __bool__(self) -> bool:
-        """False when there is nothing to describe, so a caller can skip the gate —
-        and the queries behind it — rather than resolve a footer that can't render."""
+    def has_content(self) -> bool:
+        """Whether this would render as anything.
+
+        A caller checks it to skip the flag lookups behind a footer that can't appear.
+        Spelled out rather than given as ``__bool__`` so that ``footer or RunFooter()``
+        keeps meaning "None-coalesce" and cannot silently discard a partial instance.
+        """
         return any((self.task_url, self.desktop_url, self.model))
 
 
-def app_home_url(integration: Integration) -> str | None:
-    """Deep link to this install's Home tab, where the model picker lives.
-
-    The `app_redirect` form is https, so it survives as a link in any client and in a
-    browser; `slack://app` only resolves natively. Both need the app id (`A…`), which the
-    OAuth exchange already persisted on the integration — so this stays correct even
-    where more than one Slack app is in play. A row installed by some other path may not
-    carry it, which simply means no link.
-    """
-    app_id = (integration.config or {}).get("app_id")
-    if not app_id or not integration.integration_id:
-        return None
-    return f"https://slack.com/app_redirect?app={app_id}&team={integration.integration_id}&tab=home"
-
-
-def context_block(text: str) -> dict[str, Any]:
-    """A line of muted supporting text. Block Kit has no footer block; `context` is what
-    renders small and grey under the content it describes."""
-    return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
-
-
-def reply_footer_block(
-    provenance: RunProvenance,
-    configure_url: str | None = None,
-) -> dict[str, Any] | None:
+def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
     """The footer as a `context` block, or `None` when there is nothing to say.
 
     The answer itself is the message, so this is muted rather than competing with the
@@ -68,12 +47,12 @@ def reply_footer_block(
     trailing line at all.
     """
     segments: list[str] = []
-    if provenance.task_url:
-        segments.append(f"<{provenance.task_url}|View on web>")
-    if provenance.desktop_url:
-        segments.append(f"<{provenance.desktop_url}|View on desktop>")
-    if provenance.model:
-        segments.append(describe_run_model(provenance.model, provenance.reasoning_effort))
+    if footer.task_url:
+        segments.append(f"<{footer.task_url}|View on web>")
+    if footer.desktop_url:
+        segments.append(f"<{footer.desktop_url}|View on desktop>")
+    if footer.model:
+        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
     if not segments:

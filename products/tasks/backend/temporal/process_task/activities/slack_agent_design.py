@@ -105,8 +105,8 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     # Deferred alongside the Slack import: this module is loaded by the workflow sandbox,
-    # and `run_links` reaches the tasks ORM.
-    from products.tasks.backend.run_links import load_run_provenance  # noqa: PLC0415
+    # and `run_footer` reaches the tasks ORM.
+    from products.tasks.backend.run_footer import load_run_footer  # noqa: PLC0415
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
@@ -114,7 +114,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         # Describing the run costs a query and a flag call, so only do it for a
         # workspace that will actually be shown the result.
         if handler.footer_enabled():
-            handler.provenance = load_run_provenance(input.run_id)
+            handler.run_footer = load_run_footer(input.run_id)
         handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,

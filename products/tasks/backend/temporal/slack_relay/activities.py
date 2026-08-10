@@ -363,7 +363,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.run_links import run_provenance
+    from products.tasks.backend.run_footer import run_footer
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
 
     try:
@@ -419,7 +419,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
     if handler.footer_enabled():
-        handler.provenance = run_provenance(task_run)
+        handler.run_footer = run_footer(task_run)
 
     # Mention resolution, most precise first: the echoed message's recorded
     # sender, then the live/mapping actors for pre-rollout runs.

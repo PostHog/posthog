@@ -8,13 +8,10 @@ from slack_sdk import WebClient
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_message_footer_enabled
-from products.slack_app.backend.services.message_footer import (
-    RunProvenance,
-    app_home_url,
-    context_block,
-    reply_footer_block,
-)
+from products.slack_app.backend.services.blocks import context_block
+from products.slack_app.backend.services.message_footer import RunFooter, reply_footer_block
 from products.slack_app.backend.services.model_catalogue import describe_run_model
+from products.slack_app.backend.services.slack_links import app_home_url
 from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
 
 logger = structlog.get_logger(__name__)
@@ -122,9 +119,9 @@ class SlackThreadContext:
 class SlackThreadHandler:
     """Handler for posting updates to a Slack thread during task execution."""
 
-    def __init__(self, context: SlackThreadContext, provenance: RunProvenance | None = None) -> None:
+    def __init__(self, context: SlackThreadContext, run_footer: RunFooter | None = None) -> None:
         self.context = context
-        self.provenance = provenance or RunProvenance()
+        self.run_footer = run_footer or RunFooter()
         self._integration: Integration | None = None
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
@@ -159,7 +156,7 @@ class SlackThreadHandler:
         """
         # A handler with nothing to describe can't produce a footer, so it never pays for
         # the flag lookups. Configure alone, under a reply, isn't worth a line.
-        if not self.provenance:
+        if not self.run_footer.has_content():
             return None
         if not self.footer_enabled():
             return None
@@ -167,8 +164,8 @@ class SlackThreadHandler:
         configure_url = app_home_url(integration)
         if configure_url and not is_slack_app_home_enabled(integration):
             configure_url = None
-        provenance = self.provenance if include_task_url else replace(self.provenance, task_url=None)
-        return reply_footer_block(provenance, configure_url)
+        footer = self.run_footer if include_task_url else replace(self.run_footer, task_url=None)
+        return reply_footer_block(footer, configure_url)
 
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
@@ -343,8 +340,8 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
 
-        if self.provenance.model:
-            blocks.append(context_block(describe_run_model(self.provenance.model, self.provenance.reasoning_effort)))
+        if self.run_footer.model:
+            blocks.append(context_block(describe_run_model(self.run_footer.model, self.run_footer.reasoning_effort)))
 
         if task_url:
             blocks.append(

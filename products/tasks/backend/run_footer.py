@@ -19,7 +19,7 @@ from django.conf import settings
 from posthog.temporal.common.logger import get_logger
 from posthog.utils import absolute_uri
 
-from products.slack_app.backend.services.message_footer import RunProvenance
+from products.slack_app.backend.services.message_footer import RunFooter
 from products.tasks.backend.access import has_tasks_access
 
 if TYPE_CHECKING:
@@ -35,8 +35,8 @@ logger = get_logger(__name__)
 DESKTOP_URL_SCHEME = "posthog-code"
 
 
-def run_provenance(task_run: TaskRun) -> RunProvenance:
-    """Describe an already-loaded run for a footer. Pure apart from the access gate.
+def run_footer(task_run: TaskRun) -> RunFooter:
+    """Describe an already-loaded run. Pure apart from the access gate, and it propagates.
 
     Which model ran is not access-sensitive, so it survives the gate; only the links,
     which lead somewhere the reader may not be able to open, do not.
@@ -47,9 +47,9 @@ def run_provenance(task_run: TaskRun) -> RunProvenance:
 
     state = parse_run_state(task_run.state)
     if not _viewer_has_posthog_code_access(task_run.task.created_by):
-        return RunProvenance(model=state.model, reasoning_effort=state.reasoning_effort)
+        return RunFooter(model=state.model, reasoning_effort=state.reasoning_effort)
 
-    return RunProvenance(
+    return RunFooter(
         task_url=_task_url(task_run.task.team_id, task_run.task_id, task_run.id),
         # Task-scoped, matching the desktop app's own task route — the run id has no
         # equivalent there.
@@ -59,8 +59,8 @@ def run_provenance(task_run: TaskRun) -> RunProvenance:
     )
 
 
-def load_run_provenance(run_id: str | UUID | None) -> RunProvenance:
-    """Same, for a caller that doesn't already hold the run.
+def load_run_footer(run_id: str | UUID | None) -> RunFooter:
+    """Same, for a caller holding only a run id, and best-effort rather than strict.
 
     Never raises: a footer is the last thing appended to an answer that is already
     written, so failing to describe the run must not cost the reader the answer.
@@ -68,13 +68,13 @@ def load_run_provenance(run_id: str | UUID | None) -> RunProvenance:
     from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — deferred with `parse_run_state` above
 
     if not run_id:
-        return RunProvenance()
+        return RunFooter()
     try:
         task_run = TaskRun.objects.select_related("task", "task__created_by").get(id=run_id)
-        return run_provenance(task_run)
+        return run_footer(task_run)
     except Exception:
-        logger.exception("run_provenance_load_failed", run_id=str(run_id))
-        return RunProvenance()
+        logger.exception("run_footer_load_failed", run_id=str(run_id))
+        return RunFooter()
 
 
 def _task_url(team_id: int, task_id: str | UUID, run_id: str | UUID) -> str:
@@ -92,5 +92,5 @@ def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
     try:
         return has_tasks_access(viewer)
     except Exception:
-        logger.exception("run_provenance_access_check_failed", user_id=getattr(viewer, "id", None))
+        logger.exception("run_footer_access_check_failed", user_id=getattr(viewer, "id", None))
         return False
