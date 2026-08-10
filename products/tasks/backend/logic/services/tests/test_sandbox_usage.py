@@ -5,6 +5,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -108,19 +110,30 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert first.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
         assert resumed.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
 
-    def test_open_records_burstable_request_floors(self):
+    @parameterized.expand(
+        [
+            ("gvisor", {}, 0.5, 1024),
+            # VM memory can't burst — its effective request is the limit, and the ledger must
+            # record what the provider reserved, not the generic floor.
+            ("vm", {"vm_runtime": True}, 0.5, 16384),
+            ("clamped_to_limit", {"cpu_cores": 0.25, "memory_gb": 0.5}, 0.25, 512),
+        ]
+    )
+    def test_open_records_effective_burstable_request_floors(
+        self, name, config_overrides, expected_cpu_cores, expected_memory_mb
+    ):
         run = self._run()
 
         open_sandbox_session(
             run_id=run.id,
-            sandbox_id="sb-burst",
-            config=_config(burstable_resources=True, cpu_request_cores=0.5, memory_request_mb=1024),
+            sandbox_id=f"sb-burst-{name}",
+            config=_config(burstable_resources=True, cpu_request_cores=0.5, memory_request_mb=1024, **config_overrides),
         )
 
-        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-burst")
+        session = SandboxSession.objects.unscoped().get(sandbox_id=f"sb-burst-{name}")
         assert session.burstable is True
-        assert session.cpu_request_cores == 0.5
-        assert session.memory_request_mb == 1024
+        assert session.cpu_request_cores == expected_cpu_cores
+        assert session.memory_request_mb == expected_memory_mb
 
     def test_open_anchors_ttl_deadline_at_the_sandbox_creation_boundary(self):
         # The provider's TTL clock starts at Sandbox.create(), minutes before repo
