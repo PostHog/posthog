@@ -7,6 +7,9 @@ from unittest.mock import MagicMock, patch
 import litellm
 import pytest
 
+from llm_gateway.baseten import BASETEN_MODELS
+from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, cloudflare_litellm_model
+from llm_gateway.modal import MODAL_MODELS, modal_litellm_model
 from llm_gateway.rate_limiting.cost_refresh import (
     COST_ALIASES,
     CostRefreshService,
@@ -94,6 +97,15 @@ class TestApplyCostAliases:
 
         missing = [canonical for canonical, _ in COST_ALIASES.values() if canonical not in model_cost]
         assert not missing, f"COST_ALIASES canonicals missing from litellm.model_cost: {missing}"
+
+    def test_every_routed_openai_compatible_model_has_a_cost_alias(self) -> None:
+        routed_models = (
+            {cloudflare_litellm_model(model) for model in CLOUDFLARE_ALLOWED_MODELS}
+            | {modal_litellm_model(model) for model in MODAL_MODELS}
+            | {f"openai/{model}" for model in BASETEN_MODELS.values()}
+        )
+
+        assert routed_models <= COST_ALIASES.keys()
 
     @pytest.mark.parametrize(
         ("model", "prompt_tokens", "completion_tokens", "expected_input_cost", "expected_output_cost"),
