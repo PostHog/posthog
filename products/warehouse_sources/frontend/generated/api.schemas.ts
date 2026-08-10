@@ -623,7 +623,8 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
  * * `CosmosDB` - CosmosDB
- * * `PlanetScale` - PlanetScale
+ * * `PlanetScaleMySQL` - PlanetScaleMySQL
+ * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -1912,7 +1913,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
     CosmosDB: 'CosmosDB',
-    PlanetScale: 'PlanetScale',
+    PlanetScaleMySQL: 'PlanetScaleMySQL',
+    PlanetScalePostgres: 'PlanetScalePostgres',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -3341,7 +3343,8 @@ export interface ExternalDataSourceCreateApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -4844,7 +4847,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -6160,7 +6164,8 @@ export interface DatabaseSchemaRequestApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -7453,7 +7458,8 @@ export interface DirectConnectionSourceOptionApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -8831,7 +8837,8 @@ export interface SourcePreviewRequestApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -10159,7 +10166,8 @@ export interface SourceSetupApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -11494,7 +11502,8 @@ export interface SourceCredentialCreateApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
