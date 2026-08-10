@@ -49,6 +49,7 @@ const DEFAULT_TEAM: Team = {
     anonymize_ips: false,
     api_token: 'test-token',
     secret_api_token: null,
+    secret_api_token_backup: null,
     session_recording_opt_in: false,
     heatmaps_opt_in: null,
     ingested_event: true,
