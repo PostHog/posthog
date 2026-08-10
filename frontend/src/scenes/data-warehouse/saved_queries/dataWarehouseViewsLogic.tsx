@@ -381,7 +381,19 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQueryFolder[],
             {
                 loadDataWarehouseSavedQueryFolders: async () => {
-                    return await api.dataWarehouseSavedQueryFolders.list()
+                    try {
+                        return await api.dataWarehouseSavedQueryFolders.list()
+                    } catch (error) {
+                        // A failed `fetch` throws a `TypeError` ("Failed to fetch") when the request never
+                        // reaches the server — the user goes offline, closes the tab mid-request, or an ad
+                        // blocker eats the call. This is noise, not a defect: `apiStatusLogic` already shows a
+                        // connection banner, so keep the current folder list and don't capture an exception.
+                        // Every other error type still throws, so real bugs keep surfacing.
+                        if (error instanceof TypeError) {
+                            return values.dataWarehouseSavedQueryFolders
+                        }
+                        throw error
+                    }
                 },
                 createDataWarehouseSavedQueryFolder: async (name: string) => {
                     const folder = await api.dataWarehouseSavedQueryFolders.create({ name })

@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 // Imported from the source module rather than the `@posthog/lemon-ui` barrel so the spy replaces
 // `.error` on the same `lemonToast` singleton the logic calls at runtime.
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -25,6 +26,7 @@ describe('dataWarehouseViewsLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/warehouse_saved_queries/': { results: [] },
+                '/api/environments/:team_id/warehouse_saved_query_folders/': [],
             },
             delete: {
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': [204],
@@ -160,6 +162,22 @@ describe('dataWarehouseViewsLogic', () => {
 
         expect(toastErrorSpy).toHaveBeenCalledWith(rejection.detail)
         toastErrorSpy.mockRestore()
+    })
+
+    // Regression: a transient fetch failure (offline, aborted navigation, blocked request) throws a
+    // TypeError from the folders loader. It must degrade to the current folder list instead of
+    // rejecting, since a rejected loader surfaces as an uncaught exception in error tracking. Any
+    // other error type must still throw so real bugs keep surfacing.
+    it.each([
+        ['keeps the current folders and does not throw on a TypeError', new TypeError('Failed to fetch'), 'Success'],
+        ['still throws on any other error', new Error('boom'), 'Failure'],
+    ])('%s', async (_name, error, expectedOutcome) => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueryFoldersSuccess'])
+        jest.spyOn(api.dataWarehouseSavedQueryFolders, 'list').mockRejectedValue(error)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadDataWarehouseSavedQueryFolders()
+        }).toDispatchActions([`loadDataWarehouseSavedQueryFolders${expectedOutcome}`])
     })
 
     // Regression: the poll budget must be per-view. With a shared attempt counter, a view that
