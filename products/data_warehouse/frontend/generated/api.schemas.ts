@@ -1786,6 +1786,7 @@ export interface CredentialApi {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -3074,6 +3075,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
