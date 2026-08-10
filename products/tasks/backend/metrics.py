@@ -191,6 +191,12 @@ PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     labelnames=["kind", "reason"],
 )
 
+PUSH_DISPATCHER_OUTCOMES_TOTAL = Counter(
+    "posthog_tasks_push_dispatcher_outcomes_total",
+    "Push-notification dispatcher decisions before the Celery delivery task",
+    labelnames=["kind", "outcome"],
+)
+
 # reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked
 # (LoopFireResult.reason), a fixed, code-defined set, safe as a label.
 LOOP_FIRE_TOTAL = Counter(
