@@ -339,7 +339,10 @@ def _is_transient_error(response: Response) -> bool:
     try:
         error = response.json().get("error", {})
     except (ValueError, AttributeError):
-        return False
+        # A 5xx with no parseable body (occasionally a completely empty response) carries no
+        # error code to classify by, but a bare server-side failure is itself the signature of
+        # a momentary blip — unlike a 4xx, which more likely reflects a bad request of ours.
+        return response.status_code >= 500
     return error.get("is_transient") is True or error.get("code") in META_TRANSIENT_ERROR_CODES
 
 

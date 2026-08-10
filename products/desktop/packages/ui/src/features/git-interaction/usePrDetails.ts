@@ -47,6 +47,24 @@ export function usePrDetailsMap(
   });
 }
 
+/** PR titles for a set of PRs, off the same cache `usePrDetailsMap` warms. */
+export function usePrTitles(prUrls: string[]): Record<string, string> {
+  const trpc = useHostTRPC();
+  return useQueries({
+    queries: prUrls.map((prUrl) => ({
+      ...trpc.git.getPrDetailsByUrl.queryOptions({ prUrl }),
+      staleTime: 60_000,
+      retry: 1,
+    })),
+    combine: (results) =>
+      Object.fromEntries(
+        results.flatMap((result, index) =>
+          result.data?.title ? [[prUrls[index], result.data.title]] : [],
+        ),
+      ),
+  });
+}
+
 export function usePrDetails(
   prUrl: string | null,
   options?: UsePrDetailsOptions,

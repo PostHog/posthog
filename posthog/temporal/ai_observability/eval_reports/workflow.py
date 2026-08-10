@@ -316,6 +316,8 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             start_to_close_timeout=PREPARE_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
+        trace_id = str(temporalio.workflow.uuid4())
+        session_id = str(temporalio.workflow.uuid4())
 
         # 2. Run agent
         agent_result = await temporalio.workflow.execute_activity(
@@ -333,6 +335,8 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                 period_end=context.period_end,
                 previous_period_start=context.previous_period_start,
                 report_prompt_guidance=context.report_prompt_guidance,
+                trace_id=trace_id,
+                session_id=session_id,
             ),
             start_to_close_timeout=AGENT_ACTIVITY_TIMEOUT,
             heartbeat_timeout=AGENT_HEARTBEAT_TIMEOUT,

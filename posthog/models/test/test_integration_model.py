@@ -49,6 +49,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    JiraIntegration,
     LinearIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
@@ -233,6 +234,70 @@ class TestLinearIntegrationModel(BaseTest):
         assert attachment_variables["url"].endswith(f'/project/{self.team.id}/error_tracking/issue-id" }} mutation {{')
 
 
+class TestJiraIntegrationModel:
+    @staticmethod
+    def integration() -> MagicMock:
+        return MagicMock(
+            id=123,
+            team_id=456,
+            kind=Integration.IntegrationKind.JIRA,
+            config={"cloud_id": "cloud-id"},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+    @patch("posthog.models.integration.capture_exception")
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_captures_structured_error_details(self, mock_post, mock_capture_exception):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.headers = {"Content-Type": "application/json"}
+        mock_post.return_value.json.return_value = {
+            "errorMessages": ["Issue type is not available"],
+            "errors": {"summary": "Summary is required"},
+        }
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).create_issue(
+                {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
+            )
+
+        assert error.value.args[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again."
+        )
+        captured_error = mock_capture_exception.call_args.args[0]
+        assert str(captured_error) == "Jira issue creation failed"
+        assert mock_capture_exception.call_args.kwargs["additional_properties"] == {
+            "jira_status_code": 400,
+            "jira_response_content_type": "application/json",
+            "integration_id": 123,
+            "team_id": 456,
+            "jira_error_messages": ["Issue type is not available"],
+            "jira_field_errors": {"summary": "Summary is required"},
+            "jira_response_keys": ["errorMessages", "errors"],
+        }
+
+    @patch("posthog.models.integration.capture_exception")
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_captures_non_json_response_metadata(self, mock_post, mock_capture_exception):
+        mock_post.return_value.status_code = 502
+        mock_post.return_value.headers = {"Content-Type": "text/html"}
+        mock_post.return_value.json.side_effect = ValueError
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).create_issue(
+                {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
+            )
+
+        assert error.value.args[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again."
+        )
+        assert mock_capture_exception.call_args.kwargs["additional_properties"] == {
+            "jira_status_code": 502,
+            "jira_response_content_type": "text/html",
+            "integration_id": 123,
+            "team_id": 456,
+        }
+
+
 class TestOauthIntegrationModel(BaseTest):
     mock_settings = {
         "SALESFORCE_CONSUMER_KEY": "salesforce-client-id",
@@ -241,6 +306,8 @@ class TestOauthIntegrationModel(BaseTest):
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
         "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
+        "GOOGLE_CALENDAR_APP_CLIENT_ID": "google-calendar-client-id",
+        "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
     }
@@ -313,6 +380,14 @@ class TestOauthIntegrationModel(BaseTest):
             assert (
                 url
                 == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
+            )
+
+    def test_authorize_url_google_calendar(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-calendar", token="state_token", next="/projects/test")
+            assert (
+                url
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-calendar-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-calendar%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")
@@ -1622,7 +1697,13 @@ class TestGitHubIntegrationModel(BaseTest):
         )
 
     def mock_github_client_request(
-        self, status_code=201, token="ACCESS_TOKEN", repository_selection="all", expires_in_hours=1, error_text=None
+        self,
+        status_code=201,
+        token="ACCESS_TOKEN",
+        repository_selection="all",
+        expires_in_hours=1,
+        error_text=None,
+        permissions=None,
     ):
         def _client_request(endpoint, method="GET"):
             mock_response = MagicMock()
@@ -1636,13 +1717,17 @@ class TestGitHubIntegrationModel(BaseTest):
                         "token": token,
                         "repository_selection": repository_selection,
                         "expires_at": iso_time,
+                        **({"permissions": permissions} if permissions is not None else {}),
                     }
                 else:
                     mock_response.text = error_text or "error"
                     mock_response.json.return_value = {}
             else:
                 mock_response.status_code = 200
-                mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
+                mock_response.json.return_value = {
+                    "account": {"type": "Organization", "login": "PostHog"},
+                    **({"permissions": permissions} if permissions is not None else {}),
+                }
             return mock_response
 
         return _client_request
@@ -2236,6 +2321,25 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.sensitive_config == {
             "access_token": "ACCESS_TOKEN",
         }
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_integration_persists_installation_permissions(self, mock_client_request):
+        # The warehouse schema picker reads config["permissions"] to mark tables the installation
+        # can't sync. Dropping this on connect or refresh silently returns the picker to offering
+        # tables whose every sync 403s.
+        mock_client_request.side_effect = self.mock_github_client_request(
+            permissions={"contents": "read", "metadata": "read"}
+        )
+        integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+        assert integration.config["permissions"] == {"contents": "read", "metadata": "read"}
+
+        # A permission update to the App shows up on the next hourly token refresh, including for
+        # integrations connected before this key was persisted at all.
+        mock_client_request.side_effect = self.mock_github_client_request(
+            permissions={"contents": "read", "metadata": "read", "deployments": "read"}
+        )
+        GitHubIntegration(integration).refresh_access_token()
+        assert integration.config["permissions"] == {"contents": "read", "metadata": "read", "deployments": "read"}
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
