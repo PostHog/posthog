@@ -11,6 +11,11 @@
             "enum": ["true", "false", "all"],
             "type": "string"
         },
+        "awaiting_input": {
+            "default": false,
+            "description": "When true, list only tasks with a live run blocked on someone answering a permission request. Lets a client that has just started show what is waiting without reading every run's event log.",
+            "type": "boolean"
+        },
         "channel": {
             "description": "Filter tasks to a channel's feed.",
             "type": "string"
