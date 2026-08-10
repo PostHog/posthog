@@ -389,6 +389,8 @@ class TestScannerBudgetBlocked(SimpleTestCase):
         budget = ScannerBudget(
             credit_limit=credit_limit,
             credits_used=credits_used,
+            period_start=datetime(2026, 8, 1, tzinfo=UTC),
+            period_end=datetime(2026, 9, 1, tzinfo=UTC),
             credits_per_observation=15,
             settled_credits=credits_used,
         )
@@ -414,6 +416,8 @@ class TestScannerBudgetBlocked(SimpleTestCase):
         budget = ScannerBudget(
             credit_limit=100,
             credits_used=credits_used,
+            period_start=datetime(2026, 8, 1, tzinfo=UTC),
+            period_end=datetime(2026, 9, 1, tzinfo=UTC),
             credits_per_observation=15,
             settled_credits=settled_credits,
         )

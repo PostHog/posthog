@@ -5,11 +5,11 @@ from posthog.migration_helpers import SafeAddIndexConcurrently
 
 class Migration(migrations.Migration):
     # CREATE INDEX CONCURRENTLY cannot run inside a transaction block. Isolated from the schema
-    # changes in 0059 so those keep atomic rollback safety while the index build stays non-blocking.
+    # changes in 0066 so those keep atomic rollback safety while the index build stays non-blocking.
     atomic = False
 
     dependencies = [
-        ("replay_vision", "0059_scanner_credit_limit"),
+        ("replay_vision", "0066_scanner_credit_limit"),
     ]
 
     operations = [
