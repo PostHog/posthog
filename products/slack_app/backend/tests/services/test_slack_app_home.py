@@ -873,7 +873,7 @@ class TestTasksControlsResolveViewState:
 
     def _resolved_state(self, monkeypatch, payload: dict):
         captured: dict[str, Any] = {}
-        monkeypatch.setattr(slack_app_home, "_get_slack_integration", lambda team_id: object())
+        monkeypatch.setattr(slack_app_home, "_resolve_interaction_integration", lambda team_id, user_id: object())
         monkeypatch.setattr(slack_app_home, "is_slack_app_home_enabled", lambda integration: True)
         monkeypatch.setattr(
             slack_app_home,
@@ -1122,3 +1122,58 @@ class TestRetiredWorkspaceModal:
         response = handle_app_home_view_submission(payload)
         assert response.status_code == 200
         assert not SlackSettings.objects.exists()
+
+
+class TestInteractionResolvesTheViewersIntegration:
+    """A workspace connected to two organizations must answer clicks for the right one.
+
+    Everything the tab is keyed on hangs off the resolved integration — the rollout flag
+    is scoped to an organization, and the task list, project card and account link are all
+    scoped to its team. Answering a click against an arbitrary row of the workspace makes
+    the tab disagree with itself, which reads as a control that does nothing.
+    """
+
+    def _second_org_integration(self) -> Integration:
+        organization = Organization.objects.create(name="Other Org")
+        team = Team.objects.create(organization=organization, name="Other Team")
+        return Integration.objects.create(
+            team=team,
+            kind="slack",
+            integration_id=SLACK_WORKSPACE_ID,
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+
+    def test_click_uses_the_project_the_viewer_routed_to(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        # `slack_integration` is created first, so an unordered lookup returns it; the
+        # viewer's saved pick is the *other* one.
+        preferred = self._second_org_integration()
+        SlackSettings.objects.create(
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            slack_user_id="U001",
+            default_integration=preferred,
+        )
+
+        resolved = slack_app_home._resolve_interaction_integration(SLACK_WORKSPACE_ID, "U001")
+
+        assert resolved is not None
+        assert resolved.id == preferred.id
+        assert resolved.team.organization_id == preferred.team.organization_id
+
+    def test_workspace_default_applies_when_the_viewer_has_no_pick(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        preferred = self._second_org_integration()
+        SlackSettings.objects.create(
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            slack_user_id=None,
+            default_integration=preferred,
+        )
+
+        resolved = slack_app_home._resolve_interaction_integration(SLACK_WORKSPACE_ID, "U001")
+
+        assert resolved is not None and resolved.id == preferred.id
+
+    def test_unknown_workspace_resolves_to_nothing(self, db):
+        assert slack_app_home._resolve_interaction_integration("T_NOT_CONNECTED", "U001") is None

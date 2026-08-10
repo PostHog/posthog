@@ -32,6 +32,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+from products.slack_app.backend.services.integration_resolver import load_integrations
 from products.slack_app.backend.services.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
@@ -1338,7 +1339,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     slack_user_id = (payload.get("user") or {}).get("id", "")
     trigger_id = payload.get("trigger_id")
 
-    integration = _get_slack_integration(slack_team_id)
+    integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return HttpResponse(status=200)
 
@@ -1436,7 +1437,7 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
     slack_team_id = (payload.get("team") or {}).get("id", "")
     slack_user_id = (payload.get("user") or {}).get("id", "")
 
-    integration = _get_slack_integration(slack_team_id)
+    integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return _modal_error_response("This Slack workspace is no longer connected to PostHog.")
 
@@ -1467,18 +1468,28 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 # ---------------------------------------------------------------------------
 
 
-def _get_slack_integration(slack_team_id: str) -> Integration | None:
+def _resolve_interaction_integration(slack_team_id: str, slack_user_id: str) -> Integration | None:
+    """The integration an interaction with the Home tab belongs to.
+
+    Resolved through the same ladder `_route_app_home_opened` uses to decide which
+    integration the tab is *rendered* against — thread mapping, then the viewer's project
+    pick, then the workspace default — so a click is answered for the project the viewer
+    was looking at. Picking any row of the workspace instead would answer against an
+    arbitrary organization, and everything keyed on it (the rollout flag, the task list,
+    the account link) would disagree with what the tab shows.
+    """
     if not slack_team_id:
         return None
-    # Ordered so a workspace connected to several projects resolves to the same row on
-    # every request. An unordered `first()` can hand back a different integration — and
-    # so a different organization — between rendering the tab and handling a click on it.
-    return (
-        Integration.objects.select_related("team", "team__organization")
-        .filter(kind="slack", integration_id=slack_team_id)
-        .order_by("id")
-        .first()
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=["slack"],
+        slack_user_id=slack_user_id,
     )
+    if not result.candidates:
+        return None
+    # `candidates` is ordered, so the no-default case still lands on the same row the
+    # publish would have chosen rather than whatever the database returns first.
+    return result.integration if result.integration in result.candidates else result.candidates[0]
 
 
 def _load_user_row(integration: Integration, slack_user_id: str) -> SlackSettings | None:
@@ -1566,7 +1577,8 @@ def _update_modal_after_input_change(payload: dict) -> HttpResponse:
     updated_view = render_edit_modal(current=current, supported_efforts=supported)
 
     slack_team_id = (payload.get("team") or {}).get("id", "")
-    integration = _get_slack_integration(slack_team_id)
+    slack_user_id = (payload.get("user") or {}).get("id", "")
+    integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return HttpResponse(status=200)
 
