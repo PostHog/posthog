@@ -158,6 +158,7 @@ export interface billingProductLogicValues {
     removingBillingLimitNextPeriod: boolean
     showBillingLimitInputErrors: boolean
     showTierBreakdown: boolean
+    suggestedBillingLimit: number
     surveyID: string
     surveyResponse: {
         $survey_response: string
@@ -429,6 +430,7 @@ export interface billingProductLogicMeta {
             upgradePlan: BillingPlanType
         }
         freeTier: (product: BillingProductV2AddonType | BillingProductV2Type) => number
+        suggestedBillingLimit: (product: BillingProductV2AddonType | BillingProductV2Type) => number
         billingLimitAsUsage: (product: BillingProductV2AddonType | BillingProductV2Type) => number
         billingLimitNextPeriod: (
             billing: BillingType | null,
@@ -596,7 +598,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     }),
     reducers({
         billingLimitInput: [
-            { input: DEFAULT_BILLING_LIMIT },
+            { input: null as number | null },
             {
                 setBillingLimitInput: (_, { billingLimitInput }) => {
                     return {
@@ -886,6 +888,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (_s, p) => [p.product],
             (product: BillingProductV2AddonType | BillingProductV2Type) => calculateFreeTier(product),
         ],
+        suggestedBillingLimit: [
+            (_s, p) => [p.product],
+            (product: BillingProductV2AddonType | BillingProductV2Type): number => {
+                const projectedAmount = parseInt(product.projected_amount_usd || '0')
+                return product.tiers && projectedAmount ? Math.round(projectedAmount * 1.5) : DEFAULT_BILLING_LIMIT
+            },
+        ],
         billingLimitAsUsage: [
             (_, p) => [p.product],
             (product: BillingProductV2AddonType | BillingProductV2Type) => {
@@ -1123,14 +1132,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.billingLoaded()
         },
         billingLoaded: () => {
-            function calculateDefaultBillingLimit(product: BillingProductV2Type | BillingProductV2AddonType): number {
-                const projectedAmount = parseInt(product.projected_amount_usd || '0')
-                return product.tiers && projectedAmount ? projectedAmount * 1.5 : DEFAULT_BILLING_LIMIT
-            }
             actions.setIsEditingBillingLimit(false)
-            actions.setBillingLimitInput(
-                values.hasCustomLimitSet ? values.customLimitUsd : calculateDefaultBillingLimit(props.product)
-            )
+            // Only pre-fill the input with a real, stored limit. When no limit is set we leave it
+            // empty so a computed suggestion can never be saved as a limit the user never typed.
+            actions.setBillingLimitInput(values.hasCustomLimitSet ? values.customLimitUsd : null)
         },
         reportSurveyShown: ({ surveyID }) => {
             posthog.capture(SurveyEventName.SHOWN, {
@@ -1378,6 +1383,27 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     })
                     return
                 }
+
+                const currentLimitUsd = values.customLimitUsd
+                if (input !== null && currentLimitUsd !== null && input > currentLimitUsd) {
+                    LemonDialog.open({
+                        maxWidth: '600px',
+                        title: 'Confirm billing limit increase',
+                        description: `You are about to raise the billing limit for ${props.product.name} from $${currentLimitUsd.toLocaleString()} to $${input.toLocaleString()}. A higher limit allows higher charges. Are you sure you want to proceed?`,
+                        primaryButton: {
+                            children: 'Yes, raise the limit',
+                            onClick: () =>
+                                actions.updateBillingLimits({
+                                    [props.product.type]: input,
+                                }),
+                        },
+                        secondaryButton: {
+                            children: 'No, keep the current limit',
+                        },
+                    })
+                    return
+                }
+
                 actions.updateBillingLimits({
                     [props.product.type]: input,
                 })

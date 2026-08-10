@@ -629,6 +629,48 @@ class TestBillingAPI(APILicensedTest):
             "type": "validation_error",
         }
 
+    @patch("ee.api.billing.posthoganalytics.capture")
+    @patch("ee.api.billing.requests.patch")
+    @patch("ee.api.billing.requests.get")
+    def test_updating_a_limit_captures_product_key_and_previous_value(self, mock_get, mock_patch, mock_capture):
+        # Guards the analytics contract a billing dispute relies on: the "billing limits updated"
+        # event must carry a segmentable product_key and the previous value the change replaced.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        def mock_get_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(custom_limits_usd={"product_analytics": 20})
+                )
+            return mock
+
+        mock_get.side_effect = mock_get_implementation
+        mock_patch.return_value.status_code = 200
+
+        TEST_clear_instance_license_cache()
+        response = self.client.patch(
+            "/api/billing",
+            {"custom_limits_usd": {"product_analytics": 200}},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        limit_events = [
+            call for call in mock_capture.call_args_list if call.args and call.args[0] == "billing limits updated"
+        ]
+        assert len(limit_events) == 1
+        properties = limit_events[0].kwargs["properties"]
+        assert properties["product_key"] == "product_analytics"
+        assert properties["limit_usd"] == 200
+        assert properties["previous_value"] == 20
+
     @freeze_time("2022-01-01T12:00:00Z")
     @patch("ee.api.billing.requests.get")
     def test_license_is_updated_on_billing_load(self, mock_request):

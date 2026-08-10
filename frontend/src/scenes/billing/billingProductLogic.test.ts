@@ -93,6 +93,24 @@ describe('billingProductLogic', () => {
         })
     })
 
+    describe('billing limit input pre-fill', () => {
+        // Guards the fix for the accidental-save bug: when no limit is set the input must stay
+        // empty, so a computed suggestion can never be saved as a limit the user never typed.
+        it('leaves the input empty when no limit is set', async () => {
+            await seedBilling({})
+            const logic = mountProduct('product_analytics')
+
+            expect(logic.values.billingLimitInput.input).toBe(null)
+        })
+
+        it('pre-fills the input with the stored limit when one is set', async () => {
+            await seedBilling({ product_analytics: 200 })
+            const logic = mountProduct('product_analytics')
+
+            expect(logic.values.billingLimitInput.input).toBe(200)
+        })
+    })
+
     describe('unsubscribe survey state', () => {
         it('keeps survey responses isolated per product type', async () => {
             await seedBilling({})

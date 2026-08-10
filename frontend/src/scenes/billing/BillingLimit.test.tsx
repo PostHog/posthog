@@ -90,6 +90,34 @@ describe('BillingLimit', () => {
         }
     )
 
+    // Raising a limit used to save on a single click with no confirmation, so a typo or a
+    // seeded default committed silently. Guards the confirmation gate: no PATCH until the user
+    // confirms, then the raised value is saved.
+    it('raising an existing limit asks for confirmation before saving', async () => {
+        await seedBilling({ product_analytics: 20 })
+        render(
+            <Provider>
+                <BillingLimit product={makeProduct()} />
+            </Provider>
+        )
+
+        await userEvent.click(await screen.findByText('Edit limit'))
+        const input = screen.getByTestId('billing-limit-input-product_analytics')
+        await userEvent.clear(input)
+        await userEvent.type(input, '200')
+        await userEvent.click(screen.getByTestId('save-billing-limit-product_analytics'))
+
+        expect(await screen.findByText('Confirm billing limit increase')).toBeInTheDocument()
+        expect(patchedBody).toBe(null)
+
+        await userEvent.click(screen.getByText('Yes, raise the limit'))
+
+        expect(await screen.findByTestId('billing-limit-set-product_analytics')).toHaveTextContent(
+            'You have a $200 billing limit set for PostHog Desktop (usage-based).'
+        )
+        expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: 200 } })
+    })
+
     it('removing an existing limit PATCHes a null limit and re-renders as unset', async () => {
         await seedBilling({ product_analytics: 500 })
         render(

@@ -193,17 +193,35 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     body["reset_limit_next_period"] = reset_limit_next_period
 
                 billing_manager = self.get_billing_manager()
+
+                # Read the current limits before the update so the analytics event can record the
+                # value each change replaced. Best-effort: a failure here must not block the update.
+                previous_limits: dict[str, Any] = {}
+                if custom_limits_usd:
+                    try:
+                        previous_limits = billing_manager.get_billing(org).get("custom_limits_usd") or {}
+                    except Exception as e:
+                        capture_exception(e, {"organization_id": org.id})
+
                 billing_manager.update_billing(org, body)
 
                 if custom_limits_usd and distinct_id:
-                    posthoganalytics.capture(
-                        "billing limits updated",
-                        distinct_id=distinct_id,
-                        properties={**custom_limits_usd},
-                        groups=(
-                            groups(org, self.request.user.team) if hasattr(self.request.user, "team") else groups(org)
-                        ),
+                    event_groups = (
+                        groups(org, self.request.user.team) if hasattr(self.request.user, "team") else groups(org)
                     )
+                    # One event per product so `product_key` is segmentable and `previous_value`
+                    # records what the limit was before the change.
+                    for product_key, limit_usd in custom_limits_usd.items():
+                        posthoganalytics.capture(
+                            "billing limits updated",
+                            distinct_id=distinct_id,
+                            properties={
+                                "product_key": product_key,
+                                "limit_usd": limit_usd,
+                                "previous_value": previous_limits.get(product_key),
+                            },
+                            groups=event_groups,
+                        )
                     posthoganalytics.group_identify(
                         "organization",
                         str(org.id),

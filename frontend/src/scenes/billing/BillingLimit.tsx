@@ -23,6 +23,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
         billingLimitNextPeriod,
         billingLimitConfig,
         removingBillingLimitNextPeriod,
+        suggestedBillingLimit,
     } = useValues(billingProductLogic({ product, billingLimitInputRef: limitInputRef }))
     const { setIsEditingBillingLimit, setBillingLimitInput, submitBillingLimitInput, removeBillingLimitNextPeriod } =
         useActions(billingProductLogic({ product }))
@@ -105,6 +106,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                             value={value}
                                             data-attr={`billing-limit-input-${product.type}`}
                                             onChange={onChange}
+                                            placeholder={`e.g. ${suggestedBillingLimit.toLocaleString()}`}
                                             prefix={<b>$</b>}
                                             disabled={billingLoading}
                                             min={0}
