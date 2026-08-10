@@ -8073,6 +8073,7 @@ export const externalDataSources = [
     'PeecAI',
     'Healthchecks',
     'Impact',
+    'ImpactPartner',
     'AikidoSecurity',
     'Alguna',
     'Anthropic',
