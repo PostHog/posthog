@@ -137,7 +137,7 @@ export function observationSeekbarMarks(observations: ReplayObservationApi[]): O
         const headline = observationHeadline(obs)
         for (const { timestampMs, snippet } of readCitations(obs)) {
             const entries = entriesByTimestamp.get(timestampMs) ?? new Map<string, ObservationSeekbarMarkEntry>()
-            entries.set(`${scannerName}|${headline}|${snippet}`, { scannerName, headline, snippet })
+            entries.set(JSON.stringify([scannerName, headline, snippet]), { scannerName, headline, snippet })
             entriesByTimestamp.set(timestampMs, entries)
         }
     }
