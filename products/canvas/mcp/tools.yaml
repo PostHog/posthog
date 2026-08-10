@@ -45,6 +45,46 @@ tools:
         param_overrides:
             channel_id:
                 description: Id of the channel to create the canvas in (resolve it with channel-list).
+    canvas-draft-create:
+        operation: canvases_draft_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Stage a canvas draft build
+        description: >
+            Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is
+            validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so
+            viewers keep seeing the current version. Use this instead of canvas-publish-create when a change should be
+            reviewed before it goes live. Returns the draft's `version_id`, its queued build, and `capability_widening`
+            — how the draft's declared capabilities grow the live version's (insights, capture events, inline queries,
+            network origins) — so added access is visible before shipping. Poll canvas-builds-retrieve until the draft's
+            build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`, then
+            make it live with canvas-promote-create. Declare runtime capabilities in `project.capabilities`.
+        param_overrides:
+            id:
+                description: ID of the canvas to stage a draft for.
+    canvas-drafts-retrieve:
+        operation: canvases_drafts_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvas drafts
+        description: >
+            List a canvas's staged drafts (from canvas-draft-create), newest first, each with its latest build status
+            (queued/building/ready/failed). Drafts are separate from the published version history and are never the
+            live version until promoted. Use this to find a pending draft to preview (canvas-source-retrieve with its
+            `version_id`) and promote (canvas-promote-create).
+        param_overrides:
+            id:
+                description: ID of the canvas whose drafts to list.
     canvas-edit-create:
         operation: canvases_edit_create
         enabled: true
@@ -80,6 +120,26 @@ tools:
         param_overrides:
             channel:
                 description: Only return canvases in this channel (channel id).
+    canvas-promote-create:
+        operation: canvases_promote_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Promote a canvas draft to live
+        description: >
+            Make a draft version (staged with canvas-draft-create) the canvas's live head. A draft whose build is
+            already ready goes live immediately with no rebuild; otherwise a fresh build is queued. Pass
+            `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent
+            change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity
+            is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head:
+            revert does not act on drafts.
+        param_overrides:
+            id:
+                description: ID of the canvas whose draft to promote.
     canvas-publish-create:
         operation: canvases_publish_create
         enabled: true
@@ -144,17 +204,8 @@ tools:
     canvases-destroy:
         operation: canvases_destroy
         enabled: false
-    canvases-draft-create:
-        operation: canvases_draft_create
-        enabled: false
-    canvases-drafts-retrieve:
-        operation: canvases_drafts_retrieve
-        enabled: false
     canvases-partial-update:
         operation: canvases_partial_update
-        enabled: false
-    canvases-promote-create:
-        operation: canvases_promote_create
         enabled: false
     canvases-retrieve:
         operation: canvases_retrieve

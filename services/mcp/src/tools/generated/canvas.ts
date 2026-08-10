@@ -6,9 +6,15 @@ import {
     CanvasesBuildsRetrieveParams,
     CanvasesBuildsRetrieveQueryParams,
     CanvasesCreateBody,
+    CanvasesDraftCreateBody,
+    CanvasesDraftCreateParams,
+    CanvasesDraftsRetrieveParams,
+    CanvasesDraftsRetrieveQueryParams,
     CanvasesEditCreateBody,
     CanvasesEditCreateParams,
     CanvasesListQueryParams,
+    CanvasesPromoteCreateBody,
+    CanvasesPromoteCreateParams,
     CanvasesPublishCreateBody,
     CanvasesPublishCreateParams,
     CanvasesSourceRetrieveParams,
@@ -68,6 +74,52 @@ const canvasCreate = (): ToolBase<typeof CanvasCreateSchema, Schemas.Canvas> => 
     },
 })
 
+const CanvasDraftCreateSchema = CanvasesDraftCreateParams.omit({ project_id: true })
+    .extend(CanvasesDraftCreateBody.shape)
+    .extend({ id: CanvasesDraftCreateParams.shape['id'].describe('ID of the canvas to stage a draft for.') })
+
+const canvasDraftCreate = (): ToolBase<typeof CanvasDraftCreateSchema, Schemas.CanvasSourceDraftResponse> => ({
+    name: 'canvas-draft-create',
+    schema: CanvasDraftCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasDraftCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.project !== undefined) {
+            body['project'] = params.project
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        const result = await context.api.request<Schemas.CanvasSourceDraftResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/draft/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CanvasDraftsRetrieveSchema = CanvasesDraftsRetrieveParams.omit({ project_id: true })
+    .extend(CanvasesDraftsRetrieveQueryParams.shape)
+    .extend({ id: CanvasesDraftsRetrieveParams.shape['id'].describe('ID of the canvas whose drafts to list.') })
+
+const canvasDraftsRetrieve = (): ToolBase<typeof CanvasDraftsRetrieveSchema, Schemas.PaginatedCanvasDraftList> => ({
+    name: 'canvas-drafts-retrieve',
+    schema: CanvasDraftsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasDraftsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCanvasDraftList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/drafts/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
 const CanvasEditCreateSchema = CanvasesEditCreateParams.omit({ project_id: true })
     .extend(CanvasesEditCreateBody.shape)
     .extend({ id: CanvasesEditCreateParams.shape['id'].describe('ID of the canvas whose source to edit.') })
@@ -116,6 +168,31 @@ const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvas
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const CanvasPromoteCreateSchema = CanvasesPromoteCreateParams.omit({ project_id: true })
+    .extend(CanvasesPromoteCreateBody.shape)
+    .extend({ id: CanvasesPromoteCreateParams.shape['id'].describe('ID of the canvas whose draft to promote.') })
+
+const canvasPromoteCreate = (): ToolBase<typeof CanvasPromoteCreateSchema, Schemas.CanvasBuild> => ({
+    name: 'canvas-promote-create',
+    schema: CanvasPromoteCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasPromoteCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version_id !== undefined) {
+            body['version_id'] = params.version_id
+        }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        const result = await context.api.request<Schemas.CanvasBuild>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/promote/`,
+            body,
         })
         return result
     },
@@ -197,8 +274,11 @@ const canvasValidateCreate = (): ToolBase<typeof CanvasValidateCreateSchema, Sch
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-builds-retrieve': canvasBuildsRetrieve,
     'canvas-create': canvasCreate,
+    'canvas-draft-create': canvasDraftCreate,
+    'canvas-drafts-retrieve': canvasDraftsRetrieve,
     'canvas-edit-create': canvasEditCreate,
     'canvas-list': canvasList,
+    'canvas-promote-create': canvasPromoteCreate,
     'canvas-publish-create': canvasPublishCreate,
     'canvas-source-retrieve': canvasSourceRetrieve,
     'canvas-validate-create': canvasValidateCreate,

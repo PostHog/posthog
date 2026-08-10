@@ -59,6 +59,11 @@ user-visible requirement you cannot infer.
 
 Publish once per requested change, when the canvas is ready — not after every micro-edit.
 
+To build a change **without** making it live — a draft the user reviews before it ships — stage it
+with `canvas-draft-create` instead of publishing, then promote it with `canvas-promote-create` once
+approved. The `validating-and-publishing-canvases` skill covers the draft → build → preview →
+promote flow.
+
 ## Source-project shape
 
 - Keep `index.html` as the entry shell returned by the source tool.
