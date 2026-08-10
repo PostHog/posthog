@@ -1,0 +1,265 @@
+import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useTaskSelectionStore } from "./taskSelectionStore";
+import { useSidebarBulkActions } from "./useSidebarBulkActions";
+
+const hoisted = vi.hoisted(() => ({
+  archiveTasksImperative: vi.fn(),
+  setPinnedMany: vi.fn(),
+  placeTasksInCommandCenter: vi.fn(),
+  fileTask: vi.fn(),
+  useChannels: vi.fn(),
+  useFeatureFlag: vi.fn(),
+  pinnedTaskIds: new Set<string>(),
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+  },
+}));
+
+vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
+  archiveTasksImperative: hoisted.archiveTasksImperative,
+  useArchiveCacheKeys: () => ({}),
+}));
+
+vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
+  useChannels: hoisted.useChannels,
+}));
+
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
+  useChannelTaskMutations: () => ({ fileTask: hoisted.fileTask }),
+}));
+
+vi.mock("@posthog/ui/features/command-center/placeTaskInCommandCenter", () => ({
+  placeTasksInCommandCenter: hoisted.placeTasksInCommandCenter,
+}));
+
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: hoisted.useFeatureFlag,
+}));
+
+vi.mock("./usePinnedTasks", () => ({
+  usePinnedTasks: () => ({
+    pinnedTaskIds: hoisted.pinnedTaskIds,
+    setPinnedMany: hoisted.setPinnedMany,
+    isSettingPinnedMany: false,
+  }),
+}));
+
+vi.mock("@posthog/ui/primitives/toast", () => ({ toast: hoisted.toast }));
+
+vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }));
+
+function makeTask(id: string, overrides: Partial<TaskData> = {}): TaskData {
+  return {
+    id,
+    title: id,
+    createdAt: 0,
+    lastActivityAt: 0,
+    isGenerating: false,
+    isUnread: false,
+    isPinned: false,
+    needsPermission: false,
+    repository: null,
+    isSuspended: false,
+    folderPath: null,
+    cloudPrUrl: null,
+    branchName: null,
+    linkedBranch: null,
+    ...overrides,
+  } as TaskData;
+}
+
+const TASKS = [makeTask("t1"), makeTask("t2")];
+
+function render(taskIds: string[] = ["t1", "t2"]) {
+  return renderHook(() => useSidebarBulkActions(taskIds, TASKS));
+}
+
+describe("useSidebarBulkActions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.pinnedTaskIds = new Set();
+    hoisted.useChannels.mockReturnValue({
+      channels: [{ id: "c1", name: "support" }],
+      isLoading: false,
+    });
+    hoisted.useFeatureFlag.mockReturnValue(true);
+    hoisted.setPinnedMany.mockResolvedValue({
+      succeeded: ["t1", "t2"],
+      failed: [],
+    });
+    hoisted.archiveTasksImperative.mockResolvedValue({
+      archived: 2,
+      failed: 0,
+    });
+    hoisted.placeTasksInCommandCenter.mockReturnValue({
+      placed: 2,
+      overflow: 0,
+      alreadyPresent: 0,
+    });
+    hoisted.fileTask.mockResolvedValue(undefined);
+    useTaskSelectionStore.setState({
+      selectedTaskIds: ["t1", "t2"],
+      lastClickedId: null,
+    });
+  });
+
+  it.each([
+    {
+      name: "none pinned",
+      pinned: [],
+      direction: "pin",
+      label: "Pin 2 sessions",
+    },
+    {
+      name: "some pinned",
+      pinned: ["t1"],
+      direction: "pin",
+      label: "Pin 2 sessions",
+    },
+    {
+      name: "all pinned",
+      pinned: ["t1", "t2"],
+      direction: "unpin",
+      label: "Unpin 2 sessions",
+    },
+  ])(
+    "labels the pin action $direction when $name",
+    ({ pinned, direction, label }) => {
+      hoisted.pinnedTaskIds = new Set(pinned);
+
+      const { result } = render();
+
+      expect(result.current.pinDirection).toBe(direction);
+      expect(result.current.pinLabel).toBe(label);
+    },
+  );
+
+  it("pins the whole selection in the computed direction", async () => {
+    hoisted.pinnedTaskIds = new Set(["t1", "t2"]);
+    const { result } = render();
+
+    await act(() => result.current.pinSelected());
+
+    expect(hoisted.setPinnedMany).toHaveBeenCalledWith(["t1", "t2"], false);
+  });
+
+  it("clears the selection when every session succeeded", async () => {
+    const { result } = render();
+
+    await act(() => result.current.pinSelected());
+
+    await waitFor(() =>
+      expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([]),
+    );
+  });
+
+  // Keeping the failures selected is what lets the user retry just those.
+  it("keeps only the failures selected after a partial failure", async () => {
+    hoisted.setPinnedMany.mockResolvedValue({
+      succeeded: ["t1"],
+      failed: ["t2"],
+    });
+    const { result } = render();
+
+    await act(() => result.current.pinSelected());
+
+    await waitFor(() =>
+      expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual(["t2"]),
+    );
+  });
+
+  describe("addSelectedToCommandCenter", () => {
+    it("reports how many landed on the grid", () => {
+      const { result } = render();
+
+      act(() => result.current.addSelectedToCommandCenter());
+
+      expect(hoisted.toast.success).toHaveBeenCalledWith(
+        "2 sessions added to Command Center",
+      );
+    });
+
+    // "0 sessions added" reads as a failure when the grid is exactly as asked.
+    it("says the batch was already there rather than reporting zero added", () => {
+      hoisted.placeTasksInCommandCenter.mockReturnValue({
+        placed: 0,
+        overflow: 0,
+        alreadyPresent: 2,
+      });
+      const { result } = render();
+
+      act(() => result.current.addSelectedToCommandCenter());
+
+      expect(hoisted.toast.success).not.toHaveBeenCalled();
+      expect(hoisted.toast.info).toHaveBeenCalledWith(
+        "2 sessions already in Command Center",
+      );
+    });
+
+    it("warns about sessions that didn't fit", () => {
+      hoisted.placeTasksInCommandCenter.mockReturnValue({
+        placed: 1,
+        overflow: 1,
+        alreadyPresent: 0,
+      });
+      const { result } = render();
+
+      act(() => result.current.addSelectedToCommandCenter());
+
+      expect(hoisted.toast.warning).toHaveBeenCalledWith(
+        "1 added to Command Center, 1 didn't fit",
+      );
+    });
+  });
+
+  it("counts the running sessions archiving would stop", () => {
+    const tasks = [
+      makeTask("t1", { isGenerating: true, taskRunEnvironment: "cloud" }),
+      makeTask("t2"),
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarBulkActions(["t1", "t2"], tasks),
+    );
+
+    expect(result.current.runningCount).toBe(1);
+    expect(result.current.stopsCloudSandbox).toBe(true);
+  });
+
+  it("files every selected session to the chosen channel", async () => {
+    const { result } = render();
+
+    await act(() => result.current.fileSelectedTo("c1"));
+
+    expect(hoisted.fileTask.mock.calls).toEqual([
+      ["c1", "t1"],
+      ["c1", "t2"],
+    ]);
+  });
+
+  it("disables File to when the bluebird flag is off", () => {
+    hoisted.useFeatureFlag.mockReturnValue(false);
+    hoisted.useChannels.mockReturnValue({ channels: [], isLoading: false });
+
+    const { result } = render();
+
+    expect(result.current.fileDisabledReason).not.toBeNull();
+    expect(hoisted.useChannels).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it.each([
+    { action: "archiveDisabledReason" },
+    { action: "pinDisabledReason" },
+    { action: "commandCenterDisabledReason" },
+    { action: "fileDisabledReason" },
+  ] as const)("disables $action with nothing selected", ({ action }) => {
+    const { result } = render([]);
+
+    expect(result.current[action]).not.toBeNull();
+  });
+});
