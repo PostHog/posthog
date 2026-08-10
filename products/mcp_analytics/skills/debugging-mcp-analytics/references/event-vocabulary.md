@@ -11,7 +11,9 @@ dogfood traffic, and exec-mode ones only appear when a server runs a single `exe
 
 ## Events
 
-All `$`-prefixed — a non-`$` name would be treated as a customer event.
+Every event a customer's instrumented server emits is `$`-prefixed — a non-`$` name would be
+a customer event. The two exceptions in the table below are PostHog's own: the frozen legacy
+aliases, and `mcp_auth_failed`.
 
 | Event                                        | Notes                                                                                                                                                                                                                                                  |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
