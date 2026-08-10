@@ -646,6 +646,7 @@ SPECTACULAR_SETTINGS = {
         "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "BackfillStatusEnum": "products.replay_vision.backend.models.replay_scanner_backfill.BackfillStatus",
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
         "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
