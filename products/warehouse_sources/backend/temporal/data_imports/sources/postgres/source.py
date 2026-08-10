@@ -453,6 +453,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # retry budget re-running the same futile statement-timeout query before the workflow gives
             # up. Match the index-guidance fragment every postgres statement-timeout message shares.
             "has an appropriate index": None,
+            # Activity-layer twin for `_schema_discovery_timeout_error` (schema discovery's own
+            # statement-timeout classification, distinct from the incremental-field message above).
+            # Same reasoning: match the raw `str(e)` fragment so the activity-level check recognises
+            # it too, instead of burning the retry budget re-scanning the same oversized catalog.
+            "listing table columns while discovering the database schema": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
