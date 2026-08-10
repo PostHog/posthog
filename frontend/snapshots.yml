@@ -2840,6 +2840,18 @@ snapshots:
         hash: v1.k794b7964.056dd0e8337b4d7b9a1538c2fad85bb041d948491e7d57c4b54e101934761aa1.27wPyYu93YTRS_Qy9ka5CoSBccIWATkpwimC7uYNuRs
     insights-trendsslopechart--with-legend--light:
         hash: v1.k794b7964.3937154d2e4552549004489d9c6e51b4dfc1d0c8dc9fa807068f76afad58c07a.8rKiYquuAFHDf5OYem57vBg6axGT4ooMwJSX_U4-UvE
+    insights-variables--date-variable-input--dark:
+        hash: v1.k794b7964.9f55263cf42996613af3d9a4e643fd80f6cc106a45365d2dd4e271894850e217.v6mqgP6NMvMvOWrF2XuxcO5OS03GKEoGV9wMH6hRZ4o
+    insights-variables--date-variable-input--light:
+        hash: v1.k794b7964.c1777f08d6a5dfa0dd5c18d3e4a0721c6f68e0b5e83850a01ffa549f5232fe0e.qTeNMD1AqBtCmBYDTSU2gjHY1kGCeXFPp0s7WhTrxgA
+    insights-variables--relative-date-variable-input--dark:
+        hash: v1.k794b7964.993cb47aaab3f9408430d0dcdda87e8eca9cb16c7681dcde25e58a4611f64828.c_7HSBE3vhm-UjRbxmi5mdL2bQKskYYJfcxIP1-a-Pw
+    insights-variables--relative-date-variable-input--light:
+        hash: v1.k794b7964.974544944d723cb3297d29d1d3e97402c96eec121e63d85bf8d6cb73c96c815f.y85S6FKEXRK96A-UT-SmqHRJU3LUG1TQ0pH6R3Mi-0g
+    insights-variables--string-variable-input--dark:
+        hash: v1.k794b7964.fb86ee464cee03254af846a3a5fb59318232c364d07f74d0d4cb9490ce97253b.obwWiNo8N0HtcPQfj5341SkN49zWCuNHJOSHvXxEJJY
+    insights-variables--string-variable-input--light:
+        hash: v1.k794b7964.f0f59479f355452fbfd500bbaf7e29afb26fbbd7ad278d6fba5cef1ca901e21f.rCf431wIXk3tw7X_PNnGs7eUvondDzS1oDxTbU-MCto
     insights-worldmap--default--dark:
         hash: v1.k794b7964.33dac53a2c2f3c8945bb52917b010f00a24b8d8b213106939af1037022d4ed5e.QNBv_MCq5SJyqzj3G7AuQxGF1qLYQLIQotnO3MfqpRE
     insights-worldmap--default--light:
