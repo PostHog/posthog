@@ -212,7 +212,6 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
-    "record_task_run_user_activity",
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -3406,22 +3405,7 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
-    record_task_run_user_activity(run.id, team_id)
     return True
-
-
-def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
-    """Stamp a user message against the run's open sandbox usage sessions.
-
-    Best-effort (the ledger swallows its own failures): records last-activity on
-    every message and starts the user-attributable billing window on the first one.
-    Usage ledger only — no workflow side effects.
-    """
-    from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        record_task_run_user_activity as _record_user_activity,
-    )
-
-    _record_user_activity(run_id, team_id)
 
 
 def get_task_run_sandbox_connection(
@@ -5202,6 +5186,19 @@ def run_task(
     pending_user_message = validated_data.get("pending_user_message")
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     is_pi_task = task.runtime == Task.Runtime.PI
+
+    if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        # The inbox "Create PR" button sends no branch, so without this the run would target the
+        # repository's GitHub default branch. Auto-start resolves the same setting when it builds
+        # its task. This sits before the warm-run reuse check below, so that a sandbox idling on
+        # the default branch is not reused for a run that needs the configured branch.
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            autostart_base_branch_for_repository,
+        )
+
+        branch = autostart_base_branch_for_repository(
+            team_id, task.repositories[0] if task.repositories else task.repository
+        )
 
     if not resume_from_run_id:
         warm_run = _idling_warm_run_for_task(task)
