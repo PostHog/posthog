@@ -38,10 +38,7 @@ export function SpendAnalysisSection() {
 
   return (
     <Flex direction="column" gap="3">
-      <Flex align="center" justify="between">
-        <Text className="font-medium text-(--gray-9) text-sm">
-          Personal spend analysis
-        </Text>
+      <Flex justify="end">
         <Flex align="center" gap="4">
           <WindowSelector value={spendWindow} onChange={setSpendWindow} />
           <Button
@@ -86,10 +83,8 @@ export function SpendAnalysisSection() {
             rows={data.by_model.items}
             scopedCostUsd={data.summary.scoped_cost_usd}
           />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <ToolBreakdownCard rows={data.by_tool.items} />
-            <ProductBreakdownCard rows={data.by_product.items} />
-          </div>
+          <ToolBreakdownCard rows={data.by_tool.items} />
+          <ProductBreakdownCard rows={data.by_product.items} />
           <SpendInsights data={data} />
         </>
       ) : null}
