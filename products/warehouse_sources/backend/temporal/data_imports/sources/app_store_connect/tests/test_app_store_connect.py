@@ -605,7 +605,10 @@ def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: 
     session.get.side_effect = api.get
     session.post.side_effect = api.post
     rows: list[dict[str, Any]] = []
-    with patch(f"{MODULE}._make_session", return_value=session):
+    with (
+        patch(f"{MODULE}._make_session", return_value=session),
+        patch(f"{MODULE}._make_segment_download_session", return_value=session),
+    ):
         for batch in get_rows(
             issuer_id="issuer",
             key_id="KEY123",
@@ -661,8 +664,8 @@ class TestAnalyticsReportStreams:
         assert params_by_url[INSTANCES_URL]["filter[granularity]"] == "DAILY"
 
         assert [(state.app_id, state.processing_date) for state in manager.saved] == [
-            ("A1", "2026-08-02"),
-            ("A1", "2026-08-03"),
+            (None, "2026-08-02"),
+            (None, "2026-08-03"),
         ]
 
     def test_missing_request_is_created_once_and_the_app_skipped_this_run(self) -> None:
@@ -714,7 +717,7 @@ class TestAnalyticsReportStreams:
             segments_by_instance={"I2": [_segment("S2", "https://r.s3.amazonaws.com/2", payload)]},
             segment_payloads={"https://r.s3.amazonaws.com/2": payload},
         )
-        manager = _FakeManager(AppStoreConnectResumeConfig(app_id="A1", processing_date="2026-08-02"))
+        manager = _FakeManager(AppStoreConnectResumeConfig(processing_date="2026-08-02"))
 
         rows = _collect_analytics(api, manager)
 
@@ -728,20 +731,22 @@ class TestAnalyticsReportStreams:
 
         assert _collect_analytics(api, _FakeManager()) == []
 
-    def test_instance_without_segments_stops_that_apps_walk(self) -> None:
-        # Emitting the later instance past a not-ready gap would let the table watermark
-        # advance beyond data that never landed.
+    def test_instance_without_segments_stops_the_walk_at_that_date(self) -> None:
+        # Emitting a later date past a not-ready gap would let the table watermark advance
+        # beyond data that never landed.
         payload = _gzip_csv("Date,Sessions\n2026-08-02,5\n")
         api = _analytics_api(
             instances=[_instance("I1", "2026-08-01"), _instance("I2", "2026-08-02")],
             segments_by_instance={"I1": [], "I2": [_segment("S2", "https://r.s3.amazonaws.com/2", payload)]},
             segment_payloads={"https://r.s3.amazonaws.com/2": payload},
         )
+        manager = _FakeManager()
 
-        rows = _collect_analytics(api, _FakeManager())
+        rows = _collect_analytics(api, manager)
 
         assert rows == []
         assert _segments_url("I2") not in [url for url, _ in api.calls]
+        assert manager.saved[-1].processing_date == "2026-08-01"
 
     def test_checksum_mismatch_is_not_fatal(self) -> None:
         # The checksum algorithm is undocumented; a wrong guess must degrade to a warning,
@@ -801,9 +806,46 @@ class TestAnalyticsReportStreams:
             rows = _collect_analytics(api, manager)
 
         assert [row["processing_date"] for row in rows] == ["2026-08-01"]
-        assert (manager.saved[-1].app_id, manager.saved[-1].processing_date) == ("A1", "2026-08-02")
+        assert manager.saved[-1].processing_date == "2026-08-02"
 
-    def test_analytics_source_response_defers_the_watermark(self) -> None:
+    def test_dates_walk_in_order_across_apps(self) -> None:
+        # App-major order would yield app A1's newest dates before app A2's older ones, and
+        # the per-batch ascending watermark checkpoint would then skip A2's backlog after a
+        # crash. Date-major order is what makes the checkpoint safe.
+        seg_1 = _gzip_csv("Date,Sessions\n2026-08-01,1\n")
+        seg_2 = _gzip_csv("Date,Sessions\n2026-08-02,2\n")
+        seg_3 = _gzip_csv("Date,Sessions\n2026-08-03,3\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01"), _instance("I3", "2026-08-03")],
+            segments_by_instance={
+                "I1": [_segment("S1", "https://r.s3.amazonaws.com/1", seg_1)],
+                "I2": [_segment("S2", "https://r.s3.amazonaws.com/2", seg_2)],
+                "I3": [_segment("S3", "https://r.s3.amazonaws.com/3", seg_3)],
+            },
+            segment_payloads={
+                "https://r.s3.amazonaws.com/1": seg_1,
+                "https://r.s3.amazonaws.com/2": seg_2,
+                "https://r.s3.amazonaws.com/3": seg_3,
+            },
+        )
+        api.bodies[APPS_URL] = _page([_resource("apps", "A1"), _resource("apps", "A2")])
+        api.bodies[f"{BASE_URL}/v1/apps/A2/analyticsReportRequests"] = _page(
+            [_resource("analyticsReportRequests", "REQ2", accessType="ONGOING", stoppedDueToInactivity=False)]
+        )
+        api.bodies[f"{BASE_URL}/v1/analyticsReportRequests/REQ2/reports"] = _page(
+            [_resource("analyticsReports", "REP2", name="App Sessions Standard", category="APP_USAGE")]
+        )
+        api.bodies[f"{BASE_URL}/v1/analyticsReports/REP2/instances"] = _page([_instance("I2", "2026-08-02")])
+
+        rows = _collect_analytics(api, _FakeManager())
+
+        assert [(row["app_id"], row["processing_date"]) for row in rows] == [
+            ("A1", "2026-08-01"),
+            ("A2", "2026-08-02"),
+            ("A1", "2026-08-03"),
+        ]
+
+    def test_analytics_source_response_checkpoints_ascending(self) -> None:
         response = app_store_connect_source(
             issuer_id="issuer",
             key_id="KEY123",
@@ -815,9 +857,8 @@ class TestAnalyticsReportStreams:
         )
         assert response.primary_keys == ["app_id", "processing_date", "_line"]
         assert response.partition_keys == ["processing_date"]
-        # Fan-out over apps interleaves dates across apps, so a mid-run watermark checkpoint
-        # could skip another app's older instances after a crash.
-        assert response.sort_mode == "desc"
+        # The walk is date-major across apps, so ascending per-batch checkpoints are safe.
+        assert response.sort_mode == "asc"
 
 
 class TestReportColumnNames:
@@ -1094,9 +1135,7 @@ class TestSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
-        # Analytics streams fan out over apps, so their watermark defers to the end of a
-        # successful run (desc); everything else checkpoints as it walks (asc).
-        assert response.sort_mode == ("desc" if config.kind == "analytics_report" else "asc")
+        assert response.sort_mode == "asc"
         if config.partition_key:
             assert response.partition_keys == [config.partition_key]
             assert response.partition_mode == "datetime"

@@ -102,8 +102,9 @@ class AppStoreConnectResumeConfig:
     next_url: str | None = None
     # Report streams bookmark: the next report date to fetch, as `YYYY-MM-DD`.
     report_date: str | None = None
-    # Analytics streams bookmark: the next instance processing date to fetch for `app_id`,
-    # as `YYYY-MM-DD`. Optional so states saved before this field existed still parse.
+    # Analytics streams bookmark: the next instance processing date to fetch, as
+    # `YYYY-MM-DD`. Dates are walked ascending across every app, so no app bookmark is
+    # needed. Optional so states saved before this field existed still parse.
     processing_date: str | None = None
 
 
@@ -157,11 +158,23 @@ class AppStoreConnectTokenProvider:
             ) from e
 
 
-def _make_session(private_key: str) -> requests.Session:
+def _make_session(private_key: str, capture: bool = True) -> requests.Session:
     # The private key itself is never sent — only the signature it produces — but redact it so a future
     # change can't leak it into a captured sample. Redirects stay off so a 3xx can't quietly forward a
     # bearer-token-bearing request to another host; `_get` treats any redirect as a failure.
-    return make_tracked_session(redact_values=(private_key,), allow_redirects=False)
+    # `capture=False` keeps a session's responses out of HTTP sample capture, for calls whose bodies
+    # carry values the name-based scrubbers can't recognise (the presigned analytics segment URLs).
+    return make_tracked_session(redact_values=(private_key,), allow_redirects=False, capture=capture)
+
+
+def _make_segment_download_session(presigned_query: str) -> requests.Session:
+    # The presigned query string is a short-lived credential: redact it so the request log
+    # line can't carry a usable signature, and keep the bulk report body out of sample capture.
+    return make_tracked_session(
+        redact_values=(presigned_query,) if presigned_query else (),
+        allow_redirects=False,
+        capture=False,
+    )
 
 
 def _get(
@@ -722,7 +735,7 @@ def _analytics_segments(
     return segments
 
 
-def _download_segment(session: requests.Session, logger: FilteringBoundLogger, segment: dict[str, Any]) -> IO[bytes]:
+def _download_segment(logger: FilteringBoundLogger, segment: dict[str, Any]) -> IO[bytes]:
     """Download one segment to a spooled file, hashing as it streams.
 
     The URL is presigned, so no Authorization header is attached: sending the Apple bearer token to
@@ -733,8 +746,11 @@ def _download_segment(session: requests.Session, logger: FilteringBoundLogger, s
     """
     url = _require_segment_url(str(segment["url"]))
     spool = tempfile.SpooledTemporaryFile(max_size=ANALYTICS_SEGMENT_SPOOL_BYTES)
-    digest = hashlib.md5()
+    # Download-integrity check against Apple's checksum, not a cryptographic use; corrupted
+    # payloads are also rejected by the gzip CRC.
+    digest = hashlib.md5(usedforsecurity=False)  # nosemgrep
 
+    session = _make_segment_download_session(urlsplit(url).query)
     response = session.get(url, stream=True, timeout=REPORT_TIMEOUT_SECONDS)
     try:
         if not response.ok:
@@ -795,15 +811,9 @@ def _iter_segment_rows(text: IO[str], processing_date: date, line_start: int) ->
         yield row
 
 
-def _advance_to_next_app(
-    manager: ResumableSourceManager[AppStoreConnectResumeConfig], app_ids: list[str], position: int
-) -> None:
-    if position + 1 < len(app_ids):
-        manager.save_state(AppStoreConnectResumeConfig(app_id=app_ids[position + 1]))
-
-
 def _get_analytics_report(
     session: requests.Session,
+    segments_session: requests.Session,
     config: AppStoreConnectEndpointConfig,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
@@ -813,72 +823,78 @@ def _get_analytics_report(
 ) -> Iterator[list[dict[str, Any]]]:
     app_ids = _list_app_ids(session, token_provider, logger)
     resume = _load_resume(manager)
-
-    start = 0
-    resumed_processing_date: date | None = None
-    if resume is not None and resume.app_id:
-        index = next((i for i, app_id in enumerate(app_ids) if app_id == resume.app_id), None)
-        # A bookmarked app that no longer exists restarts the fan-out; merge dedupes the re-pulled rows.
-        if index is not None:
-            start = index
-            resumed_processing_date = _to_date(resume.processing_date)
-
+    resumed_date = _to_date(resume.processing_date) if resume is not None else None
     watermark = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
 
-    instances_fetched = 0
-    for position in range(start, len(app_ids)):
-        app_id = app_ids[position]
+    lower_bound: date | None = None
+    for candidate in (watermark, resumed_date):
+        if candidate is not None and (lower_bound is None or candidate > lower_bound):
+            lower_bound = candidate
 
-        lower_bound = watermark
-        if position == start and resumed_processing_date is not None:
-            lower_bound = max(lower_bound, resumed_processing_date) if lower_bound else resumed_processing_date
-
+    # Discover every app's report and instances up front, then walk processing dates in
+    # ascending order ACROSS apps. Yields are then globally date-ordered, so the pipeline's
+    # per-batch watermark checkpoint can never advance past an app whose older instances are
+    # still unfetched, and the walk can stop cleanly at the first gap or at the per-run cap:
+    # the watermark stands at the last date reached, and because the lower bound is inclusive
+    # the next run re-reads that boundary date in full and the merge dedupes it. Resume state
+    # is job-scoped (it survives retries of the same job, never the next scheduled run), so
+    # the watermark has to carry cross-run progress by itself.
+    instances_by_date: dict[date, list[tuple[str, str]]] = {}
+    for app_id in app_ids:
         request_id, created_now = _ensure_report_request(session, token_provider, logger, app_id)
         if created_now:
             logger.info(
                 f"App Store Connect: created an ONGOING analytics report request for app {app_id}; "
                 f"Apple generates the first reports in 1-2 days. endpoint={config.name}"
             )
-        if request_id is None or created_now:
-            _advance_to_next_app(manager, app_ids, position)
+            continue
+        if request_id is None:
             continue
 
         report_id = _find_analytics_report(session, token_provider, logger, config, request_id)
         if report_id is None:
             # An unavailable report degrades this table for this app; other apps and tables
             # are unaffected.
-            _advance_to_next_app(manager, app_ids, position)
             continue
 
         for instance_id, processing_date in _analytics_instances(
             session, token_provider, logger, report_id, lower_bound
         ):
+            instances_by_date.setdefault(processing_date, []).append((app_id, instance_id))
+
+    instances_fetched = 0
+    for processing_date in sorted(instances_by_date):
+        for app_id, instance_id in instances_by_date[processing_date]:
             if instances_fetched >= ANALYTICS_MAX_INSTANCES_PER_RUN:
-                logger.info(
-                    f"App Store Connect: hit the per-run analytics instance cap, resuming later. "
-                    f"endpoint={config.name}, app_id={app_id}, next_processing_date={processing_date.isoformat()}"
+                # An incremental sync continues from the watermark next run. A full refresh
+                # has no watermark to continue from, so a cap-hit there means a truncated
+                # table until the backlog fits in one run.
+                logger.warning(
+                    f"App Store Connect: hit the per-run analytics instance cap at "
+                    f"{processing_date.isoformat()}; later dates are left for the next "
+                    f"incremental run. endpoint={config.name}"
                 )
-                manager.save_state(
-                    AppStoreConnectResumeConfig(app_id=app_id, processing_date=processing_date.isoformat())
-                )
+                manager.save_state(AppStoreConnectResumeConfig(processing_date=processing_date.isoformat()))
                 return
 
-            segments = _analytics_segments(session, token_provider, logger, instance_id)
+            segments = _analytics_segments(segments_session, token_provider, logger, instance_id)
             if not segments:
-                # The instance is listed but its files aren't ready. Stop this app's walk here
-                # so nothing after the gap is emitted; the incremental lookback window re-reads
-                # past the gap on later runs once the files exist.
+                # The instance is listed but its files aren't ready. Stop the whole walk at
+                # this date so no newer date is emitted past the gap: the watermark then
+                # stays at or below this date, and the next run re-reads it once the files
+                # exist.
                 logger.info(
-                    f"App Store Connect: analytics instance has no segments yet, stopping this app's "
-                    f"walk. endpoint={config.name}, app_id={app_id}, "
+                    f"App Store Connect: analytics instance has no segments yet, stopping the "
+                    f"walk at this date. endpoint={config.name}, app_id={app_id}, "
                     f"processing_date={processing_date.isoformat()}"
                 )
-                break
+                manager.save_state(AppStoreConnectResumeConfig(processing_date=processing_date.isoformat()))
+                return
 
             line = 0
             batch: list[dict[str, Any]] = []
             for segment in segments:
-                spool = _download_segment(session, logger, segment)
+                spool = _download_segment(logger, segment)
                 try:
                     with _open_segment_text(spool) as text:
                         for row in _iter_segment_rows(text, processing_date, line):
@@ -894,15 +910,13 @@ def _get_analytics_report(
                 yield batch
 
             instances_fetched += 1
-            # Save AFTER the instance's rows are yielded, so a crash re-reads the instance
-            # rather than skipping it; the merge dedupes the re-read.
-            manager.save_state(
-                AppStoreConnectResumeConfig(
-                    app_id=app_id, processing_date=(processing_date + timedelta(days=1)).isoformat()
-                )
-            )
 
-        _advance_to_next_app(manager, app_ids, position)
+        # The date is complete for every app, so a retried attempt of this job can start at
+        # the next one. Saved AFTER the date's rows are yielded, so a crash re-reads the
+        # date rather than skipping it; the merge dedupes the re-read.
+        manager.save_state(
+            AppStoreConnectResumeConfig(processing_date=(processing_date + timedelta(days=1)).isoformat())
+        )
 
 
 def check_credentials(issuer_id: str, key_id: str, private_key: str) -> tuple[int | None, str | None]:
@@ -951,6 +965,10 @@ def get_rows(
     elif config.kind == "analytics_report":
         yield from _get_analytics_report(
             session,
+            # Segment listings ride a capture-disabled session: their bodies carry presigned
+            # URLs whose query strings are short-lived credentials the name-based scrubbers
+            # can't recognise.
+            _make_session(private_key, capture=False),
             config,
             token_provider,
             logger,
@@ -1007,10 +1025,8 @@ def app_store_connect_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Report streams walk dates oldest-first and collections are full refreshes merged on a
-        # unique key, so asc fits both. Analytics streams fan out over apps, and checkpointing a
-        # table-level watermark mid-run would let one app's newest dates hide another app's older,
-        # still-unfetched instances after a crash; desc defers the watermark to the end of a
-        # successful run instead.
-        sort_mode="desc" if config.kind == "analytics_report" else "asc",
+        # Report streams walk dates oldest-first (analytics streams date-major across apps, so
+        # per-batch watermark checkpoints stay safe despite the fan-out), and collections are
+        # full refreshes merged on a unique key, so asc fits everything.
+        sort_mode="asc",
     )

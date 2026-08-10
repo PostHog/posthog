@@ -39,14 +39,10 @@ ANALYTICS_GRANULARITY = "DAILY"
 
 # Analytics instances downloaded in a single run, across all apps. Ongoing requests accumulate at
 # most ~35 daily instances (Apple's retention) per report per app, so this cap only bites on a
-# cold start with many apps; a capped run resumes from its bookmark next time.
+# cold start with many apps. The walk is date-ascending, so an incremental sync that hits the cap
+# continues from its watermark next run; a full-refresh sync has no watermark and stays truncated
+# until its backlog fits in one run.
 ANALYTICS_MAX_INSTANCES_PER_RUN = 400
-
-# Incremental analytics syncs re-read this trailing window below the watermark. An instance can be
-# listed before its file segments exist, and the table-level watermark can pass such a gap while
-# other apps' newer instances process; the re-read lets those gaps self-heal, and the merge on
-# (app_id, processing_date, _line) keeps the re-read idempotent.
-ANALYTICS_LOOKBACK_SECONDS = 3 * 24 * 60 * 60
 
 
 @dataclass

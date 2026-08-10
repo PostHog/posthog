@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     AppStoreConnectResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
-    ANALYTICS_LOOKBACK_SECONDS,
     APP_STORE_CONNECT_ENDPOINTS,
     ENDPOINTS,
     REPORT_ENDPOINTS,
@@ -104,9 +103,6 @@ class TestAppStoreConnectSource:
                 assert [field["field"] for field in schema.incremental_fields] == ["report_date"]
             if kind == "analytics_report":
                 assert [field["field"] for field in schema.incremental_fields] == ["processing_date"]
-                # Instances can be listed before their files exist; the trailing re-read
-                # window is what lets those gaps self-heal.
-                assert schema.default_incremental_lookback_seconds == ANALYTICS_LOOKBACK_SECONDS
 
     def test_canonical_descriptions_cover_the_catalog(self) -> None:
         descriptions = AppStoreConnectSource().get_canonical_descriptions()
