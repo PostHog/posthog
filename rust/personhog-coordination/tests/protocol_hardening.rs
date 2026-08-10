@@ -4086,3 +4086,138 @@ async fn phase_advance_refuses_a_handoff_that_was_replaced() {
         "a replaced handoff must not be advanced by its predecessor's quorum"
     );
 }
+
+/// Records `verify_serving` calls — the repair a data-plane repair
+/// request exists to trigger.
+struct RepairProbeHandler {
+    events: Arc<Mutex<Vec<HandoffEvent>>>,
+    verified: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl personhog_coordination::pod::HandoffHandler for RepairProbeHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn verify_serving(&self, _partition: u32) -> Result<bool> {
+        self.verified.fetch_add(1, Ordering::SeqCst);
+        Ok(false)
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// A data-plane repair request must converge the partition immediately.
+/// The condemned-producer incident this pins: every write on the
+/// partition bounces until `verify_serving` re-takes the fence, and with
+/// the reconcile tick as the only trigger that wait is a whole interval.
+/// Here reconcile is parked at a day and no etcd event fires, so the
+/// only thing that can drive the second `verify_serving` is the repair
+/// arm itself.
+#[tokio::test]
+async fn a_repair_request_converges_the_partition_without_waiting_for_reconcile() {
+    let store = test_store("repair-request-converges").await;
+    let cancel = CancellationToken::new();
+
+    store
+        .put_assignments(&[PartitionAssignment {
+            partition: 0,
+            owner: "repair-pod".to_string(),
+            status: AssignmentStatus::Active,
+            advertise_address: None,
+        }])
+        .await
+        .expect("write assignment");
+
+    let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let verified = Arc::new(AtomicUsize::new(0));
+    let handler = RepairProbeHandler {
+        events: Arc::clone(&events),
+        verified: Arc::clone(&verified),
+    };
+    let (repair_tx, repair_rx) = tokio::sync::mpsc::unbounded_channel();
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "repair-pod".to_string(),
+            // A session restart re-runs the seed convergence, which also
+            // bumps `verified`; a 30s lease keeps restarts out of this
+            // test's window so only the repair arm can move the counter.
+            lease_ttl: 30,
+            heartbeat_interval: Duration::from_secs(10),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    )
+    .with_repair_requests(repair_rx);
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    // The seed convergence serves the partition and runs the first
+    // verification on its way.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let verified = Arc::clone(&verified);
+        async move { verified.load(Ordering::SeqCst) >= 1 }
+    })
+    .await;
+    let baseline = verified.load(Ordering::SeqCst);
+
+    repair_tx.send(0).expect("repair channel open");
+
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "repair request drives a convergence",
+        || {
+            let verified = Arc::clone(&verified);
+            async move { verified.load(Ordering::SeqCst) > baseline }
+        },
+    )
+    .await;
+
+    // A second request inside the cooldown must not converge again: the
+    // condemn-heal-condemn flap would otherwise cycle at broker speed,
+    // resetting the budgets that exist to catch it. The cooldown is the
+    // reconcile interval, parked at a day here, so nothing but the
+    // suppression can be holding the counter still.
+    let after_first = verified.load(Ordering::SeqCst);
+    repair_tx.send(0).expect("repair channel open");
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(
+        verified.load(Ordering::SeqCst),
+        after_first,
+        "a repair request inside the cooldown must fall to the reconcile tick"
+    );
+
+    cancel.cancel();
+}

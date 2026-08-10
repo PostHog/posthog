@@ -322,6 +322,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.ingestion_warnings_topic.clone(),
     );
     let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
+    let mut fence_repair_rx = None;
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
         // directly, so an operator debugging a fenced-write timeout has
@@ -336,6 +337,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "broker-enforced epoch fencing enabled for the changelog"
         );
         preregister_fencing_metrics(num_partitions);
+        // A condemned producer's repair otherwise waits for the next
+        // reconcile tick; this channel lets the condemnation itself
+        // trigger the convergence that heals it.
+        let (repair_tx, repair_rx) = tokio::sync::mpsc::unbounded_channel();
+        fence_repair_rx = Some(repair_rx);
         // The fenced producer runs on a tighter message timeout than the
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {
@@ -347,8 +353,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
             ..config.kafka.clone()
         };
-        Some(Arc::new(FencedChangelogProducers::new(
-            FencedProducerConfig {
+        Some(Arc::new(
+            FencedChangelogProducers::new(FencedProducerConfig {
                 kafka: fencing_kafka,
                 topic: config.kafka_person_state_topic.clone(),
                 init_timeout: config.fencing_init_timeout(),
@@ -356,8 +362,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 broker_txn_timeout: config.fencing_broker_txn_timeout(),
                 window: Duration::from_millis(config.fencing_window_ms),
                 settle_budget: config.fencing_settle_budget(),
-            },
-        )))
+            })
+            .with_repair_requests(repair_tx),
+        ))
     } else {
         None
     };
@@ -564,13 +571,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let pod = PodHandle::new(
+    let mut pod = PodHandle::new(
         store,
         pod_config,
         Arc::new(handler),
         k8s_awareness,
         Arc::clone(&authority),
     );
+    if let Some(rx) = fence_repair_rx.take() {
+        pod = pod.with_repair_requests(rx);
+    }
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();

@@ -374,6 +374,31 @@ async fn a_completed_warm_keeps_its_fence() {
         .expect("a completed warm keeps a usable fence");
 }
 
+/// A condemnation must request its own repair: the fix for a condemned
+/// producer is a convergence-driven heal, and without the announcement
+/// that convergence waits for the next reconcile tick while every write
+/// on the partition bounces. Exactly once per producer: the unusable
+/// swap, not the channel, bounds the announcements.
+#[tokio::test]
+async fn a_condemnation_requests_repair_once() {
+    let topic = format!("fence_repair_{}", uuid::Uuid::new_v4().simple());
+    let (repair_tx, mut repair_rx) = tokio::sync::mpsc::unbounded_channel();
+    let producers = fenced_producers(&topic).with_repair_requests(repair_tx);
+    producers.acquire(3).await.expect("acquire the fence");
+
+    producers.condemn_for_test(3);
+    producers.condemn_for_test(3);
+
+    let announced = tokio::time::timeout(Duration::from_secs(5), repair_rx.recv())
+        .await
+        .expect("a condemnation must announce the partition for repair");
+    assert_eq!(announced, Some(3));
+    assert!(
+        repair_rx.try_recv().is_err(),
+        "a second condemnation of the same producer must not announce again"
+    );
+}
+
 /// A producer whose abort exhausted its retries, or whose commit outcome
 /// stayed unknown, is left in a transaction state it cannot begin another
 /// window from. It is still installed, so nothing that checks for the
