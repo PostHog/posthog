@@ -153,6 +153,7 @@ describe("activityHeadline", () => {
       threadId: "comment-1",
       nonce: expect.any(Number),
       openCommentsTab: true,
+      intent: "navigate",
     });
   });
 
