@@ -599,6 +599,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             get_experiment_stats_method(experiment),
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants,
         )
         recalc_fp = compute_recalc_fingerprint(config_fp)
 

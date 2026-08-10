@@ -32,10 +32,10 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
-    DeltaTableRef,
-    is_transient_object_store_error,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_maintenance_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     WAREHOUSE_AUTO_REPARTITION_FLAG,
     base_event_props,
     capture_repartition_event,
+    is_auto_coarsen_enabled,
     is_auto_repartition_enabled,
     maybe_flag_for_repartition,
     target_partition_bytes,
@@ -56,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_REPARTITION_DURATION_SECONDS,
     DELTA_REPARTITION_TOTAL,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 
 LOGGER = get_logger(__name__)
 
@@ -156,12 +158,15 @@ def _needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -
     read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
     against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
     flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
+
+    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
+    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
     """
-    if not enabled:
-        return False
     if schema.sync_type == ExternalDataSchema.SyncType.CDC:
         return False
-    return True
+    if schema.coarsen_requested is not None:
+        return True
+    return enabled
 
 
 def _maybe_flag_pre_extraction(
@@ -192,10 +197,12 @@ def _maybe_flag_pre_extraction(
     except Exception as e:
         # Detection is best-effort; a failure here must not block the sync. `get_delta_table` re-raises
         # transient object-store blips (S3/credential-provider timeouts) rather than swallowing them —
-        # see its own docstring — so this is the layer that must apply is_transient_object_store_error
-        # before reporting, same as the other best-effort call sites around this table.
-        if is_transient_object_store_error(e):
-            logger.warning("repartition: pre-extraction detection failed with a transient object-store error")
+        # see its own docstring — and resolving `job.folder_path()` on a pooled app-DB connection can
+        # raise OperationalError/InterfaceError the same way. `is_transient_maintenance_error` covers
+        # both, so this is the layer that must apply it before reporting, same as the other best-effort
+        # call sites around this table.
+        if is_transient_maintenance_error(e):
+            logger.warning("repartition: pre-extraction detection failed with a transient infra error")
         else:
             logger.warning("repartition: pre-extraction detection failed", exc_info=True)
             capture_exception(e)
@@ -271,16 +278,26 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # The flag has to stop a queued rewrite too, not only detection. Once a table is flagged, the
     # rewrite runs ahead of extraction on every sync, so a rewrite that can't finish delays the sync
     # by the full activity budget indefinitely; the flag is the only lever support has to release
-    # such a table, and it does nothing here if it only gates detection. Two exclusions: a staged
-    # swap must always be driven to completion because temp is the source of truth in that window
-    # and live may already be deleted, and an operator-staged rewrite ignores the rollout flag
-    # because they staged it knowing that syncing on the old layout is the worse option.
-    if not enabled and pending is not None and swap is None and pending.get("trigger_reason") != "admin":
-        logger.info(
-            f"repartition: queued rewrite skipped, controller disabled by feature flag schema_id={schema.id}",
-            schema_id=str(schema.id),
-        )
-        return
+    # such a table, and it does nothing here if it only gates detection. Each auto-staged trigger
+    # family answers to the flag that staged it, and any other reason fails open: operator-staged
+    # work (admin, coarsening nominations) was queued knowing that syncing on the old layout is the
+    # worse option, so it must never dead-end on a rollout flag. A staged swap is always driven to
+    # completion because temp is the source of truth in that window and live may already be deleted.
+    if pending is not None and swap is None:
+        reason = pending.get("trigger_reason")
+        if reason in ("proactive_threshold", "oom_history"):
+            release = not enabled
+        elif reason == "coarsening":
+            release = not is_auto_coarsen_enabled(schema)
+        else:
+            release = False
+        if release:
+            logger.info(
+                f"repartition: queued rewrite skipped, controller disabled by feature flag schema_id={schema.id}",
+                schema_id=str(schema.id),
+                trigger_reason=reason,
+            )
+            return
 
     # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (flag off, or
     # CDC). Return here — before fetching the job and reading the delta log — so the common healthy
@@ -297,6 +314,20 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             job_id=inputs.job_id,
         )
         return
+
+    # Attach the same source/schema identity the import activity does, so an exception captured
+    # anywhere below (budget exhaustion, an unexpected rewrite failure) can be attributed to a
+    # connector and table instead of landing in error tracking with no sync context.
+    bind_job_context(
+        team_id=inputs.team_id,
+        source_type=schema.source.source_type,
+        external_data_source_id=inputs.source_id,
+        external_data_schema_id=inputs.schema_id,
+        external_data_job_id=inputs.job_id,
+        schema_name=schema.name,
+        sync_type=schema.sync_type,
+        pipeline_version=job.pipeline_version,
+    )
 
     # `resolved_s3_folder_name` is authoritative for the Delta folder, not the row's own name: a row
     # renamed during the multi-schema migration keeps its folder pinned to the original path (name
@@ -371,6 +402,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # daily instead.
         schema.refresh_from_db(fields=["sync_type_config"])
         schema.clear_repartition_pending()
+        schema.clear_repartition_rewrite()
         schema.stamp_last_repartition_at()
         props = base_event_props(schema, schema.source, inputs.job_id)
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
@@ -512,6 +544,9 @@ def _handle_failure(
         props["final"] = True
         schema.clear_repartition_pending()
         schema.clear_repartition_swap()
+        # Drop any partial-rewrite checkpoint too: leaving it set would make the next flag cycle
+        # resume the same doomed temp instead of giving up, so the give-up would never take effect.
+        schema.clear_repartition_rewrite()
         # Engage the cooldown as well, or the give-up never takes effect: the trigger that queued
         # this rewrite (the largest partition is over budget) is just as true on the next sync and
         # the layout is unchanged, so detection re-flags the table immediately with `attempts` back

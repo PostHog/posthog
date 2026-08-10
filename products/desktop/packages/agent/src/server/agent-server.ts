@@ -21,6 +21,7 @@ import {
   type Adapter,
   buildPrOutput,
   getErrorMessage,
+  type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
   readMcpToolDescriptor,
@@ -117,7 +118,6 @@ import { RunUsageAccumulator } from "./run-usage";
 import {
   handoffLocalGitStateSchema,
   jsonRpcRequestSchema,
-  type RemoteMcpServer,
   validateCommandParams,
 } from "./schemas";
 import type { AgentServerConfig } from "./types";
@@ -347,6 +347,27 @@ function getTaskRunStateString(
   return typeof value === "string" ? value : null;
 }
 
+/** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
+type SlackArtifactDelivery = "none" | "message" | "canvas_file";
+
+const SLACK_ARTIFACT_DELIVERY_MODES: SlackArtifactDelivery[] = [
+  "none",
+  "message",
+  "canvas_file",
+];
+
+/**
+ * An unset key means the backend told us nothing — any non-Slack run, or a Slack run that
+ * predates this. Emit no constraints rather than guessing: the agent must never be offered a
+ * route delivery would reject, nor told it has none while it actually does.
+ */
+function readSlackArtifactDelivery(
+  taskRun: TaskRun | null,
+): SlackArtifactDelivery | null {
+  const mode = getTaskRunStateString(taskRun, "slack_artifact_delivery");
+  return SLACK_ARTIFACT_DELIVERY_MODES.find((known) => known === mode) ?? null;
+}
+
 // Prompt block we hand the agent when the user attached files but we could not
 // load any of them into the session (missing from the run manifest, no storage
 // path, etc.). Without this the caller falls back to the bare task description —
@@ -380,6 +401,7 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
+  private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -439,7 +461,7 @@ export class AgentServer {
    * servers and return their session mcpServers entries. No designations →
    * no relay server, no entries.
    */
-  private async startMcpRelayServer(): Promise<RemoteMcpServer[]> {
+  private async startMcpRelayServer(): Promise<McpServerConnection[]> {
     const names = this.config.relayMcpServers ?? [];
     if (names.length === 0) return [];
     if (!this.mcpRelayServer) {
@@ -1575,7 +1597,9 @@ export class AgentServer {
         return null;
       }),
     ]);
-    this.taskRepositories = preTask?.repository ? [preTask.repository] : [];
+    this.taskRepositories =
+      preTask?.repositories ??
+      (preTask?.repository ? [preTask.repository] : []);
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
@@ -1610,6 +1634,10 @@ export class AgentServer {
       preTaskRun,
       "slack_thread_url",
     );
+
+    // Unconditional for the same reason as detectedPrUrl: a re-init on this
+    // instance must not keep the previous run's delivery capability.
+    this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -1743,6 +1771,10 @@ export class AgentServer {
         )
       : [];
     const sessionCwd = this.config.repositoryPath ?? "/tmp/workspace";
+    // Only a run with no repository at all gets the discover-and-clone tools;
+    // a multi-repository workspace already has its repos on disk.
+    const channelMode =
+      !this.config.repositoryPath && this.taskRepositories.length === 0;
     const sessionMeta = {
       sessionId: payload.run_id,
       taskRunId: payload.run_id,
@@ -1754,6 +1786,7 @@ export class AgentServer {
       allowedDomains: this.config.allowedDomains,
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
+      ...(channelMode && { channelMode: true }),
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
@@ -1784,7 +1817,7 @@ export class AgentServer {
     let effectiveSessionMeta: typeof sessionMeta & {
       nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
     } = sessionMeta;
-    let sessionMcpServers: RemoteMcpServer[];
+    let sessionMcpServers: McpServerConnection[];
     try {
       await this.installSkillBundleArtifacts(
         payload.task_id,
@@ -3538,6 +3571,48 @@ export class AgentServer {
     );
   }
 
+  /**
+   * How this run may hand a deliverable to the Slack thread it is answering in.
+   *
+   * The offer has to match what delivery will actually accept: naming an adapter the
+   * workspace cannot use gets the request rejected server-side after the agent has already
+   * promised the user a canvas or a spreadsheet. The backend resolves that capability from
+   * the workspace's feature flags and Slack scopes when the task starts and hands it to us
+   * on the run state, so the wording lives here and the gating stays there.
+   */
+  private buildSlackDeliveryInstructions(): string {
+    if (this.slackArtifactDelivery === null) {
+      return "";
+    }
+
+    if (this.slackArtifactDelivery === "none") {
+      return `
+## Delivering to Slack
+- You do not have artifact delivery in this workspace: you cannot create or share artifacts (files, canvases, documents) from this run, so do not attempt to. Deliver results as plain text in your reply.
+- Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths.`;
+    }
+
+    const endpoint = `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/`;
+    const preamble = `
+## Delivering to Slack
+- Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
+- Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
+- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
+
+    if (this.slackArtifactDelivery === "message") {
+      return `${preamble}
+- You do not have canvas or file delivery in this workspace: do not use the \`slack_canvas\` or \`slack_file\` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\` using adapter \`slack_message\`. To update a prior deliverable, GET the returned artifact id or POST new \`content\` to \`${endpoint}<artifact_id>/edit/\`.
+- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead.`;
+    }
+
+    return `${preamble}
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.
+- To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.
+- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
+- If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
+  }
+
   private buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -3638,6 +3713,9 @@ Optimize for the fewest shell round trips.
 ## Delivering non-code files (artifacts)
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
+    // Closes out every branch below, so a new section is added once rather than five times.
+    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}`;
+
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
@@ -3672,7 +3750,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
       }
 
@@ -3693,22 +3771,27 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
     if (!this.config.repositoryPath && this.taskRepositories.length === 0) {
+      const repositoryInstructions = `
+When the task requires a GitHub repository:
+- If the repository is not specified, call \`list_repos\` and use the task context to choose it. If multiple repositories remain plausible, ask the user.
+- Call \`clone_repo\` with the chosen \`owner/repo\` and optional branch. It creates a shallow clone under \`/tmp/workspace/repos/<owner>/<repo>\` and returns the path.
+- Work from inside the returned path for all code changes.
+- The clone starts with one commit. If older history is genuinely needed, fetch it in bounded steps with \`git fetch --deepen=50 origin <branch>\`, then \`git fetch --deepen=200 origin <branch>\`. Use \`git fetch --unshallow\` only when the task explicitly requires full history, such as a long-range blame or bisect.
+`;
       const publishInstructions =
         this.config.createPr === false
           ? `
 When the user asks for code changes:
-- You may clone a repository and make local edits in that clone
+- You may make local edits in a repository cloned with \`clone_repo\`
 - Do NOT create branches, commits, push changes, or open pull requests in this run`
           : shouldAutoCreatePr
             ? `
-When the user asks to clone or work in a GitHub repository:
-- Clone the repository into /tmp/workspace/repos/<owner>/<repo> using \`gh repo clone <owner>/<repo> /tmp/workspace/repos/<owner>/<repo>\`
-- Work from inside that cloned repository for follow-up code changes
+When the user asks for code changes in a GitHub repository:
 - After completing code changes in a cloned repository, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone without waiting to be asked. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
 - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
 ${whyContextInstruction.trimStart()}
@@ -3717,9 +3800,7 @@ ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
             : `
-When the user explicitly asks to clone or work in a GitHub repository:
-- Clone the repository into /tmp/workspace/repos/<owner>/<repo> using \`gh repo clone <owner>/<repo> /tmp/workspace/repos/<owner>/<repo>\`
-- Work from inside that cloned repository for follow-up code changes
+When the user explicitly asks for code changes in a GitHub repository:
 - If the user explicitly asks you to open or update a pull request, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
 - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
 ${whyContextInstruction.trimStart()}
@@ -3739,13 +3820,12 @@ When the user asks about analytics, data, metrics, events, funnels, dashboards, 
 - Use tools like insight-query, query-run, event-definitions-list, and others to answer questions directly
 
 When the user asks for code changes or software engineering tasks:
-- Let them know you can help but don't have a repository connected for this session
-- If they have not specified a repository to clone, offer to write code snippets, scripts, or provide guidance
-${publishInstructions}
+- Choose and clone a repository only when the task requires one. For questions and analysis, answer without cloning when possible.
+${repositoryInstructions}${publishInstructions}
 
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
@@ -3765,7 +3845,7 @@ ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
@@ -3795,7 +3875,7 @@ ${prFooter}
 
 Important:
 - Always create the PR as a draft. Do not ask for confirmation.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
   }
 

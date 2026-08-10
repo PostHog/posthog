@@ -580,6 +580,7 @@ from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
 from .imf_data.source import ImfDataSource
 from .impact.source import ImpactSource
+from .impact_partner.source import ImpactPartnerSource
 from .imperva.source import ImpervaSource
 from .incident_io.source import IncidentIoSource
 from .infisical.source import InfisicalSource
@@ -756,6 +757,7 @@ from .mono.source import MonoSource
 from .monte_carlo.source import MonteCarloSource
 from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
+from .motion.source import MotionSource
 from .moxie.source import MoxieSource
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource
@@ -1019,6 +1021,7 @@ from .servicem8.source import Servicem8Source
 from .servicenow.source import ServiceNowSource
 from .servicetitan.source import ServicetitanSource
 from .servicetrade.source import ServicetradeSource
+from .sevalla.source import SevallaSource
 from .sevdesk.source import SevdeskSource
 from .sevenshifts.source import SevenShiftsSource
 from .sftp.source import SFTPSource

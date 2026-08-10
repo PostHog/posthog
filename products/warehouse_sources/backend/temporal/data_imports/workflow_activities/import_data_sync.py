@@ -1,4 +1,5 @@
 import uuid
+import socket
 import asyncio
 import datetime as dt
 import dataclasses
@@ -7,6 +8,8 @@ from typing import Any, NoReturn, Optional
 from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+from jsonpath_ng.exceptions import JSONPathError
+from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
@@ -62,6 +65,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -110,6 +115,21 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
+    # Async variant: teardown joins the sampler thread and talks to Redis, which must not block
+    # this activity's event loop (or its heartbeats).
+    async with aworkload_reporting(
+        team_id=inputs.team_id,
+        schema_id=str(inputs.schema_id),
+        run_id=str(inputs.run_id),
+        host=socket.gethostname(),
+        # Retries share the run_id; the attempt lets the newest reporter own the run key while a
+        # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
+        attempt=current_activity_attempt(),
+    ):
+        return await _import_data_with_reporting(inputs, logger)
+
+
+async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -167,7 +187,10 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")
 
-        schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
+        try:
+            schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
+        except ExternalDataSchema.DoesNotExist as e:
+            await _handle_import_error(job_inputs, logger, e)
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
@@ -365,11 +388,40 @@ async def _handle_import_error(
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     error_msg = str(error)
 
+    # The schema this activity is running for can be deleted (or soft-deleted) between the job
+    # being created and this activity's mid-run re-fetch of it — every retry re-reads the same
+    # gone row, so it never turns into data regardless of source. Classify it here by type rather
+    # than depending on each source listing the message in get_non_retryable_errors.
+    if isinstance(error, ExternalDataSchema.DoesNotExist):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
     # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
     # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # The shared REST engine compiles data_selector/cursor_path/next_url_path/resolve-param fields
+    # as JSONPath at sync time (jsonpath_utils.compile_path), not at manifest-validation time. A
+    # malformed path is a fixed string, so parsing it fails identically on every retry regardless
+    # of source — classify it here by type (message text varies across jsonpath_ng's several parse-
+    # and lex-error shapes, so it can't be matched via get_non_retryable_errors).
+    if isinstance(error, JSONPathError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
+    # endpoint/resource doesn't exist — every retry replays the identical request against the same
+    # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
+    # 429/5xx (already RESTClientRetryableError), there's no self-recovering path for a 404, so
+    # classify it here rather than depending on each REST-based source listing it.
+    if isinstance(error, HTTPError) and error.response is not None and error.response.status_code == 404:
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
@@ -419,8 +471,10 @@ async def _handle_import_error(
     # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
     # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
     # customer data or config problem. Same classification already used for app-DB blips in
-    # delta_table_ref.is_transient_maintenance_error.
-    if isinstance(error, OperationalError | InterfaceError):
+    # delta_table_ref.is_transient_maintenance_error. PostHogInternalDatabaseError is the same
+    # condition already reclassified by shared pipeline code (e.g. cdp_producer's should_run check)
+    # specifically so it wouldn't be mistaken for a customer-side failure here — honor that by type.
+    if isinstance(error, OperationalError | InterfaceError | PostHogInternalDatabaseError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error

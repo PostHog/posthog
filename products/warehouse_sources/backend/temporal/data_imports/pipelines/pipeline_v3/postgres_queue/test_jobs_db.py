@@ -196,6 +196,23 @@ def sync_conn(_db_url: str):
 
 
 @pytest.mark.django_db(transaction=True)
+class TestReconcileSweepSlot:
+    @pytest.mark.asyncio
+    async def test_first_acquire_wins_and_slot_is_not_reentrant(self, conn, conn_b):
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token="pod-a") is True
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn_b, owner_token="pod-b") is False
+        # Same owner is refused too: the slot paces the fleet-wide cadence, it
+        # is not an ownership lock — re-entrancy would let one pod sweep in a
+        # tight loop, which is exactly the stampede the slot exists to prevent.
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token="pod-a") is False
+
+    @pytest.mark.asyncio
+    async def test_expired_slot_is_reacquirable(self, conn, conn_b):
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token="pod-a", ttl_seconds=0) is True
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn_b, owner_token="pod-b") is True
+
+
+@pytest.mark.django_db(transaction=True)
 class TestBatchQueueInsert:
     @pytest.mark.asyncio
     async def test_insert_returns_uuid(self, conn):

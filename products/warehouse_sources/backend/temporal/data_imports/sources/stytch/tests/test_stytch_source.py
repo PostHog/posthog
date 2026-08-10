@@ -56,6 +56,7 @@ class TestStytchSource:
         [
             "Stytch API error (retryable): status=429, url=https://api.stytch.com/v1/users/search",
             "Stytch API error: status=400, error_type=query_params_invalid, url=https://api.stytch.com/v1/users/search",
+            "Stytch API error (retryable): status=400, error_type=search_timeout, url=https://api.stytch.com/v1/b2b/organizations/search",
         ],
     )
     def test_non_retryable_errors_do_not_match_transient_or_query_errors(self, transient_error):

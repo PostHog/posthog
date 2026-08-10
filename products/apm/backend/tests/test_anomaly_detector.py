@@ -9,8 +9,19 @@ from products.apm.backend.logic.anomaly_detection.bands import PoissonBandModel
 from products.apm.backend.logic.anomaly_detection.baseline import TimeGrid
 from products.apm.backend.logic.anomaly_detection.config import DetectionConfig
 from products.apm.backend.logic.anomaly_detection.constants import BUCKETS_PER_DAY
-from products.apm.backend.logic.anomaly_detection.detector import evaluate_series_bucket, evaluate_tick, traffic_tier
-from products.apm.backend.logic.anomaly_detection.types import SeriesHistory, SeriesKey, TrafficTier, VerdictType
+from products.apm.backend.logic.anomaly_detection.detector import (
+    evaluate_series_bucket,
+    evaluate_series_bucket_detail,
+    evaluate_tick,
+    traffic_tier,
+)
+from products.apm.backend.logic.anomaly_detection.types import (
+    BaselineStage,
+    SeriesHistory,
+    SeriesKey,
+    TrafficTier,
+    VerdictType,
+)
 
 GRID_START = datetime(2026, 1, 5, tzinfo=UTC)
 GRID_LENGTH = 15 * BUCKETS_PER_DAY
@@ -120,6 +131,26 @@ class TestTiers:
     )
     def test_tier_from_trailing_rate(self, rate: float, expected: TrafficTier) -> None:
         assert traffic_tier(steady_history(rate), INDEX, CONFIG) is expected
+
+
+class TestEvaluateDetail:
+    def test_in_band_bucket_still_reports_band_stage_and_tier(self) -> None:
+        detail = evaluate_series_bucket_detail(steady_history(), INDEX, KEY, GRID, CONFIG, MODEL)
+        assert detail.verdict is None
+        assert detail.band is not None
+        assert detail.band.lower <= detail.observed <= detail.band.upper
+        assert detail.stage is BaselineStage.DEVELOPING
+        assert detail.tier is TrafficTier.B
+
+    def test_gated_bucket_reports_observed_only(self) -> None:
+        history = steady_history(rate=2.0)  # below the traffic floor
+        history.counts[INDEX] = 50.0
+        detail = evaluate_series_bucket_detail(history, INDEX, KEY, GRID, CONFIG, MODEL)
+        assert detail.observed == 50.0
+        assert detail.band is None
+        assert detail.stage is None
+        assert detail.tier is None
+        assert detail.verdict is None
 
 
 class TestEvaluateTick:

@@ -7,11 +7,13 @@ from unittest.mock import Mock, patch
 from parameterized import parameterized
 from requests.exceptions import HTTPError, JSONDecodeError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
     SentryResumeConfig,
+    SentryStatsSummaryRejectedError,
     _custom_endpoint_rows,
     _normalize_api_base_url,
     _normalize_organization_slug,
@@ -213,6 +215,21 @@ class TestSentryTransport:
         assert resource["endpoint"]["incremental"]["start_param"] == "start"
         assert resource["endpoint"]["incremental"]["end_param"] == "end"
         assert resource["endpoint"]["incremental"]["cursor_path"] == "lastSeen"
+
+    @parameterized.expand(
+        [
+            ("issue_events",),
+            ("project_events",),
+        ]
+    )
+    def test_events_endpoints_default_to_date_received(self, endpoint) -> None:
+        # Both endpoints fetch full event bodies (child_params full=true), which carry a
+        # `dateReceived` timestamp rather than the `dateCreated` field the lightweight
+        # issue/event list serializers use. Defaulting to `dateCreated` here made every
+        # incremental sync of these tables fail with IncrementalFieldMissingFromDataError.
+        config = SENTRY_ENDPOINTS[endpoint]
+        assert config.default_incremental_field == "dateReceived"
+        assert [incremental_field["field"] for incremental_field in config.incremental_fields] == ["dateReceived"]
 
     @parameterized.expand(
         [
@@ -530,6 +547,31 @@ class TestSentrySourceValidation:
         config = mock_rest_api_resources.call_args.args[0]
         child_resource = next(r for r in config["resources"] if r["name"] == endpoint)
         assert child_resource["endpoint"]["params"]["full"] == "true"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_issue_hashes_tolerates_child_not_found(self, mock_rest_api_resources) -> None:
+        # An issue can be deleted/merged between the `issues` listing and this per-issue hashes
+        # fetch, which 404s. That single-issue 404 must not fail the whole schema (see
+        # SentrySource.get_non_retryable_errors' generic "404 Client Error" mapping).
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("issues", [{"id": "100"}]),
+            _FakeDltResource("issue_hashes", []),
+        ]
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_hashes",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        config = mock_rest_api_resources.call_args.args[0]
+        child_resource = next(r for r in config["resources"] if r["name"] == "issue_hashes")
+        assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
@@ -1439,6 +1481,33 @@ class TestSentryCustomIteratorEndpoints:
         assert rows[0]["period_end"] == "2026-03-01T00:00:00Z"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_stats_summary_requests_a_clamped_window_not_a_boundary_stats_period(self, mock_request) -> None:
+        # A relative statsPeriod of the full retention length lands on the retention boundary,
+        # which Sentry rejects with a 400 — the request must send an explicit clamped window.
+        seen_params: list[dict | None] = []
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            seen_params.append(params)
+            return _response({"start": "s", "end": "e", "projects": []})
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="organization_stats_summary",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        list(cast(Any, resp.items()))
+
+        assert seen_params[0] is not None
+        assert "statsPeriod" not in seen_params[0]
+        assert seen_params[0]["start"] and seen_params[0]["end"]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_stats_summary_skips_when_token_has_no_project_access(self, mock_request) -> None:
         # The requesting token's user can be a member of the org without being a
         # member of any project's team — Sentry 400s this specific endpoint rather
@@ -1457,7 +1526,10 @@ class TestSentryCustomIteratorEndpoints:
         assert list(cast(Any, resp.items())) == []
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
-    def test_stats_summary_propagates_other_400_errors(self, mock_request) -> None:
+    def test_stats_summary_other_400_is_classified_non_retryable(self, mock_request) -> None:
+        # Any stats-summary 400 that isn't the skipped no-projects case is deterministic, so it must
+        # fail fast with a credential-safe message the source classifies non-retryable — not burn
+        # retries on the raw HTTPError (whose URL embeds the org slug).
         mock_request.return_value = _response({"detail": 'Invalid field: "bogus"'}, status_code=400)
 
         resp = sentry_source(
@@ -1469,8 +1541,12 @@ class TestSentryCustomIteratorEndpoints:
             job_id="job-id",
         )
 
-        with pytest.raises(HTTPError):
+        with pytest.raises(SentryStatsSummaryRejectedError) as exc_info:
             list(cast(Any, resp.items()))
+
+        message = str(exc_info.value)
+        assert "acme" not in message and "sentry.io" not in message
+        assert error_message_matches(message, SentrySource().get_non_retryable_errors())
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_trace_item_attributes_stamps_dataset_and_skips_unavailable_ones(self, mock_request) -> None:

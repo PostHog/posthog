@@ -18,7 +18,7 @@ import datetime as dt
 import dataclasses
 from collections.abc import Callable
 
-from django.db import close_old_connections
+from django.db import InterfaceError, OperationalError, close_old_connections
 
 import psycopg
 import pyarrow as pa
@@ -28,6 +28,7 @@ from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.utils import get_machine_id
 
@@ -62,7 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
@@ -711,8 +712,18 @@ class CDCExtractActivity:
         self._run_started_at = time.monotonic()
         self.log.info("cdc_extract_started")
 
-        if not self._setup():
-            return
+        try:
+            if not self._setup():
+                return
+        except (OperationalError, InterfaceError) as exc:
+            # `_setup` only reads our own app DB (source + schema rows), never a customer's — every
+            # CDC source is read over a raw driver connection, not Django's ORM — so this can only be
+            # a transient connection-pool blip on our side (e.g. PgBouncer dropping an idle
+            # connection), the same class already re-raised as `NonReportableError` for own-DB blips
+            # in import_data_sync.py. Temporal's retry policy isn't `NonRetryableException`-gated
+            # here, so it still retries; this only keeps a self-resolving blip out of error tracking.
+            self.log.warning("cdc_setup_transient_app_db_error", exc_info=True)
+            raise NonReportableError(str(exc)) from exc
 
         if self._previous_load_still_pending():
             return
