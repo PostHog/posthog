@@ -508,6 +508,8 @@ class TestNodeSuspension:
             "Code: 202. DB::Exception: Too many simultaneous queries",
             "Cannot connect to host ch-offline.example.com:8443",
             "Abandoned: the materialization workflow is no longer running",
+            "QueueEmpty: Application error",
+            "Preempted: a new DAG run started before this job completed",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -540,11 +542,42 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
+    async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(self, ateam, anode, asaved_query, adag):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        error = "Code: 47. DB::Exception: Missing columns: 'Preempted' while processing query"
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=error)
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
+        ]
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason=error,
+            job_id=str(jobs[-1].id),
+        )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
     @pytest.mark.parametrize(
         "memory_error",
         [
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (for query) exceeded",
-            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (total) exceeded",
+            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: (total) memory limit exceeded",
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
         ],
     )

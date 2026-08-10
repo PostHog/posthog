@@ -58,7 +58,8 @@ EXTERNALLY_ABORTED_MARKERS = (
     "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES - refused admission, never executed
     "Cannot connect to host",
     "Connection refused",
-    "Preempted",
+    "QueueEmpty",  # no root node to start from, so the graph was refused rather than the query
+    "Preempted: ",  # the trailing colon keeps a customer's column of that name out of the match
     ABANDONED_ERROR,
 )
 
