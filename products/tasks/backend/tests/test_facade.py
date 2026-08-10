@@ -195,16 +195,34 @@ class TestFacadeReadsAndMappers(TestCase):
         stale_run = self._make_wizard_run(newer_task, TaskRun.Status.COMPLETED)
         now = django_timezone.now()
         TaskRun.objects.filter(id=active.id).update(
-            created_at=now - timedelta(days=3), updated_at=now - timedelta(days=3)
+            created_at=now - timedelta(hours=2), updated_at=now - timedelta(hours=2)
         )
+        # A terminal run's freshness is judged on updated_at, pushed past the window here so the
+        # newest row is skipped. The still-running older row is what has to surface.
         TaskRun.objects.filter(id=stale_run.id).update(
-            created_at=now - timedelta(days=2), updated_at=now - timedelta(days=2)
+            created_at=now - timedelta(hours=1), updated_at=now - timedelta(days=2)
         )
 
         handle = facade.get_active_wizard_cloud_run(self.team.id)
         assert handle is not None
         self.assertEqual(handle.task_id, older_task.id)
         self.assertEqual(handle.run_id, active.id)
+
+    def test_get_active_wizard_cloud_run_drops_non_terminal_run_older_than_a_day(self):
+        # A run still non-terminal a day later has outlived the workflow's own wall-clock cap and
+        # the stale in-progress sweep, so the row is stranded, not live: handing it back makes the
+        # client reattach to a run nothing will ever finish.
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        run = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        now = django_timezone.now()
+        TaskRun.objects.filter(id=run.id).update(created_at=now - timedelta(days=2), updated_at=now)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+        # Still inside the window it surfaces normally, so the cap is on age, not on liveness.
+        TaskRun.objects.filter(id=run.id).update(created_at=now - timedelta(hours=23))
+        handle = facade.get_active_wizard_cloud_run(self.team.id)
+        assert handle is not None
+        self.assertEqual(handle.run_id, run.id)
 
     def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})

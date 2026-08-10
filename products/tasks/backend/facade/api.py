@@ -854,9 +854,10 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
 
     The drop flow starts the wizard cloud run server-side (``create_wizard_cloud_run``),
     so a freshly-signed-in user has no client-side handle. Returns the most recent run
-    across the team's onboarding (``ORIGIN_PRODUCT == ONBOARDING``) tasks that's still
-    running, or completed within the last day (so we can show "PostHog is wired up" +
-    the PR); otherwise ``None``. Team-scoped.
+    across the team's onboarding (``ORIGIN_PRODUCT == ONBOARDING``) tasks that started
+    within the last day and is either still running or terminalized inside that same
+    window (so we can show "PostHog is wired up" + the PR); otherwise ``None``.
+    Team-scoped.
     """
     onboarding_task_ids = Task.objects.filter(
         team_id=team_id, origin_product=Task.OriginProduct.ONBOARDING, archived=False
@@ -879,12 +880,18 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
         state__has_key="wizard_config",
     ).order_by("-created_at", "-id")
     for run in runs:
-        # Non-terminal runs always surface; terminal ones only while the result is still
-        # fresh enough to be worth showing on first landing.
+        # Terminal runs surface only while the result is still fresh enough to be worth showing
+        # on first landing.
         if run.is_terminal:
             anchor = run.updated_at or run.created_at
             if anchor is None or anchor < fresh_after:
                 continue
+        # A non-terminal run older than the window has outlived every bound the run lifecycle
+        # applies (the workflow's wall-clock cap and the stale in-progress sweep both terminalize
+        # well inside a day), so the row is stranded rather than live. Handing it back makes the
+        # client reattach to a run nothing will ever finish.
+        elif run.created_at is None or run.created_at < fresh_after:
+            continue
         return contracts.WizardCloudRunDTO(
             task_id=run.task_id,
             run_id=run.id,
