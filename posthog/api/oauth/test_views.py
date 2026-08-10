@@ -641,6 +641,7 @@ class TestOAuthAPI(APIBaseTest):
 
     def _create_private_key_jwt_app_and_grant(
         self,
+        is_cimd_client: bool = True,
     ) -> tuple[OAuthApplication, OAuthGrant, rsa.RSAPrivateKey]:
         cimd_url = "https://partner.example.com/oauth/client-metadata"
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -653,8 +654,8 @@ class TestOAuthAPI(APIBaseTest):
             redirect_uris="https://partner.example.com/callback",
             user=self.user,
             algorithm="RS256",
-            is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
+            is_cimd_client=is_cimd_client,
+            cimd_metadata_url=cimd_url if is_cimd_client else None,
             jwks_uri="https://partner.example.com/.well-known/jwks.json",
         )
         grant = OAuthGrant.objects.create(
@@ -764,9 +765,37 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "temporarily_unavailable")
 
     @override_settings(SITE_URL="https://us.posthog.com")
-    def test_private_key_jwt_cimd_client_rejected_without_assertion(self):
-        # The confidential client must still fail closed when it presents no credential at all.
+    def test_credentialless_cimd_private_key_jwt_client_completes_pkce_exchange(self):
+        # A CIMD client's private_key_jwt declaration is partner metadata; a partner whose
+        # runtime still authenticates with `none` (ChatGPT declares the method but never
+        # sends assertions) must be able to complete a PKCE exchange rather than being
+        # locked out of every code and refresh grant.
         app, grant, _ = self._create_private_key_jwt_app_and_grant()
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "authorization_code",
+                    "client_id": app.client_id,
+                    "redirect_uri": "https://partner.example.com/callback",
+                    "code_verifier": self.code_verifier,
+                    "code": grant.code,
+                },
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIn("access_token", response.json())
+        issued = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_token_issued"]
+        self.assertEqual(len(issued), 1)
+        # The stamp is what tells "partner still on none" apart from "partner switched to
+        # assertions" in analytics, which is the signal for retiring the fallback.
+        self.assertEqual(issued[0].kwargs["properties"]["client_auth_method"], "none")
+
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_non_cimd_confidential_client_rejected_without_assertion(self):
+        # The credential-less fallback is scoped to CIMD registrations: a manually
+        # registered confidential client with a key set still fails closed when it
+        # presents no credential at all.
+        app, grant, _ = self._create_private_key_jwt_app_and_grant(is_cimd_client=False)
         response = self.post(
             "/oauth/token/",
             {
@@ -777,6 +806,25 @@ class TestOAuthAPI(APIBaseTest):
                 "code": grant.code,
             },
         )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_invalid_assertion_is_not_downgraded_to_the_credentialless_fallback(self):
+        # A presented assertion must be verified, never ignored: an assertion signed by a
+        # key the client never published has to fail the exchange even though the same
+        # client could have succeeded by sending no credential at all.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant()
+        _, jwks = self._signed_assertion_and_jwks(app, private_key)
+        attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        forged_assertion, _attacker_jwks = self._signed_assertion_and_jwks(app, attacker_key)
+
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document",
+            return_value=(jwks, None),
+        ):
+            response = self._post_assertion_exchange(app, grant, forged_assertion)
+
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
     @freeze_time("2025-01-01 00:00:00")

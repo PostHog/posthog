@@ -405,6 +405,45 @@ class OAuthValidator(OAuth2Validator):
         request.client = app
         return request.client
 
+    def client_authentication_required(self, request, *args, **kwargs):
+        """Route assertions to verification, and let credential-less CIMD private_key_jwt
+        clients fall back to public PKCE semantics.
+
+        A presented assertion always requires authentication, so it is verified rather than
+        ignored: without that, an invalid assertion for a client the library considers
+        public would silently downgrade into a successful bare-public exchange.
+
+        The credential-less fallback exists because a CIMD client's auth method is
+        partner-declared metadata we re-read hourly, and registration marks a
+        private_key_jwt declarer confidential. Enforcing that declaration locks out a
+        partner whose runtime still authenticates with ``none`` (because it never re-reads
+        our server metadata to learn we accept assertions) from every code and refresh
+        exchange, in place and with no operator involved on either side. PKCE remains the
+        enforced baseline for the fallback, exactly as for any public client. Scoped to
+        this standard token endpoint: the agentic provisioning endpoints keep requiring the
+        declared method, and partners there demonstrably send assertions.
+        """
+        if self._resolve_request_assertion(request) is not None:
+            return True
+        if self._is_credentialless_cimd_private_key_jwt_client(request):
+            return False
+        return super().client_authentication_required(request, *args, **kwargs)
+
+    def authenticate_client_id(self, request_client_id, request, *args, **kwargs):
+        """The library rejects any confidential client here; permit the credential-less
+        CIMD private_key_jwt shape that client_authentication_required routed this way."""
+        if super().authenticate_client_id(request_client_id, request, *args, **kwargs):
+            return True
+        return self._is_credentialless_cimd_private_key_jwt_client(request)
+
+    def _is_credentialless_cimd_private_key_jwt_client(self, request) -> bool:
+        if self._extract_basic_auth(request):
+            return False
+        if getattr(request, "client_secret", None):
+            return False
+        app = self._load_application(getattr(request, "client_id", None) or "", request)
+        return bool(app and app.is_cimd_client and app.uses_private_key_jwt_auth)
+
     def authenticate_client(self, request, *args, **kwargs):
         """Authenticate a confidential client, adding ``private_key_jwt`` (RFC 7523).
 
@@ -417,12 +456,16 @@ class OAuthValidator(OAuth2Validator):
             return True
         return super().authenticate_client(request, *args, **kwargs)
 
-    def _authenticate_client_assertion(self, request) -> bool:
-        assertion = resolve_client_assertion(
+    @staticmethod
+    def _resolve_request_assertion(request) -> tuple[str, str] | None:
+        return resolve_client_assertion(
             getattr(request, "client_assertion", None) or "",
             getattr(request, "client_assertion_type", None) or "",
             getattr(request, "client_id", None) or "",
         )
+
+    def _authenticate_client_assertion(self, request) -> bool:
+        assertion = self._resolve_request_assertion(request)
         if assertion is None:
             return False
 
@@ -1490,11 +1533,26 @@ class OAuthTokenView(TokenView):
     """
 
     @staticmethod
+    def _request_client_auth_method(request) -> str:
+        """Which client-authentication method the token request presented, regardless of
+        whether it verified. Stamped onto the funnel events because a client registered for
+        multiple acceptable methods (a CIMD private_key_jwt client is registered public yet
+        may send assertions) is only readable from what its traffic actually carries: a
+        sustained switch from "none" to "client_assertion" is the analytics signal that
+        assertion enforcement can be tightened for that client."""
+        if request.POST.get("client_assertion"):
+            return "client_assertion"
+        if request.POST.get("client_secret") or request.headers.get("Authorization", "").startswith("Basic "):
+            return "client_secret"
+        return "none"
+
+    @staticmethod
     def _capture_token_issued(
         access_token: OAuthAccessToken,
         grant_type: str,
         scoped_organizations: list,
         scoped_teams: list,
+        client_auth_method: str | None = None,
     ) -> None:
         """The last step of the authorization funnel. `oauth_authorization_granted` without
         a matching `oauth_token_issued` means the client never redeemed its code."""
@@ -1504,6 +1562,7 @@ class OAuthTokenView(TokenView):
             "granted_scope_count": len((access_token.scope or "").split()),
             "has_scoped_organizations": bool(scoped_organizations),
             "has_scoped_teams": bool(scoped_teams),
+            **({"client_auth_method": client_auth_method} if client_auth_method else {}),
             **(get_region_info() or {}),
         }
         if access_token.application:
@@ -1522,7 +1581,9 @@ class OAuthTokenView(TokenView):
         )
 
     @staticmethod
-    def _capture_token_rejected(grant_type: str, client_id: str, error: str) -> None:
+    def _capture_token_rejected(
+        grant_type: str, client_id: str, error: str, client_auth_method: str | None = None
+    ) -> None:
         """The token exchange has no authenticated user, so this keys on the client id —
         enough to tell "the client never came back for a token" apart from "it came back
         and we refused", which the authorization events alone cannot distinguish.
@@ -1536,6 +1597,7 @@ class OAuthTokenView(TokenView):
             "client_id": client_id,
             # Personless: the client id is not a user, and one person per client would be noise.
             "$process_person_profile": False,
+            **({"client_auth_method": client_auth_method} if client_auth_method else {}),
             **(get_region_info() or {}),
         }
         try:
@@ -1627,6 +1689,7 @@ class OAuthTokenView(TokenView):
 
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
+        client_auth_method = self._request_client_auth_method(request)
         redirect_uri = request.POST.get("redirect_uri", "")
         logger.info(
             "oauth_token_request",
@@ -1647,7 +1710,7 @@ class OAuthTokenView(TokenView):
                 client_id_prefix=client_id_prefix,
                 redirect_uri=redirect_uri,
             )
-            self._capture_token_rejected(grant_type, client_id, "invalid_grant")
+            self._capture_token_rejected(grant_type, client_id, "invalid_grant", client_auth_method)
             return JsonResponse(
                 {
                     "error": "invalid_grant",
@@ -1668,7 +1731,7 @@ class OAuthTokenView(TokenView):
                 redirect_uri=redirect_uri,
                 error=str(e),
             )
-            self._capture_token_rejected(grant_type, client_id, "temporarily_unavailable")
+            self._capture_token_rejected(grant_type, client_id, "temporarily_unavailable", client_auth_method)
             return _temporarily_unavailable_response()
         except RedisError as e:
             # Client authentication reads Redis on the private_key_jwt path (JWKS cache, jti
@@ -1721,7 +1784,9 @@ class OAuthTokenView(TokenView):
                     response_data["scoped_teams"] = scoped_teams
                     response_data["scoped_organizations"] = scoped_organizations
 
-                    self._capture_token_issued(access_token, grant_type, scoped_organizations, scoped_teams)
+                    self._capture_token_issued(
+                        access_token, grant_type, scoped_organizations, scoped_teams, client_auth_method
+                    )
 
                     if region_info := get_region_info():
                         response_data.update(region_info)
@@ -1743,7 +1808,7 @@ class OAuthTokenView(TokenView):
                 response["Content-Type"] = "application/json"
 
         if response.status_code != 200:
-            self._capture_token_rejected(grant_type, client_id, _token_error_code(response))
+            self._capture_token_rejected(grant_type, client_id, _token_error_code(response), client_auth_method)
 
         return response
 
