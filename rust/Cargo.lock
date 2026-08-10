@@ -6088,6 +6088,7 @@ name = "ingestion-control-plane"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assignment-coordination",
  "axum 0.7.9",
  "chrono",
  "common-alloc",
@@ -6096,11 +6097,13 @@ dependencies = [
  "common-types",
  "dashmap 6.1.0",
  "envconfig",
+ "etcd-client",
  "futures",
  "hdrhistogram",
  "health",
  "k8s-awareness",
  "kube",
+ "personhog-coordination",
  "rdkafka",
  "reqwest 0.12.28",
  "rustls 0.23.37",
