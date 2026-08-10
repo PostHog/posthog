@@ -21,8 +21,9 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 # 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
-# 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
-#    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
+# 3. For read/list tools backed by PostHog database rows, add a HogQL system table
+#    in posthog/hogql/database/schema/system.py and a model reference in
+#    products/posthog_ai/skills/querying-posthog-data/references/
 
 # 4. Generate handlers and schemas
 hogli build:openapi
@@ -78,8 +79,13 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ## SQL-first MCP: HogQL system tables
 
-Every list/get endpoint exposed as an MCP tool must have a corresponding HogQL system table.
+Most list/get endpoints exposed as MCP tools should have a corresponding HogQL system table.
 This lets agents query PostHog data via SQL in addition to (or instead of) the REST API tools.
+
+Exceptions are OK when the tool intentionally proxies service-owned data,
+aggregates data that is not represented as a team-scoped PostHog table,
+or returns a curated API shape that would be awkward or unsafe to rebuild in SQL.
+For these tools, keep the surface narrow and document the source and shape in the YAML description.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
