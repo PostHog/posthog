@@ -5,11 +5,13 @@ import meepUrl from 'public/sounds/meep.mp3'
 let audio: HTMLAudioElement | null = null
 
 /**
- * Cheeky easter egg for the onboarding previews: clicking the (otherwise inert) sample cards plays
- * a "meep" and pops a matching toast – a nod to PostHog Desktop. Pure flair; nothing else depends on it.
+ * Clicking an (otherwise inert) onboarding sample card plays a "meep" – a nod to PostHog Desktop –
+ * and pops a toast. The toast explains that the card is an example and how to get real work, so a
+ * click reads as an answer rather than a stray debug word. The sound stays as the flair; it is no
+ * longer the only thing a click says. Pure UI feedback; nothing else depends on it.
  */
 export function playMeep(): void {
-    lemonToast.info('Meep')
+    lemonToast.info('This is an example. Run the setup command in your repo to get real reports in your inbox.')
     try {
         // Reuse one element across clicks; rewind so rapid clicks restart the sound rather than overlap.
         if (!audio) {

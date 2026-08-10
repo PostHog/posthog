@@ -35,6 +35,7 @@ export const INBOX_EVENTS = {
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
     RUN_OPENED: 'Inbox run opened',
+    ONBOARDING_EXAMPLE_CLICKED: 'Inbox onboarding example clicked',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -558,6 +559,17 @@ export function captureInboxRunOpened(params: {
         run_kind: params.kind,
         run_status: params.status,
         has_report: params.hasReport,
+    })
+}
+
+/**
+ * A sample card on the self-driving onboarding takeover was clicked. This screen had no capture
+ * calls at all, so how many people reach and probe it was only inferable from autocapture and
+ * replay. `tab_key` says which example (a pull request or a report) drew the click.
+ */
+export function captureInboxOnboardingExampleClicked(params: { tabKey: 'pulls' | 'reports' }): void {
+    captureInboxEvent(INBOX_EVENTS.ONBOARDING_EXAMPLE_CLICKED, {
+        tab_key: params.tabKey,
     })
 }
 

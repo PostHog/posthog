@@ -2,6 +2,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
+import { captureInboxOnboardingExampleClicked } from '../../inboxAnalytics'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { ReportCard } from '../cards/ReportCard'
 import { playMeep } from './meep'
@@ -90,7 +91,10 @@ function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls'
                     type="button"
                     aria-label="Example card – run the setup command to get real ones in your inbox"
                     className="absolute inset-0 z-10 h-full w-full cursor-pointer"
-                    onClick={() => playMeep()}
+                    onClick={() => {
+                        captureInboxOnboardingExampleClicked({ tabKey })
+                        playMeep()
+                    }}
                 />
             </Tooltip>
         </div>
