@@ -24,7 +24,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -240,6 +240,12 @@ export function InsightMeta({
 
     const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
     const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
+    // Copying happens client-side, but it still counts as taking data out of PostHog, so it honors
+    // the same Export access control as ExportButton and the DataTable clipboard actions
+    const copyAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
@@ -621,15 +627,18 @@ export function InsightMeta({
                                         ]}
                                     />
                                 ) : null}
-                                {/* Copies the already-loaded results client-side, so unlike ExportButton
-                                    it needs neither an export context nor export access */}
+                                {/* Copies the already-loaded results client-side, so it works without
+                                    an export context */}
                                 {showCopyTableData ? (
                                     <LemonButton
                                         onClick={() =>
                                             copyTableAdapter &&
                                             copyTableData(copyTableAdapter.toTableData(), ExporterFormat.CSV)
                                         }
-                                        disabledReason={copyTableAdapter ? undefined : 'No data to copy yet'}
+                                        disabledReason={
+                                            copyAccessDisabledReason ??
+                                            (copyTableAdapter ? undefined : 'No data to copy yet')
+                                        }
                                         fullWidth
                                         data-attr="insight-card-copy-as-csv"
                                     >
