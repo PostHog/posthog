@@ -1526,6 +1526,8 @@ export interface TaskRunDetailDTOApi {
     updated_at?: string | null
     /** @nullable */
     completed_at?: string | null
+    /** Whether the run is blocked on someone answering a permission request the agent raised. False once a response is sent, and false for a run that is no longer live. */
+    awaiting_input: boolean
 }
 
 export interface SlackThreadReferenceDTOApi {
@@ -3956,6 +3958,8 @@ export const TaskRunEnvironmentEnumApi = {
 export interface TaskRunSummaryApi {
     status: TaskRunStatusEnumApi | null
     environment: TaskRunEnvironmentEnumApi | null
+    /** Whether the run is blocked on someone answering a permission request the agent raised. False once a response is sent, and false for a run that is no longer live. */
+    awaiting_input: boolean
 }
 
 /**
@@ -4188,6 +4192,10 @@ export type TasksListParams = {
      * @minLength 1
      */
     archived?: TasksListArchived
+    /**
+     * When true, list only tasks with a live run blocked on someone answering a permission request. Lets a client that has just started show what is waiting without reading every run's event log.
+     */
+    awaiting_input?: boolean
     /**
      * Filter tasks to a channel's feed.
      */

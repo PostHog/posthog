@@ -22,6 +22,7 @@ type TaskRunResponseDTO = Partial<
   artifacts?: Array<TaskRunArtifactDTO> | null;
   status?: Schemas.StatusA35Enum | "started" | null;
   team?: number | null;
+  awaiting_input?: boolean | null;
 };
 
 type TaskResponseDTO = Partial<
@@ -172,6 +173,9 @@ export function normalizeTaskRunResponse(
     created_at: dto.created_at ?? "",
     updated_at: dto.updated_at ?? "",
     completed_at: dto.completed_at ?? null,
+    ...(dto.awaiting_input == null
+      ? {}
+      : { awaiting_input: dto.awaiting_input }),
   };
 }
 

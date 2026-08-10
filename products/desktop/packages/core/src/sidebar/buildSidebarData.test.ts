@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  type DeriveTaskDataContext,
+  deriveTaskData,
   limitTasksPerGroup,
   readRunMode,
+  type SidebarTask,
   sliceVisibleTasks,
+  type TaskSession,
 } from "./buildSidebarData";
 import type { TaskData, TaskGroup } from "./sidebarData.types";
 
@@ -93,4 +97,57 @@ describe("readRunMode", () => {
   ])("reads %s", (_case, state, expected) => {
     expect(readRunMode(state)).toBe(expected);
   });
+});
+
+// A row's blue dot is drawn from `needsPermission`, and the app has to get it right before any
+// session is attached: on a fresh launch nothing has replayed a run's log yet.
+describe("deriveTaskData needsPermission", () => {
+  function context(session: TaskSession | undefined): DeriveTaskDataContext {
+    return {
+      session,
+      workspace: undefined,
+      timestamp: undefined,
+      pinnedIds: new Set(),
+      suspendedIds: new Set(),
+      slackTaskIds: new Set(),
+      slackThreadUrlByTaskId: new Map(),
+    };
+  }
+
+  function task(awaitingInput: boolean): SidebarTask {
+    return {
+      id: "task-1",
+      title: "Rename the export button",
+      created_at: "2026-08-10T00:00:00Z",
+      updated_at: "2026-08-10T00:00:00Z",
+      latest_run: {
+        id: "run-2",
+        status: "in_progress",
+        awaiting_input: awaitingInput,
+      },
+    };
+  }
+
+  it.each([
+    ["no session has attached yet", true, undefined, undefined, true],
+    ["the attached session holds the prompt", false, 1, "run-2", true],
+    // The run's record trails a prompt answered here, so the row would otherwise stay blue.
+    ["the attached session has answered it", true, 0, "run-2", false],
+    // Sessions outlive their run, so a task can carry a quiet one from a run that has ended
+    // while its newest run is the one asking.
+    ["a session from an earlier run lingers", true, 0, "run-1", true],
+    ["nothing is waiting anywhere", false, undefined, undefined, false],
+  ])(
+    "is %s",
+    (_case, awaitingInput, pendingPermissions, taskRunId, expected) => {
+      const session =
+        pendingPermissions === undefined
+          ? undefined
+          : { taskRunId, pendingPermissions: { size: pendingPermissions } };
+
+      expect(
+        deriveTaskData(task(awaitingInput), context(session)).needsPermission,
+      ).toBe(expected);
+    },
+  );
 });

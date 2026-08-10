@@ -354,6 +354,7 @@ class TaskLatestRunSummaryDTO:
 
     status: str | None
     environment: str | None
+    awaiting_input: bool = False
 
 
 @dataclass(frozen=True)
@@ -548,6 +549,7 @@ class TaskRunDetailDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+    awaiting_input: bool = False
 
 
 @dataclass(frozen=True)

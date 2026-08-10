@@ -3,6 +3,7 @@ export interface TaskListFilters {
   createdBy?: number;
   originProduct?: string;
   internal?: boolean;
+  awaitingInput?: boolean;
 }
 
 export const taskKeys = {

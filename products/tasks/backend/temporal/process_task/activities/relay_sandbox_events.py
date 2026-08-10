@@ -20,6 +20,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
+from products.tasks.backend.logic.services.awaiting_input import mark_task_run_awaiting_input
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
@@ -842,14 +843,20 @@ def _persist_final_message(run_id: str, text: str) -> None:
 
 
 def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:
-    """Auto-allow a Slack-origin run's sandbox permission request (see permission_broker)."""
+    """Auto-allow a Slack-origin run's sandbox permission request (see permission_broker).
+
+    A request nobody answers automatically is one a person has to answer, so it is recorded on
+    the run. That is what lets a client show which runs are blocked without replaying their logs.
+    """
     try:
         # The close_old_connections guard mirrors event_ingest: this thread's pooled
         # connection is never health-checked by Django (gated off in tests, where
         # it would close the test transaction's connection).
         if not settings.TEST:
             close_old_connections()
-        try_auto_respond_permission_request(task_run, permission_request)
+        if try_auto_respond_permission_request(task_run, permission_request):
+            return
+        mark_task_run_awaiting_input(task_run, permission_request.get("request_id"))
     except Exception:
         logger.warning(
             "relay_sandbox_events_permission_broker_failed",

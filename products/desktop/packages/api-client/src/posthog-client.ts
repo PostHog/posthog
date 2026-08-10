@@ -202,6 +202,8 @@ export interface TaskListOptions {
   originProduct?: string;
   internal?: boolean;
   channel?: string;
+  /** Only tasks with a live run blocked on someone answering a permission request. */
+  awaitingInput?: boolean;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
 }
@@ -2210,6 +2212,10 @@ export class PostHogAPIClient {
 
     if (options?.channel) {
       params.channel = options.channel;
+    }
+
+    if (options?.awaitingInput) {
+      params.awaiting_input = true;
     }
 
     const data = await this.api.get(`/api/projects/{project_id}/tasks/`, {

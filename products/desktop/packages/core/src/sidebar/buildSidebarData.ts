@@ -14,10 +14,12 @@ export interface FullTask {
   updated_at: string;
   origin_product?: string;
   latest_run?: {
+    id?: string;
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
     output?: { pr_url?: unknown } | null;
     state?: Record<string, unknown> | null;
+    awaiting_input?: boolean;
   } | null;
 }
 
@@ -30,11 +32,14 @@ export interface SidebarTask {
   origin_product?: string;
   slack_thread_url?: string;
   latest_run?: {
+    id?: string;
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
     output?: { pr_url?: unknown } | null;
     /** "interactive" or "background"; see `readRunMode`. */
     mode?: RunMode | null;
+    /** The run is blocked on someone answering a permission request. */
+    awaiting_input?: boolean;
   } | null;
 }
 
@@ -72,10 +77,12 @@ export function narrowFullTask(task: FullTask | Task): SidebarTask {
     updated_at: task.updated_at,
     latest_run: task.latest_run
       ? {
+          id: task.latest_run.id,
           status: task.latest_run.status,
           environment: task.latest_run.environment ?? null,
           output: task.latest_run.output ?? null,
           mode: readRunMode(task.latest_run.state),
+          awaiting_input: task.latest_run.awaiting_input ?? false,
         }
       : null,
     origin_product: task.origin_product,
@@ -107,6 +114,9 @@ export function filterVisibleTasks(
 }
 
 export interface TaskSession {
+  /** The run this session is attached to. Sessions outlive their run, so a task's newest run may
+   * have no session even while an older one's lingers. */
+  taskRunId?: string;
   isPromptPending?: boolean;
   pendingPermissions?: { size: number };
   cloudStatus?: TaskRunStatus;
@@ -193,6 +203,21 @@ export function isTaskUnread(
   );
 }
 
+/**
+ * Whether `session` is the session for the task's latest run. Both ids are optional in the shapes
+ * that reach here, so an unknown pairing falls back to "any session counts", which is what this
+ * did before either id was carried.
+ */
+function sessionOwnsLatestRun(
+  task: SidebarTask,
+  session: TaskSession | undefined,
+): boolean {
+  if (!session) return false;
+  const runId = task.latest_run?.id;
+  if (!runId || !session.taskRunId) return true;
+  return session.taskRunId === runId;
+}
+
 export function deriveTaskData(
   task: SidebarTask,
   ctx: DeriveTaskDataContext,
@@ -222,7 +247,13 @@ export function deriveTaskData(
     isUnread,
     isPinned: ctx.pinnedIds.has(task.id),
     isSuspended: ctx.suspendedIds.has(task.id),
-    needsPermission: (session?.pendingPermissions?.size ?? 0) > 0,
+    // A session attached to this run is the authority, because it sees the prompt and the answer
+    // as they happen. Anything else falls back to the run's own record of an unanswered request:
+    // a freshly launched app has no session at all, and a session left over from an earlier run
+    // of the same task knows nothing about this run's ask.
+    needsPermission: sessionOwnsLatestRun(task, session)
+      ? (session?.pendingPermissions?.size ?? 0) > 0
+      : (task.latest_run?.awaiting_input ?? false),
     repository: getRepositoryInfo(task, workspace?.folderPath ?? undefined),
     folderId: workspace?.folderId || undefined,
     taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,

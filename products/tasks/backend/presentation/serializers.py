@@ -344,6 +344,12 @@ class TaskRunDetailSerializer(DataclassSerializer):
         required=False,
         help_text="Configured reasoning effort for this run when the selected model supports it.",
     )
+    awaiting_input = serializers.BooleanField(
+        help_text=(
+            "Whether the run is blocked on someone answering a permission request the agent raised. "
+            "False once a response is sent, and false for a run that is no longer live."
+        ),
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -366,6 +372,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "completed_at",
+            "awaiting_input",
         ]
 
 
@@ -1451,6 +1458,12 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
 class TaskRunSummarySerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
     environment = serializers.ChoiceField(choices=tasks_facade.TaskRunEnvironment.choices, allow_null=True)
+    awaiting_input = serializers.BooleanField(
+        help_text=(
+            "Whether the run is blocked on someone answering a permission request the agent raised. "
+            "False once a response is sent, and false for a run that is no longer live."
+        ),
+    )
 
 
 class TaskSummarySerializer(DataclassSerializer):
@@ -1502,6 +1515,15 @@ class TaskListQuerySerializer(serializers.Serializer):
         ),
     )
     channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+    awaiting_input = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, list only tasks with a live run blocked on someone answering a permission "
+            "request. Lets a client that has just started show what is waiting without reading "
+            "every run's event log."
+        ),
+    )
     all_team_tasks = serializers.BooleanField(
         required=False,
         default=False,

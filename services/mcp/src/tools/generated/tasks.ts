@@ -524,6 +524,7 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
             query: {
                 all_team_tasks: params.all_team_tasks,
                 archived: params.archived,
+                awaiting_input: params.awaiting_input,
                 channel: params.channel,
                 created_by: params.created_by,
                 internal: params.internal,

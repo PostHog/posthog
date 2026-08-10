@@ -54,6 +54,7 @@ from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.logic.services.awaiting_input import clear_task_run_awaiting_input
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -396,6 +397,7 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
         created_at=run.created_at,
         updated_at=run.updated_at,
         completed_at=run.completed_at,
+        awaiting_input=run.is_awaiting_input,
     )
 
 
@@ -3459,6 +3461,26 @@ def get_task_run_sandbox_connection(
 _POSTHOG_AI_RELAY_TELEMETRY_METHODS: frozenset[str] = frozenset({"cancel", "permission_response"})
 
 
+def record_permission_response(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    request_id: str | None,
+) -> None:
+    """Stop a run counting as waiting once a client has answered its permission request.
+
+    The durable workflow answers Slack's approvals through its own activity, but the app answers
+    through the generic relay command, so this is the path most responses actually take. Without
+    it a run keeps its "waiting on you" marker until it ends, on every client but the one that
+    answered.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return
+    clear_task_run_awaiting_input(run, request_id)
+
+
 def capture_relay_command_telemetry(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -4304,6 +4326,18 @@ def _list_tasks_queryset(
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
+    if filters.get("awaiting_input"):
+        # The latest run only, because that is the run every client reads a task's state from. An
+        # ask raised by a run a newer one has since superseded would show as a task waiting on you
+        # that no surface can explain, since they all report the latest run.
+        qs = qs.annotate(
+            _awaiting_run_at=Subquery(latest_run.values("awaiting_input_at")[:1]),
+            _awaiting_run_status=Subquery(latest_run.values("status")[:1]),
+        ).filter(
+            _awaiting_run_at__isnull=False,
+            _awaiting_run_status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+        )
+
     # `internal` controls default visibility, not access — task visibility (applied above) is the real
     # authorization boundary, open to any team member. `all` returns both, `true` returns only-internal,
     # and the default excludes internal tasks so the main task list stays clean.
@@ -4383,6 +4417,14 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
+def _summary_awaiting_input(raw: dict) -> bool:
+    """``TaskRun.is_awaiting_input`` over the JSON the summary subquery returns."""
+    return raw.get("awaiting_input_at") is not None and raw.get("status") in {
+        TaskRun.Status.QUEUED,
+        TaskRun.Status.IN_PROGRESS,
+    }
+
+
 def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
@@ -4390,7 +4432,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     latest_run = (
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
-        .annotate(_data=JSONObject(status="status", environment="environment"))
+        .annotate(_data=JSONObject(status="status", environment="environment", awaiting_input_at="awaiting_input_at"))
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
@@ -4402,7 +4444,11 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
         latest = (
-            contracts.TaskLatestRunSummaryDTO(status=raw.get("status"), environment=raw.get("environment"))
+            contracts.TaskLatestRunSummaryDTO(
+                status=raw.get("status"),
+                environment=raw.get("environment"),
+                awaiting_input=_summary_awaiting_input(raw),
+            )
             if isinstance(raw, dict)
             else None
         )

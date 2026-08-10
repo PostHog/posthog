@@ -8,6 +8,7 @@ from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.agent_command import send_agent_command, send_user_message
+from products.tasks.backend.logic.services.awaiting_input import clear_task_run_awaiting_input
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
 from products.tasks.backend.models import TaskRun
@@ -150,6 +151,7 @@ def send_permission_response_to_sandbox(input: SendPermissionResponseToSandboxIn
         )
 
     TaskRun.update_state_atomic(task_run.id, updates=updates)
+    clear_task_run_awaiting_input(task_run, input.request_id)
     logger.info(
         "permission_response_delivered",
         run_id=input.run_id,

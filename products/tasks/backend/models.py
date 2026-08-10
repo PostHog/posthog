@@ -1788,6 +1788,20 @@ class TaskRun(models.Model):
 
     status = models.CharField(max_length=20, choices=Status, default=Status.NOT_STARTED)
 
+    # Set when the sandbox raises a permission request, cleared when one is answered. Without it
+    # the only record of a run waiting on a person is a notification in its event stream, which a
+    # client can read only by replaying the whole log, so a client that reconnects, or one that
+    # was not running when the agent asked, cannot tell which runs are blocked. Read together with
+    # `status`, because a run that ends while a request is outstanding is no longer waiting.
+    awaiting_input_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the run last raised a permission request that nobody has answered yet. Null once "
+            "a response is sent. Only meaningful while the run is queued or in progress."
+        ),
+    )
+
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
     # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
@@ -1870,6 +1884,13 @@ class TaskRun(models.Model):
                 name="task_run_team_stage_task_idx",
                 condition=models.Q(stage__isnull=False),
             ),
+            # Backs the "which of my runs are waiting on someone" lookup. Partial, because only a
+            # run with an outstanding permission request carries the timestamp.
+            models.Index(
+                fields=["team", "task"],
+                name="task_run_awaiting_input_idx",
+                condition=models.Q(awaiting_input_at__isnull=False),
+            ),
         ]
 
     def __str__(self):
@@ -1879,6 +1900,18 @@ class TaskRun(models.Model):
     def mode(self) -> str:
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
+
+    @property
+    def is_awaiting_input(self) -> bool:
+        """Whether the run is blocked on someone answering a permission request.
+
+        A run that ended while a request was outstanding is not waiting for anyone, so the
+        timestamp only counts while the run can still act on an answer.
+        """
+        return self.awaiting_input_at is not None and self.status in {
+            self.Status.QUEUED,
+            self.Status.IN_PROGRESS,
+        }
 
     def get_sandbox_environment(self) -> Optional["SandboxEnvironment"]:
         """Resolve the SandboxEnvironment for this run, scoped to team and respecting privacy.

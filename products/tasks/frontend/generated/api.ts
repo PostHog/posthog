@@ -1221,7 +1221,7 @@ export const getTasksListUrl = (projectId: string, params?: TasksListParams) => 
 }
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and whether a run is waiting on someone's input.
  * @summary List tasks
  */
 export const tasksList = async (

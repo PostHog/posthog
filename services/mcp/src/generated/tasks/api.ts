@@ -836,7 +836,7 @@ export const TaskChannelsInstructionsUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for publishing a new instructions version.')
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and whether a run is waiting on someone's input.
  * @summary List tasks
  */
 export const TasksListParams = /* @__PURE__ */ zod.object({
@@ -848,6 +848,7 @@ export const TasksListParams = /* @__PURE__ */ zod.object({
 })
 
 export const tasksListQueryAllTeamTasksDefault = false
+export const tasksListQueryAwaitingInputDefault = false
 export const tasksListQueryLimitDefault = 50
 export const tasksListQueryLimitMax = 100
 
@@ -866,6 +867,12 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n\* `true` - true\n\* `false` - false\n\* `all` - all"
+        ),
+    awaiting_input: zod
+        .boolean()
+        .default(tasksListQueryAwaitingInputDefault)
+        .describe(
+            "When true, list only tasks with a live run blocked on someone answering a permission request. Lets a client that has just started show what is waiting without reading every run's event log."
         ),
     channel: zod.string().optional().describe("Filter tasks to a channel's feed."),
     created_by: zod.number().optional().describe('Filter by creator user ID'),

@@ -302,6 +302,11 @@ export interface TaskRun {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  /**
+   * The run is blocked on someone answering a permission request. Server-side, so a client
+   * that was not listening when the agent asked can still tell the run is waiting.
+   */
+  awaiting_input?: boolean;
 }
 
 export type NetworkAccessLevel = "trusted" | "full" | "custom";
