@@ -44,9 +44,7 @@ test.describe('Signup', () => {
                 config: {
                     enable_collect_everything: true,
                 },
-                featureFlags: {
-                    'passkey-signup-enabled': true,
-                },
+                featureFlags: {},
                 isAuthenticated: false,
             }
             await route.fulfill({ json: response })
@@ -101,7 +99,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-organization-name]').fill('Hogflix SpinOff')
         await expect(page.locator('[data-attr=signup-organization-name]')).toHaveValue('Hogflix SpinOff')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         await page.locator('[data-attr=signup-submit]').click()
 
@@ -109,6 +107,31 @@ test.describe('Signup', () => {
         expect(parsedBody.first_name).toEqual('Alice')
         expect(parsedBody.last_name).toEqual('Bob')
         expect(parsedBody.organization_name).toEqual('Hogflix SpinOff')
+
+        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
+    })
+
+    test('Trims surrounding whitespace in the name so first_name is never blank', async ({ page }) => {
+        let signupRequestBody: string | null = null
+
+        await page.route('/api/signup/', async (route) => {
+            signupRequestBody = route.request().postData()
+            await route.continue()
+        })
+
+        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
+        await startSignupFlow(page, email, VALID_PASSWORD)
+        // A leading space used to slip through client validation and produce first_name: ""
+        await page.locator('[data-attr=signup-name]').fill(' Alice Bob')
+        await expect(page.locator('[data-attr=signup-name]')).toHaveValue(' Alice Bob')
+        await page.locator('[data-attr=signup-role-at-organization]').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
+        await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
+        await page.locator('[data-attr=signup-submit]').click()
+
+        const parsedBody = JSON.parse(signupRequestBody!)
+        expect(parsedBody.first_name).toEqual('Alice')
+        expect(parsedBody.last_name).toEqual('Bob')
 
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
     })
@@ -127,7 +150,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
 
         // Wait for the signup request to complete
@@ -156,7 +179,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         const retrySignupPromise = page.waitForResponse('/api/signup/')
         await page.locator('[data-attr=signup-submit]').click()
@@ -178,7 +201,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-name]').fill('Alice')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
 
         // Wait for the signup request to complete
@@ -205,7 +228,7 @@ test.describe('Signup', () => {
         await page.locator('[name=organization_name]').fill('Hogflix SpinOff')
         await expect(page.locator('[name=organization_name]')).toHaveValue('Hogflix SpinOff')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         await page.locator('[type=submit]').click()
         await expect(page.locator('.Toastify [data-attr="error-toast"]')).toContainText(
@@ -259,7 +282,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-organization-name]').fill('Hogflix SpinOff')
         await expect(page.locator('[data-attr=signup-organization-name]')).toHaveValue('Hogflix SpinOff')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         await page.locator('[data-attr=signup-submit]').click()
 

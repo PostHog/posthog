@@ -11,12 +11,13 @@ import re
 import json
 import time
 import hashlib
-from typing import TypedDict, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import requests
@@ -33,6 +34,7 @@ from posthog.models.oauth import (
     OAuthApplication,
     TokenEndpointAuthMethod,
     find_cimd_verification_token,
+    normalize_cimd_url,
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
@@ -42,7 +44,15 @@ from posthog.security.url_validation import is_url_allowed, validate_url_and_pin
 
 from .client_name import sanitize_client_name, validate_client_name
 
+if TYPE_CHECKING:
+    from posthog.models.oauth_provisioning import ProvisioningConfig
+
 logger = structlog.get_logger(__name__)
+
+# The signature shared by posthoganalytics.capture and the ph_scoped_capture callable, so
+# every function on the capture path can accept either interchangeably. The return is
+# `object` because the two disagree on it and no caller uses it.
+CapturePhEvent = Callable[..., object]
 
 # Limits per the CIMD specification
 CIMD_MAX_DOCUMENT_SIZE = 5 * 1024  # 5KB
@@ -162,23 +172,29 @@ def validate_fetchable_https_url(
     return True, None
 
 
-def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
+def validate_cimd_url(
+    url: str | None, *, perform_dns_check: bool = False, what: str = "CIMD client_id"
+) -> tuple[bool, str | None]:
     """
     Validate a CIMD URL for format and optionally SSRF safety.
 
     Adds the identity requirements a CIMD ``client_id`` carries on top of the safety checks:
     the URL is the client's stable identifier, so it must name a document (a path) and must
     not vary by query string.
+
+    ``what`` names the thing being validated in the returned message. It defaults to the
+    OAuth term because these errors usually surface against a ``client_id`` on /authorize,
+    but the settings form calls the same value a metadata URL and passes its own label.
     """
-    safe, error = validate_fetchable_https_url(url, perform_dns_check=perform_dns_check, what="CIMD client_id")
+    safe, error = validate_fetchable_https_url(url, perform_dns_check=perform_dns_check, what=what)
     if not safe:
         return False, error
 
     parsed = urlparse(url or "")
     if not parsed.path or parsed.path == "/":
-        return False, "CIMD client_id must include a path component"
+        return False, f"{what} must include a path component"
     if parsed.query:
-        return False, "CIMD client_id must not contain query parameters"
+        return False, f"{what} must not contain query parameters"
 
     return True, None
 
@@ -428,24 +444,105 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     return metadata, cache_ttl
 
 
-def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
+def _resolve_verification_token(
+    metadata: CIMDMetadataDocument, url: str, *, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+) -> CIMDVerificationToken | None:
     """Look up a verification token from CIMD metadata, preferring the nested
     `com.posthog.verification_token` and falling back to the legacy top-level
     `posthog_verification_token`. Falls back to the top-level token when the nested
     one is absent OR present-but-unrecognized, so a typo'd nested token doesn't drop
-    a partner whose legacy token still resolves. Returns the token record, or None."""
+    a partner whose legacy token still resolves. Returns the token record, or None.
+
+    A token only resolves at the URL it was issued for. The document is public,
+    so a token found here may have been copied from someone else's document —
+    `url` is the only thing distinguishing the real publisher from a copier.
+
+    A recognized nested token bound to some other URL resolves to None rather than
+    falling through to the legacy field: it means this document is quoting someone
+    else's credential, and trying a second one would be working around that."""
     com_posthog = metadata.get("com.posthog")
     if isinstance(com_posthog, dict):
         nested_raw = com_posthog.get("verification_token")
         if nested_raw and isinstance(nested_raw, str):
             token = find_cimd_verification_token(nested_raw)
             if token is not None:
-                return token
+                return token if _token_is_bound_to_url(token, url, capture_ph_event=capture_ph_event) else None
 
     raw = metadata.get("posthog_verification_token")
     if not raw or not isinstance(raw, str):
         return None
-    return find_cimd_verification_token(raw)
+    token = find_cimd_verification_token(raw)
+    if token is None:
+        return None
+    return token if _token_is_bound_to_url(token, url, capture_ph_event=capture_ph_event) else None
+
+
+def _token_is_bound_to_url(
+    token: CIMDVerificationToken, url: str, *, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+) -> bool:
+    """Whether this token was issued for the document we just fetched.
+
+    Fails closed on tokens with no URL: those pre-date binding and could not be
+    migrated automatically, so they must be reissued rather than keep verifying
+    any document that quotes them. Also fails closed when the app has no metadata
+    URL at all, under its own reason — otherwise it would fall into the mismatch
+    branch below and pollute the metric used to spot copied tokens."""
+    if not token.cimd_url:
+        _capture_verification_rejected(token, url, reason="token_not_bound", capture_ph_event=capture_ph_event)
+        return False
+    if not url:
+        _capture_verification_rejected(token, url, reason="app_url_missing", capture_ph_event=capture_ph_event)
+        return False
+    if token.cimd_url != normalize_cimd_url(url):
+        _capture_verification_rejected(token, url, reason="url_mismatch", capture_ph_event=capture_ph_event)
+        return False
+    return True
+
+
+CAPTURE_VERIFICATION_REJECTED_MIN_INTERVAL = 300  # 5 minutes
+
+
+def _verification_rejected_capture_key(token: CIMDVerificationToken, url: str, reason: str) -> str:
+    url_hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:verification_rejected:{token.pk}:{reason}:{url_hash}"
+
+
+def _capture_verification_rejected(
+    token: CIMDVerificationToken,
+    url: str,
+    *,
+    reason: str,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
+) -> None:
+    """`url_mismatch` means a valid token was presented at a document it was not
+    issued for, the copied-token case this binding exists to stop. Every rejection
+    reason shares this one event rather than getting its own, so the alert on it
+    filters on `reason="url_mismatch"`.
+
+    The capture (not the log below) is deduped per (token, url, reason) behind a
+    cache sentinel, mirroring `_touch_verification_token`: an unbound legacy token
+    or an app with no metadata URL would otherwise recapture on every refresh and
+    bury the low-volume url_mismatch signal the alert exists to catch."""
+    logger.warning(
+        "cimd_verification_token_rejected",
+        reason=reason,
+        fetched_url=url,
+        bound_url=token.cimd_url,
+        organization_id=str(token.organization_id),
+    )
+    sentinel_key = _verification_rejected_capture_key(token, url, reason)
+    if not cache.add(sentinel_key, True, timeout=CAPTURE_VERIFICATION_REJECTED_MIN_INTERVAL):
+        return
+    capture_ph_event(
+        distinct_id=str(token.organization_id),
+        event="cimd_verification_token_rejected",
+        properties={
+            "reason": reason,
+            "fetched_url": url,
+            "bound_url": token.cimd_url,
+            "organization_id": str(token.organization_id),
+        },
+    )
 
 
 def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
@@ -510,7 +607,9 @@ def _resolve_client_authentication(metadata: CIMDMetadataDocument) -> tuple[str,
     return AbstractApplication.CLIENT_PUBLIC, None
 
 
-def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
+def _create_cimd_application(
+    url: str, metadata: CIMDMetadataDocument, *, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+) -> OAuthApplication:
     """Create a new OAuthApplication from CIMD metadata."""
     client_name = metadata.get("client_name", "CIMD Client")
     try:
@@ -522,7 +621,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
-    verification = _resolve_verification_token(metadata)
+    verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
@@ -565,7 +664,45 @@ def _touch_verification_token(token: CIMDVerificationToken) -> None:
     CIMDVerificationToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
 
-def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocument) -> OAuthApplication:
+def _retier_account_requests_limit(app: OAuthApplication, *, verified: bool) -> None:
+    """Move a partner's account-request limit onto the verified or unverified default tier.
+
+    Only our own default tiers move. An explicit admin override (source="admin") stays put, and
+    so does a legacy row with no source recorded, treated conservatively as admin so a value
+    that pre-dates the field is not clobbered.
+
+    Locks and re-reads before deciding, because the caller's copy of the app was loaded before a
+    network fetch of the metadata document. That window is wide enough for an admin to have
+    revoked a capability in it, and merging into a stale blob would write the revoked value back.
+    """
+    with transaction.atomic():
+        current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
+        config = current.provisioning
+        if not current.is_provisioning_partner or config.rate_limit_source not in (
+            "default_unverified",
+            "default_verified",
+        ):
+            return
+        app.update_provisioning(
+            rate_limits=config.rate_limits.model_copy(
+                update={
+                    "account_requests": (
+                        CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+                        if verified
+                        else CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
+                    )
+                }
+            ),
+            rate_limit_source="default_verified" if verified else "default_unverified",
+        )
+
+
+def _update_cimd_application(
+    app: OAuthApplication,
+    metadata: CIMDMetadataDocument,
+    *,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
+) -> OAuthApplication:
     """
     Update an existing OAuthApplication from refreshed CIMD metadata.
 
@@ -591,7 +728,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
-    verification = _resolve_verification_token(metadata)
+    verification = _resolve_verification_token(metadata, app.cimd_metadata_url or "", capture_ph_event=capture_ph_event)
     new_org = verification.organization if verification else None
     update_fields = [
         "name",
@@ -617,30 +754,6 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if old_org_id != new_org_id:
         app.organization = new_org
         update_fields.append("organization")
-        # When verification status flips on an already-provisioning app, keep
-        # the rate-limit tier in sync. Only bump when the source is one of our
-        # default tiers — explicit admin overrides (source="admin") and
-        # legacy rows with no source recorded (source="") stay put. Legacy
-        # rows are treated conservatively as admin to avoid clobbering values
-        # that pre-date this field.
-        if app.is_provisioning_partner and app.provisioning_rate_limit_account_requests_source in (
-            "default_unverified",
-            "default_verified",
-        ):
-            became_verified = old_org_id is None and new_org_id is not None
-            became_unverified = old_org_id is not None and new_org_id is None
-            if became_verified:
-                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-                app.provisioning_rate_limit_account_requests_source = "default_verified"
-                update_fields.extend(
-                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
-                )
-            elif became_unverified:
-                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
-                app.provisioning_rate_limit_account_requests_source = "default_unverified"
-                update_fields.extend(
-                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
-                )
 
     try:
         app.full_clean()
@@ -653,11 +766,18 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     else:
         if verification is not None:
             _touch_verification_token(verification)
+        # Keep the rate-limit tier in step with verification status. Written after the main save
+        # and through its own locked merge, rather than as another field on it, because the whole
+        # provisioning blob has to be rewritten to change one key inside it.
+        if old_org_id is None and new_org_id is not None:
+            _retier_account_requests_limit(app, verified=True)
+        elif old_org_id is not None and new_org_id is None:
+            _retier_account_requests_limit(app, verified=False)
         # Emit a distinct event on org re-linking so a metadata compromise
         # flipping A→B (or A→None, None→A) is visible in analytics, not
         # just buried in the generic refresh event.
         if old_org_id != new_org_id:
-            posthoganalytics.capture(
+            capture_ph_event(
                 distinct_id=app.cimd_metadata_url or str(app.pk),
                 event="cimd_application_org_changed",
                 properties={
@@ -671,7 +791,9 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     return app
 
 
-def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytics.capture) -> OAuthApplication | None:
+def fetch_and_upsert_cimd_application(
+    url: str, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+) -> OAuthApplication | None:
     """
     Fetch CIMD metadata and create or update the application.
 
@@ -695,7 +817,7 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
 
         app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
         if app:
-            updated = _update_cimd_application(app, metadata)
+            updated = _update_cimd_application(app, metadata, capture_ph_event=capture_ph_event)
             logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
             capture_ph_event(
                 distinct_id=url,
@@ -712,7 +834,7 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
             return updated
 
         try:
-            new_app = _create_cimd_application(url, metadata)
+            new_app = _create_cimd_application(url, metadata, capture_ph_event=capture_ph_event)
             logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
             capture_ph_event(
                 distinct_id=url,
@@ -817,45 +939,68 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
 # traceable to a real PostHog organization.
 CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour, anonymous CIMD
 CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT = 100  # per hour, verified CIMD
-CIMD_PROVISIONING_DEFAULTS: dict[str, bool | int | str] = {
-    # Nothing here touches client authentication: that is derived from the client's own
-    # metadata document by _resolve_client_authentication, so a CIMD partner is public or
-    # private_key_jwt according to what it publishes.
-    "is_provisioning_partner": True,
-    "provisioning_active": True,
-    "provisioning_can_create_accounts": True,
-    "provisioning_can_provision_resources": True,
-    "provisioning_rate_limit_account_requests": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
-}
 
 
-def _cimd_provisioning_defaults_for(app: OAuthApplication) -> dict:
-    """Return the provisioning default profile to apply to this CIMD app on
-    first-time registration. Verified apps (linked to a PostHog org) get the
-    higher account-request rate limit."""
-    defaults = dict(CIMD_PROVISIONING_DEFAULTS)
-    if app.organization_id is not None:
-        defaults["provisioning_rate_limit_account_requests"] = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-        defaults["provisioning_rate_limit_account_requests_source"] = "default_verified"
-    else:
-        defaults["provisioning_rate_limit_account_requests_source"] = "default_unverified"
-    return defaults
+def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfig":
+    """The config a CIMD app gets when it registers itself, layered over whatever it already has.
+
+    Nothing here touches client authentication: that is derived from the client's own metadata
+    document by _resolve_client_authentication, so a CIMD partner is public or private_key_jwt
+    according to what it publishes.
+
+    Deliberately narrow. Creating accounts and provisioning resources is the whole point of
+    self-serve registration, so those are turned on; no other capability is, because a partner
+    that vouched for itself by publishing a document is not the same as one PostHog decided to
+    trust. GitHub grants, wizard runs, deep links and skipped consent are granted by an admin or
+    not at all.
+
+    Layered rather than replacing the config wholesale, so an admin who granted a capability
+    before the app first registered does not have it silently dropped here. For the ordinary
+    case - a brand new self-registered client - the existing config is empty and the two are
+    the same thing.
+    """
+    config = app.provisioning
+    changes: dict[str, object] = {"active": True, "can_create_accounts": True, "can_provision_resources": True}
+
+    # Verified partners (those who presented a valid `posthog_verification_token`) get a higher
+    # account-request limit, since abuse is traceable to a real PostHog organization. An admin
+    # override already recorded on the app outranks both tiers.
+    if config.rate_limit_source != "admin":
+        verified = app.organization_id is not None
+        changes["rate_limits"] = config.rate_limits.model_copy(
+            update={
+                "account_requests": (
+                    CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+                    if verified
+                    else CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
+                )
+            }
+        )
+        changes["rate_limit_source"] = "default_verified" if verified else "default_unverified"
+
+    return config.model_copy(update=changes)
 
 
 def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
-    """Apply provisioning defaults to a CIMD app and persist them.
+    """Opt a CIMD app into provisioning with the self-serve defaults, and persist them.
 
-    Computes the correct defaults (verified vs anonymous rate limit) based on
-    the app's organization linkage, sets the fields, and saves. Respects
-    `provisioning_disabled` as a kill switch - returns the app untouched
-    rather than re-enabling a partner an admin has explicitly disabled."""
-    if app.provisioning_disabled:
-        return app
-    became_partner = not app.is_provisioning_partner
-    defaults = _cimd_provisioning_defaults_for(app)
-    for field, value in defaults.items():
-        setattr(app, field, value)
-    app.save(update_fields=list(defaults.keys()))
+    Respects the `disabled` kill switch - returns the app untouched rather than re-enabling a
+    partner an admin has explicitly disabled.
+
+    Locks and re-reads the config first. Registration runs after a network fetch of the metadata
+    document, so the caller's copy of the app can be seconds or minutes old, and layering the
+    defaults over that copy would write back a capability - or a cleared kill switch - that an
+    admin revoked while the fetch was in flight.
+    """
+    with transaction.atomic():
+        current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
+        app._provisioning_config = current._provisioning_config
+        if app.provisioning.disabled:
+            return app
+        became_partner = not current.is_provisioning_partner
+        app.is_provisioning_partner = True
+        app.provisioning = _cimd_provisioning_defaults_for(app)
+        app.save(update_fields=["is_provisioning_partner", "_provisioning_config"])
 
     # A partner appearing without an admin creating it is the event worth watching for abuse,
     # so it fires on the transition only - re-running the defaults over an existing partner is
@@ -868,7 +1013,7 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
                 "cimd_url": app.cimd_metadata_url,
                 "client_name": app.name,
                 "app_id": str(app.pk),
-                "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
+                "account_requests_rate_limit": app.provisioning.rate_limits.account_requests,
                 "is_verified": app.organization_id is not None,
                 "organization_id": str(app.organization_id) if app.organization_id else None,
             },

@@ -8,6 +8,7 @@ import { IconCheckCircle } from '@posthog/icons'
 import { getCookie } from 'lib/api'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -18,7 +19,7 @@ import { isEmail } from 'lib/utils/url'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
-import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
+import { PaperDeskCard, PaperDeskScene, usePaperDeskTheme } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
 import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -45,10 +46,15 @@ function Login(): JSX.Element {
         resendResponse,
         codeVerificationRequired,
         isCodeVerificationSubmitting,
+        isPasswordLoginUnavailable,
+        hasNoConfiguredLoginMethod,
+        restrictToProviders,
+        autoRedirectingToProvider,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const theme = usePaperDeskTheme()
 
-    const isPasswordHidden = !!precheckResponse.sso_enforcement
+    const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
     const prevEmail = usePrevious(login.email)
@@ -80,7 +86,20 @@ function Login(): JSX.Element {
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <PaperDeskCard footer={footer}>
                 <CardTitle
-                    title={isCodeSent ? 'Enter your login code' : 'Log in to PostHog'}
+                    title={
+                        isCodeSent ? (
+                            'Enter your login code'
+                        ) : theme === 'glass' ? (
+                            <>
+                                Log in to{' '}
+                                <span className="px-1 rounded-md bg-[color-mix(in_srgb,var(--color-blue-500)_10%,transparent)] text-[var(--color-blue-500)]">
+                                    @PostHog
+                                </span>
+                            </>
+                        ) : (
+                            'Log in to PostHog'
+                        )
+                    }
                     sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
                 />
                 <SessionRiskBanner className="mb-4" />
@@ -103,7 +122,6 @@ function Login(): JSX.Element {
                                         e.preventDefault()
                                         openSupportForm({
                                             kind: 'support',
-                                            target_area: 'login',
                                             email: login.email,
                                         })
                                     }}
@@ -190,7 +208,10 @@ function Login(): JSX.Element {
                                     autoComplete={isWebKitBrowser() ? 'username webauthn' : 'email'}
                                     value={value ?? ''}
                                     onChange={onChange}
-                                    onBlur={() => precheck({ email: login.email })}
+                                    // `autoAttempt` is only ever set on this explicit gesture, so
+                                    // autofill or a mistyped address can't bounce the user out to an
+                                    // identity provider.
+                                    onBlur={() => precheck({ email: login.email, autoAttempt: true })}
                                     status={error ? 'danger' : 'default'}
                                     fullWidth
                                 />
@@ -229,7 +250,26 @@ function Login(): JSX.Element {
                                 )}
                             </LemonField>
                         )}
-                        {!precheckResponse.sso_enforcement && (
+                        {hasNoConfiguredLoginMethod && (
+                            <div className="py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
+                                No sign-in method is set up for this account. Use{' '}
+                                <Link
+                                    to={[urls.passwordReset(), { email: login.email }]}
+                                    data-attr="forgot-password"
+                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                >
+                                    Forgot password?
+                                </Link>{' '}
+                                to set a password by email.
+                            </div>
+                        )}
+                        {autoRedirectingToProvider && (
+                            <p className="text-sm text-secondary text-center mb-0">
+                                Redirecting to {SSO_PROVIDER_NAMES[autoRedirectingToProvider]}…
+                            </p>
+                        )}
+                        {/* No password to submit means this button would do nothing */}
+                        {!precheckResponse.sso_enforcement && !isPasswordLoginUnavailable && (
                             <LemonButton
                                 type="primary"
                                 size="large"
@@ -258,15 +298,22 @@ function Login(): JSX.Element {
                         )}
                     </Form>
                 )}
-                {!isCodeSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <SocialLoginButtons
-                        topDivider
-                        caption="Or log in with"
-                        captionLocation="top"
-                        lastUsedProvider={lastLoginMethod}
-                        showPasskey
-                    />
-                )}
+                {/* Normally SAML replaces this row, but when the account has no password we need to
+                    show whatever it does have. */}
+                {!isCodeSent &&
+                    !precheckResponse.sso_enforcement &&
+                    (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
+                        <SocialLoginButtons
+                            topDivider
+                            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
+                            captionLocation="top"
+                            lastUsedProvider={lastLoginMethod}
+                            restrictToProviders={restrictToProviders}
+                            // Once we know the account's methods, only offer a passkey if it actually has
+                            // one — otherwise this is the same dead button we're removing.
+                            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+                        />
+                    )}
             </PaperDeskCard>
         </PaperDeskScene>
     )

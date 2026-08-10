@@ -6,6 +6,8 @@ mod deliver;
 mod execute;
 pub mod observe;
 mod orchestrator;
+mod person_execute;
+mod person_plan;
 mod prepare;
 pub mod reconcile_dispatch;
 pub mod settings;
@@ -16,6 +18,6 @@ pub use completion::{
     ObservePolicyError,
 };
 pub use observe::{KafkaCommittedOffsets, KafkaTopicOffsets};
-pub use orchestrator::{SeederOrchestrator, ORCHESTRATOR_LIVENESS_DEADLINE};
-pub use settings::OrchestratorSettings;
+pub use orchestrator::{PersonComponents, SeederOrchestrator, ORCHESTRATOR_LIVENESS_DEADLINE};
+pub use settings::{OrchestratorSettings, PersonSettings};
 pub use watch::{MarkerWatchTask, PgMarkerFlush, WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE};

@@ -20,7 +20,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--application-id",
             type=str,
-            help="Limit to a single OAuthApplication id. Defaults to every application with provisioning_partner_type set.",
+            help="Limit to a single OAuthApplication id. Defaults to every provisioning partner.",
         )
         parser.add_argument(
             "--dry-run",
@@ -39,7 +39,7 @@ class Command(BaseCommand):
         application_id = options.get("application_id")
         dry_run: bool = options["dry_run"]
 
-        application_qs = OAuthApplication.objects.exclude(provisioning_partner_type="")
+        application_qs = OAuthApplication.objects.filter(is_provisioning_partner=True)
         if application_id:
             application_qs = application_qs.filter(id=application_id)
 

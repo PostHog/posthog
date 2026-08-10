@@ -88,7 +88,10 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         scanner_config=rerun_config,
     )
     suggestion.evaluation = build_running_evaluation(
-        total=len(sessions), labels_fingerprint=labels_fingerprint(scanner)
+        total=len(sessions),
+        labels_fingerprint=labels_fingerprint(scanner),
+        model=scanner.model,
+        started_at=inputs.started_at,
     )
     suggestion.save(update_fields=["evaluation"])
     return SelectEvaluationSessionsOutput(sessions=sessions, snapshot=snapshot)
@@ -139,7 +142,9 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
                 observation_id=evaluation_usage_id(
                     suggestion.id,
                     inputs.session.session_id,
-                    str(suggestion.evaluation.get("started_at") or ""),
+                    # Frozen at request time so a concurrent re-test that restamps the row can't re-key
+                    # this run's receipts and charge its sessions twice.
+                    inputs.started_at or str(suggestion.evaluation.get("started_at") or ""),
                 ),
                 defaults={
                     "organization_id": suggestion.team.organization_id,

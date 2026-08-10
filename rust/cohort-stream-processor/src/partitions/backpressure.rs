@@ -69,6 +69,14 @@ impl<T> PartitionHoldover<T> {
         self.pending.len()
     }
 
+    /// The FIFO head of each held partition's holdover, read-only. Feeds the oldest-held age
+    /// gauge.
+    pub fn held_heads(&self) -> impl Iterator<Item = (i32, &T)> {
+        self.pending
+            .iter()
+            .filter_map(|(&partition, messages)| messages.first().map(|head| (partition, head)))
+    }
+
     /// Total messages held across all held partitions. Feeds the `pending_held_events` gauge.
     pub fn held_message_count(&self) -> usize {
         self.pending.values().map(Vec::len).sum()
@@ -164,6 +172,26 @@ mod tests {
 
         let held: HashMap<i32, Vec<ShuffleMessage>> = bp.take_held().into_iter().collect();
         assert_eq!(offsets(&held[&5]), vec![10, 11, 12]);
+    }
+
+    /// The oldest-held age gauge reads the FIFO head; returning any later message would
+    /// understate the retention risk.
+    #[test]
+    fn held_heads_returns_fifo_heads() {
+        let mut bp = Backpressure::new();
+        bp.absorb(HashMap::from([
+            (5, vec![event(10), event(11)]),
+            (6, vec![event(20)]),
+        ]));
+        bp.absorb(HashMap::from([(5, vec![event(12)])]));
+
+        let heads: HashMap<i32, i64> = bp
+            .held_heads()
+            .filter_map(|(partition, message)| {
+                message.event_offset().map(|offset| (partition, offset))
+            })
+            .collect();
+        assert_eq!(heads, HashMap::from([(5, 10), (6, 20)]));
     }
 
     #[test]

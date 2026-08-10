@@ -585,6 +585,7 @@ def create_external_reference(
     issue_id: UUID,
     integration_id: int,
     config: dict[str, Any],
+    distinct_id: int | str,
 ) -> contracts.ErrorTrackingExternalReference:
     reference = logic.create_external_reference(
         team_id=team_id,
@@ -595,6 +596,7 @@ def create_external_reference(
 
     posthoganalytics.capture(
         "error_tracking_external_issue_created",
+        distinct_id=distinct_id,
         groups=groups(reference.issue.team.organization, reference.issue.team),
         properties={
             "issue_id": reference.issue_id,

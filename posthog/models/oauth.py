@@ -29,6 +29,10 @@ from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, m
 if TYPE_CHECKING:
     from posthog.models import Organization, User
 
+    # This model loads at django.setup() in every process; the pydantic schema is
+    # runtime-imported in the accessors that materialize it.
+    from posthog.models.oauth_provisioning import ProvisioningConfig
+
 
 class OAuthApplicationAccessLevel(enum.Enum):
     ALL = "all"
@@ -210,73 +214,78 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             "follows from client_type, so there is no separate provisioning auth method."
         ),
     )
-    provisioning_partner_type: models.CharField = models.CharField(
-        max_length=50,
+    # Mangled so the `provisioning` property below can own the readable name. Every capability
+    # and quota lives in here; see posthog/models/oauth_provisioning.py for the shape. Empty
+    # object means "a partner that may do nothing yet", which is the intended starting point.
+    _provisioning_config: models.JSONField = models.JSONField(
+        default=dict,
+        db_default={},
         blank=True,
-        default="",
-        help_text="Partner identifier: stripe, wizard, etc. Empty for non-provisioning apps.",
-    )
-    provisioning_active: models.BooleanField = models.BooleanField(
-        default=False, help_text="Must be explicitly enabled for provisioning access"
-    )
-    provisioning_can_create_accounts: models.BooleanField = models.BooleanField(
-        default=False, help_text="Can this app create PostHog accounts on behalf of users"
-    )
-    provisioning_can_provision_resources: models.BooleanField = models.BooleanField(
-        default=True, help_text="Can this app provision projects and API keys"
-    )
-    provisioning_issues_personal_api_key: models.BooleanField = models.BooleanField(
-        default=False,
-        db_default=False,
+        db_column="provisioning_config",
         help_text=(
-            "Whether provisioning mints a Personal API Key for this app. Off by default; "
-            "only grandfathered apps (the legacy Stripe app) still issue one, capped at the app's scopes."
+            "Provisioning capabilities and per-endpoint rate limits. Every capability is off unless explicitly granted."
         ),
     )
-    provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
-    )
-    provisioning_rate_limit_account_requests_source: models.CharField = models.CharField(
-        max_length=24,
-        blank=True,
-        default="",
-        choices=[
-            ("default_unverified", "default_unverified"),
-            ("default_verified", "default_verified"),
-            ("admin", "admin"),
-        ],
-        help_text=(
-            "Records who set provisioning_rate_limit_account_requests so verification flips don't "
-            "overwrite an explicit admin override."
-        ),
-    )
-    provisioning_rate_limit_token_exchanges: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for token exchanges (per hour)"
-    )
-    provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
-    )
-    provisioning_rate_limit_github_grants: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for GitHub grant creation (per hour)"
-    )
-    provisioning_rate_limit_wizard_runs: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for wizard cloud run creation (per hour)"
-    )
-    provisioning_disabled: models.BooleanField = models.BooleanField(
-        default=False,
-        help_text=(
-            "Kill switch for misbehaving partners. When true, apply_provisioning_defaults will not "
-            "re-enable the app on subsequent CIMD requests."
-        ),
-    )
-    provisioning_skip_existing_user_consent: models.BooleanField = models.BooleanField(
-        default=False,
-        help_text="Skip user consent when linking existing accounts. Only enable for fully trusted partners.",
-    )
-    provisioning_can_issue_deep_links: models.BooleanField = models.BooleanField(
-        default=False,
-        help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
-    )
+
+    @property
+    def provisioning(self) -> "ProvisioningConfig":
+        """The parsed provisioning config. Absent keys read as their default, so a partner is
+        never accidentally granted a capability the stored blob never mentioned."""
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        return ProvisioningConfig.model_validate(self._provisioning_config or {})
+
+    @provisioning.setter
+    def provisioning(self, value: "ProvisioningConfig | dict") -> None:
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        config = value if isinstance(value, ProvisioningConfig) else ProvisioningConfig.model_validate(value)
+        self._provisioning_config = config.model_dump(mode="json")
+
+    def update_provisioning(self, **changes: object) -> "ProvisioningConfig":
+        """Apply a partial change to the config and persist it.
+
+        The blob is one column, so a read-modify-write is the only way to set a single key
+        without clobbering its neighbours. That makes concurrent writers a lost-update
+        problem - an admin granting a capability while a CIMD refresh re-tiers a rate limit
+        would otherwise have one silently overwrite the other - so the row is locked and
+        re-read inside the transaction rather than trusting the copy in memory.
+        """
+        with transaction.atomic():
+            current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
+            self._provisioning_config = current._provisioning_config
+            self.provisioning = self.provisioning.model_copy(update=changes)
+            self.save(update_fields=["_provisioning_config"])
+        return self.provisioning
+
+    def update_provisioning_rate_limits(self, **changes: object) -> "ProvisioningConfig":
+        """Apply a partial change to the nested rate limits and persist it.
+
+        Nested under the same lock as any other partial change, so the read of the current
+        limits can't be stale by the time it is written back.
+        """
+        with transaction.atomic():
+            current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
+            self._provisioning_config = current._provisioning_config
+            return self.update_provisioning(rate_limits=self.provisioning.rate_limits.model_copy(update=changes))
+
+    @property
+    def carries_provisioning_config(self) -> bool:
+        """Whether this app has ever been configured for provisioning, whatever
+        ``is_provisioning_partner`` says now.
+
+        Partner quotas key on this rather than the flag, so an admin who disables a partner
+        without revoking its outstanding tokens doesn't also exempt those tokens from the
+        rate limits.
+
+        "Grants or records something" rather than "the column is non-empty": the backfill writes
+        a config to every row, ordinary OAuth apps included, so a non-empty blob says nothing
+        about whether an app was ever a partner. A config equal to the all-default one carries no
+        grant, no deactivation and no quota, which is exactly the app that owes no partner quota.
+        """
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        return self.is_provisioning_partner or self.provisioning != ProvisioningConfig()
 
     # Client authentication is registration state on purpose. A client_id is public, so
     # inferring the method from what a request happens to present would let anyone act as a
@@ -514,6 +523,8 @@ class OAuthAccessToken(AbstractAccessToken):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+    # Server-minted sandbox binding: task-scoped APIs must not trust a caller-supplied task header alone.
+    sandbox_task_id: models.UUIDField = models.UUIDField(null=True, blank=True)
 
     # When set, this token was minted by a staff user impersonating `user`. Used to revoke
     # tokens at impersonation end. SET_NULL so the customer's tokens survive admin deactivation.
@@ -710,13 +721,75 @@ def generate_random_token_cimd_verification() -> str:
     return "phvt_" + generate_random_token()
 
 
+# Never a real normalized URL, so it only ever equals another call that hit the same
+# unparseable-input branch. Issuance validates and normalizes before storing (see
+# `CIMDVerificationTokenCreateSerializer` in posthog/api/cimd_verification_token.py), so no
+# stored `CIMDVerificationToken.cimd_url` can ever equal this — it exists only to give the
+# refresh path (which normalizes `OAuthApplication.cimd_metadata_url` read straight from the
+# database, unrevalidated) a value to compare against instead of raising.
+UNNORMALIZABLE_CIMD_URL = "\x00unnormalizable"
+
+
+def normalize_cimd_url(url: str) -> str:
+    """Canonicalize a CIMD URL so issuance and verification compare equal.
+
+    Both sides store/compare the output of this function, so the only thing that
+    matters is that it is deterministic and collapses the variations a partner
+    can plausibly produce for the same document: scheme and host case, an
+    explicit `:443` (and `:0` — `port and port != 443` treats a falsy port the same as
+    "no port"), and any number of trailing slashes. Reconstructing from `parsed.path`
+    also drops a `;params` segment `urlparse` splits off the last path element, so
+    `.../x.json`, `.../x.json;evil`, and `.../x.json///` all collapse to the same value.
+    This is canonicalization for a database comparison, not a security boundary:
+    `fetch_cimd_metadata` still requires `client_id == url` byte for byte against the
+    real fetch URL.
+
+    Deliberately does not touch path case or percent-encoding — those are
+    server-defined and two paths differing there are legitimately different
+    documents.
+
+    The output is a persisted format, not just a comparison helper: it is stored in
+    `CIMDVerificationToken.cimd_url`, and migration
+    `1296_backfill_cimd_verification_token_url` keeps a frozen copy of this function's
+    logic. Changing this function's output for any input silently unverifies every
+    stored binding of that shape with no test failure elsewhere — see the golden-value
+    table in `TestNormalizeCimdUrl` (posthog/models/test/test_oauth.py) before editing.
+    """
+    try:
+        parsed = urlparse(url.strip())
+        port = parsed.port
+    except ValueError:
+        # Covers both an unparseable port ("h:abc", "h:99999") and a urlparse failure on
+        # the whole URL ("https://[::1/x.json" raises "Invalid IPv6 URL"). Nothing can be
+        # served at either, so a sentinel that matches no real fetch is enough.
+        return UNNORMALIZABLE_CIMD_URL
+    host = (parsed.hostname or "").lower()
+    if port and port != 443:
+        host = f"{host}:{port}"
+    path = parsed.path.rstrip("/")
+    return f"{parsed.scheme.lower()}://{host}{path}"
+
+
 class CIMDVerificationToken(models.Model):
     """Token that links a CIMD partner app to a PostHog organization.
 
     A partner embeds the plaintext token in their CIMD metadata document under
     `posthog_verification_token`. On fetch, we hash and look up the token; if it
-    matches, we link the resulting OAuthApplication to this organization and
-    apply the verified-partner rate-limit tier.
+    matches AND the document URL equals `cimd_url`, we link the resulting
+    OAuthApplication to this organization and apply the verified-partner
+    rate-limit tier.
+
+    The token is served unauthenticated at the metadata URL, so possession of it
+    proves nothing — anyone who reads the document can host the same value
+    elsewhere. `cimd_url` is what makes the token unforgeable: it scopes the
+    token to the one document it was issued for, so a copy hosted anywhere else
+    fails to verify.
+
+    `cimd_url` is deliberately NOT unique. Uniqueness would let anyone with a
+    free organization reserve a partner's URL before that partner does and lock
+    them out of verification permanently. Several organizations may claim the
+    same URL; only the one whose token actually appears in the document at that
+    URL verifies.
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
@@ -724,6 +797,7 @@ class CIMDVerificationToken(models.Model):
         "posthog.Organization", on_delete=models.CASCADE, related_name="cimd_verification_tokens"
     )
     label: models.CharField = models.CharField(max_length=40)
+    cimd_url: models.URLField = models.URLField(max_length=2048, null=True, blank=True)
     mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
     secure_value: models.CharField = models.CharField(unique=True, max_length=300, editable=False)
     created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
@@ -748,14 +822,18 @@ def find_cimd_verification_token(token: str) -> "CIMDVerificationToken | None":
 
 
 def create_cimd_verification_token(
-    *, organization: "Organization", label: str, created_by: "User | None" = None
+    *, organization: "Organization", label: str, cimd_url: str, created_by: "User | None" = None
 ) -> tuple[CIMDVerificationToken, str]:
     """Create a new token, returning (instance, plaintext). Plaintext is only
-    available at creation time — we only persist its hash."""
+    available at creation time — we only persist its hash.
+
+    `cimd_url` is stored normalized so verification can compare it to the fetch
+    URL as an exact string."""
     plaintext = generate_random_token_cimd_verification()
     token = CIMDVerificationToken.objects.create(
         organization=organization,
         label=label,
+        cimd_url=normalize_cimd_url(cimd_url),
         created_by=created_by,
         secure_value=hash_key_value(plaintext),
         mask_value=mask_key_value(plaintext),

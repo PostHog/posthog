@@ -19,6 +19,8 @@ import {
     EntityTypes,
     FilterLogicalOperator,
     FilterType,
+    PropertyFilterType,
+    PropertyMathType,
 } from '~/types'
 
 import type { TaxonomicFilterGroupType } from '../../../../lib/components/TaxonomicFilter/types'
@@ -50,6 +52,19 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
               }
             : { ...filter, uuid: uuid() }
     )
+}
+
+const PROPERTY_VALUE_MATHS = new Set<string>(Object.values(PropertyMathType))
+
+// math_property names a column or property on the entity the series aggregates, so it cannot
+// survive an entity switch. Property-value math (sum, avg, percentiles) is dropped with it —
+// the backend errors out on that math without a math_property.
+function dropStaleMath(filter: LocalFilter): void {
+    if (filter.math && PROPERTY_VALUE_MATHS.has(filter.math)) {
+        filter.math = undefined
+    }
+    filter.math_property = undefined
+    filter.math_property_type = undefined
 }
 
 export function toFilters(localFilters: LocalFilter[]): FilterType {
@@ -501,6 +516,27 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                                 )
                             })
 
+                            // A data warehouse series resolves property filters against its own
+                            // table: there is no person in scope, so person-scoped filters carried
+                            // over from a previous event entity cannot resolve, and column filters
+                            // from a different table cannot either. SQL expression filters are
+                            // user-authored and stay visible in the UI, so they are kept.
+                            if (Array.isArray(filter.properties)) {
+                                updatedFilter.properties = filter.properties.filter(
+                                    (property: AnyPropertyFilter) =>
+                                        property.type === PropertyFilterType.HogQL ||
+                                        (property.type === PropertyFilterType.DataWarehouse &&
+                                            updatedFilter.table_name === filter.table_name)
+                                )
+                            }
+
+                            if (
+                                filter.type !== EntityTypes.DATA_WAREHOUSE ||
+                                updatedFilter.table_name !== filter.table_name
+                            ) {
+                                dropStaleMath(updatedFilter)
+                            }
+
                             return updatedFilter
                         }
 
@@ -523,6 +559,18 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                         dataWarehousePopoverFields.forEach(({ key }) => {
                             delete cleanedFilter[key]
                         })
+
+                        // Data warehouse column filters reference the warehouse table, which an
+                        // event or action series does not select from, so they cannot carry over.
+                        if (Array.isArray(cleanedFilter.properties)) {
+                            cleanedFilter.properties = cleanedFilter.properties.filter(
+                                (property: AnyPropertyFilter) => property.type !== PropertyFilterType.DataWarehouse
+                            )
+                        }
+
+                        if (filter.type === EntityTypes.DATA_WAREHOUSE) {
+                            dropStaleMath(cleanedFilter)
+                        }
 
                         return {
                             ...cleanedFilter,

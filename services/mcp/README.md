@@ -329,6 +329,15 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
+### Session cache
+
+A session's client context lives in one `mcp:s:<id>:c` key with a 24-hour idle expiry, refreshed on every request in the session.
+Concurrent requests merge their fields through a Lua compare-and-merge, so a field first seen mid-session is never lost to an overlapping write.
+
+Monitor `mcp_session_cache_operations_total` for `read_error` and `write_error`.
+Both are non-blocking: a failed read serves whatever context the current request carries, so attribution degrades rather than the call failing.
+Each also logs a warning prefixed `[McpSessionRedisStore]`, so a Redis failure on this path is greppable in logs and not only visible on the metrics counter.
+
 ### Edge-proxy worker (Cloudflare)
 
 In production, a thin Cloudflare Worker sits in front of the Hono deployments as a stateless edge router: it serves the OAuth metadata endpoints, validates tokens, resolves the caller's cloud region, and proxies `/mcp` traffic to `mcp.us.posthog.com` / `mcp.eu.posthog.com`.

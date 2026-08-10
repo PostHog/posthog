@@ -63,6 +63,12 @@ export const redisOperationsTotal = new Counter({
     labelNames: ['operation', 'status'] as const,
 })
 
+export const sessionCacheOperationsTotal = new Counter({
+    name: 'mcp_session_cache_operations_total',
+    help: 'MCP session cache operations by schema.',
+    labelNames: ['schema', 'operation'] as const,
+})
+
 export const authFailuresTotal = new Counter({
     name: 'mcp_auth_failures_total',
     help: 'Authentication failures on /mcp requests.',

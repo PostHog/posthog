@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.cache import caches
+from django.db import OperationalError
 
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
@@ -42,6 +44,17 @@ class TestQueryCacheFacade(BaseTest):
         assert entry is not None
         assert entry.results_bytes is None
         assert entry.as_full_response() == response
+
+    def test_store_result_swallows_size_tracker_failures(self):
+        cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_failsoft_test_{self.team.pk}", insight_id=1)
+
+        with patch(
+            "posthog.query_cache.cache.TeamCacheSizeTracker.set",
+            side_effect=OperationalError("query_wait_timeout"),
+        ):
+            cache.store_result(response={"results": []}, target_age=None)
+
+        assert cache.lookup().entry is None
 
     def test_store_result_updates_and_clears_freshness_index(self):
         cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_fresh_test_{self.team.pk}", insight_id=42)

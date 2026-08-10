@@ -1128,7 +1128,8 @@ class DockerSandbox(SandboxBase):
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)
 
-    def create_snapshot(self) -> str:
+    def create_snapshot(self, *, timeout_seconds: int | None = None) -> str:
+        # timeout_seconds bounds Modal's snapshot RPC; docker commits have no equivalent knob.
         if not self.is_running():
             raise SandboxExecutionError(
                 "Sandbox not in running state.",
@@ -1163,6 +1164,11 @@ class DockerSandbox(SandboxBase):
 
     def create_directory_snapshot(self, path: str) -> str:
         return self.create_snapshot()
+
+    def prune_snapshot_heavy_dirs(self, path: str) -> None:
+        # Docker snapshots the whole container image, not a directory subtree, so there is no
+        # targeted prune to do here (and local dev never approaches Modal's file-count cap).
+        return None
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:

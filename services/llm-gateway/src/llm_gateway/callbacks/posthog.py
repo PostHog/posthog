@@ -163,10 +163,12 @@ class PostHogCallback(InstrumentedCallback):
         region_url: str = "https://us.posthog.com",
         secondary_api_key: str | None = None,
         secondary_host: str | None = None,
+        ai_lane_capture: bool = True,
     ):
         super().__init__()
         self._api_key = api_key
         self._host = host
+        self._ai_lane_capture = ai_lane_capture
         # Customer-origin region URL stamped on every captured event via the
         # `instance` group. The PHAI usage report filters on $group_<N> where
         # N is the destination project's `instance` group_type_index, so the
@@ -238,10 +240,22 @@ class PostHogCallback(InstrumentedCallback):
         # cache, OpenAI o-series for reasoning). Emit the fields only when
         # present so providers that don't report them don't pollute events with
         # zeros, matching the schema in posthog/models/ai_events/sql.py and the
-        # parity established by posthoganalytics' langchain CallbackHandler.
+        # convention in posthoganalytics' posthog/ai/utils.py.
         cache_read_input_tokens = usage_object.get("cache_read_input_tokens")
         if cache_read_input_tokens is not None:
             properties["$ai_cache_read_input_tokens"] = cache_read_input_tokens
+        else:
+            # `cache_read_input_tokens` is Anthropic's spelling, and LiteLLM only
+            # populates it from Anthropic-shaped usage. OpenAI reports its cached
+            # prompt tokens on `prompt_tokens_details.cached_tokens` for both Chat
+            # Completions and the Responses API, because LiteLLM normalizes the
+            # Responses API's `input_tokens_details` onto that same field. Zero here
+            # means the request missed the cache rather than the provider not
+            # reporting, so it is dropped to keep the property meaning "a cache read
+            # happened", which is how posthoganalytics treats non-Anthropic providers.
+            cached_tokens = (usage_object.get("prompt_tokens_details") or {}).get("cached_tokens")
+            if cached_tokens:
+                properties["$ai_cache_read_input_tokens"] = cached_tokens
         cache_creation_input_tokens = usage_object.get("cache_creation_input_tokens")
         if cache_creation_input_tokens is not None:
             properties["$ai_cache_creation_input_tokens"] = cache_creation_input_tokens
@@ -420,8 +434,9 @@ class PostHogCallback(InstrumentedCallback):
             host=host,
             sync_mode=True,
             enable_local_evaluation=False,
-            _use_ai_lane=True,
-            _enable_multimodal_capture=True,
+            # Multimodal capture implies the AI lane, so one setting governs both.
+            _use_ai_lane=self._ai_lane_capture,
+            _enable_multimodal_capture=self._ai_lane_capture,
         )
         try:
             _capture_ai_event(client, **capture_kwargs)

@@ -7,9 +7,10 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import cache
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -88,7 +89,10 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
-from posthog.hogql.database.schema.information_schema import disable_data_catalog
+from posthog.hogql.database.schema.information_schema import (
+    direct_connection_information_schema_node,
+    disable_data_catalog,
+)
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -164,6 +168,7 @@ if TYPE_CHECKING:
         DatabaseSchemaManagedViewTable,
         DatabaseSchemaPostHogTable,
         DatabaseSchemaSystemTable,
+        DatabaseSchemaTableCertification,
         DatabaseSchemaViewTable,
         DataWarehouseSyncWarning,
         HogQLQueryModifiers,
@@ -175,6 +180,7 @@ if TYPE_CHECKING:
     from posthog.shared_link_user import SharedLinkUser
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+    from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
     from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
     from products.warehouse_sources.backend.facade.models import (
@@ -224,6 +230,7 @@ class HogQLDatabaseSources:
     revenue_views: list[RevenueAnalyticsBaseView]
     warehouse_tables: list[DataWarehouseTable]  # filtered to what build needs, schemas preloaded
     data_warehouse_joins: list[DataWarehouseJoin]
+    data_warehouse_expressions: list[DataWarehouseExpression]
     # dataWarehouseEventsModifiers path: saved query per modifier table name (None if no matching row).
     event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]]
     # Dual-mode: a synced (warehouse) source queried live via connection_id. Its physical rows are
@@ -378,7 +385,16 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
         "generate_series": TableNode(name="generate_series", table=GenerateSeriesTable()),
     }
 
-    if include_posthog_tables:
+    if not include_posthog_tables:
+        # This is a direct-connection catalog: no PostHog tables, only the connection's own. It still
+        # needs to be discoverable — otherwise the only way to learn a connection's table names is to
+        # already know them. The rows are computed from this Database object, so they describe the
+        # connection, not the team's ClickHouse catalog. `_prepare_direct_query` explains why such a
+        # query still runs on ClickHouse rather than being sent to the remote engine.
+        children["system"] = TableNode(
+            name="system", children={"information_schema": direct_connection_information_schema_node()}
+        )
+    else:
         root_tables = clone_root_tables()
         children = {
             **root_tables,
@@ -450,20 +466,58 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
-    """(table name, access scope) for the access-controlled Postgres system tables.
+def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
+    """Table name -> access scope for the access-controlled Postgres system tables.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
     access_scope dynamic (per-team, per-flag, or env-driven at call time): this cache would silently
     serve stale scopes and bypass the restriction. Today SystemTables().children is a static
     class-level dict of module-level PostgresTable constants, which satisfies that invariant.
+    Returned read-only so a caller can't mutate the shared cached mapping.
     """
-    return tuple(
-        (name, table_node.table.access_scope)
-        for name, table_node in SystemTables().children.items()
-        if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+    return MappingProxyType(
+        {
+            name: table_node.table.access_scope
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+        }
     )
+
+
+@cache
+def _system_table_required_features() -> Mapping[str, str]:
+    """Table name -> required AvailableFeature for system tables behind a billing entitlement.
+
+    Same process-static invariant as _system_table_access_scopes: the entitlement a table *requires*
+    is a static property of the table. What varies per organization is whether that entitlement is
+    *available*, which is resolved uncached in _unentitled_system_tables. Returned read-only so a
+    caller can't mutate the shared cached mapping.
+    """
+    return MappingProxyType(
+        {
+            name: table_node.table.required_feature_on_cloud
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.required_feature_on_cloud is not None
+        }
+    )
+
+
+def _unentitled_system_tables(team: Team) -> set[str]:
+    """System tables the team's organization is not entitled to, hidden from the schema.
+
+    Entitlement is organization-wide, so unlike RBAC this applies to every principal including
+    organization admins. Cloud-only, mirroring PremiumFeaturePermission's `premium_feature_on_cloud`.
+    """
+    # Lazy imports keep the Django ORM off this module's import path.
+    from posthog.cloud_utils import is_cloud  # noqa: PLC0415
+
+    required_features = _system_table_required_features()
+    if not required_features or not is_cloud():
+        return set()
+
+    organization = team.organization
+    return {name for name, feature in required_features.items() if not organization.is_feature_available(feature)}
 
 
 def _compute_system_table_access_decision(
@@ -482,20 +536,25 @@ def _compute_system_table_access_decision(
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
     scoped_tables = _system_table_access_scopes()
+    # Applies to every principal below, admins included - an entitlement the organization does not
+    # have cannot be granted by a role.
+    unentitled = _unentitled_system_tables(team)
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, {name for name, access_scope in scoped_tables if access_scope not in readable_scopes}
+        return None, unentitled | {
+            name for name, access_scope in scoped_tables.items() if access_scope not in readable_scopes
+        }
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-        return user_access_control, set()
+        return user_access_control, unentitled
 
-    denied: set[str] = set()
-    for name, access_scope in scoped_tables:
+    denied: set[str] = set(unentitled)
+    for name, access_scope in scoped_tables.items():
         access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
@@ -752,7 +811,11 @@ class Database(BaseModel):
 
     def apply_schema_scope(self) -> None:
         if self._is_direct_query():
-            self.prune_to_table_names(set(self._warehouse_table_names))
+            # The connection's own information_schema survives the prune: it describes the connection
+            # rather than reading from it, and it is how a caller discovers these table names at all.
+            system_node = self.tables.children.get("system")
+            catalog_table_names = set(system_node.resolve_visible_table_names()) if system_node is not None else set()
+            self.prune_to_table_names(set(self._warehouse_table_names) | catalog_table_names)
             return
 
         allowed_table_names = set(self.tables.resolve_all_table_names())
@@ -825,6 +888,18 @@ class Database(BaseModel):
         self._denied_tables.add(saved_query.name)
         return True
 
+    def _is_warehouse_expression_denied(self, expression: Any) -> bool:
+        """
+        Expression counterpart of `_is_warehouse_view_denied`: a user denied access to a saved
+        expression doesn't get its virtual field injected, so their queries see "Field not found".
+        Userless context (no UserAccessControl) fails closed - every expression is denied.
+        """
+        uac = self.user_access_control
+        return not (
+            uac is not None
+            and (uac.is_organization_admin or uac.check_access_level_for_object(expression, required_level="viewer"))
+        )
+
     def serialize(
         self,
         context: HogQLContext,
@@ -857,6 +932,8 @@ class Database(BaseModel):
 
         if context.team_id is None:
             raise ResolutionError("Must provide team_id to serialize database")
+
+        certifications_by_table_id, certifications_by_saved_query_id = _settled_catalog_certifications(context)
 
         # PostHog tables
         posthog_table_names = (
@@ -1005,6 +1082,7 @@ class Database(BaseModel):
                         schema=schema,
                         source=source,
                         row_count=warehouse_table.row_count,
+                        certification=certifications_by_table_id.get(str(warehouse_table.id)),
                     )
                 except (QueryError, ResolutionError) as e:
                     logger.warning(
@@ -1130,6 +1208,7 @@ class Database(BaseModel):
                     query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                     row_count=row_count,
                     status=saved_query.status,
+                    certification=certifications_by_saved_query_id.get(str(saved_query.pk)),
                 )
                 continue
 
@@ -1139,6 +1218,7 @@ class Database(BaseModel):
                 name=view_name,
                 query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                 row_count=row_count,
+                certification=certifications_by_saved_query_id.get(str(saved_query.pk)),
             )
 
         return tables
@@ -1199,6 +1279,7 @@ class Database(BaseModel):
         from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+        from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
         from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
@@ -1433,6 +1514,20 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_joins", emit_span=True):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
 
+        with timings.measure("data_warehouse_expressions", emit_span=True):
+            # canonical=True with the already-loaded team: for_team's own resolution queries the
+            # default DB, which some callers (e.g. ClickHouse-backed tests) can't reach.
+            expressions_query = DataWarehouseExpression.objects.for_team(
+                team.parent_team_id or team.pk, canonical=True
+            ).exclude(deleted=True)
+            # An expression is scoped either to one connection's direct-query database or to the
+            # default warehouse database; never both.
+            if is_direct_query:
+                expressions_query = expressions_query.filter(connection_id=connection_id)
+            else:
+                expressions_query = expressions_query.filter(connection_id__isnull=True)
+            data_warehouse_expressions = list(expressions_query)
+
         with timings.measure("attach_credentials", emit_span=True):
             # Tables and view-backing tables share the credential pool; attach across all of them.
             credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
@@ -1485,6 +1580,7 @@ class Database(BaseModel):
             revenue_views=revenue_views,
             warehouse_tables=warehouse_tables,
             data_warehouse_joins=data_warehouse_joins,
+            data_warehouse_expressions=data_warehouse_expressions,
             event_modifier_saved_queries=event_modifier_saved_queries,
             virtual_source=virtual_source,
             virtual_schemas=virtual_schemas,
@@ -1566,7 +1662,7 @@ class Database(BaseModel):
                         resolver=PERSONS,
                     )
 
-                _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
+                _add_error_tracking_fields(database)
 
         with timings.measure("session_table", emit_span=True):
             if not database._is_direct_query() and (
@@ -2110,6 +2206,31 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
+        # After joins, so a saved expression can never shadow a join field either.
+        with timings.measure("data_warehouse_expressions", emit_span=True):
+            for saved_expression in sources.data_warehouse_expressions:
+                if (
+                    sources.is_hogql_warehouse_access_control_enabled
+                    and not sources.bypass_warehouse_access_control
+                    and database._is_warehouse_expression_denied(saved_expression)
+                ):
+                    continue
+                if not database.has_table(saved_expression.table_name):
+                    continue
+                try:
+                    expression_table = database.get_table(saved_expression.table_name)
+                    # Expressions must never override existing fields; first-come-first-served on the
+                    # off chance duplicates exist.
+                    if saved_expression.field_name in expression_table.fields:
+                        continue
+                    expression_table.fields[saved_expression.field_name] = ExpressionField(
+                        name=saved_expression.field_name,
+                        expr=parse_expr(saved_expression.expression),
+                        isolate_scope=True,
+                    )
+                except Exception as e:
+                    capture_exception(e)
+
         database.apply_schema_scope()
 
         return database
@@ -2163,11 +2284,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
     # the parser's min-cacheable length, so they would otherwise re-parse on every build.
     return {
         "event_issue_id": parse_expr("toUUID(properties.$exception_issue_id)"),
-        # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
-        "issue_id": parse_expr(
-            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
-            start=None,
-        ),
+        "issue_id": parse_expr("fingerprint_issue_state.issue_id", start=None),
         "issue_id_v2": parse_expr("fingerprint_issue_state.issue_id", start=None),
         "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
         "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
@@ -2178,7 +2295,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
     }
 
 
-def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
+def _add_error_tracking_fields(database: Database) -> None:
     exprs = copy.deepcopy(_error_tracking_event_exprs())
     table = database.get_table("events")
     # convert event_issue_id to UUID to match type of `issue_id` on the overrides table
@@ -2506,6 +2623,59 @@ def _schema_field_input(table: Table) -> dict[str, Any]:
     return field_input
 
 
+def _settled_catalog_certifications(
+    context: HogQLContext,
+) -> tuple[dict[str, DatabaseSchemaTableCertification], dict[str, DatabaseSchemaTableCertification]]:
+    """Settled (certified/deprecated) catalog marks for the team as `(by_table_id, by_saved_query_id)`.
+
+    One bulk query keyed by target id — `(team, name)` is not unique on `DataWarehouseTable`, so a
+    name-keyed lookup could let one table's mark clobber another's. Gated on the product flag and on
+    data_catalog read access like `information_schema`, and fail-soft: certification must never break
+    schema serialization. Contexts without a `team` object (e.g. the AI schema path) skip the flag
+    evaluation and get no marks rather than paying a Team fetch.
+    """
+    from posthog.schema import DatabaseSchemaTableCertification  # noqa: PLC0415
+
+    from posthog.hogql.database.schema.information_schema import _can_read_catalog  # noqa: PLC0415
+
+    team = context.team
+    team_id = context.team_id
+
+    try:
+        from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
+        from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
+        from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
+
+        if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
+            return {}, {}
+
+        by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
+        by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
+        certifications = (
+            TableCertification.objects.for_team(team_id)
+            .filter(status__in=(CertificationStatus.CERTIFIED, CertificationStatus.DEPRECATED))
+            .exclude(table__deleted=True)
+            .exclude(table__external_data_source__deleted=True)
+            .exclude(saved_query__deleted=True)
+            .select_related("certified_by")
+        )
+        for certification in certifications:
+            serialized = DatabaseSchemaTableCertification(
+                status=certification.status,
+                notes=certification.notes or None,
+                certified_by=certification.certified_by.email if certification.certified_by else None,
+                certified_at=certification.certified_at.isoformat() if certification.certified_at else None,
+            )
+            if certification.table_id is not None:
+                by_table_id[str(certification.table_id)] = serialized
+            elif certification.saved_query_id is not None:
+                by_saved_query_id[str(certification.saved_query_id)] = serialized
+        return by_table_id, by_saved_query_id
+    except Exception:
+        logger.exception("serialize_database: failed to load catalog certifications", team_id=team_id)
+        return {}, {}
+
+
 def serialize_fields(
     field_input,
     context: HogQLContext,
@@ -2654,11 +2824,16 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, ExpressionField):
-                field_expr = resolve_types_from_table(field.expr, table_chain, context, "hogql")
-                assert field_expr.type is not None
-                constant_type = field_expr.type.resolve_constant_type(context)
-
-                field_type = _constant_type_to_serialized_field_type(constant_type)
+                # A stale expression (e.g. a saved expression whose referenced column was since
+                # removed) must degrade to a generic "expression" field instead of failing the
+                # whole schema serialization.
+                try:
+                    field_expr = resolve_types_from_table(field.expr, table_chain, context, "hogql")
+                    assert field_expr.type is not None
+                    constant_type = field_expr.type.resolve_constant_type(context)
+                    field_type = _constant_type_to_serialized_field_type(constant_type)
+                except Exception:
+                    field_type = None
                 if field_type is None:
                     field_type = DatabaseSerializedFieldType.EXPRESSION
 

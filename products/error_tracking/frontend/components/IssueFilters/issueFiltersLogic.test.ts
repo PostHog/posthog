@@ -56,6 +56,18 @@ describe('issueFiltersLogic', () => {
         quickFiltersSection.unmount()
     })
 
+    it('debounces issue search and stays synchronized with the committed query', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearchInput('timeout')
+        })
+            .toDispatchActions(['setSearchInput', 'setSearchQuery'])
+            .toFinishAllListeners()
+            .toMatchValues({ searchInput: 'timeout', searchQuery: 'timeout' })
+
+        logic.actions.setSearchQuery('from-url')
+        expect(logic.values.searchInput).toBe('from-url')
+    })
+
     describe('mergedFilterGroup', () => {
         const propA: EventPropertyFilter = {
             type: PropertyFilterType.Event,

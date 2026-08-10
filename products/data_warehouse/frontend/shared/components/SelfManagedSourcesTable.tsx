@@ -22,6 +22,7 @@ export function SelfManagedSourcesTable(): JSX.Element {
                 dataSource={filteredSelfManagedTables}
                 loading={databaseLoading}
                 pagination={{ pageSize: 10 }}
+                scrollToTopOnPageChange={false}
                 columns={[
                     {
                         width: 0,

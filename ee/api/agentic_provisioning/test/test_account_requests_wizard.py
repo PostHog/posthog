@@ -68,6 +68,13 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         assert len(args) == 3
         assert kwargs == {}
 
+        user = User.objects.get(email="plain@example.com")
+        team = user.teams.get()
+        assert user.onboarding_skipped_reason == OnboardingSkippedReason.PROVISIONED
+        assert user.onboarding_skipped_at is not None
+        assert user.onboarding_skipped_organization_id == team.organization_id
+        assert team.completed_snippet_onboarding is True
+
     def test_bundled_happy_path_runs_wizard_then_emails(self):
         grant = self._grant("drop@example.com")
         created = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
