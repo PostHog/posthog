@@ -1,9 +1,8 @@
+import { FileTextIcon, PlusCircleIcon } from "@phosphor-icons/react";
 import {
-  CheckCircleIcon,
-  FileTextIcon,
-  PlusCircleIcon,
-  XCircleIcon,
-} from "@phosphor-icons/react";
+  type ActivityRow,
+  buildActivityTimeline,
+} from "@posthog/core/canvas/activityTimeline";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
   Collapsible,
@@ -20,11 +19,18 @@ import {
 } from "@posthog/quill";
 import type {
   Task,
+  TaskCommentThreadSummary,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
-import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
+import {
+  ActivityEventRow,
+  CommentRow,
+  CommentStateRow,
+  RunStatusRow,
+  TimelineRow,
+} from "@posthog/ui/features/canvas/components/activityRows";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import {
   ThreadArtifactRow,
@@ -32,40 +38,16 @@ import {
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
-import { Fragment, type KeyboardEvent, type ReactNode, useMemo } from "react";
+import { Fragment, type KeyboardEvent, useMemo } from "react";
 
 type ConversationItem = ReturnType<
   typeof buildConversationItems
 >["items"][number];
-
-/** A lifecycle marker (task created, run finished): an icon bubble and a single
- *  line, in the same size and colour as every other row's copy. Only the icon
- *  distinguishes it, so the pane reads as one typographic system. */
-function ActivityEventRow({
-  icon,
-  label,
-  timestamp,
-}: {
-  icon: ReactNode;
-  label: string;
-  timestamp: string;
-}) {
-  return (
-    <div className="flex items-center gap-2 py-1.5 pr-2 pl-2">
-      <div className="flex w-10 shrink-0 justify-center">
-        <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-gray-3">
-          {icon}
-        </span>
-      </div>
-      <span className="min-w-0 truncate text-[13px]">{label}</span>
-      <ThreadTimestamp dateTime={timestamp} />
-    </div>
-  );
-}
 
 function UserMessageRow({
   author,
@@ -157,17 +139,26 @@ export function ActivityTimeline({
   task,
   timeline,
   conversationItems,
+  commentThreads = [],
+  commentsEnabled = false,
+  currentUserId,
   currentUserUuid,
   currentUserEmail,
   isTaskAuthor,
   canForward,
   canOpenInPlace,
+  runCount = 1,
   onSendToAgent,
   onDelete,
 }: {
   task: Task;
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
   conversationItems: ConversationItem[];
+  /** The task's comment threads, already collapsed one row per thread by the backend. */
+  commentThreads?: TaskCommentThreadSummary[];
+  commentsEnabled?: boolean;
+  /** Needed to tell a mention of you from a mention of someone else. */
+  currentUserId?: number;
   currentUserUuid?: string;
   currentUserEmail?: string | null;
   isTaskAuthor: boolean;
@@ -176,139 +167,189 @@ export function ActivityTimeline({
    *  pane. False in the channel-home sidebar, where there is nothing to drive —
    *  rows there stay inert and PRs open externally instead of dead-clicking. */
   canOpenInPlace?: boolean;
+  /** How many runs the task has; a single-run task shouldn't label its run. */
+  runCount?: number;
   onSendToAgent: (messageId: string) => void;
   onDelete: (messageId: string) => void;
 }) {
   const requestScrollToMessage = useThreadNavigationStore(
     (state) => state.requestScrollToMessage,
   );
+  const requestCommentFocus = useCommentNavigationStore(
+    (state) => state.requestCommentFocus,
+  );
 
-  const nodes = useMemo(() => {
-    const entries: { key: string; ts: number; node: ReactNode }[] = [];
-    const createdTs = Date.parse(task.created_at) || 0;
-    entries.push({
-      key: "task-created",
-      ts: createdTs,
-      node: (
-        <ActivityEventRow
-          icon={
-            <PlusCircleIcon size={14} weight="fill" className="text-gray-11" />
-          }
-          label={`${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
-          timestamp={task.created_at}
-        />
-      ),
-    });
+  // Thread messages arrive as `timeline` rows (human messages and the artifact
+  // announcements it already understands) plus the raw messages behind them, which carry
+  // the event rows. Rebuilding the message list from `timeline` keeps this component's
+  // props unchanged while the merge itself moves into core.
+  const messages = useMemo(
+    () => timeline.map((row) => row.message),
+    [timeline],
+  );
+  const messageRows = useMemo(() => {
+    const byId = new Map<string, ThreadTimelineRow<TaskThreadMessage>>();
+    for (const row of timeline) byId.set(row.message.id, row);
+    return byId;
+  }, [timeline]);
 
-    for (const item of conversationItems) {
-      if (item.type !== "user_message") continue;
-      entries.push({
-        key: `user-message-${item.id}`,
-        ts: item.timestamp,
-        node: (
+  const rows = useMemo(
+    () =>
+      buildActivityTimeline({
+        task: {
+          id: task.id,
+          createdAt: task.created_at,
+          updatedAt: task.updated_at,
+          latestRunId: task.latest_run?.id ?? null,
+          latestRunStatus: task.latest_run?.status ?? null,
+        },
+        messages,
+        commentThreads: commentThreads.map((thread) => ({
+          id: thread.id,
+          lastActivityAt: thread.last_activity_at,
+          mentionedUserIds: thread.mentioned_user_ids ?? [],
+          resolved: thread.resolved,
+          stateEvent: thread.state_event
+            ? {
+                state: thread.state_event.state,
+                createdAt: thread.state_event.created_at,
+              }
+            : null,
+        })),
+        userMessages: conversationItems
+          .filter((item) => item.type === "user_message")
+          .map((item) => ({
+            id: item.id,
+            content: item.content,
+            timestamp: item.timestamp,
+          })),
+        commentsEnabled,
+      }),
+    [task, messages, commentThreads, conversationItems, commentsEnabled],
+  );
+
+  const threadsById = useMemo(() => {
+    const byId = new Map<string, TaskCommentThreadSummary>();
+    for (const thread of commentThreads) byId.set(thread.id, thread);
+    return byId;
+  }, [commentThreads]);
+
+  const focusThread = (thread: TaskCommentThreadSummary) => {
+    if (!canOpenInPlace) return undefined;
+    return () =>
+      requestCommentFocus(
+        task.id,
+        // The target is the scope/itemId pair the comment stores; `task` scope points at
+        // the task itself.
+        thread.target.type === "task"
+          ? { scope: "task", itemId: task.id }
+          : {
+              scope:
+                thread.target.type === "canvas"
+                  ? "desktop_canvas"
+                  : "task_artifact",
+              itemId: thread.target.id,
+            },
+        thread.id,
+      );
+  };
+
+  const renderRow = (row: ActivityRow<TaskThreadMessage>) => {
+    switch (row.kind) {
+      case "task_created":
+        return (
+          <TimelineRow
+            gutter={
+              <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-gray-3">
+                <PlusCircleIcon
+                  size={14}
+                  weight="fill"
+                  className="text-gray-11"
+                />
+              </span>
+            }
+            timestamp={task.created_at}
+          >
+            {`${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
+          </TimelineRow>
+        );
+      case "user_message":
+        return (
           <UserMessageRow
             author={task.created_by}
-            content={item.content}
-            timestamp={new Date(item.timestamp).toISOString()}
+            content={row.item.content}
+            timestamp={new Date(row.item.timestamp).toISOString()}
             onSelect={
               canOpenInPlace
-                ? () => requestScrollToMessage(task.id, item.id)
+                ? () => requestScrollToMessage(task.id, row.item.id)
                 : undefined
             }
           />
-        ),
-      });
-    }
-
-    let hasPrArtifact = false;
-    for (const row of timeline) {
-      if (row.kind === "artifact" && row.artifact.kind === "pr") {
-        hasPrArtifact = true;
-      }
-      entries.push({
-        key: `thread-${row.message.id}`,
-        ts: row.timestamp,
-        node:
-          row.kind === "human" ? (
-            <ThreadMessageRow
-              message={row.message}
-              isTaskAuthor={isTaskAuthor}
-              isOwnMessage={
-                !!currentUserUuid &&
-                currentUserUuid === row.message.author?.uuid
-              }
-              currentUserEmail={currentUserEmail}
-              canForward={canForward}
-              preview
-              onSendToAgent={() => onSendToAgent(row.message.id)}
-              onDelete={() => onDelete(row.message.id)}
-            />
-          ) : (
+        );
+      case "human_message":
+        return (
+          <ThreadMessageRow
+            message={row.message}
+            isTaskAuthor={isTaskAuthor}
+            isOwnMessage={
+              !!currentUserUuid && currentUserUuid === row.message.author?.uuid
+            }
+            currentUserEmail={currentUserEmail}
+            canForward={canForward}
+            preview
+            onSendToAgent={() => onSendToAgent(row.message.id)}
+            onDelete={() => onDelete(row.message.id)}
+          />
+        );
+      case "event": {
+        // Canvases and pull requests already have a card row; the rest read as one line.
+        const artifactRow = messageRows.get(row.message.id);
+        if (artifactRow?.kind === "artifact") {
+          return (
             <ThreadArtifactRow
-              artifact={row.artifact}
+              artifact={artifactRow.artifact}
               createdAt={row.message.created_at}
               openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
             />
-          ),
-      });
-    }
-
-    const updatedTs = Date.parse(task.updated_at) || createdTs;
-    const outputPr = task.latest_run?.output?.pr_url;
-    if (typeof outputPr === "string" && outputPr && !hasPrArtifact) {
-      entries.push({
-        key: "output-pr",
-        ts: updatedTs,
-        node: (
-          <ThreadArtifactRow
-            artifact={{ kind: "pr", url: outputPr }}
-            createdAt={task.updated_at}
-            openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
-          />
-        ),
-      });
-    }
-
-    const runStatus = task.latest_run?.status;
-    if (runStatus && isTerminalStatus(runStatus)) {
-      const succeeded = runStatus === "completed";
-      entries.push({
-        key: "run-status",
-        ts: updatedTs + 1,
-        node: (
+          );
+        }
+        return (
           <ActivityEventRow
-            icon={
-              succeeded ? (
-                <CheckCircleIcon
-                  size={14}
-                  weight="fill"
-                  className="text-green-9"
-                />
-              ) : (
-                <XCircleIcon size={14} weight="fill" className="text-red-9" />
-              )
-            }
-            label={`Task ${runStatus.replace(/_/g, " ")}`}
-            timestamp={task.updated_at}
+            event={row.event}
+            timestamp={row.message.created_at}
+            runCount={runCount}
           />
-        ),
-      });
+        );
+      }
+      case "comment": {
+        const thread = threadsById.get(row.thread.id);
+        if (!thread) return null;
+        return (
+          <CommentRow
+            thread={thread}
+            isMentioned={
+              !!currentUserId &&
+              (thread.mentioned_user_ids ?? []).includes(currentUserId)
+            }
+            onSelect={focusThread(thread)}
+          />
+        );
+      }
+      case "comment_state": {
+        const thread = threadsById.get(row.thread.id);
+        if (!thread) return null;
+        return (
+          <CommentStateRow
+            thread={thread}
+            state={row.state}
+            onSelect={focusThread(thread)}
+          />
+        );
+      }
+      case "run_status":
+        return <RunStatusRow status={row.status} timestamp={task.updated_at} />;
     }
-
-    return entries.sort((a, b) => a.ts - b.ts);
-  }, [
-    conversationItems,
-    timeline,
-    task,
-    isTaskAuthor,
-    canForward,
-    currentUserUuid,
-    currentUserEmail,
-    onSendToAgent,
-    onDelete,
-    canOpenInPlace,
-    requestScrollToMessage,
-  ]);
+  };
 
   return (
     <div className="relative">
@@ -320,8 +361,8 @@ export function ActivityTimeline({
       />
       <div className="relative z-10">
         <ThreadItemGroup>
-          {nodes.map((entry) => (
-            <Fragment key={entry.key}>{entry.node}</Fragment>
+          {rows.map((row) => (
+            <Fragment key={row.key}>{renderRow(row)}</Fragment>
           ))}
         </ThreadItemGroup>
       </div>
