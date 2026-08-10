@@ -54,6 +54,7 @@ class ErrorTrackingFingerprint:
 class ErrorTrackingIssuePreview:
     id: UUID
     status: str
+    severity: str | None
     name: str | None
     description: str | None
     first_seen: datetime | None
@@ -64,6 +65,7 @@ class ErrorTrackingIssuePreview:
 class ErrorTrackingIssue:
     id: UUID
     status: str
+    severity: str | None
     name: str | None
     description: str | None
     first_seen: datetime | None

@@ -232,6 +232,10 @@ export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
+    severity: zod
+        .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+        .optional()
+        .describe('Issue severity to set, or null to remove the assigned severity.'),
     name: zod.string().nullish().describe('Optional issue display name.'),
     description: zod.string().nullish().describe('Optional issue description.'),
 })
@@ -244,6 +248,10 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
+    severity: zod
+        .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+        .optional()
+        .describe('Issue severity to set, or null to remove the assigned severity.'),
     name: zod.string().nullish().describe('Optional issue display name.'),
     description: zod.string().nullish().describe('Optional issue description.'),
 })
@@ -252,6 +260,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid().optional(),
         status: zod.string().optional(),
+        severity: zod.string().nullish().describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullish(),
         description: zod.string().nullish(),
         first_seen: zod.iso.datetime({ offset: true }).nullish(),
@@ -308,6 +317,7 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         status: zod.string(),
+        severity: zod.string().nullable().describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullable(),
         description: zod.string().nullable(),
         first_seen: zod.iso.datetime({ offset: true }).nullable(),
@@ -381,6 +391,7 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         status: zod.string(),
+        severity: zod.string().nullable().describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullable(),
         description: zod.string().nullable(),
         first_seen: zod.iso.datetime({ offset: true }).nullable(),

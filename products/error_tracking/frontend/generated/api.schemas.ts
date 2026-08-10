@@ -642,6 +642,11 @@ export interface ErrorTrackingIssueCohortReadApi {
 export interface ErrorTrackingIssueReadApi {
     id: string
     status: string
+    /**
+     * Issue severity, or null when no severity is assigned.
+     * @nullable
+     */
+    severity: string | null
     /** @nullable */
     name: string | null
     /** @nullable */
@@ -676,6 +681,16 @@ export const ErrorTrackingIssueWriteStatusEnumApi = {
     Suppressed: 'suppressed',
 } as const
 
+export type ErrorTrackingIssueSeverityApi =
+    (typeof ErrorTrackingIssueSeverityApi)[keyof typeof ErrorTrackingIssueSeverityApi]
+
+export const ErrorTrackingIssueSeverityApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
 export interface ErrorTrackingIssueWriteApi {
     /** Issue status to set. Deprecated archived and pending_release values are rejected.
      *
@@ -683,6 +698,8 @@ export interface ErrorTrackingIssueWriteApi {
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
     status?: ErrorTrackingIssueWriteStatusEnumApi
+    /** Issue severity to set, or null to remove the assigned severity. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * Optional issue display name.
      * @nullable
@@ -702,6 +719,8 @@ export interface PatchedErrorTrackingIssueWriteApi {
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
     status?: ErrorTrackingIssueWriteStatusEnumApi
+    /** Issue severity to set, or null to remove the assigned severity. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * Optional issue display name.
      * @nullable
@@ -720,6 +739,11 @@ export interface PatchedErrorTrackingIssueWriteApi {
 export interface PatchedErrorTrackingIssueReadApi {
     id?: string
     status?: string
+    /**
+     * Issue severity, or null when no severity is assigned.
+     * @nullable
+     */
+    severity?: string | null
     /** @nullable */
     name?: string | null
     /** @nullable */
