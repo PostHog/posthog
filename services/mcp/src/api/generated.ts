@@ -5806,6 +5806,7 @@ export namespace Schemas {
       AwsS3: 'aws-s3',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      Dropbox: 'dropbox',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -39813,6 +39814,7 @@ export namespace Schemas {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
+     * * `dropbox` - Dropbox
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -39863,6 +39865,7 @@ export namespace Schemas {
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
+      Dropbox: 'dropbox',
       Email: 'email',
       Firebase: 'firebase',
       Github: 'github',
@@ -39913,6 +39916,7 @@ export namespace Schemas {
        * * `customerio-track` - Customerio Track
        * * `customerio-webhook` - Customerio Webhook
        * * `databricks` - Databricks
+       * * `dropbox` - Dropbox
        * * `email` - Email
        * * `firebase` - Firebase
        * * `github` - Github
@@ -84537,6 +84541,7 @@ export namespace Schemas {
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
+     * * `dropbox` - Dropbox
      * * `email` - Email
      * * `firebase` - Firebase
      * * `github` - Github
@@ -84598,6 +84603,7 @@ export namespace Schemas {
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
+      Dropbox: 'dropbox',
       Email: 'email',
       Firebase: 'firebase',
       Github: 'github',

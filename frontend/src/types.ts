@@ -5491,6 +5491,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'dropbox',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
