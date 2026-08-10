@@ -57,6 +57,7 @@ Create with `survey-create`:
 | `conditions.events.values`           | the flow's completion event, e.g. `[{"name": "checkout completed"}]` — the survey shows when it fires. The experiment's primary metric usually names it: a funnel's last step, or a count metric's event (`experiment-get`, `metrics`) |
 | `appearance.surveyPopupDelaySeconds` | a few seconds, so it doesn't collide with the action (quick-create uses 15)                                                                                                                                                            |
 | `questions`                          | one 5-point rating, optionally one open follow-up — a single tap is a complete answer                                                                                                                                                  |
+| `enable_partial_responses`           | `true`. It defaults to **false** over the API, and posthog-js then sends nothing until every question is answered, so a rating followed by a dismiss is lost `[HIGH]`                                                                  |
 | `linked_flag_id`                     | optional — see below                                                                                                                                                                                                                   |
 | `conditions.linkedFlagVariant`       | omit unless targeting one variant (Decision 1); requires `linked_flag_id`                                                                                                                                                              |
 | `start_date`                         | omit (Decision 2)                                                                                                                                                                                                                      |
@@ -139,6 +140,8 @@ WHERE event = 'survey sent'
   AND properties.$survey_id = '<survey_id>'
   AND timestamp >= '<survey start_date>'
 ```
+
+Read `respondents`, not `responses`: with partial responses enabled, one submission can span several `survey sent` events (the backend merges them, the raw event count does not). Take headline counts from `survey-stats` and use this query for the split.
 
 Two caveats when presenting the split: it means "the flag was active when they answered", not "enrolled in this variant" (same semantics as Case B in [[scanning-experiments-with-replay-vision]] — fine for a qualitative read, not the analysis population); and respondents are a self-selected few percent, so the split generates hypotheses — when it disagrees with the experiment's metrics, the metrics win and the survey explains.
 
