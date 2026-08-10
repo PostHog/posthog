@@ -1463,7 +1463,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     create_evaluation: {
         name: 'Create evaluation',
-        description: 'Save an evaluation that scores new generations, traces, or sessions',
+        description: 'Create evaluations that score new generations, traces, or sessions',
         product: Scene.AIObservabilityEvaluation,
         icon: iconForType('llm_evaluations'),
         modes: [AgentMode.AIObservability],
