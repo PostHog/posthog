@@ -22,7 +22,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 )
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
-from products.replay_vision.backend.temporal.constants import (
+from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -40,6 +40,9 @@ SAMPLE_RATE_PRECISION = 10_000
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
+
+# Emitted by `emit_observation_event_activity` once an observation succeeds.
+OBSERVATION_EVENT_NAME = "$recording_observed"
 
 # Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
 FOCUSED_SURFACING_THRESHOLD = 0.30
@@ -94,6 +97,24 @@ def eligibility_predicates() -> list[ast.Expr]:
             right=ast.Constant(value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
         ),
     ]
+
+
+def _execute_candidate_query(
+    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int
+) -> list[list]:
+    """One home for the candidate queries' ClickHouse execution policy.
+
+    The dedicated user keeps sweep and backfill admission out of the contended shared `default` pool.
+    """
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type=query_type,
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time_seconds),
+            ch_user=ClickHouseUser.REPLAY_VISION,
+        )
+    return response.results or []
 
 
 @dataclass(frozen=True)
@@ -156,16 +177,13 @@ class ScannerCandidateQuery:
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
-        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
-            response = execute_hogql_query(
-                query=self.get_query(),
-                team=self._team,
-                query_type="ReplayVisionScannerCandidateQuery",
-                settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
-                # Dedicated user keeps sweep admission out of the contended shared `default` pool.
-                ch_user=ClickHouseUser.REPLAY_VISION,
-            )
-        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
+        rows = _execute_candidate_query(
+            self.get_query(),
+            team=self._team,
+            query_type="ReplayVisionScannerCandidateQuery",
+            max_execution_time_seconds=self._max_execution_time_seconds,
+        )
+        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
     def get_query(self) -> ast.SelectQuery:
         # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
@@ -215,29 +233,222 @@ class ScannerCandidateQuery:
         )
 
     def _sampling_predicate(self) -> ast.Expr | None:
-        if self._sampling_rate >= 1.0:
+        return sampling_predicate(self._sampling_rate, self._sampling_salt)
+
+
+def sampling_predicate(sampling_rate: float, sampling_salt: str) -> ast.Expr | None:
+    """Deterministic salted-hash downsample on the inner query's session rows; None means keep everything."""
+    if sampling_rate >= 1.0:
+        return None
+    # round(), not int(): float error puts e.g. 0.29 * 10_000 at 2899.999…, and truncation would shave a bucket.
+    threshold = max(0, round(sampling_rate * SAMPLE_RATE_PRECISION))
+    if threshold <= 0:
+        return ast.Constant(value=False)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Lt,
+        left=ast.Call(
+            name="modulo",
+            args=[
+                # concat rather than a second cityHash64 arg — HogQL pins cityHash64 to a single argument.
+                ast.Call(
+                    name="cityHash64",
+                    args=[
+                        ast.Call(
+                            name="concat",
+                            args=[ast.Field(chain=["s", "session_id"]), ast.Constant(value=sampling_salt)],
+                        )
+                    ],
+                ),
+                ast.Constant(value=SAMPLE_RATE_PRECISION),
+            ],
+        ),
+        right=ast.Constant(value=threshold),
+    )
+
+
+class BackfillCandidateQuery:
+    """Enumerate a backfill's candidate sessions inside a closed historical window.
+
+    Same eligibility, sampling, and surfacing predicates as `ScannerCandidateQuery`, but bounded on both
+    sides and walked newest-first: batches descend from `window_end` via a `(end_time, session_id)` keyset
+    cursor. `count()` runs the identical predicate set without cursor or limit, so the creation-time
+    enumeration is exactly the set the ticks will walk (the window is closed, so it can only shrink as
+    recordings expire from retention — never grow).
+    """
+
+    def __init__(
+        self,
+        *,
+        team: Team,
+        query: RecordingsQuery,
+        window_start: dt.datetime,
+        window_end: dt.datetime,
+        sampling_rate: float,
+        sampling_salt: str,
+        sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
+        cursor_end_time: dt.datetime | None = None,
+        cursor_session_id: str | None = None,
+        exclude_observed_by_scanner: str | None = None,
+        candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
+        max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
+    ) -> None:
+        for name, value in (("window_start", window_start), ("window_end", window_end)):
+            if not isinstance(value, dt.datetime):
+                raise TypeError(f"{name} must be a datetime, got {type(value).__name__}")
+            if value.tzinfo is None:
+                raise ValueError(f"{name} must be timezone-aware")
+        if window_start >= window_end:
+            raise ValueError("window_start must be before window_end")
+        if candidate_limit <= 0:
+            raise ValueError(f"candidate_limit must be positive, got {candidate_limit}")
+
+        self._team = team
+        self._window_start = window_start
+        self._window_end = window_end
+        self._cursor_end_time = cursor_end_time
+        self._cursor_session_id = cursor_session_id
+        self._exclude_observed_by_scanner = exclude_observed_by_scanner
+        self._candidate_limit = candidate_limit
+        self._max_execution_time_seconds = max_execution_time_seconds
+
+        # The backfill owns the time window; the frozen scanner query only contributes filters.
+        inner_query = query.model_copy(deep=True)
+        inner_query.date_from = (window_start - _PARTITION_LOOKBACK).isoformat()
+        # Sessions end at or after their start, so no candidate in the window starts past window_end.
+        inner_query.date_to = window_end.isoformat()
+        inner_query.limit = None
+        inner_query.offset = None
+        inner_query.after = None
+
+        extra_having: list[ast.Expr] = eligibility_predicates()
+        if (sampling := sampling_predicate(sampling_rate, sampling_salt)) is not None:
+            extra_having.append(sampling)
+        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+            extra_having.append(surfacing)
+
+        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
+
+    @tracer.start_as_current_span("BackfillCandidateQuery.run")
+    def run(self) -> list[CandidateSession]:
+        rows = _execute_candidate_query(
+            self.get_query(),
+            team=self._team,
+            query_type="ReplayVisionBackfillCandidateQuery",
+            max_execution_time_seconds=self._max_execution_time_seconds,
+        )
+        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
+
+    @tracer.start_as_current_span("BackfillCandidateQuery.count")
+    def count(self) -> int:
+        counted = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=self._windowed_candidates(), alias="candidates"),
+        )
+        rows = _execute_candidate_query(
+            counted,
+            team=self._team,
+            query_type="ReplayVisionBackfillCountQuery",
+            max_execution_time_seconds=self._max_execution_time_seconds,
+        )
+        return int(rows[0][0]) if rows else 0
+
+    def get_query(self) -> ast.SelectQuery:
+        query = self._windowed_candidates()
+        if (cursor := self._cursor_predicate()) is not None:
+            assert isinstance(query.where, ast.And)
+            query.where.exprs.append(cursor)
+        query.order_by = [
+            ast.OrderExpr(expr=ast.Field(chain=["session_end"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["sessions", "session_id"]), order="DESC"),
+        ]
+        query.limit = ast.Constant(value=self._candidate_limit)
+        return query
+
+    def _windowed_candidates(self) -> ast.SelectQuery:
+        """Window and eligibility predicates shared by the batch walk and the exact count."""
+        # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
+        inner = self._inner.get_query()
+        inner.order_by = None
+
+        end_time = ast.Field(chain=["sessions", "end_time"])
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq, left=end_time, right=ast.Constant(value=self._window_start)
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt, left=end_time, right=ast.Constant(value=self._window_end)
+            ),
+            # Excludes attacker-supplied over-length session_ids that would later wedge wire-payload validation.
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="length", args=[ast.Field(chain=["sessions", "session_id"])]),
+                right=ast.Constant(value=MAX_SESSION_ID_LENGTH),
+            ),
+        ]
+        if self._exclude_observed_by_scanner is not None:
+            where_exprs.append(self._not_already_observed_predicate(self._exclude_observed_by_scanner))
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["sessions", "session_id"]),
+                ast.Alias(alias="session_end", expr=ast.Field(chain=["sessions", "end_time"])),
+            ],
+            select_from=ast.JoinExpr(table=cast(ast.SelectQuery, inner), alias="sessions"),
+            where=ast.And(exprs=where_exprs),
+        )
+
+    def _not_already_observed_predicate(self, scanner_id: str) -> ast.Expr:
+        """Drop sessions this scanner already published a `$recording_observed` event for.
+
+        Reads the event rather than shipping observation ids over from Postgres, so the exclusion is
+        a plain ClickHouse join with no cross-database list and no size ceiling. The trade-off is that
+        the event is only emitted on the success path, and fail-soft even there, so ineligible,
+        failed, and in-flight observations stay in the count. Those cannot produce a second
+        observation (the unique constraint blocks it), which is why the total is an upper bound.
+        """
+        observed = ast.SelectQuery(
+            select=[ast.Field(chain=["properties", "session_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=OBSERVATION_EVENT_NAME),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["properties", "scanner_id"]),
+                        right=ast.Constant(value=scanner_id),
+                    ),
+                    # An observation is always emitted after its session ended, so the window's own
+                    # lower bound prunes partitions without ever excluding a relevant event.
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=self._window_start),
+                    ),
+                ]
+            ),
+        )
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotIn,
+            left=ast.Field(chain=["sessions", "session_id"]),
+            right=observed,
+        )
+
+    def _cursor_predicate(self) -> ast.Expr | None:
+        if self._cursor_end_time is None:
             return None
-        # round(), not int(): float error puts e.g. 0.29 * 10_000 at 2899.999…, and truncation would shave a bucket.
-        threshold = max(0, round(self._sampling_rate * SAMPLE_RATE_PRECISION))
-        if threshold <= 0:
-            return ast.Constant(value=False)
+        end_time = ast.Field(chain=["sessions", "end_time"])
+        if not self._cursor_session_id:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt, left=end_time, right=ast.Constant(value=self._cursor_end_time)
+            )
+        # Mirror of the sweep's ascending keyset: lexicographic tuple comparison, walked downward.
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
-            left=ast.Call(
-                name="modulo",
-                args=[
-                    # concat rather than a second cityHash64 arg — HogQL pins cityHash64 to a single argument.
-                    ast.Call(
-                        name="cityHash64",
-                        args=[
-                            ast.Call(
-                                name="concat",
-                                args=[ast.Field(chain=["s", "session_id"]), ast.Constant(value=self._sampling_salt)],
-                            )
-                        ],
-                    ),
-                    ast.Constant(value=SAMPLE_RATE_PRECISION),
-                ],
+            left=ast.Tuple(exprs=[end_time, ast.Field(chain=["sessions", "session_id"])]),
+            right=ast.Tuple(
+                exprs=[ast.Constant(value=self._cursor_end_time), ast.Constant(value=self._cursor_session_id)]
             ),
-            right=ast.Constant(value=threshold),
         )

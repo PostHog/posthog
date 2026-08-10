@@ -127,6 +127,8 @@ const quota: VisionQuotaApi = {
     remaining: 7600,
     exhausted: false,
     projected_monthly_credits: 5200,
+    scanners_monthly_credits: 5200,
+    backfills_committed_credits: 0,
     free_monthly_credits: 2500,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',

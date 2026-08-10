@@ -229,7 +229,7 @@ export function ArtifactPreview({
   const [locateRequest, setLocateRequest] =
     useState<CommentLocateRequest | null>(null);
   useEffect(() => {
-    if (!focus || !focusedThreadId) return;
+    if (!focus || !focusedThreadId || focus.intent !== "navigate") return;
     if (!threads.some((thread) => thread.root.id === focusedThreadId)) return;
     setLocateRequest((current) =>
       current?.nonce === focus.nonce
@@ -237,9 +237,19 @@ export function ArtifactPreview({
         : { id: focusedThreadId, nonce: focus.nonce },
     );
   }, [focus, focusedThreadId, threads]);
+  const currentLocateRequest =
+    focus &&
+    focus.intent === "navigate" &&
+    focusedThreadId &&
+    locateRequest?.nonce === focus.nonce
+      ? locateRequest
+      : null;
 
   const activateThread = useCallback(
-    (id: string) => requestCommentFocus(taskId, commentTarget, id),
+    (id: string) =>
+      requestCommentFocus(taskId, commentTarget, id, {
+        intent: "reveal-thread",
+      }),
     [requestCommentFocus, taskId, commentTarget],
   );
   const onResolutionsChange = useCallback(
@@ -254,9 +264,11 @@ export function ArtifactPreview({
         context: { anchor },
         mentions,
       });
-      activateThread(created.id);
+      requestCommentFocus(taskId, commentTarget, created.id, {
+        intent: "focus-only",
+      });
     },
-    [createComment, activateThread],
+    [commentTarget, createComment, requestCommentFocus, taskId],
   );
 
   const versionNav =
@@ -342,7 +354,7 @@ export function ArtifactPreview({
       markdownContainerRef={markdownContainerRef}
       annotationComments={annotationComments}
       focusedThreadId={focusedThreadId}
-      locateRequest={locateRequest}
+      locateRequest={currentLocateRequest}
       members={members}
       activateThread={activateThread}
       createAnchoredComment={createAnchoredComment}

@@ -48,9 +48,11 @@ from products.tasks.backend.constants import (
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
+    get_required_model_flag,
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import get_model_access_error
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -5201,6 +5203,19 @@ def run_task(
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     is_pi_task = task.runtime == Task.Runtime.PI
 
+    if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        # The inbox "Create PR" button sends no branch, so without this the run would target the
+        # repository's GitHub default branch. Auto-start resolves the same setting when it builds
+        # its task. This sits before the warm-run reuse check below, so that a sandbox idling on
+        # the default branch is not reused for a run that needs the configured branch.
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            autostart_base_branch_for_repository,
+        )
+
+        branch = autostart_base_branch_for_repository(
+            team_id, task.repositories[0] if task.repositories else task.repository
+        )
+
     if not resume_from_run_id:
         warm_run = _idling_warm_run_for_task(task)
         if warm_run is not None and (branch or None) == (warm_run.branch or None):
@@ -5387,6 +5402,20 @@ def run_task(
                 kind="validation_error", code="invalid_input", detail=reasoning_effort_error, attr="reasoning_effort"
             )
         )
+
+    # A resume inherits the previous run's model, so the serializer's check saw `None` and
+    # passed. Re-check the model that will actually run. Only a gated model pays the lookup.
+    if get_required_model_flag(model) is not None:
+        actor_distinct_id = (
+            User.objects.filter(pk=user_id).values_list("distinct_id", flat=True).first() if user_id else None
+        )
+        model_access_error = get_model_access_error(model, distinct_id=actor_distinct_id)
+        if model_access_error is not None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="validation_error", code="invalid_input", detail=model_access_error, attr="model"
+                )
+            )
 
     pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
         task,
