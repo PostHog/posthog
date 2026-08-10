@@ -212,6 +212,11 @@ class PipelineV3(Generic[ResumableData]):
         self._resumable_source_manager = resumable_source_manager
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
+        # Arrow coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables)
+        # from becoming the queue's batch granularity, but it delays when a yielded table is
+        # persisted, so it must stay off for sources that treat yield as durable: resumable
+        # sources checkpoint resume state right after yielding, and the webhook path deletes its
+        # staged S3 files right after yielding.
         self._batcher = Batcher(
             self._logger,
             chunk_size=source_response.chunk_size,
@@ -219,6 +224,7 @@ class PipelineV3(Generic[ResumableData]):
             source_type=self._source.source_type if self._source else None,
             team_id=self._job.team_id,
             schema_name=self._schema.name,
+            coalesce_tables=resumable_source_manager is None and not self._schema.is_webhook,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
