@@ -42,8 +42,6 @@ export interface PersonRepositoryTransaction {
 
     fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]>
 
-    addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
-
     updateCohortsAndFeatureFlagsForMerge(
         teamId: Team['id'],
         sourcePersonID: InternalPerson['id'],
