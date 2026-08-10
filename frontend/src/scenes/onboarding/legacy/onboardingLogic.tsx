@@ -106,9 +106,9 @@ export interface onboardingLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
-    recordProductIntentOnboardingComplete: (args_0: { product_type: ProductKey }) => {
-        product_type: ProductKey
-    } // teamLogic
+    recordProductIntentOnboardingComplete: (
+        properties: import('scenes/teamLogic').ProductOnboardingCompleteProperties
+    ) => import('scenes/teamLogic').ProductOnboardingCompleteProperties // teamLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
