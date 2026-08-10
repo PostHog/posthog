@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import inspect
 import dataclasses
 from collections.abc import Callable, Mapping
@@ -46,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
@@ -53,6 +55,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
     ENTITLEMENTS_FEATURE_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,
+    HISTORY_CAPTURED_AT_COLUMN,
+    HISTORY_EVENT_ID_COLUMN,
+    HISTORY_EVENT_TYPE_COLUMN,
+    HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
+    HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
@@ -348,6 +355,10 @@ class StripeNestedResource:
     # the default behaviour fans out one call per parent — most of which return nothing. A cheap
     # signal already present on the parent object lets us avoid the calls that can't yield data.
     parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
+    # Optional per-row rewrite applied to each nested row (after the parent id is stamped, before
+    # secret scrubbing). The history table uses it to stamp its observation-metadata columns onto
+    # the seed sweep's rows.
+    row_transform: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
 
 
 class _SingleObjectList:
@@ -418,6 +429,23 @@ def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
     "might have" so we never silently drop data."""
     balance = customer.get("balance")
     return balance is None or balance != 0
+
+
+def _payment_method_history_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Stamp observation metadata onto one payment-method row from the history seed sweep.
+
+    The sweep can only observe currently-attached payment methods, so each row is a "snapshot"
+    observation keyed by payment method + customer: re-running the sweep (e.g. the poll fallback
+    while the webhook handler is disabled) refreshes the same row instead of appending a
+    duplicate, and a payment method later attached to a different customer gets a distinct
+    snapshot row rather than overwriting the first customer's history.
+    """
+    return {
+        **row,
+        HISTORY_EVENT_ID_COLUMN: f"{HISTORY_SNAPSHOT_EVENT_TYPE}:{row.get('id')}:{row.get('customer')}",
+        HISTORY_EVENT_TYPE_COLUMN: HISTORY_SNAPSHOT_EVENT_TYPE,
+        HISTORY_CAPTURED_AT_COLUMN: int(time.time()),
+    }
 
 
 @dataclasses.dataclass
@@ -529,6 +557,18 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        # Same sweep as CustomerPaymentMethod, used only to seed the history table on its initial
+        # sync; from then on `payment_method.*` webhook events land one row per event. The sweep
+        # cannot see payment methods detached before it ran — Stripe exposes no endpoint listing
+        # detached payment methods — so history from before the source connected is unrecoverable.
+        CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME: StripeNestedResource(
+            method=client.customers.payment_methods.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+            row_transform=_payment_method_history_snapshot_row,
         ),
         PAYMENT_INTENT_RESOURCE_NAME: StripeResource(method=client.payment_intents.list),
         CHECKOUT_SESSION_RESOURCE_NAME: StripeResource(method=client.checkout.sessions.list),
@@ -689,14 +729,13 @@ def get_rows(
                         **nested_kwargs,
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():
-                        batcher.batch(
-                            _scrub_client_secrets(
-                                {
-                                    **nested_obj,
-                                    **{resource.nested_parent_param: parent_obj_id},
-                                }
-                            )
-                        )
+                        row = {
+                            **nested_obj,
+                            **{resource.nested_parent_param: parent_obj_id},
+                        }
+                        if resource.row_transform is not None:
+                            row = resource.row_transform(row)
+                        batcher.batch(_scrub_client_secrets(row))
 
                         # A single batch can split into several ready chunks, so drain them all
                         # before batching the next item — otherwise the next batch() trips the
@@ -806,6 +845,52 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     return table_from_py_list(rows)
 
 
+def _webhook_history_table_transformer(table: pa.Table) -> pa.Table:
+    """Turn a batch of webhook events into history rows: one immutable row per event.
+
+    Unlike `_webhook_table_transformer` there is no latest-per-object collapse — several events
+    for the same payment method in one batch (attached, updated, detached) must all survive, or
+    the intermediate states the table exists to record are lost. Rows are keyed by the Stripe
+    event id instead, so a redelivered event refreshes its own row rather than duplicating it.
+
+    Reading columns through `_column` (None-filled when absent) keeps a malformed payload — only
+    reachable with the signature check bypassed — from raising and wedging the batch forever:
+    the S3 files are only deleted after a successful yield, so a raising transformer would replay
+    the same poison batch on every sync.
+    """
+
+    def _column(name: str) -> list[Any]:
+        if name in table.column_names:
+            return table.column(name).to_pylist()
+        return [None] * table.num_rows
+
+    rows: dict[str, dict] = {}
+    for event_id, event_type, data_str, event_created in zip(
+        _column("id"), _column("type"), _column("data"), _column("created")
+    ):
+        if event_id is None or data_str is None:
+            continue
+        data = _scrub_client_secrets(orjson.loads(data_str))
+        obj = data.get("object")
+        if not isinstance(obj, dict) or obj.get("id") is None:
+            continue
+        # `previous_attributes` carries the pre-event values of the fields the event changed —
+        # for `payment_method.detached` that's the customer the method was detached from, which
+        # the object itself no longer shows (its `customer` is null after detachment).
+        previous_attributes = data.get("previous_attributes")
+        rows[event_id] = {
+            **obj,
+            HISTORY_EVENT_ID_COLUMN: event_id,
+            HISTORY_EVENT_TYPE_COLUMN: event_type,
+            HISTORY_CAPTURED_AT_COLUMN: event_created if isinstance(event_created, int) else None,
+            HISTORY_PREVIOUS_ATTRIBUTES_COLUMN: (
+                orjson.dumps(previous_attributes).decode() if previous_attributes else None
+            ),
+        }
+
+    return table_from_py_list(list(rows.values()))
+
+
 def stripe_source(
     api_key: str,
     account_id: Optional[str],
@@ -836,7 +921,14 @@ def stripe_source(
 
     def items():
         if webhook_enabled:
-            return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+            # History tables keep every event as its own row; everything else collapses each
+            # batch to the latest state per object id and upserts it.
+            table_transformer = (
+                _webhook_history_table_transformer
+                if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME
+                else _webhook_table_transformer
+            )
+            return webhook_source_manager.get_items(table_transformer=table_transformer)
 
         return get_rows(
             api_key=api_key,
