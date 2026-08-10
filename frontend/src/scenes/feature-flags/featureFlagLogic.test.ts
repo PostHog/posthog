@@ -1886,8 +1886,8 @@ describe('featureFlagLogic', () => {
                     ],
                 },
             })
-            // The copy listener reports to eventUsageLogic, which nothing in this logic's
-            // connect() mounts — without this, the listener dies at that call.
+            // The copy listener reports to eventUsageLogic, but featureFlagLogic does not mount it via connect().
+            // Mount it here so the listener does not throw when it calls reportFeatureFlagCopyFailure().
             eventUsageLogic.mount()
             logic.actions.setCopyDestinationProject(MOCK_TEAM_ID)
         })
