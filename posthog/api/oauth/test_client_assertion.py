@@ -20,6 +20,7 @@ from posthog.api.oauth.client_assertion import (
     CLIENT_ASSERTION_TYPE_JWT_BEARER,
     MAX_ASSERTION_LIFETIME_SECONDS,
     ClientAssertionError,
+    expected_assertion_audiences,
     extract_client_assertion,
     load_jwks,
     verify_client_assertion,
@@ -92,6 +93,21 @@ class TestClientAssertion(BaseTest):
     def _verify(self, assertion: str) -> None:
         with patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(self.jwks, None)):
             verify_client_assertion(self.app, assertion)
+
+    @override_settings(
+        SITE_URL="https://us.posthog.com",
+        OAUTH_CLIENT_ASSERTION_ALLOWED_AUDIENCES=["https://oauth.posthog.com/"],
+    )
+    def test_advertised_issuers_are_accepted_audiences(self):
+        audiences = expected_assertion_audiences("/oauth/token/", "/oauth/token")
+        assert audiences == [
+            "https://us.posthog.com",
+            "https://us.posthog.com/oauth/token/",
+            "https://us.posthog.com/oauth/token",
+            "https://oauth.posthog.com",
+            "https://oauth.posthog.com/oauth/token/",
+            "https://oauth.posthog.com/oauth/token",
+        ]
 
     def test_valid_assertion_verifies(self):
         self._verify(self._assertion())

@@ -204,6 +204,23 @@ def _token_error_code(response: HttpResponse) -> str:
     return f"http_{response.status_code}"
 
 
+def _presented_client_auth_method(request) -> str:
+    """Which client-authentication method the request actually carried.
+
+    The RFC 6749 error code cannot express this: `invalid_client` reads the same whether the
+    client sent a credential we refused or sent none at all. Those two need different fixes,
+    and telling them apart is otherwise only possible by reading the request body, which is
+    never logged because it holds the credential itself.
+    """
+    if request.META.get("HTTP_AUTHORIZATION", "").startswith("Basic "):
+        return "client_secret_basic"
+    if request.POST.get("client_assertion"):
+        return TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value
+    if request.POST.get("client_secret"):
+        return TokenEndpointAuthMethod.CLIENT_SECRET_POST.value
+    return TokenEndpointAuthMethod.NONE.value
+
+
 def _scoped_organization_ids(
     user: User,
     access_level: str | None,
@@ -415,20 +432,55 @@ class OAuthValidator(OAuth2Validator):
         """
         if self._authenticate_client_assertion(request):
             return True
-        return super().authenticate_client(request, *args, **kwargs)
+
+        authenticated = super().authenticate_client(request, *args, **kwargs)
+        if not authenticated:
+            # oauthlib turns every failure here into a bare `invalid_client`, which tells an
+            # operator nothing about which credential the client actually presented. Recording
+            # the shape of the attempt is what makes a client stuck on the wrong auth method
+            # distinguishable from one whose credential we rejected. Only presence is recorded
+            # because the assertion and the secret are themselves credentials.
+            logger.warning(
+                "oauth_client_authentication_failed",
+                client_id=getattr(request, "client_id", None) or "",
+                client_assertion_type=getattr(request, "client_assertion_type", None) or "",
+                has_client_assertion=bool(getattr(request, "client_assertion", None)),
+                has_client_secret=bool(getattr(request, "client_secret", None)),
+            )
+        return authenticated
 
     def _authenticate_client_assertion(self, request) -> bool:
+        assertion_type = getattr(request, "client_assertion_type", None) or ""
+        presented_client_id = getattr(request, "client_id", None) or ""
         assertion = resolve_client_assertion(
             getattr(request, "client_assertion", None) or "",
-            getattr(request, "client_assertion_type", None) or "",
-            getattr(request, "client_id", None) or "",
+            assertion_type,
+            presented_client_id,
         )
         if assertion is None:
+            # A request carrying neither field is the ordinary secret-based client, which the
+            # caller logs if it goes on to fail. A request carrying one of them meant to use
+            # this method, so the half-formed attempt is worth naming on its own.
+            if assertion_type or getattr(request, "client_assertion", None):
+                logger.warning(
+                    "oauth_client_assertion_unusable",
+                    client_id=presented_client_id,
+                    client_assertion_type=assertion_type,
+                    has_client_assertion=bool(getattr(request, "client_assertion", None)),
+                )
             return False
 
         assertion_value, client_id = assertion
         app = self._load_application(client_id, request)
-        if app is None or not app.uses_private_key_jwt_auth:
+        if app is None:
+            logger.warning("oauth_client_assertion_client_not_found", client_id=client_id)
+            return False
+        if not app.uses_private_key_jwt_auth:
+            logger.warning(
+                "oauth_client_assertion_method_mismatch",
+                client_id=client_id,
+                registered_method=app.token_endpoint_auth_method.value,
+            )
             return False
 
         if app.is_cimd_client and app.cimd_metadata_url:
@@ -1522,7 +1574,9 @@ class OAuthTokenView(TokenView):
         )
 
     @staticmethod
-    def _capture_token_rejected(grant_type: str, client_id: str, error: str) -> None:
+    def _capture_token_rejected(
+        grant_type: str, client_id: str, error: str, presented_auth_method: str | None = None
+    ) -> None:
         """The token exchange has no authenticated user, so this keys on the client id —
         enough to tell "the client never came back for a token" apart from "it came back
         and we refused", which the authorization events alone cannot distinguish.
@@ -1536,6 +1590,7 @@ class OAuthTokenView(TokenView):
             "client_id": client_id,
             # Personless: the client id is not a user, and one person per client would be noise.
             "$process_person_profile": False,
+            **({"presented_auth_method": presented_auth_method} if presented_auth_method else {}),
             **(get_region_info() or {}),
         }
         try:
@@ -1628,11 +1683,13 @@ class OAuthTokenView(TokenView):
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
         redirect_uri = request.POST.get("redirect_uri", "")
+        presented_auth_method = _presented_client_auth_method(request)
         logger.info(
             "oauth_token_request",
             grant_type=grant_type,
             client_id_prefix=client_id_prefix,
             redirect_uri=redirect_uri,
+            presented_auth_method=presented_auth_method,
         )
 
         try:
@@ -1647,7 +1704,7 @@ class OAuthTokenView(TokenView):
                 client_id_prefix=client_id_prefix,
                 redirect_uri=redirect_uri,
             )
-            self._capture_token_rejected(grant_type, client_id, "invalid_grant")
+            self._capture_token_rejected(grant_type, client_id, "invalid_grant", presented_auth_method)
             return JsonResponse(
                 {
                     "error": "invalid_grant",
@@ -1668,7 +1725,7 @@ class OAuthTokenView(TokenView):
                 redirect_uri=redirect_uri,
                 error=str(e),
             )
-            self._capture_token_rejected(grant_type, client_id, "temporarily_unavailable")
+            self._capture_token_rejected(grant_type, client_id, "temporarily_unavailable", presented_auth_method)
             return _temporarily_unavailable_response()
         except RedisError as e:
             # Client authentication reads Redis on the private_key_jwt path (JWKS cache, jti
@@ -1743,7 +1800,7 @@ class OAuthTokenView(TokenView):
                 response["Content-Type"] = "application/json"
 
         if response.status_code != 200:
-            self._capture_token_rejected(grant_type, client_id, _token_error_code(response))
+            self._capture_token_rejected(grant_type, client_id, _token_error_code(response), presented_auth_method)
 
         return response
 
