@@ -16,12 +16,10 @@ interface SessionViewState {
    * resets to expanded on app restart.
    */
   queueCollapsedByTaskId: Record<string, boolean>;
-  /**
-   * Ephemeral per-task collapse of the artifact "Files" box in the chat
-   * thread, keyed by taskId. `true` = collapsed; absent/`false` = expanded
-   * (the default — the box never collapses on its own). Not persisted.
-   */
-  artifactFilesCollapsedByTaskId: Record<string, boolean>;
+  artifactFilesCollapseByTaskId: Record<
+    string,
+    { collapsed: boolean; fileListKey: string }
+  >;
 }
 
 interface SessionViewActions {
@@ -31,7 +29,12 @@ interface SessionViewActions {
   setGroupOverride: (id: string, expanded: boolean) => void;
   clearGroupOverrides: () => void;
   setQueueCollapsed: (taskId: string, collapsed: boolean) => void;
-  setArtifactFilesCollapsed: (taskId: string, collapsed: boolean) => void;
+  setArtifactFilesCollapsed: (
+    taskId: string,
+    collapsed: boolean,
+    fileListKey: string,
+  ) => void;
+  syncArtifactFilesListKey: (taskId: string, fileListKey: string) => void;
 }
 
 type SessionViewStore = SessionViewState & { actions: SessionViewActions };
@@ -42,7 +45,7 @@ const useStore = create<SessionViewStore>((set) => ({
   showSearch: false,
   groupOverrides: {},
   queueCollapsedByTaskId: {},
-  artifactFilesCollapsedByTaskId: {},
+  artifactFilesCollapseByTaskId: {},
   actions: {
     setShowRawLogs: (show) => set({ showRawLogs: show }),
     setSearchQuery: (query) => set({ searchQuery: query }),
@@ -68,13 +71,24 @@ const useStore = create<SessionViewStore>((set) => ({
           [taskId]: collapsed,
         },
       })),
-    setArtifactFilesCollapsed: (taskId, collapsed) =>
+    setArtifactFilesCollapsed: (taskId, collapsed, fileListKey) =>
       set((state) => ({
-        artifactFilesCollapsedByTaskId: {
-          ...state.artifactFilesCollapsedByTaskId,
-          [taskId]: collapsed,
+        artifactFilesCollapseByTaskId: {
+          ...state.artifactFilesCollapseByTaskId,
+          [taskId]: { collapsed, fileListKey },
         },
       })),
+    syncArtifactFilesListKey: (taskId, fileListKey) =>
+      set((state) => {
+        const current = state.artifactFilesCollapseByTaskId[taskId];
+        if (!current || current.fileListKey === fileListKey) return state;
+        return {
+          artifactFilesCollapseByTaskId: {
+            ...state.artifactFilesCollapseByTaskId,
+            [taskId]: { collapsed: false, fileListKey },
+          },
+        };
+      }),
   },
 }));
 
@@ -84,10 +98,15 @@ export const useShowSearch = () => useStore((s) => s.showSearch);
 export const useGroupOverrides = () => useStore((s) => s.groupOverrides);
 export const useQueueCollapsed = (taskId: string) =>
   useStore((s) => s.queueCollapsedByTaskId[taskId] ?? false);
-export const useArtifactFilesCollapsed = (taskId: string | undefined) =>
+export const useArtifactFilesCollapsed = (
+  taskId: string | undefined,
+  fileListKey: string | undefined,
+) =>
   useStore((s) =>
     taskId === undefined
       ? false
-      : (s.artifactFilesCollapsedByTaskId[taskId] ?? false),
+      : (s.artifactFilesCollapseByTaskId[taskId]?.collapsed ?? false) &&
+        (fileListKey === undefined ||
+          s.artifactFilesCollapseByTaskId[taskId]?.fileListKey === fileListKey),
   );
 export const useSessionViewActions = () => useStore((s) => s.actions);
