@@ -71,8 +71,10 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
         return
     # The flag that gates the Slack identity link itself. Gating delivery on it too means an org
     # that never had the link flow can't receive DMs, and turning it off halts delivery without a
-    # deploy.
-    if not is_slack_app_oauth_enabled(integration, integration.integration_id):
+    # deploy. Skipped in local dev, where flags evaluate against the developer's own instance and
+    # the gate would otherwise fail closed on every machine — the same default-on-in-dev treatment
+    # the desktop flags get.
+    if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
         return
 
     task = Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()

@@ -1733,6 +1733,16 @@ export class PostHogAPIClient {
     }
   }
 
+  /** Patch the user's server-side notification settings. Merged server-side, so pass only the keys you change. */
+  async updateNotificationSettings(
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    await this.api.patch("/api/users/{uuid}/", {
+      path: { uuid: "@me" },
+      body: { notification_settings: settings } as Record<string, unknown>,
+    });
+  }
+
   async switchOrganization(orgId: string): Promise<void> {
     await this.api.patch("/api/users/{uuid}/", {
       path: { uuid: "@me" },
