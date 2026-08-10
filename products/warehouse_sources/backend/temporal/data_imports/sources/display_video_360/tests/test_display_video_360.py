@@ -580,7 +580,8 @@ class TestAdvertiserFanOut:
 
         _rows("line_items", session, manager, config=_service_account_config(advertiser_ids="10"))
 
-        assert "pageToken" not in [url for url in session.get_calls if "lineItems" in url][0]
+        first_child_call = next(url for url in session.get_calls if "lineItems" in url)
+        assert "pageToken" not in first_child_call
 
     def test_incremental_cutoff_is_applied_to_every_advertiser(self) -> None:
         session = self._fan_out_session()
