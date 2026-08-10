@@ -515,12 +515,19 @@ describe('replayScannerLogic', () => {
             observationSubjectFilter: '',
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
+            observationBackfillFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }
 
         it('returns empty params when no filters, sort, or pagination', () => {
             expect(buildObservationListParams({ ...emptyValues })).toEqual({})
+        })
+
+        it('passes the backfill filter as backfill_id', () => {
+            expect(buildObservationListParams({ ...emptyValues, observationBackfillFilter: 'bf-1' })).toEqual({
+                backfill_id: 'bf-1',
+            })
         })
 
         it('passes limit and offset only when offset is positive', () => {
