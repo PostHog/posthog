@@ -30,20 +30,6 @@
 //! otherwise unused) and a target's dids never move (`moved` is
 //! otherwise unused): `moved` holds the per-did claim dispositions and
 //! `sealed` holds the folded survivor document.
-//!
-//! Known residual: a merge can mis-drop a revived person. The death
-//! documents this saga has the leader produce stay in the leader's
-//! memory as authoritative not-found entries, and a Postgres revival (a
-//! stub insert resolving its unique conflict against the tombstone row)
-//! never displaces one: the create path calls the leader only when the
-//! event carries initial properties, and a leader holding a death entry
-//! answers even that call NOT_FOUND from memory instead of reloading
-//! the revived row. Until the entry is displaced by cache eviction or a
-//! partition handoff, the leader answers NOT_FOUND for the revived
-//! person, and a merge claiming it drops it as vanished instead of
-//! merging it. The agreed design closes this with an unconditional
-//! birth document through the owning leader on every creation, revival
-//! included, which replaces the leader's death entry.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -119,9 +105,8 @@ pub struct MergeRequest {
     /// does not.
     #[serde(default)]
     pub allow_identified_sources: bool,
-    /// Per-source distinct-id count guard. Required because an unlimited
-    /// merge would make the flip's repoint an unbounded statement, a
-    /// wedge under statement_timeout rather than a supported mode.
+    /// Per-source distinct-id count guard. Required: an unlimited merge
+    /// would make the flip's repoint an unbounded statement.
     pub move_limit: i64,
 }
 
@@ -294,8 +279,7 @@ fn parse_request(op: &OpRow) -> Result<MergeRequest, SagaError> {
             op.op_id
         ))
     })?;
-    // A non-positive limit would silently skip every source; refuse the
-    // frozen request instead.
+    // A non-positive limit would silently skip every source.
     if request.move_limit < 1 {
         return Err(SagaError::CorruptState(format!(
             "merge op {} has a non-positive move_limit ({})",
@@ -476,10 +460,9 @@ impl MergeDriver {
 
         // The move-limit guard: a source with more distinct ids than the
         // caller's limit is skipped, not chunked; the caller applies its
-        // merge-mode policy to the skip. The inner LIMIT lets Postgres
-        // stop each candidate's scan at limit+1 rows, so the oversized
-        // person this check exists to skip cannot itself blow the claim
-        // transaction's statement timeout.
+        // merge-mode policy to the skip. The inner LIMIT stops each
+        // candidate's scan at limit+1 rows, so an oversized person cannot
+        // blow the statement timeout.
         let candidate_ids: Vec<i64> = claim_persons.iter().map(|(id, _, _)| *id).collect();
         let over: Vec<i64> = sqlx::query_scalar!(
             r#"
@@ -802,8 +785,7 @@ impl MergeDriver {
                     // Fenced-by-another-op can only be a ghost fence (a
                     // real foreign op would need a live mark we hold); the
                     // leader's healer clears it on observation. Transient
-                    // failures retry the step; a definitive refusal backs
-                    // the op out, because pre-flip refusals never park.
+                    // failures retry the step; a refusal backs the op out.
                     return match SagaError::leader(status) {
                         SagaError::LeaderRefused(status) => {
                             self.abort_refused(pool, op, MergeStep::Claimed, &status)
@@ -926,14 +908,11 @@ impl MergeDriver {
         Ok(())
     }
 
-    /// Back the op out after a definitive leader refusal on a pre-flip
-    /// step: release every live source's fence (the aborted release
-    /// verifies no marks, so it cannot itself be refused), settle the
-    /// marks, and complete the op as aborted. Before the flip nothing
-    /// irreversible has happened and the refused call wrote nothing, so
-    /// unwinding is safe: sources unfreeze and the caller gets a terminal
-    /// aborted outcome. A refused committed release after the flip has no
-    /// undo and parks instead.
+    /// Back the op out after a pre-flip refusal: release the live
+    /// sources' fences (an aborted release cannot itself be refused),
+    /// settle the marks, and complete as aborted. Nothing irreversible
+    /// has happened before the flip, so unwinding is safe; a refusal
+    /// after the flip has no undo and parks instead.
     async fn abort_refused(
         &self,
         pool: &PgPool,
@@ -1170,9 +1149,6 @@ impl MergeDriver {
             Ok(response) => response,
             Err(status) => {
                 return match SagaError::leader(status) {
-                    // The fold is pre-flip and the refused call wrote
-                    // nothing, so a definitive refusal backs the whole op
-                    // out instead of parking it.
                     SagaError::LeaderRefused(status) => {
                         self.abort_refused(pool, op, MergeStep::SourcesSealed, &status)
                             .await

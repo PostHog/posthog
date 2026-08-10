@@ -56,12 +56,10 @@ pub enum SagaError {
     /// so the rare failure does not widen every step's Result.
     #[error("leader call failed: {0}")]
     Leader(Box<Status>),
-    /// A leader RPC was refused definitively (a semantic refusal, see
-    /// `personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY`): the
-    /// request itself failed the leader's verification, so retries cannot
-    /// succeed. Drivers unwind where they still can (the merge driver
-    /// aborts before the flip); a refusal that reaches the engine has no
-    /// undo left, and the engine parks the op instead of retrying.
+    /// A leader RPC was refused definitively: the request itself failed
+    /// the leader's verification, so retries cannot succeed. Drivers
+    /// unwind where they still can (the merge driver aborts before the
+    /// flip); a refusal that reaches the engine parks the op.
     #[error("leader refused: {0}")]
     LeaderRefused(Box<Status>),
     /// State this engine or driver cannot interpret.
@@ -70,11 +68,8 @@ pub enum SagaError {
 }
 
 impl SagaError {
-    /// Classify a leader RPC failure: a semantic refusal is definitive and
-    /// never retried; everything else (transport failures, UNAVAILABLE
-    /// from router bounce exhaustion, RESOURCE_EXHAUSTED shedding, bare
-    /// FAILED_PRECONDITION from ghost or handoff fences) is transient and
-    /// retried.
+    /// Classify a leader RPC failure: a semantic refusal is definitive
+    /// and never retried; everything else is transient and retried.
     pub fn leader(status: Status) -> Self {
         if personhog_common::grpc::is_semantic_refusal(&status) {
             SagaError::LeaderRefused(Box::new(status))
@@ -97,9 +92,8 @@ impl From<SagaError> for Status {
                 status.code(),
                 status.message()
             )),
-            // Passed through verbatim: the refusal's FAILED_PRECONDITION and
-            // its marker metadata must reach the caller, or a definitive
-            // refusal degrades into a retriable error the caller loops on.
+            // Passed through verbatim so the caller sees a definitive
+            // refusal, not a retriable error to loop on.
             SagaError::LeaderRefused(status) => *status,
             SagaError::CorruptState(msg) => Status::internal(msg),
         }
@@ -227,8 +221,7 @@ impl Engine {
     /// lease is a throttle, not a lock (see the module docs), so a
     /// concurrent driver stays correct either way. This is the walkthrough
     /// entry point for tests and tooling that assert state between steps;
-    /// `team_id` must match the op's, the same caller check the execute
-    /// path gets from create-or-attach.
+    /// `team_id` must match the op's.
     pub async fn step_once(
         &self,
         driver: &dyn OpDriver,
@@ -312,9 +305,6 @@ impl Engine {
                         continue;
                     }
                 }
-                // Only the execute path (wait_for_lease) is an explicit
-                // retry, so only it may claim and thereby un-park a
-                // parked op.
                 None => match self.try_claim(op_id, wait_for_lease).await? {
                     Some(attempt) => {
                         claim_attempt = Some(attempt);
@@ -363,23 +353,22 @@ impl Engine {
                     1,
                 );
                 if let SagaError::LeaderRefused(status) = &err {
-                    // A definitive refusal: retrying cannot succeed, and
-                    // the sweeper hot-looping on it would hold this op's
-                    // fences forever with no distinct signal. Park
-                    // instead; only an explicit retry with the same op_id
+                    // Retrying a refusal cannot succeed, and the sweeper
+                    // looping on it would hold this op's fences forever.
+                    // Park it; only an explicit retry with the same op_id
                     // resumes a parked op.
                     if let Some(attempt) = claim_attempt {
                         match self.park(op_id, attempt, &row, status).await {
                             Ok(true) => {}
                             // The park lost its compare-and-swap: another
                             // driver claimed or completed the op, so this
-                            // refusal is stale. Surface the retriable
-                            // answer, never a definitive refusal for an op
-                            // that may yet complete.
+                            // refusal is stale. Answer Busy, never a
+                            // definitive refusal for an op that may yet
+                            // complete.
                             Ok(false) => return Err(SagaError::Busy),
-                            // Parking failed: still drop the lease so a
-                            // retry need not wait it out; the sweeper will
-                            // re-drive into the refusal and park then.
+                            // Parking failed: drop the lease anyway; the
+                            // sweeper will re-drive into the refusal and
+                            // park then.
                             Err(_) => {
                                 self.release_lease(op_id, attempt).await.ok();
                             }
@@ -413,10 +402,9 @@ impl Engine {
 
     /// Claim the op if its lease is free or lapsed. Returns the new attempt
     /// count on success, None when another instance holds a live lease.
-    /// Only an explicit retry (`unpark`, the `execute` path) may claim a
-    /// parked op; claiming un-parks it. The `resume` path leaves parked
-    /// ops alone even when a park lands between the sweeper's scan and
-    /// its claim.
+    /// Only an explicit retry (`unpark`, the execute path) may claim a
+    /// parked op; the sweeper cannot, even when a park lands after its
+    /// scan.
     async fn try_claim(&self, op_id: Uuid, unpark: bool) -> Result<Option<i32>, sqlx::Error> {
         sqlx::query_scalar!(
             r#"
@@ -439,10 +427,9 @@ impl Engine {
     }
 
     /// Park an op after a definitive leader refusal: record when and why,
-    /// and drop the lease so an explicit retry need not wait it out. The
-    /// `attempt` guard is the same fencing token as renew/release, so a
-    /// displaced driver cannot park an op a stealer is actively driving.
-    /// Returns whether the park won its compare-and-swap.
+    /// and drop the lease so an explicit retry need not wait it out.
+    /// Guarded by `attempt` like renew/release, so a displaced driver
+    /// cannot park a stealer's op. Returns whether the park won.
     async fn park(
         &self,
         op_id: Uuid,
@@ -450,9 +437,8 @@ impl Engine {
         row: &OpRow,
         status: &Status,
     ) -> Result<bool, sqlx::Error> {
-        // The reason becomes a metric label and a column value; accept
-        // only short fixed-vocabulary slugs so a misbehaving peer cannot
-        // mint unbounded label cardinality.
+        // The reason becomes a metric label; cap it so a misbehaving
+        // peer cannot mint unbounded label cardinality.
         let reason = personhog_common::grpc::semantic_refusal_reason(status)
             .filter(|r| {
                 r.len() <= 64
@@ -528,9 +514,7 @@ impl Engine {
     /// One sweeper pass: resume abandoned ops, meaning incomplete, not
     /// parked, and either with a lapsed lease or never claimed for longer
     /// than one lease (so a freshly created op isn't stolen from the RPC
-    /// about to claim it). Parked ops are excluded because retrying a
-    /// definitive refusal cannot succeed; only an explicit retry with the
-    /// op_id resumes them. Returns how many ops reached a terminal step.
+    /// about to claim it). Returns how many ops reached a terminal step.
     pub async fn sweep(&self, drivers: &[&dyn OpDriver]) -> Result<u32, SagaError> {
         let abandoned = sqlx::query!(
             r#"
@@ -564,8 +548,6 @@ impl Engine {
                 // Claimed by another driver (or parked) between our scan
                 // and now, so it is no longer ours to drive.
                 Err(SagaError::Busy) => {}
-                // The resume was refused and the op parked itself: no next
-                // pass is coming for it, so do not promise one.
                 Err(err @ SagaError::LeaderRefused(_)) => {
                     tracing::warn!(op_id = %op.op_id, error = %err,
                         "sweeper resume was definitively refused; op is parked until explicitly retried");
@@ -577,11 +559,9 @@ impl Engine {
             }
         }
 
-        // The park counter dies with the process, while a parked op keeps
-        // holding its fences until someone acts, so refresh the gauge
-        // every pass to keep that debt visible across restarts. Telemetry
-        // only: a failure here must not fail a pass whose resumes
-        // succeeded.
+        // The park counter dies with the process, so a gauge refreshed
+        // every pass keeps parked ops visible across restarts. Telemetry
+        // only: a failure must not fail a pass whose resumes succeeded.
         match sqlx::query_scalar!(
             r#"SELECT count(*) AS "count!" FROM lifecycle_op WHERE completed_at IS NULL AND parked_at IS NOT NULL"#
         )

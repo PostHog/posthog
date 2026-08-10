@@ -773,10 +773,9 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
 }
 
 /// A contender's FencePerson bouncing on a ghost must trigger the same
-/// lazy heal as a rejected write: on a low-traffic person, the merge
-/// saga's seal retry loop is the only caller that ever observes the
-/// ghost, so without this the contending op retries forever while its
-/// marks hold its other persons hostage.
+/// lazy heal as a rejected write: on a low-traffic person no other
+/// caller ever observes the ghost, so the contending op would retry
+/// forever.
 #[tokio::test]
 async fn a_ghost_fence_heals_after_a_rejected_fence_attempt() {
     let pool = common::create_persons_pool().await;
@@ -831,8 +830,6 @@ async fn a_ghost_fence_heals_after_a_rejected_fence_attempt() {
         .await
         .expect("settle the op");
 
-    // The contender's first fence bounces on the ghost and triggers the
-    // heal; its retry goes through once the background check drops it.
     let status = harness
         .client
         .fence_person(with_partition(
@@ -868,8 +865,7 @@ async fn a_ghost_fence_heals_after_a_rejected_fence_attempt() {
 
 /// The heal's safety half: a fence whose op holds a live mark is not a
 /// ghost, and heal checks triggered by a contender's rejected fence
-/// attempts must never clear it. Two ops contending on one person is
-/// exactly when the rejection branch fires.
+/// attempts must never clear it.
 #[tokio::test]
 async fn a_live_marked_fence_survives_heal_attempts() {
     let pool = common::create_persons_pool().await;
@@ -916,9 +912,7 @@ async fn a_live_marked_fence_survives_heal_attempts() {
         .await
         .expect("fence succeeds");
 
-    // Every bounce may trigger a heal check; the live mark must keep the
-    // fence through all of them. A wrong clear would let a later attempt
-    // succeed and fail the loop.
+    // A wrong clear would let a later attempt succeed and fail the loop.
     let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
     while tokio::time::Instant::now() < deadline {
         let status = harness

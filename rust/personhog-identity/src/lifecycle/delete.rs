@@ -267,14 +267,11 @@ async fn mark(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         .await?;
     }
 
-    // Post-insert liveness recheck, mirroring the merge claim's: the live
-    // filter above and the mark insert run in different statement
-    // snapshots, so a merge that destroys a person between them lets the
-    // insert land on a corpse. One fresh statement removes such marks in
-    // the same transaction; they report as `not_found` (the missing-row
-    // convention in [`build_outcome`]) and the person is never touched.
-    // After this, mark and liveness hold in one snapshot, and the mark
-    // keeps every held person alive until we settle.
+    // The live filter above and the mark insert run in different
+    // statement snapshots, so a merge can destroy a person between them
+    // and the insert lands on a corpse. Remove such marks here, in the
+    // same transaction: the person reports as not_found and is never
+    // touched again. From here on the mark keeps every held person alive.
     sqlx::query!(
         r#"
         DELETE FROM lifecycle_op_person lop
@@ -533,11 +530,9 @@ async fn complete(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
 
 /// One outcome entry per requested person id, in request order, from the
 /// per-person rows: `deleted` and `skipped_conflict` map to themselves; a
-/// missing row means no live person existed when the claim settled
-/// (`not_found`), whether caught by the mark step's liveness filter or
-/// its recheck. A row still `marked`/`sealed` at completion means the
-/// person vanished under a held mark, which the recheck and the mark
-/// exclusion make unreachable; it is reported `not_found`.
+/// missing row means no live person existed at claim time (`not_found`).
+/// A row still `marked`/`sealed` at completion should be unreachable and
+/// reports `not_found`.
 async fn build_outcome(
     tx: &mut Tx<'_>,
     op_id: Uuid,

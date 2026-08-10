@@ -70,8 +70,7 @@ pub enum LeaderCall {
     Fold {
         target_person_id: i64,
         snapshot_versions: Vec<i64>,
-        /// The max-merged `last_seen_at` of the folded document, recorded
-        /// so tests can pin the seal → snapshot → fold carry.
+        /// The folded document's max-merged `last_seen_at`.
         folded_last_seen_at: Option<i64>,
     },
     ReleaseCommitted {
@@ -123,8 +122,8 @@ pub struct SimLeader {
     /// be ahead of Postgres, which is exactly what the seal-time re-check
     /// exists for.
     sealed_identified: Mutex<HashMap<i64, bool>>,
-    /// `last_seen_at` per person: leader-side state with no Postgres
-    /// column, so tests inject it here and the fence seals it.
+    /// Injected `last_seen_at` per person: leader-side state with no
+    /// Postgres column.
     last_seen: Mutex<HashMap<i64, i64>>,
 }
 
@@ -249,8 +248,7 @@ impl SimLeader {
         .expect("mark lookup")
     }
 
-    /// The target-mark row the real leader consults before folding
-    /// (personhog-leader/src/fence.rs `target_mark_status`).
+    /// The target-mark row the real leader consults before folding.
     async fn target_mark_status(
         &self,
         op_id: Uuid,
@@ -381,8 +379,6 @@ impl LifecycleLeader for SimLeader {
                         return Ok(ReleaseFenceResponse {});
                     }
                     _ => {
-                        // Mirrors the real leader: a fail-closed verification
-                        // rejection is a semantic refusal, not a bounce.
                         return Err(semantic_refusal(
                             "op holds no live mark for this person; \
                              refusing to produce a death document",
@@ -443,9 +439,8 @@ impl LifecycleLeader for SimLeader {
         let Some(target) = self.live_person(request.team_id, request.person_id).await else {
             return Err(Status::not_found("person is destroyed"));
         };
-        // The real leader's fail-closed target verification: the op must
-        // hold a live target mark or the fold is refused (mirrors
-        // `target_mark_status` in personhog-leader/src/service.rs).
+        // The real leader refuses a fold unless the op holds a live
+        // target mark.
         match self
             .target_mark_status(op_id, request.team_id, request.person_id)
             .await
