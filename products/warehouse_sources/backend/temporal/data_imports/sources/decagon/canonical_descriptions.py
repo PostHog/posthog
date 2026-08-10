@@ -38,4 +38,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             ),
         },
     },
+    "articles": {
+        "description": (
+            "A knowledge base article Decagon's AI agent can answer with, including its full "
+            "body content and where it was synced from."
+        ),
+        "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
+        "columns": {
+            "id": "Unique identifier for the article.",
+            "content": "Full body content of the article.",
+            "source": "System the article comes from.",
+            "url": "URL of the article in its source system.",
+            "metadata": "Custom metadata attached to the article.",
+            "external_document_id": (
+                "Identifier of the article in the system it was synced from. Null for articles "
+                "created manually in Decagon."
+            ),
+            "tags": "Tags applied to the article.",
+            "created_at": "Timestamp at which the article was created.",
+            "updated_at": "Timestamp at which the article was last updated.",
+        },
+    },
+    "article_usage": {
+        "description": (
+            "Usage counts per knowledge base article, as returned by Decagon's article usage "
+            "endpoint. A point-in-time snapshot bucketed in UTC, replaced on every sync."
+        ),
+        "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
+    },
 }
