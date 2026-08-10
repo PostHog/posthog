@@ -69,6 +69,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     NON_PARTITIONED_ENDPOINTS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import source as stripe_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     DEFAULT_LIMIT,
@@ -1476,3 +1477,64 @@ class TestStripeApiVersionReachesTheClient:
 
         create_params = client_cls.return_value.v1.webhook_endpoints.create.call_args.kwargs["params"]
         assert create_params["api_version"] == version
+
+
+class TestStripeSourceWebhookMethodsForwardTheVersion:
+    """The source class is what the webhook endpoints call, so the pin has to survive that hop too.
+
+    Each wrapper must hand its config's `stripe_api_version` to the request-layer helper — a wrapper
+    that drops it would reconcile the endpoint under the legacy version while the tables sync under
+    the pinned one.
+    """
+
+    def _config(self) -> StripeSourceConfig:
+        return StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123"),
+            stripe_api_version=STRIPE_API_VERSION_ACACIA,
+        )
+
+    def test_create_webhook_forwards_the_configured_version(self):
+        source, config = StripeSource(), self._config()
+
+        with patch.object(stripe_source_module, "create_webhook") as create:
+            source.create_webhook(config, "https://ph.test/hook", team_id=1)
+
+        assert create.call_args.args[2] == STRIPE_API_VERSION_ACACIA
+
+    def test_sync_webhook_events_forwards_the_configured_version(self):
+        source, config = StripeSource(), self._config()
+
+        with patch.object(stripe_source_module, "update_webhook_events") as update:
+            source.sync_webhook_events(config, "https://ph.test/hook", team_id=1, eligible_schema_names=[])
+
+        assert update.call_args.args[2] == STRIPE_API_VERSION_ACACIA
+
+    def test_get_external_webhook_info_forwards_the_configured_version(self):
+        source, config = StripeSource(), self._config()
+
+        with patch.object(stripe_source_module, "get_external_webhook_info") as info:
+            source.get_external_webhook_info(config, "https://ph.test/hook", team_id=1)
+
+        assert info.call_args.args[2] == STRIPE_API_VERSION_ACACIA
+
+    def test_delete_webhook_forwards_the_configured_version(self):
+        source, config = StripeSource(), self._config()
+
+        with patch.object(stripe_source_module, "delete_webhook") as delete:
+            source.delete_webhook(config, "https://ph.test/hook", team_id=1)
+
+        assert delete.call_args.args[2] == STRIPE_API_VERSION_ACACIA
+
+    def test_delete_webhook_deletes_the_matching_endpoint(self):
+        # Covers the match branch: the endpoint whose url matches is the one deleted, and only it.
+        matching = SimpleNamespace(id="we_match", url="https://ph.test/hook")
+        other = SimpleNamespace(id="we_other", url="https://ph.test/other")
+
+        with patch.object(stripe_module, "StripeClient") as client_cls:
+            client_cls.return_value.v1.webhook_endpoints.list.return_value = _list_object([other, matching])
+            result = stripe_module.delete_webhook(
+                "sk_test_123", None, STRIPE_API_VERSION_ACACIA, "https://ph.test/hook"
+            )
+
+        assert result.success
+        client_cls.return_value.v1.webhook_endpoints.delete.assert_called_once_with("we_match")
