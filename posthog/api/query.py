@@ -41,7 +41,6 @@ from posthog.api.monitoring import (
     Feature as MonitoringFeature,
     monitor,
 )
-from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
@@ -171,7 +170,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
 }
 
 
-class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     serializer_class = _FallbackSerializer

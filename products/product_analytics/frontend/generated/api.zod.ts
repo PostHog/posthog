@@ -191,50 +191,18 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
     order: zod.number().min(elementsPartialUpdateBodyOrderMin).max(elementsPartialUpdateBodyOrderMax).nullish(),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsSuggestionsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
@@ -304,14 +272,6 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsCancelCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')

@@ -12,6 +12,7 @@ from posthog.query_cache.freshness_index import remove_last_refresh, update_targ
 from posthog.query_cache.metrics import count_cache_write_data
 from posthog.query_cache.results import fetch_entry
 from posthog.query_cache.serialization import CachedEntry, encode_split_cached_response
+from posthog.query_cache.single_flight import QuerySingleFlight
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +59,9 @@ class QueryCache:
 
     def clear_failure(self) -> None:
         QueryFailureCache(self.cache_key).clear()
+
+    def flight(self) -> QuerySingleFlight:
+        return QuerySingleFlight(self.cache_key)
 
     def store_result(self, *, response: dict, target_age: Optional[datetime]) -> None:
         if isinstance(response.get("results"), list):

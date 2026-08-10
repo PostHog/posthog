@@ -143,6 +143,12 @@ from posthog.query_cache.failures import (
     Budget,
     QueryFailureRecord,
 )
+from posthog.query_cache.single_flight import (
+    FLIGHT_WAIT_SECONDS,
+    QUERY_SINGLE_FLIGHT_COUNTER,
+    QUERY_SINGLE_FLIGHT_FLAG,
+    QuerySingleFlight,
+)
 from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -1743,6 +1749,30 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except Exception:
             return False
 
+    @cached_property
+    def _query_single_flight_enabled(self) -> bool:
+        # only_evaluate_locally keeps this flag check off the network - this runs on the query
+        # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    QUERY_SINGLE_FLIGHT_FLAG,
+                    str(self.team.uuid),
+                    groups={
+                        "organization": str(self.team.organization_id),
+                        "project": str(self.team.pk),
+                    },
+                    group_properties={
+                        "organization": {"id": str(self.team.organization_id)},
+                        "project": {"id": str(self.team.pk)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            return False
+
     def _raise_if_failure_fresh_for(self, failure: Optional[QueryFailureRecord], budget: Budget) -> None:
         """The one breaker rule: a failure outcome that is fresh for the given execution budget
         substitutes for the execution it would forbid."""
@@ -2048,6 +2078,78 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     raise
 
     def _execute_and_cache_blocking(
+        self,
+        *,
+        cache_key: str,
+        cache_manager: QueryCache,
+        execution_mode: ExecutionMode,
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
+        trigger: Optional[str],
+        user: Optional[User],
+        start_time: float,
+        analytics_props: Optional["AnalyticsProps"] = None,
+    ) -> CR:
+        # The single gate for all blocking execution, forced refreshes included: an open
+        # breaker that covers this run's execution budget forbids touching ClickHouse.
+        self._raise_if_breaker_forbids(cache_manager)
+
+        flight: Optional[QuerySingleFlight] = None
+        if self._query_single_flight_enabled:
+            flight = cache_manager.flight()
+            if not flight.acquire():
+                served = self._await_flight(flight, cache_manager)
+                if served is not None:
+                    return served
+                # The leader failed or vanished, so this run executes the query itself. Its
+                # failure may have just opened the breaker, hence the recheck.
+                self._raise_if_breaker_forbids(cache_manager)
+                flight = None
+        try:
+            return self._calculate_and_cache_blocking(
+                cache_key=cache_key,
+                cache_manager=cache_manager,
+                execution_mode=execution_mode,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
+                trigger=trigger,
+                user=user,
+                start_time=start_time,
+                analytics_props=analytics_props,
+            )
+        finally:
+            if flight is not None:
+                flight.release()
+
+    def _raise_if_breaker_forbids(self, cache_manager: QueryCache) -> None:
+        """Failure-polarity read for paths that skip the success read, applied to this run's
+        own execution budget."""
+        if not self._query_failure_caching_enabled:
+            return
+        self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
+
+    def _await_flight(self, flight: QuerySingleFlight, cache_manager: QueryCache) -> Optional[CR]:
+        flight.wait(FLIGHT_WAIT_SECONDS)
+        # Serve only a fresh entry, meaning the leader's own write. Anything else means the
+        # leader failed or vanished; the caller runs the query itself and surfaces whatever
+        # happens, with repeated failures suppressed by the circuit breaker, never by replays.
+        entry = cache_manager.lookup().entry
+        full = entry.as_full_response() if entry else None
+        if full is not None:
+            try:
+                cached_response = self.cached_response_type(**{**full, "is_cached": True})
+            except Exception:
+                cached_response = None
+            if cached_response is not None:
+                last_refresh = last_refresh_from_cached_result(cached_response)
+                if last_refresh is not None and not self._is_stale_for_request(last_refresh=last_refresh):
+                    cached_response, _ = self.apply_series_custom_names(cached_response)
+                    QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
+                    return cached_response
+        QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_fallback").inc()
+        return None
+
+    def _calculate_and_cache_blocking(
         self,
         *,
         cache_key: str,
