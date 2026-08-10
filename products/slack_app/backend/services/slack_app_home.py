@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
@@ -38,6 +38,7 @@ from products.slack_app.backend.services.model_catalogue import (
     available_model_choices,
     describe_run_model,
     format_model_id,
+    group_by_runtime,
     label_for,
 )
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
@@ -70,7 +71,6 @@ logger = structlog.get_logger(__name__)
 HOME_CALLBACK_ID = "slack_app_home"
 
 ACTION_EDIT_PERSONAL = "slack_app_home:edit_personal"
-ACTION_EDIT_WORKSPACE = "slack_app_home:edit_workspace"
 ACTION_RESET_PERSONAL = "slack_app_home:reset_personal"
 ACTION_UNLINK_ACCOUNT = "slack_app_home:unlink_account"
 ACTION_SET_PROJECT_PERSONAL = "slack_app_home:set_project_personal"
@@ -110,17 +110,19 @@ TASKS_STATUS_OPTIONS: tuple[tuple[str, str], ...] = (
 )
 
 EDIT_MODAL_PERSONAL_CALLBACK_ID = "slack_app_ai_prefs:personal"
-EDIT_MODAL_WORKSPACE_CALLBACK_ID = "slack_app_ai_prefs:workspace"
 
 MODAL_ACTION_RUNTIME_ADAPTER = "ai_prefs:runtime_adapter"
 MODAL_ACTION_MODEL = "ai_prefs:model"
 MODAL_ACTION_REASONING_EFFORT = "ai_prefs:reasoning_effort"
 
 MODAL_BLOCK_RUNTIME_ADAPTER = "block_runtime_adapter"
+# Prefixes, not literal block ids: Slack carries a block's state across `views.update`
+# whenever the `block_id` is unchanged, which is how a model picked under the previous
+# runtime used to survive a runtime switch and get submitted. Suffixing each dependent
+# block with what it depends on makes the re-rendered block a new one to Slack, so the
+# stale pick is dropped instead of hiding behind the fresh options. See `_scoped_block_id`.
 MODAL_BLOCK_MODEL = "block_model"
 MODAL_BLOCK_REASONING_EFFORT = "block_reasoning_effort"
-
-EditScope = Literal["personal", "workspace"]
 
 
 @dataclass(frozen=True)
@@ -144,24 +146,25 @@ class PickerAdapter:
 
 
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
-    """Group the model catalogue into the runtime → model → effort tree the modal's
-    linked dropdowns render. Adapters with no available models are omitted entirely."""
-    by_adapter: dict[str, list[PickerModel]] = {}
-    for choice in available_model_choices():
-        efforts = tuple(
-            PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES)) for e in choice.supported_efforts
-        )
-        by_adapter.setdefault(choice.runtime_adapter, []).append(
-            PickerModel(value=choice.model, label=choice.label, supported_efforts=efforts)
-        )
-
+    """Dress the catalogue's runtime → model tree in the effort labels the modal's linked
+    dropdowns render. Adapters with no available models are omitted entirely."""
     return tuple(
         PickerAdapter(
-            value=adapter_value,
-            label=label_for(adapter_value, RUNTIME_ADAPTER_DISPLAY_NAMES),
-            models=tuple(models),
+            value=group.runtime_adapter,
+            label=group.label,
+            models=tuple(
+                PickerModel(
+                    value=choice.model,
+                    label=choice.label,
+                    supported_efforts=tuple(
+                        PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
+                        for e in choice.supported_efforts
+                    ),
+                )
+                for choice in group.choices
+            ),
         )
-        for adapter_value, models in by_adapter.items()
+        for group in group_by_runtime(available_model_choices())
     )
 
 
@@ -180,10 +183,11 @@ def _runtime_adapter_options() -> tuple[tuple[str, str], ...]:
 
 @dataclass(frozen=True)
 class PreferenceSource:
-    """Which row contributed the effective `(runtime_adapter, model)` pair.
+    """Whether the user's own row contributed the effective `(runtime_adapter,
+    model)` pair.
 
-    Used to render the "Source: …" line on the active-model card so the
-    precedence (personal → workspace → unset) is visible at a glance.
+    Used to render the "Source: …" line on the active-model card so it's clear
+    at a glance whether the running model is a personal pick.
     """
 
     label: str
@@ -193,18 +197,11 @@ class PreferenceSource:
         return cls(label="Your personal override")
 
     @classmethod
-    def workspace(cls) -> PreferenceSource:
-        return cls(label="Workspace default")
-
-    @classmethod
     def unset(cls) -> PreferenceSource:
         return cls(label="System default")
 
 
-def resolve_source(
-    user_row: SlackSettings | None,
-    workspace_row: SlackSettings | None,
-) -> PreferenceSource:
+def resolve_source(user_row: SlackSettings | None) -> PreferenceSource:
     """Return where the effective pair came from.
 
     Mirrors the same atomic-pair rule the resolver uses: a row only "sources"
@@ -212,8 +209,6 @@ def resolve_source(
     """
     if user_row and user_row.runtime_adapter and user_row.model:
         return PreferenceSource.personal()
-    if workspace_row and workspace_row.runtime_adapter and workspace_row.model:
-        return PreferenceSource.workspace()
     return PreferenceSource.unset()
 
 
@@ -333,7 +328,6 @@ def render_home_view(
     *,
     effective: AIPreferences,
     user_row: SlackSettings | None,
-    workspace_row: SlackSettings | None,
     is_admin: bool,
     account_state: AccountState | None = None,
     project_state: ProjectState | None = None,
@@ -342,7 +336,7 @@ def render_home_view(
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
-    source = resolve_source(user_row, workspace_row)
+    source = resolve_source(user_row)
     blocks: list[dict] = []
 
     blocks.extend(_header_blocks())
@@ -361,12 +355,12 @@ def render_home_view(
         blocks.extend(_project_section_blocks(project_state, is_admin=is_admin))
 
     # Section 3 — AI model settings: which model handles those mentions.
-    # Headline shows the effective triple (and its source); personal /
-    # workspace controls underneath mirror the project routing layout.
+    # Headline shows the effective triple (and its source), with the personal
+    # picker underneath. Purely a per-user preference — there's no workspace-wide
+    # model default to inherit from.
     blocks.append({"type": "divider"})
     blocks.extend(_active_model_blocks(effective, source))
     blocks.extend(_personal_section_blocks(user_row))
-    blocks.extend(_workspace_section_blocks(workspace_row, is_admin=is_admin))
 
     # Section 4 — account linking: shown before Tasks so the connect
     # prompt is visible while the Tasks list is still empty. Flag-gated.
@@ -473,8 +467,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL)}. "
-                        "Pick personal or workspace settings to override."
+                        f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL)}. Pick your own settings to override."
                     ),
                 },
             },
@@ -633,7 +626,7 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
     """Personal AI override sub-card. Always editable by the user themselves."""
 
     has_override = bool(user_row and user_row.runtime_adapter and user_row.model)
-    summary = _row_summary(user_row) if has_override else "_No personal override — inheriting the workspace default._"
+    summary = _row_summary(user_row) if has_override else "_No personal override — using PostHog's default._"
 
     actions: list[dict] = [
         {
@@ -648,12 +641,12 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
                 "type": "button",
                 "action_id": ACTION_RESET_PERSONAL,
                 "style": "danger",
-                "text": {"type": "plain_text", "text": "Reset to workspace default", "emoji": True},
+                "text": {"type": "plain_text", "text": "Reset to default", "emoji": True},
                 "confirm": {
                     "title": {"type": "plain_text", "text": "Clear your override?"},
                     "text": {
                         "type": "mrkdwn",
-                        "text": "You'll inherit the workspace default until you set new personal preferences.",
+                        "text": "You'll go back to PostHog's default until you set new personal preferences.",
                     },
                     "confirm": {"type": "plain_text", "text": "Reset"},
                     "deny": {"type": "plain_text", "text": "Cancel"},
@@ -666,39 +659,6 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
         {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
         {"type": "actions", "elements": actions},
     ]
-
-
-def _workspace_section_blocks(
-    workspace_row: SlackSettings | None,
-    *,
-    is_admin: bool,
-) -> list[dict]:
-    """Workspace AI default sub-card — admin-only; non-admins don't see it."""
-
-    if not is_admin:
-        return []
-
-    has_default = bool(workspace_row and workspace_row.runtime_adapter and workspace_row.model)
-    summary = (
-        _row_summary(workspace_row)
-        if has_default
-        else "_No workspace default set — falls back to PostHog's system default._"
-    )
-    blocks: list[dict] = [
-        _subsection_label("Workspace default"),
-        {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "action_id": ACTION_EDIT_WORKSPACE,
-                    "text": {"type": "plain_text", "text": "Edit workspace default", "emoji": True},
-                }
-            ],
-        },
-    ]
-    return blocks
 
 
 def _footer_blocks() -> list[dict]:
@@ -1127,11 +1087,10 @@ def _row_summary(row: SlackSettings | None) -> str:
 
 def render_edit_modal(
     *,
-    scope: EditScope,
     current: AIPreferences,
     supported_efforts: list[str] | None = None,
 ) -> dict:
-    """Build the Block Kit modal payload for personal or workspace editing.
+    """Build the Block Kit modal payload for editing your personal preferences.
 
     `supported_efforts` lets the caller pre-compute which efforts are valid for
     the currently selected model (using
@@ -1139,11 +1098,6 @@ def render_edit_modal(
     When `None`, the effort block is omitted entirely; the modal re-renders via
     `block_actions` on runtime_adapter / model change to fill it in.
     """
-
-    callback_id = EDIT_MODAL_PERSONAL_CALLBACK_ID if scope == "personal" else EDIT_MODAL_WORKSPACE_CALLBACK_ID
-    # Slack caps modal titles at 24 characters; longer ones get rejected with
-    # `invalid_arguments` on `views.open`.
-    title = "Personal AI preferences" if scope == "personal" else "Workspace AI preferences"
 
     runtime_pairs = _runtime_adapter_options()
     runtime_options = [
@@ -1189,7 +1143,7 @@ def render_edit_modal(
                 model_element["initial_option"] = next(o for o in model_options if o["value"] == current.model)
             model_block = {
                 "type": "input",
-                "block_id": MODAL_BLOCK_MODEL,
+                "block_id": _scoped_block_id(MODAL_BLOCK_MODEL, current.runtime_adapter),
                 "label": {"type": "plain_text", "text": "Model"},
                 "dispatch_action": True,
                 "element": model_element,
@@ -1214,7 +1168,7 @@ def render_edit_modal(
             effort_element["initial_option"] = next(o for o in effort_options if o["value"] == current.reasoning_effort)
         effort_block = {
             "type": "input",
-            "block_id": MODAL_BLOCK_REASONING_EFFORT,
+            "block_id": _scoped_block_id(MODAL_BLOCK_REASONING_EFFORT, current.model),
             "label": {"type": "plain_text", "text": "Reasoning effort"},
             "optional": True,
             "element": effort_element,
@@ -1226,11 +1180,7 @@ def render_edit_modal(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": (
-                        "Pick the runtime and model that should handle PostHog Slack requests for you."
-                        if scope == "personal"
-                        else "Set the default runtime and model for everyone in this Slack workspace."
-                    ),
+                    "text": "Pick the runtime and model that should handle PostHog Slack requests for you.",
                 }
             ],
         },
@@ -1243,12 +1193,19 @@ def render_edit_modal(
 
     return {
         "type": "modal",
-        "callback_id": callback_id,
-        "title": {"type": "plain_text", "text": title, "emoji": True},
+        "callback_id": EDIT_MODAL_PERSONAL_CALLBACK_ID,
+        # Slack caps modal titles at 24 characters; longer ones get rejected
+        # with `invalid_arguments` on `views.open`.
+        "title": {"type": "plain_text", "text": "Personal AI preferences", "emoji": True},
         "submit": {"type": "plain_text", "text": "Save"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": blocks,
     }
+
+
+def _scoped_block_id(prefix: str, depends_on: str | None) -> str:
+    """Block id for an input whose options are derived from another input's value."""
+    return f"{prefix}:{depends_on}" if depends_on else prefix
 
 
 def parse_modal_submission(view: dict) -> tuple[str | None, str | None, str | None]:
@@ -1266,12 +1223,14 @@ def parse_modal_submission(view: dict) -> tuple[str | None, str | None, str | No
     return runtime_adapter, model, reasoning_effort
 
 
-def _selected_value(state: dict, block_id: str, action_id: str) -> str | None:
-    block = state.get(block_id, {})
-    action = block.get(action_id, {})
-    selected = action.get("selected_option")
-    if isinstance(selected, dict):
-        return selected.get("value")
+def _selected_value(state: dict, block_prefix: str, action_id: str) -> str | None:
+    """Read a select's value out of view state, matching the scoped block id it was rendered under."""
+    for block_id, actions in state.items():
+        if block_id != block_prefix and not block_id.startswith(f"{block_prefix}:"):
+            continue
+        selected = (actions.get(action_id) or {}).get("selected_option")
+        if isinstance(selected, dict):
+            return selected.get("value")
     return None
 
 
@@ -1288,8 +1247,11 @@ def _selected_value(state: dict, block_id: str, action_id: str) -> str | None:
 # here.
 
 
-def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
+def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Integration) -> None:
     """Publish the Home tab for the user who just opened it.
+
+    The caller resolves the integration through the shared region gate, so this
+    region owns the workspace by the time we get here.
 
     Gated by the slack-app-home flag — when off, the publish is skipped so
     installs without the manifest changes (and workspaces that haven't opted
@@ -1301,15 +1263,17 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     if not slack_user_id:
         return
 
-    integration = _get_slack_integration(slack_team_id)
-    if integration is None:
-        return
-
     if not is_slack_app_home_enabled(integration):
+        logger.info(
+            "slack_app_home_publish_skipped",
+            reason="flag_off",
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+        )
         return
 
     effective = resolve_ai_preferences(integration, slack_user_id)
-    user_row, workspace_row = _load_rows(integration, slack_user_id)
+    user_row = _load_user_row(integration, slack_user_id)
 
     slack = SlackIntegration(integration)
     is_admin = _is_admin(slack, integration, slack_user_id)
@@ -1322,7 +1286,6 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     view = render_home_view(
         effective=effective,
         user_row=user_row,
-        workspace_row=workspace_row,
         is_admin=is_admin,
         account_state=account_state,
         project_state=project_state,
@@ -1334,6 +1297,12 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     except Exception:
         logger.exception(
             "slack_app_home_publish_failed",
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+        )
+    else:
+        logger.info(
+            "slack_app_home_published",
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
@@ -1366,15 +1335,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         _republish_home(integration, slack_user_id, view_state=state)
 
     if action_id == ACTION_EDIT_PERSONAL and trigger_id:
-        _open_edit_modal(integration, slack_user_id, scope="personal", trigger_id=trigger_id)
-        return HttpResponse(status=200)
-
-    if action_id == ACTION_EDIT_WORKSPACE and trigger_id:
-        slack = SlackIntegration(integration)
-        if not _is_admin(slack, integration, slack_user_id):
-            _post_ephemeral_admin_only(slack, payload)
-            return HttpResponse(status=200)
-        _open_edit_modal(integration, slack_user_id, scope="workspace", trigger_id=trigger_id)
+        _open_edit_modal(integration, slack_user_id, trigger_id=trigger_id)
         return HttpResponse(status=200)
 
     if action_id == ACTION_RESET_PERSONAL:
@@ -1444,11 +1405,10 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
 
 
 def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonResponse:
-    """Handle the Save click on the personal or workspace edit modal."""
+    """Handle the Save click on the personal edit modal."""
 
     view = payload.get("view", {})
-    callback_id = view.get("callback_id")
-    if callback_id not in (EDIT_MODAL_PERSONAL_CALLBACK_ID, EDIT_MODAL_WORKSPACE_CALLBACK_ID):
+    if view.get("callback_id") != EDIT_MODAL_PERSONAL_CALLBACK_ID:
         return HttpResponse(status=200)
 
     slack_team_id = (payload.get("team") or {}).get("id", "")
@@ -1468,25 +1428,13 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
     except ValidationError as exc:
         return _modal_error_response(_first_validation_message(exc))
 
-    if callback_id == EDIT_MODAL_PERSONAL_CALLBACK_ID:
-        _write_row(
-            integration,
-            slack_user_id=slack_user_id,
-            runtime_adapter=runtime_adapter,
-            model=model,
-            reasoning_effort=reasoning_effort,
-        )
-    else:
-        slack = SlackIntegration(integration)
-        if not _is_admin(slack, integration, slack_user_id):
-            return _modal_error_response("Only Slack workspace admins can change the workspace default.")
-        _write_row(
-            integration,
-            slack_user_id=None,
-            runtime_adapter=runtime_adapter,
-            model=model,
-            reasoning_effort=reasoning_effort,
-        )
+    _write_row(
+        integration,
+        slack_user_id=slack_user_id,
+        runtime_adapter=runtime_adapter,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
 
     _republish_home(integration, slack_user_id)
     return JsonResponse({"response_action": "clear"})
@@ -1507,16 +1455,11 @@ def _get_slack_integration(slack_team_id: str) -> Integration | None:
     )
 
 
-def _load_rows(integration: Integration, slack_user_id: str) -> tuple[SlackSettings | None, SlackSettings | None]:
-    user_row = SlackSettings.objects.filter(
+def _load_user_row(integration: Integration, slack_user_id: str) -> SlackSettings | None:
+    return SlackSettings.objects.filter(
         slack_workspace_id=integration.integration_id,
         slack_user_id=slack_user_id,
     ).first()
-    workspace_row = SlackSettings.objects.filter(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id__isnull=True,
-    ).first()
-    return user_row, workspace_row
 
 
 def _row_to_settings(row: SlackSettings | None) -> AIPreferences:
@@ -1541,9 +1484,8 @@ def _is_admin(slack: SlackIntegration, integration: Integration, slack_user_id: 
         return False
 
 
-def _open_edit_modal(integration: Integration, slack_user_id: str, *, scope: EditScope, trigger_id: str) -> None:
-    user_row, workspace_row = _load_rows(integration, slack_user_id)
-    current = _row_to_settings(user_row if scope == "personal" else workspace_row)
+def _open_edit_modal(integration: Integration, slack_user_id: str, *, trigger_id: str) -> None:
+    current = _row_to_settings(_load_user_row(integration, slack_user_id))
     supported = _supported_efforts(current.runtime_adapter, current.model)
     slack = SlackIntegration(integration)
 
@@ -1554,16 +1496,12 @@ def _open_edit_modal(integration: Integration, slack_user_id: str, *, scope: Edi
     if not _runtime_adapter_options():
         view = _render_unavailable_modal()
     else:
-        view = render_edit_modal(scope=scope, current=current, supported_efforts=supported)
+        view = render_edit_modal(current=current, supported_efforts=supported)
 
     try:
         slack.client.views_open(trigger_id=trigger_id, view=view)
     except Exception:
-        logger.exception(
-            "slack_app_home_open_modal_failed",
-            slack_user_id=slack_user_id,
-            scope=scope,
-        )
+        logger.exception("slack_app_home_open_modal_failed", slack_user_id=slack_user_id)
 
 
 def _render_unavailable_modal() -> dict:
@@ -1586,23 +1524,20 @@ def _render_unavailable_modal() -> dict:
 def _update_modal_after_input_change(payload: dict) -> HttpResponse:
     """Re-render the modal in response to a runtime_adapter or model change.
 
-    Reads the in-flight state from `payload["view"]`, derives the new supported
-    efforts (changes when the model changes), and pushes the updated view via
-    `views.update`. Nothing is persisted here — the user still has to Save to
-    commit.
+    Reads the in-flight state from `payload["view"]`, drops whatever the change
+    invalidated, derives the efforts the surviving model supports, and pushes the
+    updated view via `views.update`. Nothing is persisted here — the user still has
+    to Save to commit.
     """
 
     view = payload.get("view", {})
-    callback_id = view.get("callback_id")
-    if callback_id not in (EDIT_MODAL_PERSONAL_CALLBACK_ID, EDIT_MODAL_WORKSPACE_CALLBACK_ID):
+    if view.get("callback_id") != EDIT_MODAL_PERSONAL_CALLBACK_ID:
         return HttpResponse(status=200)
 
-    runtime_adapter, model, reasoning_effort = parse_modal_submission(view)
-    current = AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
-    supported = _supported_efforts(runtime_adapter, model)
+    current = _drop_invalidated_selections(*parse_modal_submission(view))
+    supported = _supported_efforts(current.runtime_adapter, current.model)
 
-    scope: EditScope = "personal" if callback_id == EDIT_MODAL_PERSONAL_CALLBACK_ID else "workspace"
-    updated_view = render_edit_modal(scope=scope, current=current, supported_efforts=supported)
+    updated_view = render_edit_modal(current=current, supported_efforts=supported)
 
     slack_team_id = (payload.get("team") or {}).get("id", "")
     integration = _get_slack_integration(slack_team_id)
@@ -1617,6 +1552,24 @@ def _update_modal_after_input_change(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _drop_invalidated_selections(
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+) -> AIPreferences:
+    """Keep only the parts of an in-flight selection the current runtime still allows.
+
+    Switching runtime orphans the model picked under the old one, and that orphans the
+    effort. The scoped block ids stop Slack handing those back on the next interaction;
+    this stops the view we render from the same payload showing them in the meantime.
+    """
+    if model and model not in {value for value, _ in _models_for(runtime_adapter or "")}:
+        model = None
+    if reasoning_effort and reasoning_effort not in (_supported_efforts(runtime_adapter, model) or ()):
+        reasoning_effort = None
+    return AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
+
+
 def _supported_efforts(runtime_adapter: str | None, model: str | None) -> list[str] | None:
     if not runtime_adapter or not model:
         return None
@@ -1628,7 +1581,7 @@ def _supported_efforts(runtime_adapter: str | None, model: str | None) -> list[s
 def _write_row(
     integration: Integration,
     *,
-    slack_user_id: str | None,
+    slack_user_id: str,
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
@@ -1679,7 +1632,7 @@ def _republish_home(
     view_state: HomeViewState | None = None,
 ) -> None:
     view_state = view_state or HomeViewState()
-    user_row, workspace_row = _load_rows(integration, slack_user_id)
+    user_row = _load_user_row(integration, slack_user_id)
     effective = resolve_ai_preferences(integration, slack_user_id)
     slack = SlackIntegration(integration)
     is_admin = _is_admin(slack, integration, slack_user_id)
@@ -1704,7 +1657,6 @@ def _republish_home(
     view = render_home_view(
         effective=effective,
         user_row=user_row,
-        workspace_row=workspace_row,
         is_admin=is_admin,
         account_state=account_state,
         project_state=project_state,

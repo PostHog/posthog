@@ -31,6 +31,8 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     DisplayType,
+    Meeting,
+    MeetingParticipant,
     TargetType,
 )
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
@@ -2662,3 +2664,149 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         self.client.force_login(viewer)
 
         self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)
+
+
+class TestCalendarSyncViewSet(APIBaseTest):
+    def _become_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
+        from posthog.models.integration import Integration
+
+        self._become_admin()
+        integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")
+        with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
+            mock_connect.return_value.start_workflow.return_value = _immediate_future()
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
+                {"integration_id": integration.id},
+            )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json(), {"status": "started"})
+        workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
+        self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
+
+    def test_list_reports_last_synced_and_in_flight_runs(self):
+        from datetime import timedelta
+
+        from django.utils import timezone as dj_timezone
+
+        from posthog.models.integration import Integration
+
+        now = dj_timezone.now()
+        synced = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="sub-synced",
+            config={
+                "calendar_sync_started_at": (now - timedelta(minutes=5)).isoformat(),
+                "calendar_last_synced_at": (now - timedelta(minutes=4)).isoformat(),
+            },
+        )
+        syncing = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="sub-syncing",
+            config={"calendar_sync_started_at": (now - timedelta(minutes=1)).isoformat()},
+        )
+        stale = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="sub-stale",
+            config={"calendar_sync_started_at": (now - timedelta(hours=2)).isoformat()},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/calendar_sync/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        by_id = {row["integration_id"]: row for row in response.json()}
+        self.assertFalse(by_id[synced.id]["is_syncing"])
+        self.assertIsNotNone(by_id[synced.id]["last_synced_at"])
+        self.assertTrue(by_id[syncing.id]["is_syncing"])
+        self.assertFalse(by_id[stale.id]["is_syncing"])
+
+    def test_sync_now_404s_for_another_teams_integration(self):
+        from posthog.models.integration import Integration
+
+        self._become_admin()
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        integration = Integration.objects.create(team=other_team, kind="google-calendar", integration_id="sub-2")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
+            {"integration_id": integration.id},
+        )
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_sync_now_requires_project_admin(self):
+        from posthog.models.integration import Integration
+
+        integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-3")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
+            {"integration_id": integration.id},
+        )
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
+
+
+def _immediate_future():
+
+    async def _done():
+        return None
+
+    return _done()
+
+
+class TestAccountMeetingViewSet(APIBaseTest):
+    def test_list_returns_the_accounts_meetings_newest_first_with_participants(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-1")
+        other = Account.objects.unscoped().create(team=self.team, name="Other", external_id="other-1")
+        older = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-old", start_time="2026-08-01T15:00:00Z", title="Kickoff"
+        )
+        newer = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-new", start_time="2026-08-03T15:00:00Z", title="Review"
+        )
+        Meeting.objects.unscoped().create(
+            team=self.team, account=other, ical_uid="uid-other", start_time="2026-08-02T15:00:00Z"
+        )
+        MeetingParticipant.objects.unscoped().create(
+            team=self.team, meeting=newer, email="jane@acme.com", response_status="accepted"
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        payload = response.json()
+        self.assertEqual(payload["count"], 2)
+        data = payload["results"]
+        self.assertEqual([m["id"] for m in data], [str(newer.id), str(older.id)])
+        self.assertEqual(
+            data[0]["participants"],
+            [
+                {
+                    "email": "jane@acme.com",
+                    "display_name": "",
+                    "response_status": "accepted",
+                    "is_organizer": False,
+                    "person_id": None,
+                }
+            ],
+        )
+
+    def test_search_filters_by_title_or_attendee(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")
+        review = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-r", start_time="2026-08-01T15:00:00Z", title="Review"
+        )
+        kickoff = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-k", start_time="2026-08-02T15:00:00Z", title="Kickoff"
+        )
+        MeetingParticipant.objects.unscoped().create(team=self.team, meeting=kickoff, email="jane@acme.com")
+
+        endpoint = f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/"
+        by_title = self.client.get(endpoint, {"search": "review"}).json()
+        self.assertEqual([m["id"] for m in by_title["results"]], [str(review.id)])
+        by_attendee = self.client.get(endpoint, {"search": "jane"}).json()
+        self.assertEqual([m["id"] for m in by_attendee["results"]], [str(kickoff.id)])

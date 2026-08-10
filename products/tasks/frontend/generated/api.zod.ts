@@ -3063,6 +3063,10 @@ export const TasksSummariesCreateBody = /* @__PURE__ */ zod.object({
  */
 export const tasksWarmCreateBodyRepositoryMax = 255
 
+export const tasksWarmCreateBodyRepositoriesItemMax = 255
+
+export const tasksWarmCreateBodyRepositoriesMax = 3
+
 export const tasksWarmCreateBodyBranchMax = 255
 
 export const TasksWarmCreateBody = /* @__PURE__ */ zod
@@ -3072,6 +3076,11 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             .max(tasksWarmCreateBodyRepositoryMax)
             .nullish()
             .describe('Optional GitHub repository to clone, in `organization\/repo` format (e.g. `posthog\/posthog`).'),
+        repositories: zod
+            .array(zod.string().max(tasksWarmCreateBodyRepositoriesItemMax))
+            .max(tasksWarmCreateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories to clone into the warm sandbox, each in `organization\/repo` format.'),
         github_integration: zod
             .number()
             .nullish()

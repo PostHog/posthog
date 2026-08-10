@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-06 22:54:54 UTC
+// Generated at: 2026-08-07 10:20:33 UTC
 
 export type CanonicalProvider =
     | 'default'
