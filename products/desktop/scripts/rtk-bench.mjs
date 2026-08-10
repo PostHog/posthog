@@ -24,7 +24,7 @@
 // requires a session-level A/B (total input/output tokens, retries, task
 // success) — see the rtk-context-fidelity e2e for the fidelity half.
 //
-// Usage: node scripts/rtk-bench.mjs [--json]
+// Usage: node scripts/rtk-bench.mjs [--json] [--runs N] [--warmups N]
 
 import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -43,6 +43,20 @@ const GIT_PREFIX = execFileSync("git", ["rev-parse", "--show-prefix"], {
   cwd: repoRoot,
   encoding: "utf8",
 }).trim();
+
+function numericOption(name, fallback) {
+  const index = process.argv.indexOf(name);
+  if (index === -1) return fallback;
+  const value = Number.parseInt(process.argv[index + 1] ?? "", 10);
+  if (!Number.isInteger(value) || value < 1) {
+    console.error(`${name} requires a positive integer`);
+    process.exit(2);
+  }
+  return value;
+}
+
+const RUNS = numericOption("--runs", 7);
+const WARMUPS = numericOption("--warmups", 2);
 
 const lines = (s) => s.split("\n").filter(Boolean);
 // rtk's search/list filters are lossy by design past their result caps but
@@ -204,7 +218,7 @@ function tokensOf(run) {
 }
 
 function runShell(cmd) {
-  const started = Date.now();
+  const started = process.hrtime.bigint();
   const res = spawnSync("bash", ["-c", cmd], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -215,8 +229,14 @@ function runShell(cmd) {
     stdout: res.stdout ?? "",
     stderr: res.stderr ?? "",
     code: res.status ?? -1,
-    ms: Date.now() - started,
+    ms: Number(process.hrtime.bigint() - started) / 1_000_000,
   };
+}
+
+function percentile(values, fraction) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.ceil(fraction * sorted.length) - 1;
+  return sorted[Math.max(0, index)];
 }
 
 // Materialize the base branch's policy module so the baseline arm runs the code
@@ -308,19 +328,52 @@ function fidelityIssues(facts, raw, arm) {
 const rewritten = applyPolicies(CORPUS.map((c) => c.cmd));
 
 const rows = CORPUS.map(({ label, cmd, facts }, i) => {
-  const raw = runShell(cmd);
+  const commands = {
+    raw: cmd,
+    base: rewritten[i].base ?? cmd,
+    cand: rewritten[i].cand ?? cmd,
+  };
+  const samples = { raw: [], base: [], cand: [] };
+  const measuredRuns = { raw: [], base: [], cand: [] };
+
+  for (let iteration = -WARMUPS; iteration < RUNS; iteration++) {
+    const order = ["raw", "base", "cand"];
+    const offset =
+      (((iteration + WARMUPS) % order.length) + order.length) % order.length;
+    const rotated = [...order.slice(offset), ...order.slice(0, offset)];
+    for (const arm of rotated) {
+      const run = runShell(commands[arm]);
+      if (iteration >= 0) {
+        samples[arm].push(run.ms);
+        measuredRuns[arm].push(run);
+      }
+    }
+  }
+
+  const raw = measuredRuns.raw[0];
   const arms = {};
   for (const arm of ["base", "cand"]) {
-    const cmdForArm = rewritten[i][arm];
-    const run = cmdForArm ? runShell(cmdForArm) : raw;
+    const runs = measuredRuns[arm];
+    const outputSizes = new Set(runs.map(tokensOf));
+    const issues = rewritten[i][arm]
+      ? runs.flatMap((run) => fidelityIssues(facts, raw, run))
+      : [];
+    if (outputSizes.size !== 1) issues.push("output size changed between runs");
     arms[arm] = {
-      rewritten: cmdForArm,
-      tokens: tokensOf(run),
-      ms: run.ms,
-      issues: cmdForArm ? fidelityIssues(facts, raw, run) : [],
+      rewritten: rewritten[i][arm],
+      tokens: tokensOf(runs[0]),
+      medianMs: percentile(samples[arm], 0.5),
+      p95Ms: percentile(samples[arm], 0.95),
+      issues: [...new Set(issues)],
     };
   }
-  return { label, rawTokens: tokensOf(raw), rawMs: raw.ms, ...arms };
+  return {
+    label,
+    rawTokens: tokensOf(raw),
+    rawMedianMs: percentile(samples.raw, 0.5),
+    rawP95Ms: percentile(samples.raw, 0.95),
+    ...arms,
+  };
 });
 
 const total = (pick) => rows.reduce((s, r) => s + pick(r), 0);
@@ -334,11 +387,18 @@ const preexisting = rows.filter(
 
 if (process.argv.includes("--json")) {
   console.log(
-    JSON.stringify({ rows, totalRaw, totalBase, totalCand }, null, 2),
+    JSON.stringify(
+      { runs: RUNS, warmups: WARMUPS, rows, totalRaw, totalBase, totalCand },
+      null,
+      2,
+    ),
   );
 } else {
   console.log(
     "RTK stress bench -- raw vs baseline(base branch) vs candidate; tokens = bytes/4 heuristic",
+  );
+  console.log(
+    `timing = ${RUNS} runs after ${WARMUPS} warmups; arms interleaved`,
   );
   console.log("=".repeat(78));
   for (const r of rows) {
@@ -349,6 +409,12 @@ if (process.argv.includes("--json")) {
         : "ok";
     console.log(
       `${r.label.padEnd(20)} raw=${String(r.rawTokens).padStart(7)}  base=${String(r.base.tokens).padStart(7)}  cand=${String(r.cand.tokens).padStart(7)}  fid=${fid}`,
+    );
+    console.log(
+      `${"".padEnd(20)} median ms: raw=${r.rawMedianMs.toFixed(1).padStart(7)}  base=${r.base.medianMs.toFixed(1).padStart(7)}  cand=${r.cand.medianMs.toFixed(1).padStart(7)}`,
+    );
+    console.log(
+      `${"".padEnd(20)} p95 ms:   raw=${r.rawP95Ms.toFixed(1).padStart(7)}  base=${r.base.p95Ms.toFixed(1).padStart(7)}  cand=${r.cand.p95Ms.toFixed(1).padStart(7)}`,
     );
     for (const [arm, a] of [
       ["base", r.base],
