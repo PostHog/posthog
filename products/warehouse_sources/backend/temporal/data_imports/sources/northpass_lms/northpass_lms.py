@@ -71,6 +71,27 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _make_relationship_flattener(relationship_id_fields: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Flatten a row and promote related-resource ids from ``relationships`` to root columns.
+
+    ``/events`` rows carry no ``id`` and reference the person/activity they belong to only inside
+    JSON:API ``relationships``; promoting those ids gives the row queryable foreign-key columns
+    (which also form its primary key). A missing relationship still emits its column (``None``) so
+    the table schema stays stable across heterogeneous event types.
+    """
+
+    def _flatten(item: dict[str, Any]) -> dict[str, Any]:
+        row = _flatten_item(item)
+        relationships = row.get("relationships")
+        for relationship, column in relationship_id_fields.items():
+            related = relationships.get(relationship) if isinstance(relationships, dict) else None
+            data = related.get("data") if isinstance(related, dict) else None
+            row[column] = data.get("id") if isinstance(data, dict) else None
+        return row
+
+    return _flatten
+
+
 def _make_child_flattener(parent_name: str, parent_id_field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Flatten a fan-out child row and rename its injected parent id.
 
@@ -114,6 +135,9 @@ def _top_level_source(
     resumable_source_manager: ResumableSourceManager[NorthpassResumeConfig],
     db_incremental_field_last_value: Optional[Any],
 ) -> Resource:
+    data_map = (
+        _make_relationship_flattener(config.relationship_id_fields) if config.relationship_id_fields else _flatten_item
+    )
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),
         # A collection with no rows 404s instead of returning `data: []` (seen on
@@ -130,7 +154,7 @@ def _top_level_source(
                     # `.get("data", [])`), so no data_selector_required here.
                     "data_selector": "data",
                 },
-                "data_map": _flatten_item,
+                "data_map": data_map,
             }
         ],
     }
