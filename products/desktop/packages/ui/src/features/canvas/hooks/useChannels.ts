@@ -67,11 +67,14 @@ export function useChannelMutations() {
       // same name converge on one channel.
       // Names that reach here are already lowercase-dashed (the create form
       // rejects anything else), so they match server-normalized names as typed.
-      const resolvedExisting = (
-        queryClient.getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY) ?? []
-      ).some((channel) => channel.name === name);
+      // An unfetched list reads as undefined rather than "no such name", and
+      // starring a space the user had unstarred is worse than not starring a
+      // new one, so only a loaded list without the name earns the fallback.
+      const isNewToTheList = queryClient
+        .getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY)
+        ?.every((channel) => channel.name !== name);
       const created = await client.resolveTaskChannel(name, { star });
-      if (!star || created.starred || resolvedExisting) return created;
+      if (!star || created.starred || !isNewToTheList) return created;
       // TODO: delete once `star` on create is live on Cloud. A backend that
       // predates it drops the flag and hands back an unstarred channel, so ask
       // again through the star endpoint every version has. Resolving a channel

@@ -555,7 +555,16 @@ export function CreateChannelModal({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!busy) onOpenChange(next);
+        if (busy || next) return;
+        // Escape and the backdrop walk the steps back, the way the buttons do.
+        // Closing outright from the last step would drop a filled-in draft,
+        // since reopening starts clean.
+        const previous = CREATE_STEPS[CREATE_STEPS.indexOf(step) - 1];
+        if (previous) {
+          goToStep(previous);
+          return;
+        }
+        onOpenChange(false);
       }}
     >
       <DialogContent showCloseButton={false} className="sm:max-w-lg">

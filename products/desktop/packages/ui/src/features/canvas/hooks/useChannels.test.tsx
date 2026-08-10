@@ -14,6 +14,7 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 }));
 
 import { useChannelMutations, useChannels } from "./useChannels";
+import { TASK_CHANNELS_QUERY_KEY } from "./useTaskChannels";
 
 function taskChannel(id: string, name: string, starred = false): TaskChannel {
   return {
@@ -103,7 +104,8 @@ describe("useChannelMutations", () => {
   ])(
     "asks the star endpoint for the new channel only when needed: %s",
     async (_case, star, starredOnCreate, expectStarCall) => {
-      mockClient.getTaskChannels.mockResolvedValue([]);
+      // The sidebar has loaded and holds no spaces, so this name is new.
+      queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, []);
       mockClient.resolveTaskChannel.mockResolvedValue(
         taskChannel("1", "alpha", starredOnCreate),
       );
@@ -126,6 +128,20 @@ describe("useChannelMutations", () => {
       expect(channel?.starred).toBe(star);
     },
   );
+
+  it("leaves the star alone when the list it would check has not loaded", async () => {
+    // Nothing has fetched the list, so an existing unstarred space and a brand
+    // new one are indistinguishable here. Starring the wrong one is the costlier
+    // mistake, so the fallback stands down.
+    mockClient.resolveTaskChannel.mockResolvedValue(taskChannel("1", "alpha"));
+
+    const mutations = renderHook(() => useChannelMutations(), { wrapper });
+    await act(async () => {
+      await mutations.result.current.createChannel("alpha", { star: true });
+    });
+
+    expect(mockClient.starTaskChannel).not.toHaveBeenCalled();
+  });
 
   it("leaves the star alone when the name resolves a space that already exists", async () => {
     // The list the create form was filled against already holds the name, so
