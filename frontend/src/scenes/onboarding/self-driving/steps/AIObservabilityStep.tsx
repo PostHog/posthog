@@ -13,7 +13,7 @@ const PROVIDER_OPTIONS = Object.keys(AIObservabilitySDKInstructions).map((key) =
 }))
 
 /**
- * Goal-conditional step for `ai_app`: the generic wizard install doesn't wire LLM instrumentation,
+ * Goal-conditional step for `maintain_ai`: the generic wizard install doesn't wire LLM instrumentation,
  * so this step carries the per-provider instructions. The goal's finish line is the first AI
  * traces coming in.
  */

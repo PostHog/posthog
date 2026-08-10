@@ -7,7 +7,13 @@
 import { getTreeItemsProducts } from '~/products'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
-export type OnboardingUseCaseKey = 'user_behavior' | 'fix_issues' | 'website_traffic' | 'ai_app'
+export type OnboardingUseCaseKey =
+    | 'find_problems'
+    | 'improve_experience'
+    | 'ship_changes'
+    | 'maintain_ai'
+    | 'connect_context'
+    | 'ai_app'
 
 /** Stamped on every intent the self-driving onboarding registers, mirroring the flow's event props. */
 export const SELF_DRIVING_INTENT_METADATA = { flow_variant: 'context_first' }
@@ -77,6 +83,58 @@ export const ONBOARDING_TOOLS: Record<OnboardingToolKey, OnboardingTool> = {
     },
 }
 
+export const SUPPORTED_TOOL_PRODUCTS = [
+    ...Object.values(ONBOARDING_TOOLS).map((tool) => tool.productKey),
+    ProductKey.FEATURE_FLAGS,
+    ProductKey.EXPERIMENTS,
+    ProductKey.SURVEYS,
+    ProductKey.LOGS,
+    ProductKey.METRICS,
+    ProductKey.DATA_WAREHOUSE,
+    ProductKey.WORKFLOWS,
+    ProductKey.MCP_ANALYTICS,
+    ProductKey.CONVERSATIONS,
+]
+
+export const ADDITIONAL_TOOL_DETAILS: Partial<Record<ProductKey, { description: string; docsUrl: string }>> = {
+    [ProductKey.FEATURE_FLAGS]: {
+        description: 'Roll out changes gradually and safely.',
+        docsUrl: 'https://posthog.com/docs/feature-flags',
+    },
+    [ProductKey.EXPERIMENTS]: {
+        description: 'Measure whether a product change works.',
+        docsUrl: 'https://posthog.com/docs/experiments',
+    },
+    [ProductKey.SURVEYS]: {
+        description: 'Collect feedback from users in your product.',
+        docsUrl: 'https://posthog.com/docs/surveys',
+    },
+    [ProductKey.LOGS]: {
+        description: 'Search and investigate application logs.',
+        docsUrl: 'https://posthog.com/docs/logs',
+    },
+    [ProductKey.METRICS]: {
+        description: 'Monitor service metrics and alerts.',
+        docsUrl: 'https://posthog.com/docs/metrics',
+    },
+    [ProductKey.DATA_WAREHOUSE]: {
+        description: 'Query product and business data together.',
+        docsUrl: 'https://posthog.com/docs/data-warehouse',
+    },
+    [ProductKey.WORKFLOWS]: {
+        description: 'Automate work from product activity.',
+        docsUrl: 'https://posthog.com/docs/workflows',
+    },
+    [ProductKey.MCP_ANALYTICS]: {
+        description: 'Monitor MCP tool calls and failures.',
+        docsUrl: 'https://posthog.com/docs/mcp-analytics',
+    },
+    [ProductKey.CONVERSATIONS]: {
+        description: 'Manage support conversations with customers.',
+        docsUrl: 'https://posthog.com/docs/support',
+    },
+}
+
 /** Docs pages, keyed by products-registry path - covers tools and sidebar-only extras alike. */
 export const DOCS_URL_BY_PRODUCT_PATH: Record<string, string> = {
     'Product analytics': 'https://posthog.com/docs/product-analytics',
@@ -84,6 +142,15 @@ export const DOCS_URL_BY_PRODUCT_PATH: Record<string, string> = {
     'Error tracking': 'https://posthog.com/docs/error-tracking',
     'Web analytics': 'https://posthog.com/docs/web-analytics',
     'LLM analytics': 'https://posthog.com/docs/llm-analytics',
+    'Feature flags': 'https://posthog.com/docs/feature-flags',
+    Experiments: 'https://posthog.com/docs/experiments',
+    Surveys: 'https://posthog.com/docs/surveys',
+    Logs: 'https://posthog.com/docs/logs',
+    Metrics: 'https://posthog.com/docs/metrics',
+    'Data warehouse': 'https://posthog.com/docs/data-warehouse',
+    Workflows: 'https://posthog.com/docs/workflows',
+    'MCP analytics': 'https://posthog.com/docs/mcp-analytics',
+    Support: 'https://posthog.com/docs/support',
     Dashboards: 'https://posthog.com/docs/product-analytics/dashboards',
 }
 
@@ -101,6 +168,8 @@ export interface OnboardingSetup {
     primaryProduct: ProductKey
     /** Shown and configured on the tools step. */
     tools: OnboardingToolKey[]
+    /** Intent-only ProductKeys shown on the tools step. */
+    additionalTools?: ProductKey[]
     /** Intent-only ProductKeys: populate the sidebar (via the products registry's `intents`)
      * without appearing in the onboarding UI. */
     sidebarExtras: ProductKey[]
@@ -112,6 +181,7 @@ export interface OnboardingSetup {
 
 export interface OnboardingUseCase extends OnboardingSetup {
     key: OnboardingUseCaseKey
+    icon: FileSystemIconType
     title: string
     /** One sentence: how agents get there, ending in the deliverable (the finish line). */
     description: string
@@ -124,45 +194,62 @@ const SHARED_SIDEBAR: ProductKey[] = [ProductKey.PRODUCT_ANALYTICS]
 
 export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
     {
-        key: 'user_behavior',
-        title: 'See how people use my product',
-        description: 'Agents watch your events and sessions, and deliver your first report on real usage.',
-        done: 'first behavior insight or report with real data',
+        key: 'improve_experience',
+        icon: 'product_analytics',
+        title: 'Improve the customer experience',
+        description: 'Agents study behavior, feedback, traffic, and conversions. They identify where users get stuck.',
+        done: 'first experience finding or report',
         primaryProduct: ProductKey.PRODUCT_ANALYTICS,
-        tools: ['product_analytics', 'session_replay'],
+        tools: ['product_analytics', 'session_replay', 'web_analytics'],
+        additionalTools: [ProductKey.SURVEYS],
         sidebarExtras: SHARED_SIDEBAR,
-    },
-    {
-        key: 'fix_issues',
-        title: 'Fix a real issue in my product',
-        description: 'Agents turn errors and broken sessions into signals, and open the first fix as a pull request.',
-        done: 'first agent-opened fix pull request',
-        primaryProduct: ProductKey.ERROR_TRACKING,
-        tools: ['error_tracking', 'session_replay'],
-        sidebarExtras: SHARED_SIDEBAR,
-    },
-    {
-        key: 'website_traffic',
-        title: 'See my website traffic',
-        description: 'Traffic, sources, and conversion on a live dashboard as soon as data arrives.',
-        done: 'web analytics dashboard showing real pageviews',
-        primaryProduct: ProductKey.WEB_ANALYTICS,
-        tools: ['web_analytics', 'product_analytics'],
-        sidebarExtras: SHARED_SIDEBAR,
-        // Web analytics needs at least one authorized URL before its dashboard can show anything.
         extraSteps: ['authorized-urls'],
     },
     {
-        key: 'ai_app',
-        title: 'See what my AI app is doing',
-        description: 'Traces, costs, and failures from your LLM features, from the first trace in.',
-        done: 'first AI traces ingested',
+        key: 'find_problems',
+        icon: 'error_tracking',
+        title: 'Find product problems',
+        description:
+            'Agents inspect errors, sessions, logs, and support context. They send findings and propose fixes.',
+        done: 'first product problem finding or proposed fix',
+        primaryProduct: ProductKey.ERROR_TRACKING,
+        tools: ['error_tracking', 'session_replay'],
+        additionalTools: [ProductKey.LOGS, ProductKey.METRICS, ProductKey.CONVERSATIONS],
+        sidebarExtras: SHARED_SIDEBAR,
+    },
+    {
+        key: 'ship_changes',
+        icon: 'feature_flag',
+        title: 'Ship changes with confidence',
+        description: 'Agents monitor flags and experiments. They report results before you expand a rollout.',
+        done: 'first rollout or experiment result',
+        primaryProduct: ProductKey.FEATURE_FLAGS,
+        tools: ['product_analytics'],
+        additionalTools: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS],
+        sidebarExtras: SHARED_SIDEBAR,
+    },
+    {
+        key: 'maintain_ai',
+        icon: 'llm_analytics',
+        title: 'Maintain an AI product',
+        description: 'Agents inspect AI traces, costs, failures, and MCP tool calls. They find issues in AI features.',
+        done: 'first AI product finding or report',
         primaryProduct: ProductKey.AI_OBSERVABILITY,
         tools: ['ai_observability', 'product_analytics'],
+        additionalTools: [ProductKey.MCP_ANALYTICS],
         sidebarExtras: SHARED_SIDEBAR,
-        // The generic wizard install doesn't wire LLM instrumentation - without this step the
-        // finish line (first AI traces) is unreachable.
         extraSteps: ['ai-observability'],
+    },
+    {
+        key: 'connect_context',
+        icon: 'data_warehouse',
+        title: 'Connect context and automate work',
+        description: 'Agents use warehouse data and workflows to act on signals across your systems.',
+        done: 'first workflow or report using connected context',
+        primaryProduct: ProductKey.DATA_WAREHOUSE,
+        tools: ['product_analytics'],
+        additionalTools: [ProductKey.DATA_WAREHOUSE, ProductKey.WORKFLOWS],
+        sidebarExtras: SHARED_SIDEBAR,
     },
 ]
 
@@ -170,6 +257,19 @@ export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
 const DEFAULT_SETUP: OnboardingSetup = {
     primaryProduct: ProductKey.PRODUCT_ANALYTICS,
     tools: ['product_analytics', 'session_replay', 'error_tracking'],
+    additionalTools: [
+        ProductKey.FEATURE_FLAGS,
+        ProductKey.EXPERIMENTS,
+        ProductKey.SURVEYS,
+        ProductKey.LOGS,
+        ProductKey.METRICS,
+        ProductKey.DATA_WAREHOUSE,
+        ProductKey.WORKFLOWS,
+        ProductKey.MCP_ANALYTICS,
+        ProductKey.CONVERSATIONS,
+        ProductKey.WEB_ANALYTICS,
+        ProductKey.AI_OBSERVABILITY,
+    ],
     sidebarExtras: SHARED_SIDEBAR,
 }
 

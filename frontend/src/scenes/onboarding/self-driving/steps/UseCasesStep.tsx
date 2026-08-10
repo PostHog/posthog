@@ -1,11 +1,10 @@
 import { useActions } from 'kea'
 
-import { IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
-import { ONBOARDING_USE_CASES, primaryTool, toolIconType } from '../../shared/useCases'
+import { ONBOARDING_USE_CASES } from '../../shared/useCases'
 import { productEnablementStepLogic } from '../productEnablementStepLogic'
 import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
 
@@ -18,10 +17,10 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
     const { configureUseCase } = useActions(productEnablementStepLogic)
 
     return (
-        <div className="flex flex-col gap-6 py-1">
+        <div className="flex flex-col gap-4 py-1">
             <div className="flex flex-col gap-3">
                 {ONBOARDING_USE_CASES.map((useCase) => {
-                    const iconType = toolIconType(primaryTool(useCase))
+                    const iconType = useCase.icon
                     const colorVar = `var(--color-product-${iconType.replace(/_/g, '-')}-light)`
                     return (
                         <button
@@ -46,11 +45,10 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
                                     {iconForType(iconType)}
                                 </div>
                             </div>
-                            <div className="flex-1 flex flex-col gap-0.5">
+                            <div className="flex-1 flex flex-col gap-1 min-w-0">
                                 <div className="font-semibold text-base">{useCase.title}</div>
                                 <div className="text-sm text-secondary text-balance">{useCase.description}</div>
                             </div>
-                            <IconChevronRight className="shrink-0 text-lg text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-[color:var(--goal-color)]" />
                         </button>
                     )
                 })}

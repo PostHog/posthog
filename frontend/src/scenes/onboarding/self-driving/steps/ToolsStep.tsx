@@ -1,18 +1,19 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+
+import { toSentenceCase } from 'scenes/onboarding/shared/utils'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsProducts } from '~/products'
 
 import {
+    ADDITIONAL_TOOL_DETAILS,
     DOCS_URL_BY_PRODUCT_PATH,
     ONBOARDING_TOOLS,
     resolveSetup,
-    toolEnablement,
     toolIconType,
 } from '../../shared/useCases'
-import { productEnablementStepLogic } from '../productEnablementStepLogic'
 import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
 
 /**
@@ -22,15 +23,39 @@ import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
  */
 export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { selectedUseCase } = useValues(useCaseSelectionLogic)
-    const { isSessionReplayEnabled, isErrorTrackingEnabled, enablingProduct, autoEnabling } =
-        useValues(productEnablementStepLogic)
-    const { enableProduct } = useActions(productEnablementStepLogic)
 
     const setup = resolveSetup(selectedUseCase)
-    const tools = setup.tools.map((key) => ONBOARDING_TOOLS[key])
+    const setupTools = setup.tools.map((key) => ONBOARDING_TOOLS[key])
+    const setupProductKeys = new Set(setupTools.map((tool) => tool.productKey))
+    const tools = [
+        ...setupTools.map((tool) => ({
+            productKey: tool.productKey,
+            name: tool.productPath,
+            description: tool.benefit,
+            docsUrl: DOCS_URL_BY_PRODUCT_PATH[tool.productPath],
+            iconType: toolIconType(tool),
+        })),
+        ...(setup.additionalTools ?? [])
+            .filter((productKey) => !setupProductKeys.has(productKey))
+            .map((productKey) => {
+                const productItem = getTreeItemsProducts().find((item) => item.intents?.includes(productKey))
+                const details = ADDITIONAL_TOOL_DETAILS[productKey]
+                const tool = {
+                    name: productItem?.path ?? productKey,
+                    description: details?.description ?? '',
+                }
+                return {
+                    productKey,
+                    name: toSentenceCase(tool.name),
+                    description: tool.description,
+                    docsUrl: details?.docsUrl ?? DOCS_URL_BY_PRODUCT_PATH[tool.name],
+                    iconType: productItem?.iconType ?? 'product_analytics',
+                }
+            }),
+    ]
     // The setup's sidebar extras, resolved the same way the backend populates the sidebar:
     // through the products registry's `intents`. Tools already shown above are excluded.
-    const shownNames = new Set(tools.map((tool) => tool.productPath))
+    const shownNames = new Set(tools.map((tool) => tool.name))
     const sidebarExtras = getTreeItemsProducts().filter(
         (item) =>
             item.intents?.some((intent) => setup.sidebarExtras.includes(intent)) &&
@@ -41,22 +66,16 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
     return (
         <div className="flex flex-col gap-6 py-1">
             <p className="text-secondary text-center m-0">
-                These are on and feeding your agents. You can change them later in settings.
+                These tools will feed your agents after setup finishes. You can change them later in settings.
             </p>
             <div className="flex flex-col gap-3">
                 {tools.map((tool) => {
-                    const iconType = toolIconType(tool)
+                    const iconType = tool.iconType
                     const colorVar = `var(--color-product-${iconType.replace(/_/g, '-')}-light)`
-                    const enablement = toolEnablement(tool)
-                    const isOn = !enablement
-                        ? true
-                        : enablement === 'session_replay'
-                          ? isSessionReplayEnabled
-                          : isErrorTrackingEnabled
                     return (
                         <div
-                            key={tool.productPath}
-                            className="OnboardingProductCard flex items-center gap-4 p-4 rounded-lg border"
+                            key={tool.productKey}
+                            className="OnboardingProductCard flex items-start gap-4 p-4 rounded-lg border"
                         >
                             <div
                                 className="size-12 shrink-0 rounded-lg flex items-center justify-center"
@@ -66,34 +85,13 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
                                     {iconForType(iconType)}
                                 </div>
                             </div>
-                            <div className="flex-1 flex flex-col gap-0.5 min-w-0">
-                                <div className="font-semibold text-base">{tool.productPath}</div>
-                                <div className="text-sm text-secondary text-balance">
-                                    {tool.benefit}{' '}
-                                    <Link
-                                        to={DOCS_URL_BY_PRODUCT_PATH[tool.productPath]}
-                                        target="_blank"
-                                        className="whitespace-nowrap"
-                                    >
-                                        Read the docs
-                                    </Link>
-                                </div>
+                            <div className="flex-1 flex flex-col gap-1 min-w-0">
+                                <div className="font-semibold text-base">{tool.name}</div>
+                                <div className="text-sm text-secondary text-balance">{tool.description}</div>
+                                <Link to={tool.docsUrl} target="_blank" className="text-sm w-fit">
+                                    Read the docs
+                                </Link>
                             </div>
-                            {isOn ? (
-                                <div className="flex items-center gap-1.5 text-sm text-success shrink-0">
-                                    <span className="size-2 rounded-full bg-success" />
-                                    Enabled
-                                </div>
-                            ) : (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    loading={autoEnabling || enablingProduct === enablement}
-                                    onClick={() => enablement && enableProduct(enablement)}
-                                >
-                                    Turn on
-                                </LemonButton>
-                            )}
                         </div>
                     )
                 })}

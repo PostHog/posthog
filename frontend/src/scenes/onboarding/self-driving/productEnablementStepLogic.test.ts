@@ -1,10 +1,8 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
-import { teamLogic } from 'scenes/teamLogic'
-
 import { useMocks } from '~/mocks/jest'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { ONBOARDING_TOOLS, ONBOARDING_USE_CASES, SUPPORTED_TOOL_PRODUCTS } from '../shared/useCases'
 import { productEnablementStepLogic } from './productEnablementStepLogic'
 
 describe('productEnablementStepLogic', () => {
@@ -16,60 +14,42 @@ describe('productEnablementStepLogic', () => {
         logic.mount()
     })
 
-    it('enables one product per request, so an admin-gated failure cannot take down the batch', async () => {
-        const bodies: any[] = []
+    it('registers one secondary intent per selected tool', async () => {
+        const intents: any[] = []
         useMocks({
-            post: {
-                [`/api/projects/${MOCK_TEAM_ID}/product_enablement/`]: async ({ request }) => {
-                    bodies.push(await request.json())
-                    return [200, { results: { session_replay: 'enabled' } }]
+            patch: {
+                '/api/environments/:team_id/add_product_intent/': async ({ request }) => {
+                    intents.push(await request.json())
+                    return [200, { product_intents: [] }]
                 },
             },
-            patch: {
-                '/api/environments/:team_id/add_product_intent/': () => [200, { product_intents: [] }],
-            },
         })
+        await logic.asyncActions.enableTools([
+            ProductKey.ERROR_TRACKING,
+            ProductKey.WEB_ANALYTICS,
+            ProductKey.EXPERIMENTS,
+        ])
 
-        const onSuccess = jest.fn()
-        await logic.asyncActions.enableProduct('session_replay', onSuccess)
-        expect(bodies).toEqual([{ products: ['session_replay'] }])
-        expect(onSuccess).toHaveBeenCalled()
-        expect(logic.values.enablingProduct).toBeNull()
+        expect(intents).toHaveLength(3)
+        expect(intents.map((intent) => intent.product_type)).toEqual([
+            ProductKey.ERROR_TRACKING,
+            ProductKey.WEB_ANALYTICS,
+            ProductKey.EXPERIMENTS,
+        ])
+        for (const intent of intents) {
+            expect(intent.intent_context).toBe('onboarding product selected - secondary')
+        }
+        expect(logic.values.addingTools).toBe(false)
     })
 
-    it('does not advance the step on failure', async () => {
-        useMocks({
-            post: {
-                [`/api/projects/${MOCK_TEAM_ID}/product_enablement/`]: () => [
-                    403,
-                    { detail: 'Only project admins can enable products that change these settings' },
-                ],
-            },
-        })
+    it('covers every supported tool with a use case', () => {
+        const coveredProducts = new Set(
+            ONBOARDING_USE_CASES.flatMap((useCase) => [
+                ...useCase.tools.map((tool) => ONBOARDING_TOOLS[tool].productKey),
+                ...(useCase.additionalTools ?? []),
+            ])
+        )
 
-        const onSuccess = jest.fn()
-        await logic.asyncActions.enableProduct('session_replay', onSuccess)
-        expect(onSuccess).not.toHaveBeenCalled()
-        expect(logic.values.enablingProduct).toBeNull()
-    })
-
-    it('auto-enables only the use case products that are still off', async () => {
-        const bodies: any[] = []
-        useMocks({
-            post: {
-                [`/api/projects/${MOCK_TEAM_ID}/product_enablement/`]: async ({ request }) => {
-                    bodies.push(await request.json())
-                    return [200, { results: { error_tracking: 'enabled' } }]
-                },
-            },
-            patch: {
-                '/api/environments/:team_id/add_product_intent/': () => [200, { product_intents: [] }],
-            },
-        })
-        // Mock team: replay already on, error tracking off - fix_issues wants both.
-        await teamLogic.asyncActions.loadCurrentTeam()
-
-        await logic.asyncActions.configureUseCase('fix_issues')
-        expect(bodies).toEqual([{ products: ['error_tracking'] }])
+        expect(coveredProducts).toEqual(new Set(SUPPORTED_TOOL_PRODUCTS))
     })
 })

@@ -14,7 +14,7 @@ const AUTHORIZED_URL_LOGIC_PROPS = {
 } as const
 
 /**
- * Goal-conditional step for `website_traffic`: web analytics breaks traffic down by authorized
+ * Goal-conditional step for `improve_experience`: web analytics breaks traffic down by authorized
  * URL, so the goal's finish line (a live dashboard) needs at least one. Wildcards are off - the
  * URL must be concrete so the toolbar and agents can open the site.
  */
