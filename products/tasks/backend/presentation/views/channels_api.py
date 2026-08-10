@@ -104,12 +104,20 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
         summary="Resolve or create a public channel",
-        description="Returns the existing public channel with the (normalized) name, creating it if needed.",
+        description=(
+            "Returns the existing public channel with the (normalized) name, creating it if needed. "
+            "A channel created here is starred for the requester unless star is false."
+        ),
     )
     def create(self, request, **kwargs):
         serializer = ChannelWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        channel = tasks_facade.resolve_channel(self.team_id, self._user_id(), name=serializer.validated_data["name"])
+        channel = tasks_facade.resolve_channel(
+            self.team_id,
+            self._user_id(),
+            name=serializer.validated_data["name"],
+            star=serializer.validated_data["star"],
+        )
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ChannelSerializer(channel).data)
