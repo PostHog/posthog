@@ -306,10 +306,14 @@ tools:
             permissive `query` and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its
             monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner
             sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner
-            can exhaust the monthly budget on its first sweeps. To get notified about what the scanner finds (a Slack
-            alert or a scheduled summary), create a vision action bound to it with `vision-actions-create`. For a
-            scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision`
-            skill first — it derives the query from the experiment's exposure criteria.
+            can exhaust the monthly budget on its first sweeps. Creating a scanner also creates its built-in daily
+            digest: an enabled vision action with no delivery targets that synthesizes the scanner's observations once
+            a day and spends credits of its own, on top of the observations. Disable or delete it with
+            `vision-actions-update` / `vision-actions-delete` if you don't want it. To get notified about what the
+            scanner finds (a Slack alert or a summary on another schedule), create a further vision action bound to it
+            with `vision-actions-create`. For a scanner scoped to one experiment's exposed sessions, load the
+            `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's
+            exposure criteria.
         exclude_params:
             - id
             - scanner_version
@@ -412,6 +416,7 @@ tools:
             than being charged twice. Scans cost credits per session at the same rate a scanner does; check
             `vision-quota-retrieve` first if the batch is large, since sessions past the monthly limit come back as
             `skipped_quota` instead of failing the call.
+        requires_ai_consent: true
     vision-scanners-list:
         operation: vision_scanners_list
         enabled: true
