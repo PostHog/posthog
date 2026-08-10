@@ -1,3 +1,4 @@
+import type { AgentTurnFeedbackSentiment } from "@posthog/shared";
 import { create } from "zustand";
 
 interface SessionViewState {
@@ -22,6 +23,13 @@ interface SessionViewState {
    * (the default — the box never collapses on its own). Not persisted.
    */
   artifactFilesCollapsedByTaskId: Record<string, boolean>;
+  /**
+   * Thumbs rating given to an agent turn, keyed by turn id. Feedback is
+   * analytics-only, so this exists purely to keep the chosen thumb lit —
+   * without it a rated turn would forget the click as soon as the virtualized
+   * thread scrolled its row out of the window. Not persisted.
+   */
+  turnFeedbackByTurnId: Record<string, AgentTurnFeedbackSentiment>;
 }
 
 interface SessionViewActions {
@@ -32,6 +40,10 @@ interface SessionViewActions {
   clearGroupOverrides: () => void;
   setQueueCollapsed: (taskId: string, collapsed: boolean) => void;
   setArtifactFilesCollapsed: (taskId: string, collapsed: boolean) => void;
+  setTurnFeedback: (
+    turnId: string,
+    sentiment: AgentTurnFeedbackSentiment,
+  ) => void;
 }
 
 type SessionViewStore = SessionViewState & { actions: SessionViewActions };
@@ -43,6 +55,7 @@ const useStore = create<SessionViewStore>((set) => ({
   groupOverrides: {},
   queueCollapsedByTaskId: {},
   artifactFilesCollapsedByTaskId: {},
+  turnFeedbackByTurnId: {},
   actions: {
     setShowRawLogs: (show) => set({ showRawLogs: show }),
     setSearchQuery: (query) => set({ searchQuery: query }),
@@ -75,6 +88,13 @@ const useStore = create<SessionViewStore>((set) => ({
           [taskId]: collapsed,
         },
       })),
+    setTurnFeedback: (turnId, sentiment) =>
+      set((state) => ({
+        turnFeedbackByTurnId: {
+          ...state.turnFeedbackByTurnId,
+          [turnId]: sentiment,
+        },
+      })),
   },
 }));
 
@@ -90,4 +110,6 @@ export const useArtifactFilesCollapsed = (taskId: string | undefined) =>
       ? false
       : (s.artifactFilesCollapsedByTaskId[taskId] ?? false),
   );
+export const useTurnFeedback = (turnId: string) =>
+  useStore((s) => s.turnFeedbackByTurnId[turnId] ?? null);
 export const useSessionViewActions = () => useStore((s) => s.actions);
