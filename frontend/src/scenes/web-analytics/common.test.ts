@@ -1,6 +1,6 @@
-import { exactMatchOperatorFor } from './common'
-
 import { PropertyFilterType, PropertyOperator } from '~/types'
+
+import { exactMatchOperatorFor } from './common'
 
 describe('exactMatchOperatorFor', () => {
     it.each([
