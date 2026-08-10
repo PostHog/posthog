@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import React from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import {
@@ -21,10 +20,8 @@ export const ObservationSeekbarMarks = React.memo(function ObservationSeekbarMar
     props: ObservationSeekbarMarksProps
 ): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const dockShown =
-        hasReplayVision && mode === SessionRecordingPlayerMode.Standard && !logicProps.noMeta && !logicProps.noDock
+    const dockShown = mode === SessionRecordingPlayerMode.Standard && !logicProps.noMeta && !logicProps.noDock
     if (!dockShown || !sessionRecordingId) {
         return null
     }
