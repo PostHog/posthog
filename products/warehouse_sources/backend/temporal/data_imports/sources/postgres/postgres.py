@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import math
 import time
+import errno
 import socket
 import ipaddress
 import threading
@@ -331,12 +332,16 @@ _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
 # yields — psycopg maps it to InternalError, not OperationalError, so it must be
 # named explicitly or the type-based catch below would miss it. InternalError_ is the
 # generic XX000 class Supavisor's "DbHandler exited" pooler drop arrives as; it's only
-# treated as a drop when its message matches the narrow pooler signature above.
+# treated as a drop when its message matches the narrow pooler signature above. OSError
+# is not psycopg-specific — it's the bare exception the connect-path socket setup raises on
+# EMFILE/ENFILE (see `_is_too_many_open_files_error`) — but every site below narrows it with
+# a message/errno-based predicate before retrying, so an unrelated OSError still re-raises.
 _CONNECTION_DROPPED_ERROR_TYPES = (
     psycopg.errors.ProtocolViolation,
     psycopg.OperationalError,
     psycopg.errors.IdleInTransactionSessionTimeout,
     psycopg.errors.InternalError_,
+    OSError,
 )
 
 
@@ -397,6 +402,21 @@ def _is_connection_limit_error(error: BaseException) -> bool:
     return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
 
 
+def _is_too_many_open_files_error(error: BaseException) -> bool:
+    """True if the connect attempt failed because this worker process is out of file descriptors.
+
+    The tunnel/TLS socket setup on the connect path (`_tunnel_with_handshake_translation`,
+    psycopg's own socket creation before libpq takes over) raises a bare `OSError` — not a
+    psycopg exception — when `socket()` hits EMFILE (this process's fd table is full) or ENFILE
+    (the system-wide table is full). Same transient-capacity class as `_is_connection_limit_error`:
+    a descriptor frees the moment another connection/cursor/tunnel in this worker closes, so a
+    fresh connect after backoff usually succeeds. It's fd pressure on our own worker, never a
+    customer database or config problem, so it stays retryable and must never become a
+    `NonRetryableError`.
+    """
+    return isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE)
+
+
 # Connect-time "server not ready" refusals: PostgreSQL rejects a *new* connection with SQLSTATE
 # 57P03 (cannot_connect_now) while it is still coming up — a primary or standby booting ("the
 # database system is starting up"), a server replaying WAL after a crash ("the database system is
@@ -432,25 +452,28 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
     A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, a connect-time
-    connection-limit refusal (`_is_connection_limit_error`), or a connect-time "server not ready"
-    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`).
-    psycopg raises `ConnectionTimeout` ("connection timeout expired") only while *establishing* a
-    connection, never mid-query, so on the import/read path it's transient: the source was reachable
-    moments earlier in the same sync, and the reconnect just needs retrying. Connection-limit
-    refusals ("sorry, too many clients already", etc.) and server-still-starting-up refusals ("the
-    database system is not yet accepting connections", etc.) are likewise transient — a slot frees
-    the moment another connection closes, and the server begins accepting connections once
-    startup/recovery finishes. Used by the read/sync connect retry (`_connect_with_dropped_retry`)
-    and the `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit
-    refusals, server-startup refusals, and recovery conflicts too (via
-    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
-    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
-    and `get_non_retryable_errors`).
+    connection-limit refusal (`_is_connection_limit_error`), a connect-time "server not ready"
+    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`), or
+    this worker process running out of file descriptors while opening the socket
+    (`_is_too_many_open_files_error`). psycopg raises `ConnectionTimeout` ("connection timeout
+    expired") only while *establishing* a connection, never mid-query, so on the import/read path
+    it's transient: the source was reachable moments earlier in the same sync, and the reconnect
+    just needs retrying. Connection-limit refusals ("sorry, too many clients already", etc.) and
+    server-still-starting-up refusals ("the database system is not yet accepting connections", etc.)
+    are likewise transient — a slot frees the moment another connection closes, and the server
+    begins accepting connections once startup/recovery finishes. A file-descriptor exhaustion is the
+    same shape on our side of the wire: a descriptor frees the moment another connection/cursor in
+    this worker closes. Used by the read/sync connect retry (`_connect_with_dropped_retry`) and the
+    `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit refusals,
+    server-startup refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but
+    deliberately keeps failing fast on connect-time *timeouts*, where a timeout usually means an
+    unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
         or _is_server_starting_up_error(error)
+        or _is_too_many_open_files_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
 
