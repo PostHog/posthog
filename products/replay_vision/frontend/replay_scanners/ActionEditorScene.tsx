@@ -445,7 +445,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 
             <LemonSegmentedButton
                 size="small"
-                className="max-w-full overflow-x-auto"
+                className="max-w-full"
                 value={actionForm.alert_frequency}
                 onChange={(value) => {
                     setActionFormValue('alert_frequency', value)
@@ -536,7 +536,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
             <LemonCheckbox
                 checked={actionForm.alert_include_reasoning}
                 onChange={(checked) => setActionFormValue('alert_include_reasoning', checked)}
-                label="Include the scanner's reasoning in the message"
+                label="Include the observation's reasoning in the message"
                 data-attr="vision-action-alert-include-reasoning"
             />
             <span className="text-xs text-muted">
