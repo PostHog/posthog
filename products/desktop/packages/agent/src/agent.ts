@@ -89,6 +89,7 @@ export class Agent {
       const models = await fetchModelsList({
         gatewayUrl: gatewayConfig.gatewayUrl,
         authToken: gatewayConfig.apiKey,
+        projectId: this.posthogApiConfig?.projectId,
       });
       const gatewayCodexModels = models.filter((model) => {
         if (isBlockedModelId(model.id)) return false;

@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 from functools import lru_cache
 
 import asyncpg
@@ -7,9 +8,19 @@ from fastapi import Request
 from llm_gateway.auth.authenticators import Authenticator, OAuthAccessTokenAuthenticator, PersonalApiKeyAuthenticator
 from llm_gateway.auth.cache import AuthCache, get_auth_cache
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.db.postgres import acquire_connection
 from llm_gateway.metrics.prometheus import AUTH_CACHE_HITS, AUTH_CACHE_MISSES, AUTH_INVALID
 
 BEARER_PATTERN = re.compile(r"^Bearer\s+(\S+)$", re.IGNORECASE)
+PROJECT_SCOPE_HEADER = "x-posthog-project-id"
+
+
+class InvalidProjectScopeError(Exception):
+    pass
+
+
+class UnauthorizedProjectScopeError(Exception):
+    pass
 
 
 def extract_token(request: Request) -> str | None:
@@ -83,7 +94,41 @@ class AuthService:
         token = extract_token(request)
         if not token:
             return None
-        return await self.authenticate(token, pool)
+        user = await self.authenticate(token, pool)
+        if user is None or user.auth_method != "oauth_access_token":
+            return user
+
+        raw_project_id = request.headers.get(PROJECT_SCOPE_HEADER)
+        if raw_project_id is None:
+            return user
+        try:
+            project_id = int(raw_project_id)
+        except ValueError as exc:
+            raise InvalidProjectScopeError from exc
+        if project_id <= 0:
+            raise InvalidProjectScopeError
+
+        async with acquire_connection(pool) as conn:
+            project = await conn.fetchrow(
+                """
+                SELECT t.id, t.organization_id
+                FROM posthog_team t
+                JOIN posthog_organizationmembership om ON om.organization_id = t.organization_id
+                WHERE t.id = $1 AND om.user_id = $2
+                """,
+                project_id,
+                user.user_id,
+            )
+
+        if project is None:
+            raise UnauthorizedProjectScopeError
+
+        scoped_teams = user.scoped_teams or []
+        scoped_organizations = user.scoped_organizations or []
+        if project_id not in scoped_teams and str(project["organization_id"]) not in scoped_organizations:
+            raise UnauthorizedProjectScopeError
+
+        return replace(user, team_id=project_id)
 
 
 @lru_cache

@@ -428,17 +428,15 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       throw new Error(`Failed to switch organization: ${response.statusText}`);
     }
   }
-  private async reconcileInitialSelection(input: {
-    accessToken: string;
-    cloudRegion: CloudRegion;
+  private reconcileInitialSelection(input: {
     orgProjectsMap: OrgProjectsMap;
     currentOrgId: string | null;
     preferredProjectId: number | null;
     lastSelectedOrgId: string | null;
-  }): Promise<{
+  }): {
     currentOrgId: string | null;
     currentProjectId: number | null;
-  }> {
+  } {
     const currentProjectId = pickInitialProjectId(input);
     const projectOrgId = currentProjectId
       ? findOrgForProject(
@@ -448,24 +446,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         )
       : null;
     const currentOrgId = projectOrgId ?? input.currentOrgId;
-
-    if (currentOrgId && currentOrgId !== input.currentOrgId) {
-      const response = await this.executeAuthenticatedFetch(
-        fetch,
-        `${getCloudUrlFromRegion(input.cloudRegion)}/api/users/@me/`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ set_current_organization: currentOrgId }),
-        },
-        input.accessToken,
-      );
-      if (!response.ok) {
-        throw new Error(
-          `Failed to switch organization: ${response.statusText}`,
-        );
-      }
-    }
 
     return { currentOrgId, currentProjectId };
   }
@@ -753,9 +733,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const lastPrefs = accountKey
       ? this.authPreference.get(accountKey, options.cloudRegion)
       : null;
-    const selection = await this.reconcileInitialSelection({
-      accessToken: tokenResponse.access_token,
-      cloudRegion: options.cloudRegion,
+    const selection = this.reconcileInitialSelection({
       orgProjectsMap,
       currentOrgId,
       preferredProjectId:
@@ -1327,9 +1305,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           : null;
         const storedSelected =
           this.authSession.getCurrent()?.selectedProjectId ?? null;
-        const selection = await this.reconcileInitialSelection({
-          accessToken: session.accessToken,
-          cloudRegion: session.cloudRegion,
+        const selection = this.reconcileInitialSelection({
           orgProjectsMap: map,
           currentOrgId: session.currentOrgId,
           preferredProjectId:

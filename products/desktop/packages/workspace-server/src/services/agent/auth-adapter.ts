@@ -200,6 +200,10 @@ export class AgentAuthAdapter {
     }
   }
 
+  gatewayProjectId(): number | null {
+    return this.authService.getState().currentProjectId;
+  }
+
   async configureProcessEnv({
     credentials,
     proxyUrl,

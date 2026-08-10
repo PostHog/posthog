@@ -943,9 +943,7 @@ describe("AuthService", () => {
     const patchCall = fetchSpy.mock.calls.find(
       ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
     );
-    expect(patchCall?.[1]?.body).toBe(
-      JSON.stringify({ set_current_organization: "org-1" }),
-    );
+    expect(patchCall).toBeUndefined();
   });
 
   describe("lifecycle: connectivity recovery", () => {

@@ -1591,11 +1591,15 @@ export class PostHogAPIClient {
   async getCloudTaskConfigOptions(
     adapter: Adapter = "claude",
   ): Promise<CloudTaskConfigOption[]> {
+    const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
       path: url.pathname,
+      parameters: {
+        header: { "X-PostHog-Project-Id": String(teamId) },
+      },
     });
     return buildCloudTaskConfigOptions(
       normalizeGatewayModelsResponse(await response.json()),

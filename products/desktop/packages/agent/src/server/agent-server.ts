@@ -1622,6 +1622,7 @@ export class AgentServer {
       void fetchGatewayModels({
         gatewayUrl: gatewayEnv.anthropicBaseUrl,
         authToken: gatewayEnv.anthropicAuthToken,
+        projectId: Number(gatewayEnv.posthogProjectId) || undefined,
       }).catch(() => {});
     }
 
@@ -4074,7 +4075,7 @@ ${commonInstructions}
       customHeaders = buildGatewayPropertiesHeader(properties);
       openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
     } else {
-      customHeaders = buildGatewayPropertyHeaders(gatewayProperties);
+      customHeaders = `${buildGatewayPropertyHeaders(gatewayProperties)}\nx-posthog-project-id: ${projectId}`;
       // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
       // blob keys, so the session id would be silently dropped there.
       openaiCustomHeaders = buildGatewayPropertyHeaderRecord({
@@ -4082,6 +4083,7 @@ ${commonInstructions}
         team_id: projectId,
         $ai_session_id: taskId,
       });
+      openaiCustomHeaders["x-posthog-project-id"] = String(projectId);
     }
 
     // Server-level constants that don't vary per task — safe to keep in
