@@ -3,9 +3,10 @@ import { useMemo } from 'react'
 
 import { LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -15,7 +16,7 @@ import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
-import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
+import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName, modelNamingVariant } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
 import { QuotaMeterBar } from './QuotaMeterBar'
 import { VisionInsightChart } from './VisionInsightChart'
@@ -63,7 +64,8 @@ export function VisionUsageTab(): JSX.Element {
         billedLimitCredits,
         showStartupCap,
     } = useValues(visionQuotaLogic)
-    const showTierNames = useFeatureFlag('REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT', 'test')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
@@ -154,7 +156,7 @@ export function VisionUsageTab(): JSX.Element {
                     <span className="tabular-nums">
                         {scanner.credits_per_observation} credit{scanner.credits_per_observation === 1 ? '' : 's'}
                     </span>
-                    <span className="text-muted"> · {modelName(scanner.model, showTierNames)}</span>
+                    <span className="text-muted"> · {modelName(scanner.model, namingVariant)}</span>
                 </span>
             ),
         },

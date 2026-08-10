@@ -510,14 +510,24 @@ export const ScannerConfiguration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration` },
 }
 
-// Test arm of the model tier-naming experiment: models labeled Basic/Pro/Ultra instead of provider
-// names. A per-story featureFlags replaces the meta's, so REPLAY_VISION must be re-listed.
+// Test arms of the model tier-naming experiment: models labeled by capability tier instead of
+// provider names. A per-story featureFlags replaces the meta's, so REPLAY_VISION must be re-listed.
 export const ScannerConfigurationTierNames: StoryObj = {
     parameters: {
         pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration`,
         featureFlags: {
             [FEATURE_FLAGS.REPLAY_VISION]: true,
             [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test',
+        },
+    },
+}
+
+export const ScannerConfigurationLiteStandardPro: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration`,
+        featureFlags: {
+            [FEATURE_FLAGS.REPLAY_VISION]: true,
+            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
         },
     },
 }
@@ -548,6 +558,16 @@ export const ScannerEditorConfigureTierNames: StoryObj = {
         featureFlags: {
             [FEATURE_FLAGS.REPLAY_VISION]: true,
             [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test',
+        },
+    },
+}
+
+export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
+        featureFlags: {
+            [FEATURE_FLAGS.REPLAY_VISION]: true,
+            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
         },
     },
 }
