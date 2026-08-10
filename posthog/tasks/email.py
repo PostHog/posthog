@@ -39,6 +39,8 @@ from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scopes import APIScopeObject
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -46,6 +48,7 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -100,6 +103,41 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
             memberships_to_email.append(membership)
 
     return memberships_to_email
+
+
+def filter_members_by_warehouse_access(
+    memberships: list[OrganizationMembership],
+    team: Team,
+    saved_query: Optional[DataWarehouseSavedQuery] = None,
+) -> list[OrganizationMembership]:
+    """Drop members who cannot view the warehouse objects an email would name.
+
+    Two gates, because a deny can sit at either level. The resource gate covers members with
+    no warehouse access at all. The object gate covers a deny on one view, which the resource
+    gate cannot see, and repeats what `Database._is_warehouse_view_denied` does when the same
+    member opens that view. Pass `saved_query` whenever the email names a single view.
+
+    Falls back to the unfiltered list when access controls are unavailable: not being able to
+    check must not silently stop every failure email.
+    """
+    if not memberships:
+        return memberships
+
+    def allowed(membership: OrganizationMembership) -> bool:
+        access = UserAccessControl(membership.user, team)
+        if not access.check_access_level_for_resource(cast(APIScopeObject, "warehouse_objects"), "viewer"):
+            return False
+        if saved_query is None or access.is_organization_admin:
+            return True
+        return bool(access.check_access_level_for_object(saved_query, required_level="viewer"))
+
+    try:
+        if not UserAccessControl(memberships[0].user, team).access_controls_supported:
+            return memberships
+        return [membership for membership in memberships if allowed(membership)]
+    except Exception:
+        logger.exception("Warehouse access check failed, sending to all subscribed members", team_id=team.id)
+        return memberships
 
 
 def get_members_to_notify_for_pipeline_error(
@@ -830,11 +868,6 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_modeling.backend.facade.models import (
-        DataModelingJob,
-        DataModelingJobEngine,
-        DataWarehouseSavedQuery,
-    )
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -882,11 +915,6 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_modeling.backend.facade.models import (
-        DataModelingJob,
-        DataModelingJobEngine,
-        DataWarehouseSavedQuery,
-    )
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -897,11 +925,14 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         logger.warning("Team %d not found for matview failure digest", team_id)
         return
 
-    memberships_to_email = [
-        membership
-        for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
-        if membership.user.notification_settings.get("materialized_view_sync_failed_daily", True)
-    ]
+    memberships_to_email = filter_members_by_warehouse_access(
+        [
+            membership
+            for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+            if membership.user.notification_settings.get("materialized_view_sync_failed_daily", True)
+        ],
+        team,
+    )
     if not memberships_to_email:
         return
 
@@ -983,7 +1014,6 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
     Dispatched on the first failure of a streak only; the job-scoped campaign key
     makes redelivery idempotent per recipient.
     """
-    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1000,11 +1030,15 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
     if saved_query is None:
         return
 
-    memberships_to_email = [
-        membership
-        for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
-        if membership.user.notification_settings.get("materialized_view_sync_failed_immediate", False)
-    ]
+    memberships_to_email = filter_members_by_warehouse_access(
+        [
+            membership
+            for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+            if membership.user.notification_settings.get("materialized_view_sync_failed_immediate", False)
+        ],
+        team,
+        saved_query,
+    )
     if not memberships_to_email:
         return
 

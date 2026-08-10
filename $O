@@ -1,0 +1,15 @@
+2026-08-10 19:24:36 [warning  ] ['Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!', 'Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!']
+[2m2026-08-10T18:24:37.146077Z[0m [[33m[1mwarning  [0m] [1minitialized clickhouse users: DEFAULT[0m [[0m[1m[34mroot[0m][0m [36mpid[0m=[35m96980[0m [36mtid[0m=[35m8596300480[0m
+[2m2026-08-10T18:24:38.303181Z[0m [[32m[1minfo     [0m] [1mposthog_config_ready          [0m [[0m[1m[34mposthog.apps[0m][0m [36mpid[0m=[35m96980[0m [36mserver_gateway_interface[0m=[35mWSGI[0m [36msettings_debug[0m=[35mTrue[0m [36mtid[0m=[35m8596300480[0m
+/Users/sakce/vcs/posthog/.venv/lib/python3.13/site-packages/django/db/backends/utils.py:98: RuntimeWarning: Accessing the database during app initialization is discouraged. To fix this warning, avoid executing queries in AppConfig.ready() or when your app modules are imported.
+  warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+[2m2026-08-10T18:24:38.359088Z[0m [[32m[1minfo     [0m] [1msdk_flag_provider_team_resolved[0m [[0m[1m[34mproducts.feature_flags.backend.sdk_cache_provider[0m][0m [36mpid[0m=[35m96980[0m [36mteam_id[0m=[35m1[0m [36mtid[0m=[35m8596300480[0m
+[2m2026-08-10T18:24:38.394290Z[0m [[33m[1mwarning  [0m] [1msdk_flag_provider_zero_flags  [0m [[0m[1m[34mproducts.feature_flags.backend.sdk_cache_provider[0m][0m [36mhint[0m=[35m'resolved self-team has no flag definitions; run sync_feature_flags_from_api or set POSTHOG_SELF_TEAM_ID'[0m [36mpid[0m=[35m96980[0m [36mteam_id[0m=[35m1[0m [36mtid[0m=[35m8596300480[0m
+/Users/sakce/vcs/posthog/.venv/lib/python3.13/site-packages/infi/clickhouse_orm/__init__.py:1: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  __import__("pkg_resources").declare_namespace(__name__)
+[2m2026-08-10T18:24:38.506195Z[0m [[33m[1mwarning  [0m] [1mSkipping async migrations setup. This is unsafe in production![0m [[0m[1m[34mposthog.apps[0m][0m [36mpid[0m=[35m96980[0m [36mtid[0m=[35m8596300480[0m
+[2m2026-08-10T18:24:38.515541Z[0m [[32m[1minfo     [0m] [1mNot queuing sync_hog_function_templates task: lock already set[0m [[0m[1m[34mproducts.cdp.backend.tasks.hog_functions[0m][0m [36mpid[0m=[35m96980[0m [36mtid[0m=[35m8596300480[0m
+[2m2026-08-10T18:24:38.526133Z[0m [[32m[1minfo     [0m] [1mAXES: BEGIN version 8.0.0, blocking by ip_address[0m [[0m[1m[34maxes.apps[0m][0m [36mpid[0m=[35m96980[0m [36mtid[0m=[35m8596300480[0m
+[2m2026-08-10T18:24:38.686975Z[0m [[32m[1minfo     [0m] [1mNot queuing sync_mcp_server_templates task: lock already set[0m [[0m[1m[34mproducts.mcp_store.backend.tasks.tasks[0m][0m [36mpid[0m=[35m96980[0m [36mtid[0m=[35m8596300480[0m
+model_to_resource -> 'warehouse_view'
+default_access_level -> 'editor'

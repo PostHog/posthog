@@ -3,6 +3,7 @@ import contextlib
 from collections.abc import AsyncIterator, Collection, Iterable
 from io import BytesIO
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 import unittest.mock
@@ -16,6 +17,7 @@ import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
+from posthog.models import User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -29,6 +31,7 @@ from posthog.temporal.data_modeling.activities import (
     prepare_queryable_table_activity,
     succeed_materialization_activity,
 )
+from posthog.temporal.data_modeling.activities.fail_materialization import _SavedQueryViewers
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
     InvalidNodeTypeException,
@@ -48,7 +51,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
-from products.notifications.backend.facade.api import NotificationType
+from products.notifications.backend.facade.api import NotificationType, TargetType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -217,6 +220,56 @@ class TestFailMaterializationActivity:
             await activity_environment.run(fail_materialization_activity, inputs)
 
         mock_create.assert_not_called()
+
+    async def test_notification_resolver_drops_members_denied_on_the_view(
+        self, activity_environment, ateam, anode, asaved_query, adag, aorganization
+    ):
+        # These tests share a database, so the emails have to be unique per run.
+        allowed = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"allowed-{uuid4()}@posthog.com", None
+        )
+        denied = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"denied-{uuid4()}@posthog.com", None
+        )
+
+        class FakeAccess:
+            def __init__(self, user, team):
+                self._user = user
+
+            is_organization_admin = False
+
+            def check_access_level_for_object(self, obj, required_level):
+                return self._user.id == allowed.id
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.fail_materialization.UserAccessControl", FakeAccess
+        ):
+            resolved = await database_sync_to_async(_SavedQueryViewers(asaved_query).resolve)(
+                TargetType.TEAM, str(ateam.pk), ateam.pk
+            )
+
+        assert allowed.id in resolved
+        assert denied.id not in resolved
+
+    async def test_notification_carries_the_per_view_resolver(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error="boom",
+        )
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.fail_materialization.create_notification"
+        ) as mock_create:
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+        resolver = mock_create.call_args.args[0].resolver
+        assert isinstance(resolver, _SavedQueryViewers)
 
     async def test_timeout_does_not_pause_schedule_with_fewer_than_5_previous_jobs(
         self, activity_environment, ateam, anode, asaved_query, adag

@@ -10,6 +10,8 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async_pool
 from posthog.tasks.email import send_matview_failure_immediate_email
 
@@ -25,6 +27,7 @@ from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
     Priority,
+    RecipientsResolver,
     TargetType,
     create_notification,
     has_been_dispatched,
@@ -157,6 +160,39 @@ def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: 
     job.save(update_fields=["error"])
 
 
+class _SavedQueryViewers(RecipientsResolver):
+    """Narrow team recipients to the members allowed to open one specific view.
+
+    `create_notification` gates on the parent `warehouse_objects` resource, which cannot see a
+    deny placed on an individual view. This repeats the check `Database._is_warehouse_view_denied`
+    makes when the same member opens that view, so a notification never names a view they would
+    be refused. Both gates run: this one narrows, the shared one narrows again.
+    """
+
+    def __init__(self, saved_query: DataWarehouseSavedQuery) -> None:
+        self._saved_query = saved_query
+
+    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
+        user_ids = super().resolve(target_type, target_id, team_id)
+        if not user_ids or team_id is None:
+            return user_ids
+        team = Team.objects.filter(id=team_id).first()
+        if team is None:
+            return user_ids
+
+        try:
+            return [
+                user.id
+                for user in User.objects.filter(id__in=user_ids)
+                if (access := UserAccessControl(user, team)).is_organization_admin
+                or access.check_access_level_for_object(self._saved_query, required_level="viewer")
+            ]
+        except Exception:
+            # Not being able to check must not stop every failure notification.
+            capture_exception()
+            return user_ids
+
+
 @database_sync_to_async_pool
 def _maybe_notify_materialization_failure(
     job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int
@@ -196,6 +232,7 @@ def _maybe_notify_materialization_failure(
             resource_id=str(saved_query.id),
             source_url=f"/project/{team_id}/sql?open_view={saved_query.id}",
             source_id=str(job.id),
+            resolver=_SavedQueryViewers(saved_query),
         )
     )
     return True

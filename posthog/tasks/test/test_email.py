@@ -52,6 +52,7 @@ from posthog.test.api_keys import create_project_secret_api_key
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -2132,7 +2133,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2164,11 +2164,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_ignores_duckgres_shadow(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.facade.models import (
-            DataModelingJob,
-            DataModelingJobEngine,
-            DataWarehouseSavedQuery,
-        )
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2203,11 +2198,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_shows_clickhouse_error_not_newer_shadow(
         self, MockEmailMessage: MagicMock
     ) -> None:
-        from products.data_modeling.backend.facade.models import (
-            DataModelingJob,
-            DataModelingJobEngine,
-            DataWarehouseSavedQuery,
-        )
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2243,7 +2233,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "duckgres boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2266,7 +2255,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2343,7 +2331,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2403,7 +2390,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_immediate_email_respects_immediate_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2427,6 +2413,63 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert "failing_view" in mocked_email_messages[0].html_body
         else:
             assert len(mocked_email_messages) == 0
+
+    @parameterized.expand(
+        [
+            ("warehouse_access_granted", True, True, True, True),
+            ("warehouse_access_denied", True, False, True, False),
+            ("this_view_denied", True, True, False, False),
+            ("access_controls_unavailable_still_sends", False, False, False, True),
+        ]
+    )
+    def test_send_matview_failure_immediate_email_respects_warehouse_access(
+        self,
+        MockEmailMessage: MagicMock,
+        name: str,
+        access_controls_supported: bool,
+        has_warehouse_access: bool,
+        has_view_access: bool,
+        expect_email: bool,
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {
+            "materialized_view_sync_failed": True,
+            "materialized_view_sync_failed_immediate": True,
+        }
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(team=self.team, name="failing_view", query={"query": "SELECT 1"})
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error="Some error",
+            last_run_at=timezone.now(),
+        )
+
+        class FakeUserAccessControl:
+            def __init__(self, user: object, team: object) -> None:
+                pass
+
+            @property
+            def access_controls_supported(self) -> bool:
+                return access_controls_supported
+
+            @property
+            def is_organization_admin(self) -> bool:
+                return False
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                return has_warehouse_access
+
+            def check_access_level_for_object(self, obj: object, required_level: str) -> bool:
+                return has_view_access
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+
+        assert len(mocked_email_messages) == (1 if expect_email else 0)
 
     @parameterized.expand(
         [
@@ -2461,7 +2504,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_respects_daily_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
