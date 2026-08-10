@@ -2817,9 +2817,13 @@ snapshots:
     insights-trendspiechart--breakdown--light:
         hash: v1.k794b7964.cd52243e5d45d2eb6397a1efffcb6b6c9a5f98ef4a265fab0abc5974c69c0999.o7kqH91XGiMQ5kLrepa2Q239mYYNmPIfReNgQ1Yitm4
     insights-trendspiechart--breakdown-with-labels--dark:
-        hash: v1.k794b7964.a1db52280a6847809525237e6d95e6bb391971fc5b2411e52f4de8678e216411.VAUJc_fxkrZphfILbhEle0WmBPCQpePnjb3OJRSXdng
+        hash: v1.k794b7964.9124fefd31f3ecfc8527722abfe6ca9acef42a2b794bf070088d9f248c1f7990.4Z7Us6eurT0pTvf6V30CMoVH_886UHYFCHkywPcEAsM
     insights-trendspiechart--breakdown-with-labels--light:
-        hash: v1.k794b7964.38531b76bea1607447173363d39eaedf7f1737b7d35fdd0a37604e1f747d374e.KTBq1R0DXgzatb3NFlpNjeFMMCivSMIxo94HFYKjqcI
+        hash: v1.k794b7964.dc0682ea67efaf5cfd942ac9fceda88aa381304aaf404b45a1ac0bdb40e1dab8.DKmd5t2iOJCCJCCN16BLCOFcGVFCSX-FfGKFNQ3iSTM
+    insights-trendspiechart--breakdown-with-value-and-percentage--dark:
+        hash: v1.k794b7964.3c11a1a4addd149737de271f5d7ae769b82f4acefb9fd35ee65338078012a328.B3l_O20nxIi2mzX2X0-N3PDuRGQ4PspU8RnwtpEfzuo
+    insights-trendspiechart--breakdown-with-value-and-percentage--light:
+        hash: v1.k794b7964.958cc72969776dcd098a5c9495453416071c907bcc9c7e6cb87edf7152cdde66.WZQXn3lgyOVUrPbyBrDY5Y8l3O8v2HiSh64osAq-414
     insights-trendspiechart--default--dark:
         hash: v1.k794b7964.6a12fde8bafde8512108c5b628d9b2e6e283d393ae2ed693704b4919c8a09a74.uLxKWKPhM06nOSIxUCw4GXdsfmp45YXAG0yss_yimaQ
     insights-trendspiechart--default--light:
@@ -4686,10 +4690,10 @@ snapshots:
         hash: v1.k794b7964.ea754a4783f7653247f127337c407a8cdd4a9c6bc3f1b908d8d00dd1a090b966.KQ3yKnRzi4l3ZeYVThZdmo4L6mAbxtNa2uQh7y-kGWA
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--tile-filters-read-only--light:
         hash: v1.k794b7964.b2ca2efc52a9ccf56953159c66d3c8766acd1d3a17379d5faec45a4715ae24a9.fK76p7ZVcgvFJNcKJ5Ixy3YnBm_BcBSFnoytLS2jZdU
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark:
-        hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light:
-        hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark
+    :   hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light
+    :   hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--dark:
         hash: v1.k794b7964.b1e0f5f542426e34dec73826f3135902a392c0c13dade4fec14037c615186b13.kbxxijyDI1SdvgdKwkRnIRLLgmsine5AYvOcD79DYsY
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--light:
