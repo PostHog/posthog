@@ -13,6 +13,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "conversation_id": "Unique identifier for the conversation.",
             "user_id": "Identifier of the end user who had the conversation.",
             "created_at": "Timestamp at which the conversation was created.",
+            "updated_at": "Timestamp at which the conversation was last updated. Advances whenever the conversation receives new messages.",
             "destination": "Channel the conversation was handled on (e.g. AI).",
             "messages": "All messages in the conversation; each message has text, a role (USER or AI), and a created_at timestamp.",
             "csat_rating": "Customer satisfaction rating the user gave the conversation, if any.",
