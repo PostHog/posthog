@@ -40,6 +40,8 @@ export {
   buildPosthogPropertiesHeaderRecord as buildGatewayPropertiesHeaderRecord,
   buildPosthogPropertyHeaderLines as buildGatewayPropertyHeaders,
   buildPosthogPropertyHeaderRecord as buildGatewayPropertyHeaderRecord,
+  buildPosthogScopedPropertyHeaderLines as buildGatewayScopedPropertyHeaders,
+  buildPosthogScopedPropertyHeaderRecord as buildGatewayScopedPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
 
 function getGatewayBaseUrl(posthogHost: string): string {

@@ -1,6 +1,7 @@
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { CloudRegion } from "@posthog/shared";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { getLlmGatewayUrl } from "./gateway";
 
 export const DEFAULT_MODEL = "claude-opus-4-8";
@@ -239,9 +240,7 @@ export async function fetchPosthogGatewayModels(
         apiKey || projectId
           ? {
               ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-              ...(projectId
-                ? { "X-PostHog-Project-Id": String(projectId) }
-                : {}),
+              ...buildPosthogProjectHeaderRecord(projectId),
             }
           : undefined,
       signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),

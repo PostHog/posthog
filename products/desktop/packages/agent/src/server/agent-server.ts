@@ -94,8 +94,8 @@ import { AsyncMutex } from "../utils/async-mutex";
 import {
   buildGatewayPropertiesHeader,
   buildGatewayPropertiesHeaderRecord,
-  buildGatewayPropertyHeaderRecord,
-  buildGatewayPropertyHeaders,
+  buildGatewayScopedPropertyHeaderRecord,
+  buildGatewayScopedPropertyHeaders,
   resolveGatewayProduct,
   resolveGatewayTarget,
 } from "../utils/gateway";
@@ -4075,15 +4075,20 @@ ${commonInstructions}
       customHeaders = buildGatewayPropertiesHeader(properties);
       openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
     } else {
-      customHeaders = `${buildGatewayPropertyHeaders(gatewayProperties)}\nx-posthog-project-id: ${projectId}`;
+      customHeaders = buildGatewayScopedPropertyHeaders(
+        gatewayProperties,
+        projectId,
+      );
       // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
       // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildGatewayPropertyHeaderRecord({
-        ...gatewayProperties,
-        team_id: projectId,
-        $ai_session_id: taskId,
-      });
-      openaiCustomHeaders["x-posthog-project-id"] = String(projectId);
+      openaiCustomHeaders = buildGatewayScopedPropertyHeaderRecord(
+        {
+          ...gatewayProperties,
+          team_id: projectId,
+          $ai_session_id: taskId,
+        },
+        projectId,
+      );
     }
 
     // Server-level constants that don't vary per task — safe to keep in

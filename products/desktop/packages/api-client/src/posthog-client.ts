@@ -109,6 +109,7 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   buildAgentAnalyticsQueries,
   type HogQLGrid,
@@ -1598,7 +1599,7 @@ export class PostHogAPIClient {
       url,
       path: url.pathname,
       parameters: {
-        header: { "X-PostHog-Project-Id": String(teamId) },
+        header: buildPosthogProjectHeaderRecord(teamId),
       },
     });
     return buildCloudTaskConfigOptions(

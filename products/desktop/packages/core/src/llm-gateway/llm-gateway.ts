@@ -1,6 +1,7 @@
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { classifyGatewayLimitError } from "@posthog/shared";
 import {
+  buildPosthogProjectHeaderRecord,
   buildPosthogPropertyHeaderRecord,
   type PosthogProperties,
 } from "@posthog/shared/posthog-property-headers";
@@ -30,7 +31,6 @@ import {
 export const HELPER_GATEWAY_MODEL = "claude-haiku-4-5";
 
 export const FREE_TIER_GATEWAY_MODEL = "@cf/zai-org/glm-5.2";
-const PROJECT_SCOPE_HEADER = "X-PostHog-Project-Id";
 
 export class LlmGatewayError extends Error {
   constructor(
@@ -292,7 +292,8 @@ export class LlmGatewayService {
   }
 
   private projectScopeHeaders(): Record<string, string> {
-    const projectId = this.authService.getState().currentProjectId;
-    return projectId ? { [PROJECT_SCOPE_HEADER]: String(projectId) } : {};
+    return buildPosthogProjectHeaderRecord(
+      this.authService.getState().currentProjectId,
+    );
   }
 }

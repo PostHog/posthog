@@ -2,6 +2,7 @@ import {
   type GatewayModel,
   normalizeGatewayModelsResponse,
 } from "@posthog/shared";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 
 export {
   BLOCKED_GATEWAY_MODEL_IDS,
@@ -78,7 +79,7 @@ function authHeaders(
   if (!authToken && !projectId) return undefined;
   return {
     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-    ...(projectId ? { "X-PostHog-Project-Id": String(projectId) } : {}),
+    ...buildPosthogProjectHeaderRecord(projectId),
   };
 }
 

@@ -224,7 +224,7 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_title": "Fix the bug",
       "x-posthog-property-team_id": "1",
       "x-posthog-property-$ai_session_id": "task-abc",
-      "x-posthog-project-id": "1",
+      "X-PostHog-Project-Id": "1",
     });
   });
 
@@ -250,7 +250,7 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_run_id: run-xyz",
         "x-posthog-property-task_user_id: 42",
         "x-posthog-property-task_title: Fix the bug",
-        "x-posthog-project-id: 1",
+        "X-PostHog-Project-Id: 1",
       ].join("\n"),
     );
   });
@@ -292,7 +292,7 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicCustomHeaders).toBe(
-      "x-posthog-property-task_internal: false\nx-posthog-project-id: 1",
+      "x-posthog-property-task_internal: false\nX-PostHog-Project-Id: 1",
     );
   });
 
