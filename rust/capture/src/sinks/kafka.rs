@@ -200,11 +200,9 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
 
 /// Bridge a pure address decision to the sink's configured [`Output`]. The
 /// sink owns this mapping only until the outputs layer exists to own the
-/// address → output table. [`pipeline::resolve`] never pairs a pipeline with
-/// a lane it does not have (heatmaps never overflow, only analytics reroutes
-/// historical), so the collapsed arms below map those unreachable pairs to
-/// the pipeline's main output rather than growing an error path every caller
-/// would have to handle.
+/// address → output table. Every `(pipeline, lane)` pair is spelled out so
+/// that a new lane, or a change making an unbacked pair reachable, has to
+/// visit this match instead of being absorbed by a wildcard.
 fn output_for(decision: &AddressDecision) -> Output {
     match &decision.address {
         Address::Dlq => Output::Dlq,
@@ -213,15 +211,41 @@ fn output_for(decision: &AddressDecision) -> Output {
             (Pipeline::Analytics, Lane::Main) => Output::AnalyticsMain,
             (Pipeline::Analytics, Lane::Overflow) => Output::AnalyticsOverflow,
             (Pipeline::Analytics, Lane::Historical) => Output::AnalyticsHistorical,
-            (Pipeline::Ai, Lane::Main | Lane::Historical) => Output::AiMain,
+            (Pipeline::Ai, Lane::Main) => Output::AiMain,
             (Pipeline::Ai, Lane::Overflow) => Output::AiOverflow,
-            (Pipeline::Warnings, _) => Output::ClientWarningsMain,
-            (Pipeline::Heatmaps, _) => Output::HeatmapsMain,
-            (Pipeline::ErrorTracking, _) => Output::ErrorTrackingMain,
-            (Pipeline::Replay, Lane::Main | Lane::Historical) => Output::SessionReplayMain,
+            (Pipeline::Ai, Lane::Historical) => unbacked_lane_fallback(decision),
+            (Pipeline::Warnings, Lane::Main) => Output::ClientWarningsMain,
+            (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => {
+                unbacked_lane_fallback(decision)
+            }
+            (Pipeline::Heatmaps, Lane::Main) => Output::HeatmapsMain,
+            (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => {
+                unbacked_lane_fallback(decision)
+            }
+            (Pipeline::ErrorTracking, Lane::Main) => Output::ErrorTrackingMain,
+            (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => {
+                unbacked_lane_fallback(decision)
+            }
+            (Pipeline::Replay, Lane::Main) => Output::SessionReplayMain,
             (Pipeline::Replay, Lane::Overflow) => Output::SessionReplayOverflow,
+            (Pipeline::Replay, Lane::Historical) => unbacked_lane_fallback(decision),
         },
     }
+}
+
+/// The arm for a pair [`pipeline::resolve`] never produces: no output backs
+/// it, so the event goes to the dlq — preserved and replayable — instead of
+/// being processed through a lane with the wrong semantics. Loud, because
+/// reaching this arm means a change made the pair producible without giving
+/// it an output (the typed-per-pipeline-lanes step makes these pairs
+/// unrepresentable and deletes these arms).
+fn unbacked_lane_fallback(decision: &AddressDecision) -> Output {
+    debug_assert!(false, "no output backs {:?}", decision.address);
+    error!(
+        "no output backs {:?}, publishing to the dlq",
+        decision.address
+    );
+    Output::Dlq
 }
 
 /// The default KafkaSink using rdkafka's FutureProducer
@@ -474,14 +498,19 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // dlq header set, and both redirect outputs count their reroutes.
         match target {
             Output::Dlq => {
-                counter!(
-                    "capture_events_rerouted_dlq",
-                    &[("reason", "event_restriction")]
-                )
-                .increment(1);
+                // A dlq address is the admin restriction redirect; a dlq
+                // target under a lane address is the unbacked-lane fallback
+                // in `output_for`.
+                let reason = match decision.address {
+                    Address::Dlq => "event_restriction",
+                    Address::Lane { .. } => "unbacked_lane",
+                    Address::Custom(_) => {
+                        unreachable!("output_for maps a custom address to the custom output")
+                    }
+                };
+                counter!("capture_events_rerouted_dlq", &[("reason", reason)]).increment(1);
 
-                // DLQ reason cannot be known beyond being triggered by an event restriction.
-                headers.set_dlq_reason("event_restriction".to_string());
+                headers.set_dlq_reason(reason.to_string());
                 // Unlike with our node code, DLQ step will always be static.
                 headers.set_dlq_step("capture".to_string());
                 headers.set_dlq_timestamp(
