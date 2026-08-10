@@ -133,15 +133,22 @@ class TestForwardPendingUserMessage(TestCase):
             sandbox_id="sb-fwd",
             cpu_cores=4.0,
             memory_gb=16.0,
+            vm_runtime=True,
             ttl_seconds=3600,
             ttl_expires_at=timezone.now() + timedelta(seconds=3600),
         )
         measured_at = timezone.now()
         calls = []
-        mock_measure.side_effect = lambda *args: calls.append("measure") or {"sb-fwd": (1_234_567, measured_at)}
-        mock_send.side_effect = lambda *args, **kwargs: (
-            calls.append("send") or _command_result(success=True, status_code=200)
-        )
+        def measure(*args):
+            calls.append("measure")
+            return {"sb-fwd": (1_234_567, measured_at)}
+
+        def send(*args, **kwargs):
+            calls.append("send")
+            return _command_result(success=True, status_code=200)
+
+        mock_measure.side_effect = measure
+        mock_send.side_effect = send
 
         forward_pending_user_message(str(run.id))
 
