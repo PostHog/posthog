@@ -32,7 +32,6 @@ import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
-import { ChatInSlackButton } from './ChatInSlackButton'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
@@ -241,11 +240,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {/* Main conversation area */}
                     <ChatView
                         threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
-                        composerLeftActions={
-                            ticket?.id && discussionsEnabled ? (
-                                <ChatInSlackButton ticketId={ticket.id} disabledReason={sendDisabledReason} />
-                            ) : undefined
-                        }
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
