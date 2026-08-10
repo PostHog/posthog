@@ -88,6 +88,34 @@ class TestWorkloadReporting:
         serialized = json.dumps(properties)
         assert "s-big" not in serialized and "s-small" not in serialized and "run-big" not in serialized
 
+    def test_enrichment_correlated_max_ignores_peaks_not_near_the_death(self):
+        # Run keys live for hours and peaks are lifetime-high-water marks, so the raw co-tenant max
+        # can carry a neighbour's crash from an hour ago (or a long-released peak on a refreshed
+        # report) into blame for a death it had nothing to do with. The correlated max — what the
+        # durable row snapshots for the culprit rule — may only include reports sampled around the
+        # death itself.
+        redis = workload_report._redis_client()
+        death_ts = 10_000.0
+        _seed_report(redis, run_id="run-dead2", host="pod-b", schema_id="s-dead", phase="merge", peak=900, ts=death_ts)
+        # Died alongside us: last sample one interval before the shared death.
+        _seed_report(
+            redis, run_id="run-with", host="pod-b", schema_id="s-w", phase="merge", peak=5000, ts=death_ts - 25
+        )
+        # Crashed an hour earlier; its key and huge peak linger until the TTL.
+        _seed_report(
+            redis, run_id="run-old", host="pod-b", schema_id="s-o", phase="merge", peak=9_000_000, ts=death_ts - 3600
+        )
+        # Survivor still sampling minutes after the death: its lifetime peak is not evidence either.
+        _seed_report(
+            redis, run_id="run-later", host="pod-b", schema_id="s-l", phase="merge", peak=7000, ts=death_ts + 300
+        )
+
+        properties: dict = {}
+        enrich_death_event_properties(properties, run_id="run-dead2", host="pod-b", death_ts=death_ts)
+
+        assert properties["co_tenant_max_peak_buffer_bytes"] == 9_000_000  # raw telemetry keeps history
+        assert properties["co_tenant_correlated_max_peak_buffer_bytes"] == 5000
+
     def test_enrichment_is_silent_when_no_reports_exist(self):
         # Rollout reality: workers without the reporter (old deploys, disabled fleet) must produce
         # byte-identical events to today, or every dashboard on this event breaks during rollout.
