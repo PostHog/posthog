@@ -129,12 +129,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
         )
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_insight_when_user_resolved(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -159,7 +159,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         assert "Weekly active users" in text
         assert "A test description" in text
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_task_and_attaches_public_thread_once(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
@@ -177,7 +177,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             integration_id="U_OWNER",
             config={"slack_team_id": self.integration.integration_id},
         )
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_client.conversations_info.return_value = {
             "channel": {"is_channel": True, "is_private": False, "is_shared": False}
@@ -219,7 +219,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             }
         ]
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_private_channel_unfurls_task_without_attaching_reference(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
@@ -231,7 +231,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             description="",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_client.conversations_info.return_value = {"channel": {"is_channel": True, "is_private": True}}
         mock_slack_integration_class.return_value.client = mock_client
@@ -252,7 +252,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         task.refresh_from_db()
         assert "slack_thread_references" not in (task.state or {})
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_skips_when_user_not_resolved(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
@@ -273,13 +273,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         mock_client.chat_unfurl.assert_not_called()
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_insight_when_project_segment_mismatched(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
-        """A project id the workspace hasn't connected falls back to trying the candidates."""
-        mock_resolve.return_value = MagicMock(user=self.user)
+        # A project id the workspace hasn't connected falls back to trying the candidates.
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -306,14 +306,14 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             sensitive_config={"access_token": "xoxb-test"},
         )
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_resource_from_project_named_in_url(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
         other = self._connect_second_project()
         dashboard = Dashboard.objects.create(team=other.team, name="Second board")
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -326,7 +326,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
         assert "Second board" in text
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_short_link_by_trying_every_connected_project(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
@@ -334,7 +334,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         # `/i/:short_id` carries no project segment, so the only way to find it is to try each project.
         other = self._connect_second_project()
         insight = Insight.objects.create(team=other.team, short_id="insight2", name="Signups", saved=True)
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -347,11 +347,11 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
         assert "Signups" in text
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_dashboard(self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Main board", description="Overview")
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -383,7 +383,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 parts.extend(element["text"] for element in block["elements"])
         return "\n".join(parts)
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_ticket(self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock) -> None:
         ticket = Ticket.objects.create(
@@ -394,7 +394,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             # Default display-name settings prefer email over name.
             anonymous_traits={"name": "John Doe", "email": "john@example.com"},
         )
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -411,7 +411,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         assert "New" in text  # default status, humanized
 
     @parameterized.expand([("resource",), ("object",)])
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_skips_ticket_without_viewer_access(
         self,
@@ -435,7 +435,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 team=self.team,
                 access_level="none",
             )
-        mock_resolve.return_value = MagicMock(user=member)
+        mock_resolve.return_value = member
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -447,14 +447,14 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         mock_client.chat_unfurl.assert_not_called()
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_skips_ticket_from_another_project(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
         # ticket_number is per-project — a link naming a different project must not resolve to our #1.
         ticket = Ticket.objects.create(team=self.team, ticket_number=1, widget_session_id="s9", distinct_id="d9")
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -466,7 +466,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         mock_client.chat_unfurl.assert_not_called()
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_ticket_requester_follows_display_name_setting(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
@@ -481,7 +481,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             distinct_id="d3",
             anonymous_traits={"name": "John Doe", "email": "john@example.com"},
         )
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -494,7 +494,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert "Requested by:* John Doe" in text
 
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_ticket_with_opening_message(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
@@ -508,7 +508,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 )
             ]
         )
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
@@ -527,7 +527,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ("soft_deleted", {"deleted": True}),
         ]
     )
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_ticket_hidden_opening_message_not_surfaced(
         self, _name: str, overrides: dict, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
@@ -544,7 +544,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 )
             ]
         )
-        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_resolve.return_value = self.user
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
