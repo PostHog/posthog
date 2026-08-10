@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { visionObservationsList, visionScannersInlineScanCreate, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
+import { ObservationSeekbarMark, observationSeekbarMarks } from '../utils/observation'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
 import { SUMMARIZE_RECORDING_CONFIG, summarizeOutcomeMessage } from './summarizeRecording'
@@ -31,6 +32,7 @@ export interface observationsDockLogicValues {
     retryingObservationIds: string[]
     scannerPickerOpen: boolean
     scannerSearch: string
+    seekbarMarks: ObservationSeekbarMark[]
     summarizing: boolean
 }
 
@@ -88,6 +90,7 @@ export interface observationsDockLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasObservationsInFlight: (observations: ReplayObservationApi[]) => boolean
+        seekbarMarks: (observations: ReplayObservationApi[]) => ObservationSeekbarMark[]
         filteredScanners: (scanners: ReplayScannerApi[], scannerSearch: string) => ReplayScannerApi[]
     }
 }
@@ -207,6 +210,10 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             (s) => [s.observations],
             (observations: ReplayObservationApi[]): boolean =>
                 observations.some((o) => o.status === 'pending' || o.status === 'running'),
+        ],
+        seekbarMarks: [
+            (s) => [s.observations],
+            (observations: ReplayObservationApi[]): ObservationSeekbarMark[] => observationSeekbarMarks(observations),
         ],
         filteredScanners: [
             (s) => [s.scanners, s.scannerSearch],
