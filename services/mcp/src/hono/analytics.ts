@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 
+import type { McpAuthFailure } from '@/lib/auth-errors'
+import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -10,6 +12,7 @@ import {
     MCP_ANALYTICS_VERSION,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
+import type { RequestProperties } from '@/lib/request-properties'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -50,6 +53,7 @@ function buildBaseProperties(
         $mcp_consumer: clientIdentity.mcpConsumer,
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
+        $mcp_auth_method: requestContext.authMethod,
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,
@@ -350,6 +354,54 @@ export async function trackToolSpan(toolName: string, state: ResolvedState, meta
                 $ai_latency: meta.durationMs / 1000,
                 $ai_is_error: meta.isError,
                 ...(meta.errorMessage ? { $ai_error: meta.errorMessage } : {}),
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+/**
+ * Emits `$mcp_auth_failed` for a request the PostHog API refused. These requests die
+ * before `RequestStateResolver.resolve` returns, so they never reach
+ * `trackInitEvent`/`trackToolCall` and are otherwise invisible in analytics — a
+ * connector stuck in an authorize loop looks like a gap in the data rather than a
+ * failure. Keyed on `userHash` (a hash of the bearer token, never the token itself)
+ * so affected credentials can be counted without identifying anyone.
+ *
+ * Only PostHog's own server emits this; no SDK does. It reuses the canonical `$mcp_*`
+ * client-identity fields so one query can group it and real MCP traffic by the same
+ * dimensions.
+ */
+export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailure): void {
+    try {
+        getPostHogClient().capture({
+            distinctId: props.userHash,
+            event: '$mcp_auth_failed',
+            properties: {
+                $ai_product: 'mcp',
+                $mcp_source: MCP_ANALYTICS_SOURCE,
+                $mcp_server_name: MCP_SERVER_NAME,
+                $mcp_server_version: MCP_SERVER_VERSION,
+                $mcp_version: MCP_ANALYTICS_VERSION,
+                $mcp_client_name: props.mcpClientName,
+                $mcp_client_version: props.mcpClientVersion,
+                $mcp_client_user_agent: props.clientUserAgent,
+                $mcp_protocol_version: props.mcpProtocolVersion,
+                $mcp_transport: props.transport,
+                $mcp_session_id: props.mcpSessionId,
+                $mcp_conversation_id: props.mcpConversationId,
+                $mcp_consumer: props.mcpConsumer,
+                $mcp_mode: props.mode,
+                $mcp_region: props.region,
+                $mcp_auth_method: classifyAuthMethod(props.apiToken),
+                mcp_runtime: 'hono',
+                mcp_vendor_client: props.mcpVendorClient,
+                $mcp_auth_failure_reason: failure.reason,
+                ...(failure.status ? { $mcp_auth_status: failure.status } : {}),
+                ...(failure.missingScope ? { $mcp_missing_scope: failure.missingScope } : {}),
+                has_organization_id: !!props.organizationId,
+                has_project_id: !!props.projectId,
             },
         })
     } catch {
