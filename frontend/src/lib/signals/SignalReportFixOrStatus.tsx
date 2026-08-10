@@ -19,57 +19,33 @@ const FIX_LABEL: Record<PrBadgeState, string> = {
     closed: 'Fix closed',
 }
 
-export interface ReportFix {
-    label: string
-    prUrl: string
-    prNumber: string
-    state: PrBadgeState
-}
-
 /**
- * The pull request a report opened, when it has one that parses as a canonical GitHub PR URL.
- *
- * Whether it shipped is what someone looking at the thing a report came from most needs, so every
- * surface leads with this and falls back to the report's own status. Exported so the surfaces that
- * compose their own layout still spell the states the same way.
- */
-export function reportFix(report: SignalReportApi): ReportFix | null {
-    // The URL comes from an agent's raw task-run output and isn't scheme-validated server-side.
-    const prUrl = safeHttpUrl(report.implementation_pr_url)
-    const prNumber = prUrl ? parsePrUrlParts(prUrl)?.number : undefined
-    if (!prUrl || !prNumber) {
-        return null
-    }
-    const state = derivePrState(report.status, report.implementation_pr_merged)
-    return { label: FIX_LABEL[state], prUrl, prNumber, state }
-}
-
-/** The report's own status, phrased the way the inbox badge phrases it. */
-export function reportStatusLabel(report: SignalReportApi): string {
-    return STATUS_LABELS[report.status as SignalReportStatus] ?? report.status
-}
-
-/**
- * The fix a report opened, or its status when there is no pull request to point at.
+ * Whether it shipped, which is what someone looking at the thing a report came from most needs. A
+ * pull request says that better than the report's own status, so the status is the fallback rather
+ * than a second badge: either there's no PR, or its URL doesn't parse as one.
  *
  * `PrBadge` brings the link, state colour, and the external-link and accessibility handling the inbox
  * already got right.
  */
 export function SignalReportFixOrStatus({ report }: { report: SignalReportApi }): JSX.Element {
-    const fix = reportFix(report)
-    if (fix) {
+    // The URL comes from an agent's raw task-run output and isn't scheme-validated server-side.
+    const prUrl = safeHttpUrl(report.implementation_pr_url)
+    const prNumber = prUrl ? parsePrUrlParts(prUrl)?.number : undefined
+    if (prUrl && prNumber) {
+        const state = derivePrState(report.status, report.implementation_pr_merged)
         return (
             <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold">{fix.label}</span>
-                <PrBadge prNumber={fix.prNumber} prUrl={fix.prUrl} state={fix.state} />
+                <span className="text-xs font-semibold">{FIX_LABEL[state]}</span>
+                <PrBadge prNumber={prNumber} prUrl={prUrl} state={state} />
             </div>
         )
     }
     const statusKey = report.status as SignalReportStatus
+    const label = STATUS_LABELS[statusKey] ?? report.status
     // The inbox badge always explains itself on hover, falling back to the label; match that.
     return (
-        <Tooltip title={STATUS_TOOLTIPS[statusKey] ?? reportStatusLabel(report)}>
-            <span className="text-xs text-muted-alt">{reportStatusLabel(report)}</span>
+        <Tooltip title={STATUS_TOOLTIPS[statusKey] ?? label}>
+            <span className="text-xs text-muted-alt">{label}</span>
         </Tooltip>
     )
 }
