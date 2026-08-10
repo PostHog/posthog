@@ -842,6 +842,16 @@ from = [
     "products.canvas",
 ]
 
+# The shared activity log delegates personal-canvas visibility to this narrow,
+# product-owned boundary, mirroring how loops do it for tasks.
+[[interfaces]]
+expose = [
+    "backend\\.activity_visibility.*",
+]
+from = [
+    "products.canvas",
+]
+
 [[modules]]
 path = "products.tracing"
 depends_on = [
