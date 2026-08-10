@@ -752,7 +752,7 @@ export const TaskChannelsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false.
  * @summary Resolve or create a public channel
  */
 export const TaskChannelsCreateParams = /* @__PURE__ */ zod.object({
@@ -765,12 +765,20 @@ export const TaskChannelsCreateParams = /* @__PURE__ */ zod.object({
 
 export const taskChannelsCreateBodyNameMax = 128
 
+export const taskChannelsCreateBodyStarDefault = true
+
 export const TaskChannelsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
             .string()
             .max(taskChannelsCreateBodyNameMax)
             .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        star: zod
+            .boolean()
+            .default(taskChannelsCreateBodyStarDefault)
+            .describe(
+                'Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched.'
+            ),
     })
     .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
 
