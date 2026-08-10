@@ -7,9 +7,8 @@ export const missionControlStateSchema = z.object({
 
 export type MissionControlState = z.infer<typeof missionControlStateSchema>;
 
-const cgWindowSchema = z.object({
+const observedWindowSchema = z.object({
   ownerName: z.string(),
-  ownerPid: z.number(),
   layer: z.number(),
   bounds: z.object({
     x: z.number(),
@@ -17,48 +16,28 @@ const cgWindowSchema = z.object({
     width: z.number(),
     height: z.number(),
   }),
-});
-
-/**
- * A window plus when it was on screen during the recording. The timings are what
- * make one recording able to cover several gestures: open Mission Control, then
- * app-switch, then hover the Dock, and each gesture's windows separate out by
- * when they came and went.
- */
-const observedWindowSchema = cgWindowSchema.extend({
-  /** Milliseconds from the start of the recording to first sighting. */
+  /** Milliseconds from the start of the recording. */
   firstSeenMs: z.number(),
   lastSeenMs: z.number(),
 });
 
 /**
- * Result of watching the window list for a few seconds, exposed through the dev
- * toolbar so the detection heuristic can be checked against a real macOS
- * release.
+ * A recording of what the window list did, used to re-derive the detection
+ * heuristic when a macOS release breaks it.
  *
- * It has to be a recording rather than a one-shot dump: Mission Control is a
- * modal system overlay, so there is no way to click anything in the app while it
- * is open. The only way to see the window list in that state is to start
- * sampling first and open Mission Control during the window.
- *
- * Nothing here filters by owner. If a later macOS moved the surface off the Dock
- * process — plausible since Stage Manager introduced WindowManager — a
- * Dock-only view would hide the very row that identifies it.
+ * A recording rather than a one-shot dump because Mission Control is a modal
+ * overlay: the app is unclickable while it is open, so sampling has to start
+ * beforehand. The timings then let one recording cover several gestures, which is
+ * how a false positive gets told from the real thing.
  */
 export const missionControlProbeSchema = z.object({
   /** False on non-macOS, or when the CoreGraphics binding failed to load. */
   available: z.boolean(),
   durationMs: z.number(),
-  /** Milliseconds at which the current heuristic first and last matched. */
+  /** Every moment the current heuristic matched. */
   detectedAtMs: z.array(z.number()),
-  /** Windows that showed up after sampling started — the interesting set. */
+  /** Windows that were not there when sampling started. Unfiltered by owner. */
   appeared: z.array(observedWindowSchema),
-  /** Windows present at the start that went away at some point. */
-  disappeared: z.array(cgWindowSchema),
-  /** How many windows were on screen when sampling started, for context. */
-  baselineCount: z.number(),
-  /** Our own process id, so our windows can be picked out of the list. */
-  ownPid: z.number(),
 });
 
 export type MissionControlProbe = z.infer<typeof missionControlProbeSchema>;

@@ -250,7 +250,6 @@ container.bind(DISCORD_PRESENCE_CLIENT).toConstantValue(discordPresenceClient);
 
 // mission control overlay — passthrough over the local main-process router
 const missionControlClient: MissionControlClient = {
-  getState: () => trpcClient.missionControl.getState.query(),
   onStateChanged: (onData) => {
     const sub = trpcClient.missionControl.onStateChanged.subscribe(undefined, {
       onData,

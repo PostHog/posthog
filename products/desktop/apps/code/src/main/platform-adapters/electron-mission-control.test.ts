@@ -38,7 +38,6 @@ import { MissionControlService } from "./electron-mission-control";
 /** The full-display Dock window Mission Control puts up, below the Dock's level. */
 const MISSION_CONTROL_BACKING: CgWindow = {
   ownerName: "Dock",
-  ownerPid: 300,
   layer: 18,
   bounds: { x: 0, y: 0, width: 2560, height: 1440 },
 };
@@ -46,7 +45,6 @@ const MISSION_CONTROL_BACKING: CgWindow = {
 /** The Dock's own strip, present with or without Mission Control. */
 const DOCK_STRIP: CgWindow = {
   ownerName: "Dock",
-  ownerPid: 300,
   layer: 20,
   bounds: { x: 1030, y: 1330, width: 500, height: 110 },
 };
@@ -215,7 +213,7 @@ describe("MissionControlService", () => {
     await vi.advanceTimersByTimeAsync(2000);
 
     const result = await probe;
-    expect(result).toMatchObject({ available: true, baselineCount: 1 });
+    expect(result).toMatchObject({ available: true });
     expect(result.appeared).toHaveLength(1);
 
     // Timings are what let one recording cover several gestures, so the window

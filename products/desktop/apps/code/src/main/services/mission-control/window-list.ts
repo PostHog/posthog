@@ -7,25 +7,14 @@ export interface Rect {
 
 /** One on-screen window, as reported by CoreGraphics. */
 export interface CgWindow {
-  /** Owning application's name; "Dock" for Mission Control's own surfaces. */
+  /** Empty for some system-owned surfaces, which CoreGraphics leaves unnamed. */
   ownerName: string;
-  /**
-   * Owning process id. Unlike the name, this identifies our own windows without
-   * depending on how the app is branded — it differs between the dev and release
-   * builds, and CoreGraphics omits the name entirely for some system surfaces.
-   */
-  ownerPid: number;
   /** Cocoa window level. Normal app windows are 0. */
   layer: number;
   bounds: Rect;
 }
 
-/**
- * Reads the current on-screen window list. Implemented over CoreGraphics on
- * macOS; faked in tests. Synchronous because the underlying call is a cheap
- * in-process query and the poller wants no scheduling jitter between the sample
- * and the decision made from it.
- */
+/** Reads the current on-screen window list. Faked in tests. */
 export interface WindowListSampler {
   sample(): CgWindow[];
 }

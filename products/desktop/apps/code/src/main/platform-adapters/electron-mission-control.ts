@@ -23,9 +23,9 @@ import { logger } from "../utils/logger";
 const log = logger.scope("mission-control");
 
 /**
- * Mission Control's zoom-out animation runs about 300ms, so a shorter interval
- * buys nothing a user can perceive while a longer one lands the overlay after
- * the grid has settled.
+ * Mission Control's zoom animation runs about 300ms, so a shorter interval buys
+ * nothing a user can perceive while a longer one lands the overlay after the grid
+ * has settled.
  */
 const POLL_INTERVAL_MS = 250;
 
@@ -34,20 +34,21 @@ const MAX_CONSECUTIVE_ERRORS = 3;
 
 /**
  * Detects when the app window is showing inside macOS Mission Control, so the
- * renderer can put up a big branded overlay and make the window easy to pick
- * out of a grid of near-identical dark windows.
+ * renderer can put up a branded overlay and make the window easy to pick out of a
+ * grid of near-identical dark windows.
  *
- * Everything here is best-effort by construction: the detection relies on
- * undocumented Dock window geometry reached through FFI. Any failure — wrong
- * platform, missing prebuild, changed macOS internals — degrades to "the
- * overlay never appears", never to a broken app.
+ * Best-effort by construction, since detection rests on undocumented Dock window
+ * geometry reached through FFI. Every failure — wrong platform, missing prebuild,
+ * changed macOS internals — degrades to "the overlay never appears".
  */
 @injectable()
 export class MissionControlService extends TypedEventEmitter<MissionControlServiceEvents> {
-  /** Null until armed, and permanently null once detection is unavailable. */
+  /**
+   * Resolved once. A wrong platform or a refused dlopen does not get better on a
+   * retry, so null after `resolved` means detection is off for this run.
+   */
   private sampler: WindowListSampler | null = null;
-  private samplerResolved = false;
-  private degraded = process.platform !== "darwin";
+  private resolved = false;
   private timer: NodeJS.Timeout | null = null;
   private active = false;
   private forced = false;
@@ -58,97 +59,58 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
   }
 
   /**
-   * Start watching. Called when the window becomes visible — there is no point
-   * polling while the app is hidden or minimized, since it can't appear in
-   * Mission Control either way.
+   * Called when the window becomes visible. A hidden or minimized window cannot
+   * appear in Mission Control, so polling then would be waste.
    */
   arm(): void {
-    if (this.timer) return;
-    if (!this.resolveSampler()) return;
-
-    // Logged on success, not only on failure. Detection going quiet looks
-    // identical to the poller never starting, and the dev toolbar only installs
-    // log capture when developer mode goes on — after boot — so a line emitted
-    // once at startup is one nobody ever reads.
-    log.info("Watching for Mission Control", { intervalMs: POLL_INTERVAL_MS });
+    if (this.timer || !this.resolveSampler()) return;
     this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
   }
 
-  /** Stop watching and drop any overlay that was up. */
   disarm(): void {
     this.clearTimer();
     this.setActive(false);
   }
 
-  /**
-   * Dev-only override that pins the overlay on, so the visuals can be reviewed
-   * without a Mac and without opening Mission Control.
-   */
+  /** Dev-only: pin the overlay on to review it without opening Mission Control. */
   setForced(forced: boolean): MissionControlState {
     this.forced = forced;
-    if (forced) {
-      this.setActive(true);
-    } else {
-      // Let the next poll decide; if we aren't polling, fall back to hidden.
-      this.setActive(false);
-    }
+    this.setActive(forced);
     return this.getState();
   }
 
   /**
-   * Watch the window list for `durationMs` and report what changed, so the
-   * heuristic can be checked on a real Mac: start this, open Mission Control,
-   * and read which window appeared.
-   *
-   * A one-shot dump cannot do this job. Mission Control is a modal system
-   * overlay, so the app is unclickable for as long as it is up — a sample taken
-   * when you press the button is always a sample of the ordinary desktop.
+   * Record what the window list does for `durationMs`, to re-derive the detection
+   * heuristic when a macOS release breaks it. Start it, run the gestures, and read
+   * which windows appeared and when.
    */
   async probe(durationMs: number): Promise<MissionControlProbe> {
     const sampler = this.resolveSampler();
-    const empty = {
-      durationMs,
-      detectedAtMs: [],
-      appeared: [],
-      disappeared: [],
-      baselineCount: 0,
-      ownPid: process.pid,
-    };
-    if (!sampler) return { available: false, ...empty };
+    if (!sampler) {
+      return { available: false, durationMs, detectedAtMs: [], appeared: [] };
+    }
 
     try {
       const startedAt = Date.now();
-      const baseline = sampler.sample();
-      const baselineByKey = new Map(
-        baseline.map((window) => [windowKey(window), window]),
-      );
+      const baseline = new Set(sampler.sample().map(windowKey));
       const appeared = new Map<string, ObservedWindow>();
-      // Baseline windows seen in every sample so far. A window that vanishes
-      // even once drops out and is reported as disappeared.
-      const survived = new Set(baselineByKey.keys());
       const detectedAtMs: number[] = [];
 
       while (Date.now() - startedAt < durationMs) {
         await delay(POLL_INTERVAL_MS);
         const at = Date.now() - startedAt;
-        const current = sampler.sample();
-        if (detectMissionControl(current, this.displayBounds())) {
+        const windows = sampler.sample();
+        if (detectMissionControl(windows, this.displayBounds())) {
           detectedAtMs.push(at);
         }
 
-        const currentKeys = new Set(current.map(windowKey));
-        for (const window of current) {
+        for (const window of windows) {
           const key = windowKey(window);
-          if (baselineByKey.has(key)) continue;
+          if (baseline.has(key)) continue;
           const seen = appeared.get(key);
-          if (seen) {
-            seen.lastSeenMs = at;
-          } else {
+          if (seen) seen.lastSeenMs = at;
+          else
             appeared.set(key, { ...window, firstSeenMs: at, lastSeenMs: at });
-          }
-        }
-        for (const key of survived) {
-          if (!currentKeys.has(key)) survived.delete(key);
         }
       }
 
@@ -159,24 +121,14 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
         appeared: [...appeared.values()].sort(
           (a, b) => a.firstSeenMs - b.firstSeenMs,
         ),
-        disappeared: [...baselineByKey]
-          .filter(([key]) => !survived.has(key))
-          .map(([, window]) => window),
-        baselineCount: baseline.length,
-        ownPid: process.pid,
       };
-      // Logged here rather than from the renderer, where it was raised: renderer
-      // lines do not reach the dev toolbar's log panel, and this is the one
-      // artifact worth keeping a durable copy of.
-      log.info("Probe finished", {
-        detections: result.detectedAtMs.length,
-        appeared: result.appeared.length,
-        displays: this.displayBounds(),
-      });
+      // The clipboard copy is the intended way to read this, but it can fail
+      // silently, and renderer log lines never reach the dev toolbar's panel.
+      log.info("Probe finished", { ...result, displays: this.displayBounds() });
       return result;
     } catch (error) {
       log.warn("Failed to read the window list", { error });
-      return { available: false, ...empty };
+      return { available: false, durationMs, detectedAtMs: [], appeared: [] };
     }
   }
 
@@ -185,40 +137,23 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
     this.clearTimer();
   }
 
-  /**
-   * The sampler, created on first use. Null means detection is unavailable and
-   * will stay that way: a wrong platform or a failed dlopen does not get better
-   * on a retry, so resolve it once and remember.
-   */
   private resolveSampler(): WindowListSampler | null {
-    if (this.degraded) return null;
-    if (this.samplerResolved) return this.sampler;
+    if (this.resolved) return this.sampler;
+    this.resolved = true;
+    // Checked here so the FFI module is never even reached off macOS.
+    if (process.platform !== "darwin") return null;
 
-    this.samplerResolved = true;
     try {
       this.sampler = createWindowListSampler();
     } catch (error) {
       // Almost always a missing @koromix/koffi-darwin-* prebuild or a dlopen the
-      // hardened runtime refused. Both are silent in every other symptom, so the
-      // reason is the whole value of this line.
+      // hardened runtime refused, neither of which has any other symptom.
       log.warn("Could not bind the CoreGraphics window list", { error });
-      this.sampler = null;
-    }
-
-    if (!this.sampler) {
-      this.degraded = true;
-      log.info("Mission Control overlay disabled", {
-        platform: process.platform,
-      });
     }
     return this.sampler;
   }
 
-  /**
-   * Display bounds for the coverage test, read per sample rather than cached so
-   * plugging in a monitor or changing resolution needs no invalidation. It is an
-   * in-process lookup, cheap at this interval.
-   */
+  /** Read per sample, so attaching a monitor needs no invalidation. */
   private displayBounds(): Rect[] {
     return screen.getAllDisplays().map((display) => display.bounds);
   }
@@ -237,7 +172,7 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
       this.consecutiveErrors += 1;
       if (this.consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         log.warn("Giving up on Mission Control detection", { error });
-        this.degraded = true;
+        this.sampler = null;
         this.disarm();
       }
       return;
@@ -249,9 +184,6 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
   private setActive(active: boolean): void {
     if (active === this.active) return;
     this.active = active;
-    // One line per transition, not per tick — enough to tell "detection never
-    // fires" from "the renderer never draws it" when the overlay misbehaves.
-    log.info("Overlay state changed", { active });
     this.emit(MissionControlServiceEvent.StateChanged, this.getState());
   }
 

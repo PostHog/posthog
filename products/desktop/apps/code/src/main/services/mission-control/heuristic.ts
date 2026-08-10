@@ -26,35 +26,25 @@ function coversDisplay(bounds: Rect, display: Rect): boolean {
 }
 
 /**
- * macOS exposes no API — public or private — for "is Mission Control on screen
- * right now". The signal is that opening it makes the Dock process put up a
- * full-display backing window *between* the normal window level and the Dock's
- * own: layer 18 on macOS 26.
+ * macOS exposes no API, public or private, for "is Mission Control on screen".
+ * The signal is that opening it makes the Dock put up a full-display window
+ * between the normal window level and the Dock's own — layer 18 on macOS 26.
  *
- * Every part of that carries weight, and each was learned by getting it wrong:
+ * Each clause earns its place, and the loose versions had visible symptoms:
  *
- *   - Matching on geometry alone fails, because the Dock's own window is also
- *     full-display. That made hovering the Dock, and the Cmd-Tab switcher, show
- *     the overlay — both bring the Dock's window on screen.
- *   - Excluding only layer 0 is not enough, for the same reason. The Dock's
- *     window sits at layer 20, so the range has to stop below it.
- *   - Requiring a layer above 0 keeps out the desktop wallpaper and the
- *     full-display Dock-owned window that also shows up at the normal level.
- *   - Requiring full-display coverage keeps out the Dock strip and the
- *     per-window badges Mission Control draws at layer 17.
+ *   - Below the Dock's level, because the Dock's own window is full-display too.
+ *     Without this, hovering the Dock and Cmd-Tab both showed the overlay.
+ *   - Above the normal level, which excludes the desktop wallpaper and a
+ *     full-display Dock-owned window that also sits at layer 0.
+ *   - Full-display, which excludes the Dock strip and the per-window badges
+ *     Mission Control draws at layer 17.
  *
- * A 20-second `dev.probeMissionControl` recording covering Mission Control, an
- * app switch and two Dock hovers puts the layer-20 window in all four gestures
- * and the layer-18 window in Mission Control alone. This predicate matched only
- * the Mission Control interval, to the sample.
+ * Undocumented and version-specific: an earlier revision keyed off a y origin of
+ * -1, true on OS X 10.10 and false now. Re-derive it from a
+ * `dev.probeMissionControl` recording rather than reasoning about it.
  *
- * Still undocumented, with no compatibility guarantee: an earlier revision keyed
- * off a y origin of -1, true on OS X 10.10 and false now. Re-check against a real
- * macOS release with the probe rather than adjusting it from first principles.
- *
- * App Exposé, Launchpad and Show Desktop are untested and may match. That is
- * harmless: each either hides our window completely or slides it off screen, so
- * the overlay is either invisible or a reasonable thing to show.
+ * App Exposé, Launchpad and Show Desktop are untested and may match. Harmless:
+ * each either hides our window or slides it off screen.
  */
 export function detectMissionControl(
   windows: CgWindow[],
@@ -70,9 +60,8 @@ export function detectMissionControl(
 }
 
 /**
- * Identity for diffing one sample against another. CoreGraphics window numbers
- * are not in our window type, so owner plus layer plus rounded bounds stands in —
- * enough to tell a window that appeared from one that merely moved a subpixel.
+ * Identity for diffing samples. Rounded, so a window that drifts a subpixel does
+ * not read as a new one and bury the window that actually appeared.
  */
 export function windowKey(window: CgWindow): string {
   const { x, y, width, height } = window.bounds;

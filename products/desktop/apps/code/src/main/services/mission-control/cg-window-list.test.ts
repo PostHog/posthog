@@ -22,22 +22,18 @@ describe("parseWindowListPlist", () => {
     expect(parseWindowListPlist(WINDOW_LIST_PLIST)).toEqual([
       {
         ownerName: "Dock",
-        ownerPid: 300,
         layer: 20,
         bounds: { x: 0, y: -1, width: 1440, height: 901 },
       },
       {
         ownerName: "PostHog",
-        ownerPid: 4210,
         layer: 0,
         bounds: { x: 12, y: 38, width: 800, height: 600 },
       },
       {
-        // kCGWindowOwnerName is absent for some system surfaces; it must not
-        // become the string "undefined" and accidentally match a filter. The pid
-        // is always there, which is why our own windows are found by pid.
+        // Absent for some system surfaces, and must not become the string
+        // "undefined" and accidentally match the owner check.
         ownerName: "",
-        ownerPid: 275,
         layer: 25,
         bounds: { x: 0, y: 0, width: 1440, height: 24 },
       },

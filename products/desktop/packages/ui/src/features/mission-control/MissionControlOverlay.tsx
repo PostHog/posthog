@@ -3,25 +3,20 @@ import { createPortal } from "react-dom";
 import { useMissionControlStore } from "./missionControlStore";
 
 /**
- * Covers the whole window with the PostHog logo and product name while macOS
- * Mission Control is open, so this window is easy to pick out of a grid of
- * near-identical dark windows.
+ * Brands the window while macOS Mission Control is open, so it can be picked out
+ * of a grid of near-identical dark windows.
  *
- * Translucent, with a blur behind it: the window stays recognisable as itself
- * rather than becoming a blank branded card, and the blur keeps the logo and
- * title legible over whatever is underneath.
- *
- * Unanimated on purpose. Mission Control shrinks the window to roughly a sixth
- * of its size, where a transition reads as a rendering glitch.
+ * Unanimated on purpose: Mission Control shrinks the window to roughly a sixth of
+ * its size, where a transition reads as a rendering glitch.
  */
 export function MissionControlOverlay() {
   const active = useMissionControlStore((state) => state.active);
 
   if (!active) return null;
 
-  // ThemeWrapper scopes the app's colour tokens to a Radix <Theme> subtree and
-  // exposes this container inside it. Portalling straight to document.body would
-  // land outside that scope and render a light panel in dark mode.
+  // ThemeWrapper exposes this container inside the Radix <Theme> subtree that
+  // scopes the colour tokens. Portalling to document.body lands outside it and
+  // renders a light panel in dark mode.
   const container =
     document.getElementById("portal-container") ?? document.body;
 
