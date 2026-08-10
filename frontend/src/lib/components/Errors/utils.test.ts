@@ -93,7 +93,7 @@ describe('Error Display', () => {
             $sentry_exception_type: undefined,
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
             $exception_type: undefined,
-            $level: 'info',
+            $exception_level: 'info',
             $exception_message: 'the message sent into sentry captureMessage',
         }
         const result = getExceptionAttributes(eventProperties)
@@ -110,7 +110,6 @@ describe('Error Display', () => {
             lib: 'posthog-js',
             libVersion: '1.0.0',
             level: 'info',
-            levelKey: '$level',
             os: 'Windows',
             osVersion: '10',
             sentryUrl:
@@ -162,7 +161,6 @@ describe('Error Display', () => {
             lib: 'posthog-js',
             libVersion: '1.0.0',
             level: undefined,
-            levelKey: '$exception_level',
             os: 'Windows',
             osVersion: '10',
             url: undefined,
@@ -173,22 +171,14 @@ describe('Error Display', () => {
         })
     })
 
-    // Both keys have to resolve: $exception_level is what SDKs and ingestion write, while $level
-    // only appears on events forwarded from Sentry.
     it.each([
-        ['$exception_level', { $exception_level: 'warning' }, 'warning', '$exception_level'],
-        ['$level for events forwarded from Sentry', { $level: 'info' }, 'info', '$level'],
-        [
-            '$exception_level ahead of $level',
-            { $exception_level: 'fatal', $level: 'info' },
-            'fatal',
-            '$exception_level',
-        ],
-        ['neither key', {}, undefined, '$exception_level'],
-    ])('getExceptionAttributes reads level from %s', (_name, properties, expectedLevel, expectedLevelKey) => {
+        ['$exception_level', { $exception_level: 'warning' }, 'warning'],
+        ['$level only', { $level: 'info' }, undefined],
+        ['$exception_level ahead of $level', { $exception_level: 'fatal', $level: 'info' }, 'fatal'],
+        ['neither key', {}, undefined],
+    ])('getExceptionAttributes reads level from %s', (_name, properties, expectedLevel) => {
         const result = getExceptionAttributes(properties)
         expect(result.level).toEqual(expectedLevel)
-        expect(result.levelKey).toEqual(expectedLevelKey)
     })
 
     // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak

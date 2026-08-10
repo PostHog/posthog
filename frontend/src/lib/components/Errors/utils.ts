@@ -67,16 +67,6 @@ export function concatValues(
     return definedKeys.map((key) => attrs[key]).join(' ')
 }
 
-// Our SDKs and ingestion write exception severity to `$exception_level`, while events forwarded
-// from Sentry carry it as `$level`. Reporting which key holds the value lets callers build a
-// property filter that targets a property the event actually has.
-function getLevelKey(properties: Record<string, any>): string {
-    if (properties.$exception_level === undefined && properties.$level !== undefined) {
-        return '$level'
-    }
-    return '$exception_level'
-}
-
 export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
         $lib: lib,
@@ -86,6 +76,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $os: os,
         $os_version: osVersion,
         $sentry_url: sentryUrl,
+        $exception_level: level,
         $cymbal_errors: ingestionErrors,
     } = properties
 
@@ -112,8 +103,6 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
-    const levelKey = getLevelKey(properties)
-    const level = properties[levelKey]
     const appNamespace = properties.$app_namespace
     const appVersion = properties.$app_version
 
@@ -132,7 +121,6 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         sentryUrl,
         handled,
         level,
-        levelKey,
         ingestionErrors,
         appNamespace,
         appVersion,

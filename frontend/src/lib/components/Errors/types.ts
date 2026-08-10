@@ -126,7 +126,6 @@ export interface ExceptionAttributes {
     osVersion?: string
     sentryUrl?: string
     level?: string
-    levelKey?: string
     url?: string
     handled?: boolean
     appNamespace?: string
