@@ -65,6 +65,23 @@ def resolve_inactivity_timeout(*, is_user_origin: bool = False, state: dict | No
 # don't have task context. The CI follow-up timing lives in `task_management`.
 INACTIVITY_TIMEOUT = resolve_inactivity_timeout()
 
+
+def resolve_max_run_duration() -> timedelta | None:
+    """Hard wall-clock cap on a single run, or None when the cap is disabled.
+
+    Independent of the inactivity timer: every agent heartbeat resets that timer, so
+    an agent that is wedged but still emitting activity never trips it. This cap bounds
+    total run time regardless of heartbeats, so it sits well above the largest
+    legitimate autonomous run (inactivity grace plus the CI follow-up rounds).
+
+    A non-positive setting means "no cap", the same convention
+    `TASKS_INACTIVITY_TIMEOUT_SECONDS` uses. Reading 0 as a zero-second cap would
+    terminalize every non-interactive run in the deployment on its first loop iteration.
+    """
+    seconds = settings.TASKS_MAX_RUN_DURATION_SECONDS
+    return timedelta(seconds=seconds) if seconds > 0 else None
+
+
 WARM_IDLE_TIMEOUT = timedelta(minutes=10)
 
 # CI follow-up cadence after the agent has been idle.

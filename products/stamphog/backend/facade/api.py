@@ -109,6 +109,22 @@ def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | 
     return _repo_config_to_dto(obj) if obj is not None else None
 
 
+def has_reviewable_repo_config(team_id: int) -> bool:
+    """Whether the team has at least one enabled repo config that hosted reviews can run on.
+
+    The config must have been bound through the authenticated sync flow: a non-blank
+    installation_id and a connecting user, because the sandbox LLM credential is minted under
+    that user and reviews fail closed without one. The Code review scene disables its Stamphog
+    inbox toggle when this is false, since the toggle would have nothing to act on.
+    """
+    return (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .filter(enabled=True, connected_by_user_id__isnull=False)
+        .exclude(installation_id="")
+        .exists()
+    )
+
+
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
     obj = (
         ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()

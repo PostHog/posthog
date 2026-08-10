@@ -68,6 +68,20 @@ def test_upsert_round_trips_pending_input(team):
 
 
 @pytest.mark.django_db
+def test_upsert_handoff_text_survives_pushes_without_it(team):
+    with_doc, _ = wizard_facade.upsert(_input(team.id, handoff_text="# Setup report"))
+    assert with_doc.handoff_text == "# Setup report"
+
+    # Unlike pending_input, the doc is monotonic: later full-state pushes without it keep it.
+    for omitted in (None, ""):
+        preserved, _ = wizard_facade.upsert(_input(team.id, handoff_text=omitted))
+        assert preserved.handoff_text == "# Setup report"
+
+    rewritten, _ = wizard_facade.upsert(_input(team.id, handoff_text="# Setup report, revised"))
+    assert rewritten.handoff_text == "# Setup report, revised"
+
+
+@pytest.mark.django_db
 @patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay")
 def test_upsert_with_same_session_id_replaces_state(_mock_sync, team):
     _, first_created = wizard_facade.upsert(_input(team.id))

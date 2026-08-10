@@ -2342,8 +2342,9 @@ class Resolver(CloningVisitor):
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):
-            # only swap out expression fields in ClickHouse
-            if self.dialect == "clickhouse":
+            # HogQL preserves the virtual field name for display; execution dialects must expand
+            # the expression so its child fields resolve before the target printer sees them.
+            if self.dialect != "hogql":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 
@@ -2353,7 +2354,16 @@ class Resolver(CloningVisitor):
                         table_type = table_type.table_type
                     self.scopes.append(ast.SelectQueryType(tables={node.type.name: table_type}))
 
-                new_node = self.visit(new_node)
+                try:
+                    new_node = self.visit(new_node)
+                except RecursionError:
+                    # Saved expressions are validated against a database that may not yet contain a
+                    # concurrently-saved sibling, so a mutually recursive pair can reach this point.
+                    # Surface it as a query error instead of a 500.
+                    raise QueryError(
+                        f'Expression field "{node.type.name}" is nested too deeply. '
+                        f"Expression fields can't reference themselves, directly or through another expression."
+                    )
 
                 if node.type.isolate_scope:
                     self.scopes.pop()

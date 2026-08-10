@@ -27,7 +27,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
-import type { EmailTemplate } from './types'
+import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
 
@@ -101,6 +101,50 @@ export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
+/**
+ * Wrap raw html in an Unlayer design holding a single custom HTML block. Emails authored
+ * programmatically (API/MCP) often have html but no design; loading a wrapped design shows the
+ * email in the canvas instead of a blank editor whose save would clobber the stored html.
+ * Mirrors build_html_wrap_design in posthog/cdp/validation.py.
+ */
+export function buildHtmlWrapDesign(html: string): JSONTemplate {
+    // Fixed ids keep the wrap deterministic: re-wrapping the same html yields an identical
+    // design, so backend content-equality checks (revisions, draft diffing) see no change.
+    return {
+        counters: { u_row: 1, u_column: 1, u_content_html: 1 },
+        schemaVersion: 16,
+        body: {
+            id: 'html-wrap-body',
+            headers: [],
+            footers: [],
+            rows: [
+                {
+                    id: 'html-wrap-row',
+                    cells: [1],
+                    columns: [
+                        {
+                            id: 'html-wrap-column',
+                            contents: [
+                                {
+                                    id: 'html-wrap-content',
+                                    type: 'html',
+                                    values: {
+                                        html,
+                                        _meta: { htmlID: 'u_content_html_1', htmlClassNames: 'u_content_html' },
+                                    },
+                                },
+                            ],
+                            values: { _meta: { htmlID: 'u_column_1', htmlClassNames: 'u_column' } },
+                        },
+                    ],
+                    values: { _meta: { htmlID: 'u_row_1', htmlClassNames: 'u_row' } },
+                },
+            ],
+            values: {},
+        },
+    } as unknown as JSONTemplate
+}
+
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
@@ -109,6 +153,16 @@ export interface EmailTemplaterLogicProps {
     defaultValue?: EmailTemplate | null
     templating?: boolean | 'hog' | 'liquid'
     onChangeTemplating?: (templating: 'hog' | 'liquid') => void
+    /**
+     * 'modal' (default): preview with an editing modal, changes propagate on save.
+     * 'inline': the full editor rendered in place, changes propagate live (debounced) so the
+     * parent form's dirty state and save flow see them without a separate editor-level save.
+     */
+    layout?: 'modal' | 'inline'
+    // Validation messages owned by the parent form, shown next to each field. The templater does
+    // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
+    // decides what and when to show.
+    fieldErrors?: EmailFieldErrors
 }
 
 function autoRevealAdvancedFields(
@@ -149,6 +203,7 @@ export interface emailTemplaterLogicValues {
     isEmailTemplateValid: boolean
     isModalOpen: boolean
     isSaveTemplateModalOpen: boolean
+    isTemplatePickerOpen: boolean
     logicProps: EmailTemplaterLogicProps
     mergeTags: UnlayerMergeTags
     personPropertyDefinitions: PropertyDefinition[]
@@ -168,6 +223,12 @@ export interface emailTemplaterLogicActions {
         template: MessageTemplate
     }
     closeWithConfirmation: () => {
+        value: true
+    }
+    designLoaded: () => {
+        value: true
+    }
+    designUpdated: () => {
         value: true
     }
     hideAdvancedField: (key: EmailMetaFieldKey) => {
@@ -244,6 +305,9 @@ export interface emailTemplaterLogicActions {
     setIsSaveTemplateModalOpen: (isOpen: boolean) => {
         isOpen: boolean
     }
+    setIsTemplatePickerOpen: (isOpen: boolean) => {
+        isOpen: boolean
+    }
     setTemplatingEngine: (templating: 'hog' | 'liquid') => {
         templating: 'hog' | 'liquid'
     }
@@ -297,6 +361,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setIsTemplatePickerOpen: (isOpen: boolean) => ({ isOpen }),
+        designUpdated: true,
+        designLoaded: true,
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
@@ -329,6 +396,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        isTemplatePickerOpen: [
+            false,
+            {
+                setIsTemplatePickerOpen: (_, { isOpen }) => isOpen,
+                setIsModalOpen: (state, { isModalOpen }) => (isModalOpen ? state : false),
             },
         ],
         appliedTemplate: [
@@ -442,7 +516,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         ],
     }),
 
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values, props, cache }) => ({
         emailTemplate: {
             defaults: props.defaultValue as EmailTemplate,
             submit: async (formValues: EmailTemplate | undefined) => {
@@ -471,6 +545,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
 
+                // A save with no canvas edits keeps the stored html/text/design byte-identical
+                // instead of replacing them with the editor's re-render - the export wraps raw
+                // html emails in Unlayer chrome, so an unconditional overwrite would silently
+                // change what recipients receive on a no-op save. Meta field edits still apply.
+                if (objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                    props.onChange({ ...formValues })
+                    actions.setIsModalOpen(false)
+                    return
+                }
+
                 const finalValues: EmailTemplate = {
                     ...formValues,
                     html: ['native_email', 'native_email_template'].includes(props.type)
@@ -480,17 +564,77 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     design: htmlData.design,
                 }
 
+                cache.lastEditorDesign = htmlData.design
                 props.onChange(finalValues)
                 actions.setIsModalOpen(false)
             },
         },
     })),
 
-    listeners(({ props, values, actions }) => ({
+    listeners(({ props, values, actions, cache }) => ({
         onEmailEditorReady: () => {
-            if (props.value?.design) {
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
+            // Listeners must attach before loadDesign so the initial design:loaded is heard and
+            // rebaselines - otherwise the load echo is indistinguishable from a user edit.
+            if (props.layout === 'inline') {
+                values.emailEditorRef?.editor?.addEventListener('design:updated', () => actions.designUpdated())
             }
+            // Both layouts rebaseline on load: the modal submit compares its export against the
+            // baseline to tell a no-op save from a real edit.
+            values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
+            if (props.value?.design) {
+                cache.lastEditorDesign = props.value.design
+                values.emailEditorRef?.editor?.loadDesign(props.value.design)
+            } else if (props.value?.html) {
+                const wrapped = buildHtmlWrapDesign(props.value.html)
+                cache.lastEditorDesign = wrapped
+                values.emailEditorRef?.editor?.loadDesign(wrapped)
+            }
+        },
+
+        designLoaded: async (_, breakpoint) => {
+            // Re-baseline off the editor's own normalized export: unlayer rewrites loaded JSON
+            // (defaults, ids), so comparing raw stored designs against later exports would flag
+            // every load echo as an edit and falsely dirty the parent form.
+            const editor = values.emailEditorRef?.editor
+            if (!editor) {
+                return
+            }
+            const htmlData: { design: JSONTemplate } = await new Promise<any>((res) => editor.exportHtml(res))
+            breakpoint()
+            cache.lastEditorDesign = htmlData.design
+        },
+
+        designUpdated: async (_, breakpoint) => {
+            // A programmatic loadDesign fires design:updated too; the debounce lets designLoaded
+            // rebaseline first, and the equality check below then filters the echo. A genuine user
+            // edit differs from the baseline, so it always propagates - even right after a load.
+            await breakpoint(500)
+
+            const editor = values.emailEditorRef?.editor
+            if (!editor || !values.isEmailEditorReady) {
+                return
+            }
+
+            const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] = await Promise.all([
+                new Promise<any>((res) => editor.exportHtml(res)),
+                new Promise<any>((res) => editor.exportPlainText(res)),
+            ])
+            breakpoint()
+
+            // Only real changes propagate - an export identical to the last known editor state is a
+            // load echo, and pushing it would only mark the parent form dirty.
+            if (objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                return
+            }
+            cache.lastEditorDesign = htmlData.design
+            props.onChange({
+                ...values.emailTemplate,
+                html: ['native_email', 'native_email_template'].includes(props.type)
+                    ? htmlData.html
+                    : escapeHTMLStringCurlies(htmlData.html),
+                text: textData.text,
+                design: htmlData.design,
+            })
         },
 
         setEmailTemplateValue: ({ name, value }) => {
@@ -520,8 +664,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
         setIsModalOpen: ({ isModalOpen }) => {
             if (isModalOpen && props.value) {
-                const hasHtml = !!props.value.html
-                actions.setActiveContentTab(hasHtml ? 'visual' : 'plaintext')
+                // Plain text only when the email is genuinely text-only; a blank email starts visual.
+                const plainTextOnly = !!props.value.text && !props.value.html && !props.value.design
+                actions.setActiveContentTab(plainTextOnly ? 'plaintext' : 'visual')
             }
         },
 
@@ -531,6 +676,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             // Load the design into the editor if it's ready and has a design
             if (values.isEmailEditorReady && emailTemplateContent.design) {
+                cache.lastEditorDesign = emailTemplateContent.design
                 values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
             }
         },

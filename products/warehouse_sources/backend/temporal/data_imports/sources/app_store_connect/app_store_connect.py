@@ -13,7 +13,6 @@ import jwt
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
     MAX_PAGE_SIZE,
@@ -24,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 BASE_URL = "https://api.appstoreconnect.apple.com"
 API_HOST = "api.appstoreconnect.apple.com"
@@ -404,11 +404,12 @@ def _fetch_report(
         params=params,
         accept=REPORT_ACCEPT,
         timeout=REPORT_TIMEOUT_SECONDS,
-        tolerate=(404,),
+        tolerate=config.missing_report_status_codes,
     )
-    if response.status_code == 404:
+    if response.status_code in config.missing_report_status_codes:
         # Apple 404s any date with no activity at all — normal for quiet days and for dates before the
-        # app shipped — so a missing day is not an error.
+        # app shipped — so a missing day is not an error. Subscription-family report types 400 for the
+        # same condition instead (see `missing_report_status_codes`).
         return []
 
     return _parse_report(response.content, report_date)
