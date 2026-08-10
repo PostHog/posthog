@@ -617,6 +617,9 @@ tools:
     tasks-summaries-create:
         operation: tasks_summaries_create
         enabled: false
+    tasks-thread-messages-comment-activity-retrieve:
+        operation: tasks_thread_messages_comment_activity_retrieve
+        enabled: false
     tasks-thread-messages-create:
         operation: tasks_thread_messages_create
         enabled: false
