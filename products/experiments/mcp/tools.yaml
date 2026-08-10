@@ -1356,6 +1356,9 @@ tools:
     experiments-session-contexts-create:
         operation: experiments_session_contexts_create
         enabled: false
+    experiments-session-event-deltas-create:
+        operation: experiments_session_event_deltas_create
+        enabled: false
     experiments-update:
         operation: experiments_update
         enabled: false

@@ -195,6 +195,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Matcher::Full("personhog_coordination_partition_warm_ms".into()),
                 WARM_LATENCY_BUCKETS_MS,
             ),
+            (
+                Matcher::Full("personhog_leader_warm_span_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
         ],
     );
     preregister_metrics();
@@ -791,5 +795,12 @@ fn preregister_metrics() {
         .increment(0);
     for stage in ["committed_offset", "fetch_watermarks"] {
         counter!("personhog_leader_warm_retries_total", "stage" => stage).increment(0);
+    }
+    // A broker blip is short enough to fall entirely between two
+    // scrapes, and these fire only during one. The codes seen in dev are
+    // preregistered so that burst is not swallowed; anything else stays
+    // lazy, as elsewhere for dynamic labels.
+    for code in ["BrokerTransportFailure", "AllBrokersDown"] {
+        counter!("personhog_leader_warm_transient_errors_total", "code" => code).increment(0);
     }
 }

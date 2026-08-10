@@ -62,6 +62,7 @@ export function CanvasSelectionCommentAction({
       onDismiss={onDismiss}
       onSubmit={async (_start, _end, content, mentions) => {
         if (!anchor || !taskId) return;
+        openComments();
         const comment = await createComment.mutateAsync({
           content,
           context: {
@@ -70,10 +71,11 @@ export function CanvasSelectionCommentAction({
           },
           mentions,
         });
-        openComments();
         useCommentNavigationStore
           .getState()
-          .requestCommentFocus(taskId, target, comment.id);
+          .requestCommentFocus(taskId, target, comment.id, {
+            intent: "focus-only",
+          });
       }}
     />
   );
