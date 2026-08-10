@@ -260,8 +260,11 @@ def publish_skill_version(
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
             metadata=_carry_forward(metadata, current_latest.metadata),
             # Categorization is a property of the skill, not the version — carry it forward so editing
-            # a scout (or any categorized skill) doesn't drop it out of its tab.
+            # a scout (or any categorized skill) doesn't drop it out of its tab. Provenance carries for
+            # the same reason: a team retuning a skill PostHog wrote for them is still editing that
+            # skill, so it should stay under "Written for you" instead of quietly leaving the tab.
             category=current_latest.category,
+            provenance=current_latest.provenance,
             version=current_latest.version + 1,
             is_latest=True,
             version_description=version_description,
@@ -342,6 +345,8 @@ def create_skill(
     allowed_tools: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
     files: list[dict[str, str]] | None = None,
+    provenance: str = "",
+    owner: User | None = None,
 ) -> LLMSkill:
     if files and len(files) > MAX_SKILL_FILE_COUNT:
         raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
@@ -371,6 +376,7 @@ def create_skill(
                 description=description,
                 body=body,
                 category=category_for_skill_name(name),
+                provenance=provenance,
                 license=license or "",
                 compatibility=compatibility or "",
                 allowed_tools=allowed_tools or [],
@@ -386,7 +392,10 @@ def create_skill(
             raise
 
         # The creator owns the skill by default — durable, not reconstructed from version history.
-        seed_skill_owner(team, name, user)
+        # `owner` splits from `user` when PostHog staff author a skill for a team: the operator is
+        # credited, but ownership has to land on someone inside the team, since every owner read
+        # filters on `team.all_users_with_access()` and would drop an outside user's row forever.
+        seed_skill_owner(team, name, owner or user)
 
         if files:
             try:
@@ -430,11 +439,12 @@ def duplicate_skill(
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
 
-        # A duplicate is a brand-new, user-authored skill under a new name, so it does not inherit the
-        # source's provenance or classification: drop the harness seed marker, and leave `category`
-        # at its default empty (the copy isn't a registered scout — it would only become one if named
-        # `signals-scout-*` and picked up by scout registration). This keeps non-runnable rows out of
-        # the Scouts tab and avoids mislabeling a fork as canonical.
+        # A duplicate is a brand-new, user-authored skill under a new name, so it inherits none of the
+        # source's provenance or classification: drop the harness seed marker, and leave `category` and
+        # `provenance` at their default empty (the copy isn't a registered scout — it would only become
+        # one if named `signals-scout-*` and picked up by scout registration; and the team, not
+        # PostHog, wrote the fork). This keeps non-runnable rows out of the Scouts tab and avoids
+        # mislabeling a fork as canonical or as written for the team by PostHog.
         duplicated_metadata = dict(source_latest.metadata or {})
         duplicated_metadata.pop("seeded_by", None)
 
@@ -504,6 +514,7 @@ def _create_next_version_with_files(
         allowed_tools=current_latest.allowed_tools,
         metadata=current_latest.metadata,
         category=current_latest.category,
+        provenance=current_latest.provenance,
         version=current_latest.version + 1,
         is_latest=True,
         created_by=user,

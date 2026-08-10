@@ -28,6 +28,8 @@ import type {
     PaginatedLLMSkillListListApi,
 } from 'products/skills/frontend/generated/api.schemas'
 
+import { POSTHOG_SKILL_PROVENANCE } from './skillConstants'
+
 /** Builds the `/plugin marketplace add` command. The token is embedded once minted; until then
  * a placeholder is shown. */
 export function buildMarketplaceCommand(token: string | null): string {
@@ -71,56 +73,83 @@ export const SKILLS_GROUP_LIMIT = 500
 export const SKILLS_GROUP_MAX_DEPTH = 4
 export const LLM_SKILLS_FORCE_RELOAD_PARAM = 'llm_skills_force_reload'
 
-/** URL/UI key for the default tab — the uncategorized skills (everything not pulled into a category tab). */
+/** URL/UI key for the default tab — everything not pulled into one of the tabs below. */
 export const DEFAULT_SKILLS_TAB_KEY: string = 'skills'
 
-/** Sub-title shown for the default "Skills" tab. Category tabs carry their own copy (below). */
+/** Sub-title shown for the default "Skills" tab. The other tabs carry their own copy (below). */
 export const DEFAULT_SKILLS_TAB_DESCRIPTION = 'Manage versioned agent skills that any agent can discover and use.'
 
-export interface SkillCategoryTab {
+/**
+ * Server-side filters scoping the skills list to one tab. An omitted key is not sent at all, and the
+ * list endpoint treats an absent param as "any value" — so `{ provenance: 'posthog' }` matches
+ * PostHog-authored skills of every category, while `{ category: '' }` matches only uncategorized ones.
+ */
+export interface SkillTabFilters {
+    category?: string
+    provenance?: string
+}
+
+export interface SkillTab {
     /** Tab key, also the `/skills/<key>` URL segment. */
     key: string
-    /** The `LLMSkill.category` value this tab filters to. */
-    category: string
+    /** List filters that scope this tab. */
+    filters: SkillTabFilters
     label: string
     /** Sub-title shown under the scene title while this tab is active. */
     description: string
 }
 
+/** The default "Skills" tab holds the uncategorized skills. */
+export const DEFAULT_SKILLS_TAB_FILTERS: SkillTabFilters = { category: '' }
+
 /**
- * Category-backed tabs shown alongside the default "Skills" tab. Each entry surfaces one
- * `LLMSkill.category` value as its own tab and removes it from the default list (which only shows
- * uncategorized skills). To add a tab — e.g. official AI-plugin skills — add an entry here, register
- * the matching `/skills/<key>` route in manifest.tsx, and have the producer stamp that `category`.
+ * Tabs shown alongside the default "Skills" tab. To add one, add an entry here, register the
+ * matching `/skills/<key>` route in manifest.tsx, add the key to RESERVED_SKILL_NAMES in
+ * skill_serializers.py so a skill can't shadow the route, and have the producer stamp the field
+ * the tab filters on.
+ *
+ * A category tab partitions: `category` says what a skill is, so a categorized skill leaves the
+ * default tab for its own one. A provenance tab is a lens over the same rows: `provenance` says who
+ * wrote a skill, which is an attribute rather than a bucket, so those skills stay in the default
+ * tab (carrying a tag) and their tab is a shortcut to them. Keeping it a lens also means a tab
+ * whose count probe fails can never hide a skill from the list that would otherwise show it.
  */
-export const SKILL_CATEGORY_TABS: SkillCategoryTab[] = [
+export const SKILL_TABS: SkillTab[] = [
     {
         key: 'scouts',
-        category: 'scout',
+        filters: { category: 'scout' },
         label: 'Scouts',
         description:
             "Scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
     },
     {
         key: 'review-hog',
-        category: 'review_hog',
+        filters: { category: 'review_hog' },
         label: 'Code review',
         description:
             "ReviewHog's code-review skills: the specialist perspectives applied in parallel when reviewing a pull request (logic & correctness, contracts & security, performance & reliability) and the validation criteria that decide which findings are worth surfacing. Edit a skill to retune it for your team.",
     },
+    {
+        key: 'written-for-you',
+        // Provenance, not category, so a scout written for this team also lists under Scouts.
+        filters: { provenance: POSTHOG_SKILL_PROVENANCE },
+        label: 'Written for you',
+        description:
+            'Skills that PostHog wrote for your team. They behave like any other skill, so your agents can find them over MCP, and you can edit one to fit your setup.',
+    },
 ]
 
-export function skillCategoryForTabKey(tabKey: string): string {
-    return SKILL_CATEGORY_TABS.find((tab) => tab.key === tabKey)?.category ?? ''
+export function skillTabFilters(tabKey: string): SkillTabFilters {
+    return SKILL_TABS.find((tab) => tab.key === tabKey)?.filters ?? DEFAULT_SKILLS_TAB_FILTERS
 }
 
 export function skillTabDescription(tabKey: string): string {
-    return SKILL_CATEGORY_TABS.find((tab) => tab.key === tabKey)?.description ?? DEFAULT_SKILLS_TAB_DESCRIPTION
+    return SKILL_TABS.find((tab) => tab.key === tabKey)?.description ?? DEFAULT_SKILLS_TAB_DESCRIPTION
 }
 
-/** The `/skills` or `/skills/<categoryKey>` path for a tab key. */
+/** The `/skills` or `/skills/<tabKey>` path for a tab key. */
 export function skillTabUrl(tabKey: string): string {
-    return tabKey === DEFAULT_SKILLS_TAB_KEY ? urls.skills() : urls.skillsCategoryTab(tabKey)
+    return tabKey === DEFAULT_SKILLS_TAB_KEY ? urls.skills() : urls.skillsTab(tabKey)
 }
 
 export interface SkillFilters {
@@ -234,11 +263,11 @@ export type LLMSkillsLogicProps = Record<string, never>
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface llmSkillsLogicValues {
-    activeCategory: string
+    activeTabFilters: SkillTabFilters
     activeTabDescription: string
     activeTabKey: string
-    categoryCounts: Record<string, number>
-    categoryCountsLoading: boolean
+    tabCounts: Record<string, number>
+    tabCountsLoading: boolean
     codexCommand: string
     connectModalOpen: boolean
     count: number
@@ -255,7 +284,7 @@ export interface llmSkillsLogicValues {
     skills: PaginatedLLMSkillListListApi
     skillsLoading: boolean
     sorting: Sorting | null
-    visibleCategoryTabs: SkillCategoryTab[]
+    visibleTabs: SkillTab[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -279,25 +308,25 @@ export interface llmSkillsLogicActions {
     issueMarketplaceCommand: (rotate?: boolean) => {
         rotate: boolean
     }
-    loadCategoryCounts: () => {
+    loadTabCounts: () => {
         value: true
     }
-    loadCategoryCountsFailure: (
+    loadTabCountsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadCategoryCountsSuccess: (
-        categoryCounts: {
+    loadTabCountsSuccess: (
+        tabCounts: {
             [k: string]: number
         },
         payload?: {
             value: true
         }
     ) => {
-        categoryCounts: {
+        tabCounts: {
             [k: string]: number
         }
         payload?: {
@@ -361,9 +390,9 @@ export interface llmSkillsLogicActions {
 export interface llmSkillsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filters: (rawFilters: Partial<SkillFilters> | null) => SkillFilters
-        activeCategory: (activeTabKey: string) => string
+        activeTabFilters: (activeTabKey: string) => SkillTabFilters
         activeTabDescription: (activeTabKey: string) => string
-        visibleCategoryTabs: (categoryCounts: Record<string, number>, activeTabKey: string) => SkillCategoryTab[]
+        visibleTabs: (tabCounts: Record<string, number>, activeTabKey: string) => SkillTab[]
         count: (skills: PaginatedLLMSkillListListApi) => number
         marketplaceCommand: (marketplaceState: LLMSkillMarketplaceCommandApi | null) => string
         codexCommand: (marketplaceState: LLMSkillMarketplaceCommandApi | null) => string
@@ -392,7 +421,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             debounce,
         }),
         loadSkills: (debounce: boolean = true) => ({ debounce }),
-        loadCategoryCounts: true,
+        loadTabCounts: true,
         setActiveTab: (tabKey: string) => ({ tabKey }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
@@ -471,9 +500,11 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                     }
 
                     const { filters } = values
-                    // Always send `category` (even as ""): the default tab shows uncategorized skills,
-                    // each category tab shows its own category. Presence of the param is the filter.
-                    const category = values.activeCategory
+                    // Presence of a param is the filter, so an empty string is meaningful and still
+                    // sent: the default tab asks for `category=` to show only uncategorized skills,
+                    // while the "Written for you" tab sends no category at all and filters on
+                    // provenance instead.
+                    const tabFilters = values.activeTabFilters
                     const params = filters.group_by_prefix
                         ? {
                               search: filters.search,
@@ -481,7 +512,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: 0,
                               limit: SKILLS_GROUP_LIMIT,
                               created_by_id: filters.created_by_id,
-                              category,
+                              ...tabFilters,
                           }
                         : {
                               search: filters.search,
@@ -489,7 +520,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: Math.max(0, (filters.page - 1) * SKILLS_PER_PAGE),
                               limit: SKILLS_PER_PAGE,
                               created_by_id: filters.created_by_id,
-                              category,
+                              ...tabFilters,
                           }
 
                     if (
@@ -506,21 +537,21 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 },
             },
         ],
-        // Per-category skill counts, used to decide which category tabs to show. Loaded once on
-        // mount (and after a delete) with a cheap limit=1 probe per category — we only read `count`.
-        categoryCounts: [
+        // Per-tab skill counts, used to decide which tabs to show. Loaded once on mount (and after a
+        // delete) with a cheap limit=1 probe per tab — we only read `count`.
+        tabCounts: [
             {} as Record<string, number>,
             {
-                loadCategoryCounts: async () => {
+                loadTabCounts: async () => {
                     const teamId = String(ApiConfig.getCurrentTeamId())
                     const entries = await Promise.all(
-                        SKILL_CATEGORY_TABS.map(async (tab) => {
+                        SKILL_TABS.map(async (tab) => {
                             const { count } = await llmSkillsList(teamId, {
-                                category: tab.category,
+                                ...tab.filters,
                                 limit: 1,
                                 offset: 0,
                             })
-                            return [tab.category, count] as const
+                            return [tab.key, count] as const
                         })
                     )
                     return Object.fromEntries(entries)
@@ -535,9 +566,9 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             (rawFilters: Partial<SkillFilters> | null): SkillFilters => cleanFilters(rawFilters || {}),
         ],
 
-        activeCategory: [
+        activeTabFilters: [
             (s) => [s.activeTabKey],
-            (activeTabKey: string): string => skillCategoryForTabKey(activeTabKey),
+            (activeTabKey: string): SkillTabFilters => skillTabFilters(activeTabKey),
         ],
 
         activeTabDescription: [
@@ -545,15 +576,14 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             (activeTabKey: string): string => skillTabDescription(activeTabKey),
         ],
 
-        // A category tab is shown only once the team has at least one skill in that category.
-        // The active tab is always kept visible so direct navigation to /skills/<key> (or deleting
-        // the last skill while viewing the tab) doesn't strand the user on a tab that isn't listed.
-        visibleCategoryTabs: [
-            (s) => [s.categoryCounts, s.activeTabKey],
-            (categoryCounts: Record<string, number>, activeTabKey: string): SkillCategoryTab[] =>
-                SKILL_CATEGORY_TABS.filter(
-                    (tab) => (categoryCounts[tab.category] ?? 0) > 0 || tab.key === activeTabKey
-                ),
+        // A tab is shown only once the team has at least one skill in it, so a team that has never
+        // been given a skill by PostHog never sees the "Written for you" tab. The active tab is
+        // always kept visible so direct navigation to /skills/<key> (or deleting the last skill
+        // while viewing the tab) doesn't strand the user on a tab that isn't listed.
+        visibleTabs: [
+            (s) => [s.tabCounts, s.activeTabKey],
+            (tabCounts: Record<string, number>, activeTabKey: string): SkillTab[] =>
+                SKILL_TABS.filter((tab) => (tabCounts[tab.key] ?? 0) > 0 || tab.key === activeTabKey),
         ],
 
         count: [(s) => [s.skills], (skills: PaginatedLLMSkillListListApi) => skills.count],
@@ -648,7 +678,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 lemonToast.info(`${skillName || 'Skill'} has been archived.`)
                 await asyncActions.loadSkills(false)
                 // Archiving may have removed the last skill in a category — refresh tab visibility.
-                actions.loadCategoryCounts()
+                actions.loadTabCounts()
             } catch (e) {
                 console.error('Failed to archive skill', e)
                 lemonToast.error('Failed to archive skill')
@@ -763,7 +793,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 const newFilters = cleanFilters(searchParams)
                 const forceReload = typeof searchParams?.[LLM_SKILLS_FORCE_RELOAD_PARAM] === 'string'
                 if (!objectsEqual(values.filters, newFilters)) {
-                    // setFilters reloads, reading the just-updated activeCategory.
+                    // setFilters reloads, reading the just-updated activeTabFilters.
                     actions.setFilters(newFilters, false)
                 } else if (tabChanged || forceReload || method !== 'REPLACE') {
                     actions.loadSkills(false)
@@ -778,12 +808,12 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
         return {
             [urls.skills()]: handleTab(DEFAULT_SKILLS_TAB_KEY),
-            ...Object.fromEntries(SKILL_CATEGORY_TABS.map((tab) => [skillTabUrl(tab.key), handleTab(tab.key)])),
+            ...Object.fromEntries(SKILL_TABS.map((tab) => [skillTabUrl(tab.key), handleTab(tab.key)])),
         }
     }),
 
     afterMount(({ actions }) => {
         actions.loadSkills()
-        actions.loadCategoryCounts()
+        actions.loadTabCounts()
     }),
 ])

@@ -1276,7 +1276,7 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     `llm_skill:read`). The three couple into one ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`)
     the Temporal fan-out will iterate. Per-team custom perspectives stay a later iteration. The perspectives
     surface in the **Skills UI** under a **Review perspectives** tab (`category="review_perspective"` →
-    `SKILL_CATEGORY_TABS` in `products/skills/frontend/llmSkillsLogic.ts` + the `/skills/perspectives` route in
+    `SKILL_TABS` in `products/skills/frontend/llmSkillsLogic.ts` + the `/skills/perspectives` route in
     `products/skills/manifest.tsx`; mirrors the Signals "Scouts" tab — shows only when the team has ≥1
     perspective row). **Superseded by step 13:** perspectives + validation now share the unified `review_hog`
     category under one **"Code review"** tab (`/skills/review-hog`); the perspective rows were re-tagged from

@@ -111,6 +111,8 @@ export interface LLMSkillListApi {
     metadata?: LLMSkillListApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
+    /** Server-owned authorship, stamped from the request and not writable via the API. "posthog" means a PostHog staff member wrote this skill for this team, which the UI surfaces as the "Written for you" tab. Empty means the team wrote it themselves. Independent of category, so a skill can be both a scout and written by PostHog. */
+    readonly provenance: string
     /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
     readonly owners: readonly UserBasicApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -200,6 +202,8 @@ export interface LLMSkillCreateApi {
     metadata?: LLMSkillCreateApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
+    /** Server-owned authorship, stamped from the request and not writable via the API. "posthog" means a PostHog staff member wrote this skill for this team, which the UI surfaces as the "Written for you" tab. Empty means the team wrote it themselves. Independent of category, so a skill can be both a scout and written by PostHog. */
+    readonly provenance: string
     /**
      * User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners.
      * @maxItems 25
@@ -274,6 +278,8 @@ export interface LLMSkillApi {
     metadata?: LLMSkillApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
+    /** Server-owned authorship, stamped from the request and not writable via the API. "posthog" means a PostHog staff member wrote this skill for this team, which the UI surfaces as the "Written for you" tab. Empty means the team wrote it themselves. Independent of category, so a skill can be both a scout and written by PostHog. */
+    readonly provenance: string
     /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
     readonly owners: readonly UserBasicApi[]
     /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
@@ -530,6 +536,10 @@ export type LlmSkillsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Filter skills to this exact provenance. Pass "posthog" for skills a PostHog staff member wrote for this team, or an empty string to return only skills the team wrote themselves. Omit the parameter entirely to return skills of every provenance.
+     */
+    provenance?: string
     /**
      * Optional substring filter applied to skill names and descriptions.
      */

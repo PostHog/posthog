@@ -15,6 +15,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +40,7 @@ import {
     llmSkillsLogic,
     skillTabUrl,
 } from './llmSkillsLogic'
-import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
+import { POSTHOG_SKILL_PROVENANCE, SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
 export const scene: SceneExport = {
@@ -61,7 +62,7 @@ function buildSkillColumns(
     duplicateSkill: (name: string, newName: string) => void,
     deleteSkill: (name: string) => void,
     downloadSkillZip: (name: string) => void,
-    options?: { showScoutOrigin?: boolean }
+    options?: { showScoutOrigin?: boolean; showPostHogAuthoredTag?: boolean }
 ): LemonTableColumns<LLMSkillListApi> {
     return [
         {
@@ -71,9 +72,16 @@ function buildSkillColumns(
             width: '20%',
             render: function renderName(_, skill) {
                 return (
-                    <Link to={skillUrl(skill.name)} className="font-semibold" data-attr="llma-skill-name-link">
-                        {skill.name}
-                    </Link>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        <Link to={skillUrl(skill.name)} className="font-semibold" data-attr="llma-skill-name-link">
+                            {skill.name}
+                        </Link>
+                        {options?.showPostHogAuthoredTag && skill.provenance === POSTHOG_SKILL_PROVENANCE && (
+                            <Tooltip title="Written for your team by PostHog. Also listed under the 'Written for you' tab.">
+                                <LemonTag type="highlight">PostHog</LemonTag>
+                            </Tooltip>
+                        )}
+                    </div>
                 )
             },
         },
@@ -438,22 +446,28 @@ export function LLMSkillsScene(): JSX.Element {
         groupedSkills,
         importing,
         activeTabKey,
-        activeCategory,
+        activeTabFilters,
         activeTabDescription,
-        visibleCategoryTabs,
+        visibleTabs,
     } = useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-    const showScoutOrigin = activeCategory === 'scout'
+    const showScoutOrigin = activeTabFilters.category === 'scout'
+    // Redundant on the tab where every row is PostHog-authored, useful everywhere else.
+    const showPostHogAuthoredTag = activeTabFilters.provenance !== POSTHOG_SKILL_PROVENANCE
 
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, { showScoutOrigin }),
+        () =>
+            buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, {
+                showScoutOrigin,
+                showPostHogAuthoredTag,
+            }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, showScoutOrigin]
+        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, showScoutOrigin, showPostHogAuthoredTag]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading
@@ -526,13 +540,13 @@ export function LLMSkillsScene(): JSX.Element {
                 }
             />
 
-            {visibleCategoryTabs.length > 0 && (
+            {visibleTabs.length > 0 && (
                 <LemonTabs
                     activeKey={activeTabKey}
                     onChange={(key) => router.actions.push(skillTabUrl(key))}
                     tabs={[
                         { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills' },
-                        ...visibleCategoryTabs.map((tab) => ({ key: tab.key, label: tab.label })),
+                        ...visibleTabs.map((tab) => ({ key: tab.key, label: tab.label })),
                     ]}
                 />
             )}

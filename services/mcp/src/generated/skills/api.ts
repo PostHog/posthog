@@ -26,6 +26,12 @@ export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
     created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    provenance: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter skills to this exact provenance. Pass \"posthog\" for skills a PostHog staff member wrote for this team, or an empty string to return only skills the team wrote themselves. Omit the parameter entirely to return skills of every provenance.'
+        ),
     search: zod.string().optional().describe('Optional substring filter applied to skill names and descriptions.'),
 })
 

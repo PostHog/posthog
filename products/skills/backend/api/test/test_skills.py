@@ -3,7 +3,10 @@ import uuid
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.signing import TimestampSigner
 
+from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
 
@@ -22,6 +25,7 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
+from ...marketplace.packaging import SkillExport, build_skill_zip
 from ...models.skills import LLMSkill, LLMSkillFile
 
 
@@ -43,6 +47,7 @@ class TestLLMSkillAPI(APIBaseTest):
         allowed_tools: list | None = None,
         metadata: dict | None = None,
         category: str = "",
+        provenance: str = "",
         created_by: User | None = None,
     ) -> LLMSkill:
         return LLMSkill.objects.create(
@@ -58,6 +63,7 @@ class TestLLMSkillAPI(APIBaseTest):
             allowed_tools=allowed_tools or [],
             metadata=metadata or {},
             category=category,
+            provenance=provenance,
             created_by=created_by or self.user,
         )
 
@@ -83,6 +89,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["is_latest"] is True
         assert data["latest_version"] == 1
         assert data["version_count"] == 1
+        assert data["provenance"] == ""
 
     def test_create_skill_with_all_fields(self):
         response = self.client.post(
@@ -347,6 +354,100 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == len(expected_names)
         assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
 
+    # --- Provenance ---
+
+    def _impersonate(self, operator: User) -> None:
+        session = self.client.session
+        session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(operator.pk))
+        session.save()
+
+    def test_create_skill_while_impersonating_is_posthog_authored_by_the_operator(self):
+        operator = User.objects.create_user(email="csm@posthog.com", password="12345678", first_name="CSM")
+        self._impersonate(operator)
+
+        response = self.client.post(
+            self._url(),
+            data={"name": "churn-playbook", "description": "For your team.", "body": "# Churn"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["provenance"] == "posthog"
+        assert data["created_by"]["email"] == "csm@posthog.com"
+
+    def test_import_while_impersonating_credits_the_operator_but_leaves_ownership_in_the_team(self):
+        operator = User.objects.create_user(email="am@posthog.com", password="12345678", first_name="AM")
+        self._impersonate(operator)
+        upload = SimpleUploadedFile(
+            "expansion-playbook.zip",
+            build_skill_zip(
+                SkillExport(name="expansion-playbook", description="For your team.", body="# Expansion\n", version=1)
+            ),
+            content_type="application/zip",
+        )
+
+        response = self.client.post(self._url("import"), {"file": upload}, format="multipart")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        data = response.json()
+        assert data["provenance"] == "posthog"
+        assert data["created_by"]["email"] == "am@posthog.com"
+        # Owner rows for a user outside the team are filtered out of every read, so ownership has to
+        # stay with someone the team can actually route questions to.
+        assert resolve_skill_owners(self.team, "expansion-playbook") == [self.user]
+
+    def test_create_skill_ignores_client_supplied_provenance(self):
+        response = self.client.post(
+            self._url(),
+            data={
+                "name": "not-from-posthog",
+                "description": "Self-authored.",
+                "body": "# Mine",
+                "provenance": "posthog",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["provenance"] == ""
+
+    def test_duplicating_a_posthog_authored_skill_drops_provenance(self):
+        self.create_skill(name="written-by-posthog", provenance="posthog")
+
+        response = self.client.post(
+            self._url("name/written-by-posthog/duplicate"),
+            data={"new_name": "our-fork"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["provenance"] == ""
+
+    @parameterized.expand(
+        [
+            ("posthog_only", "?provenance=posthog", ["written-for-us"]),
+            ("team_authored_only", "?provenance=", ["our-own-skill"]),
+            ("no_param_returns_all", "", ["our-own-skill", "written-for-us"]),
+        ]
+    )
+    def test_list_skills_filter_by_provenance(self, _label, query_suffix, expected_names):
+        self.create_skill(name="our-own-skill", description="Ours.")
+        self.create_skill(name="written-for-us", description="Theirs.", provenance="posthog")
+
+        response = self.client.get(self._url() + query_suffix)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
+
+    def test_list_skills_provenance_filter_spans_categories(self):
+        self.create_skill(name="signals-scout-churn", category="scout", provenance="posthog")
+
+        response = self.client.get(self._url() + "?provenance=posthog")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["signals-scout-churn"]
+
     # --- Get by name ---
 
     def test_get_skill_by_name(self):
@@ -503,6 +604,7 @@ class TestLLMSkillAPI(APIBaseTest):
             body="# V1",
             license="MIT",
             compatibility="Python 3.12+",
+            provenance="posthog",
         )
 
         response = self.client.patch(
@@ -516,6 +618,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["description"] == "Original desc."
         assert data["license"] == "MIT"
         assert data["compatibility"] == "Python 3.12+"
+        assert data["provenance"] == "posthog"
 
     def test_publish_can_update_description(self):
         self.create_skill(name="update-desc", description="Old desc.", body="# Body")

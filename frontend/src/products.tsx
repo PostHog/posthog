@@ -217,6 +217,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
+    '/skills/written-for-you': ['Skills', 'skillsWrittenForYou'],
     '/skills/:name': ['Skill', 'skill'],
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
@@ -1400,7 +1401,7 @@ export const productUrls = {
     inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
     inboxFindings: (): string => '/inbox/scouts/findings',
     skills: (): string => '/skills',
-    skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
+    skillsTab: (tabKey: string): string => `/skills/${tabKey}`,
     skill: (
         name: string,
         params?: {

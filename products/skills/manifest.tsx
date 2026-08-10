@@ -27,10 +27,11 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/skills': ['Skills', 'skills'],
-        // Category tabs (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
-        // aren't captured as a skill named after the tab. Route order = match precedence.
+        // Tabs (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they aren't
+        // captured as a skill named after the tab. Route order = match precedence.
         '/skills/scouts': ['Skills', 'skillsScouts'],
         '/skills/review-hog': ['Skills', 'skillsReviewHog'],
+        '/skills/written-for-you': ['Skills', 'skillsWrittenForYou'],
         '/skills/:name': ['Skill', 'skill'],
     },
     redirects: {
@@ -45,8 +46,8 @@ export const manifest: ProductManifest = {
     },
     urls: {
         skills: (): string => '/skills',
-        // A category tab under /skills (e.g. /skills/scouts). The tab key is the URL segment.
-        skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
+        // A tab under /skills (e.g. /skills/scouts). The tab key is the URL segment.
+        skillsTab: (tabKey: string): string => `/skills/${tabKey}`,
         skill: (name: string, params?: { file?: string; version?: number }): string =>
             combineUrl(`/skills/${name}`, params).url,
     },

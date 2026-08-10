@@ -43,6 +43,7 @@ from ..marketplace.credentials import (
 )
 from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
+from .skill_authorship import resolve_skill_authorship
 from .skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
     MAX_SKILL_FILE_BYTES,
@@ -138,6 +139,10 @@ def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
         "skill_has_compatibility": bool(skill.compatibility),
         "skill_has_allowed_tools": bool(allowed_tools),
         "skill_allowed_tools_count": len(allowed_tools),
+        # Events are captured against the request user, who is the impersonated customer when
+        # PostHog staff author a skill for a team. Without this the dashboards would read those
+        # creates as organic customer activity.
+        "skill_provenance": skill.provenance,
     }
 
 
@@ -316,6 +321,11 @@ class LLMSkillViewSet(
         # uncategorized skills, `?category=scout` only scouts. Omitting it returns every category.
         if "category" in request.query_params:
             queryset = queryset.filter(category=params.get("category") or "")
+
+        # Same presence-as-filter contract as `category`, so the default Skills tab can ask for
+        # `?provenance=` and leave PostHog-authored skills to the "Written for you" tab.
+        if "provenance" in request.query_params:
+            queryset = queryset.filter(provenance=params.get("provenance") or "")
 
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-created_at", "-id")
@@ -654,10 +664,16 @@ class LLMSkillViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # A CSM authoring a skill locally and importing the zip into a customer project is the same
+        # act as writing it in the editor, so it carries the same authorship stamp.
+        authorship = resolve_skill_authorship(request, requesting_user=cast(User, request.user))
+
         try:
             skill = create_skill(
                 self.team,
-                user=cast(User, request.user),
+                user=authorship.created_by,
+                provenance=authorship.provenance,
+                owner=cast(User, request.user),
                 name=skill_export.name,
                 description=skill_export.description,
                 body=skill_export.body,

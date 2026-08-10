@@ -6,7 +6,7 @@ from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UUIDModel
 
 # Server-owned grouping stamped on every create path (REST serializer, MCP tool, import): the Skills
-# page's category tabs (SKILL_CATEGORY_TABS in llmSkillsLogic.ts) filter on `category`, and the
+# page's category tabs (SKILL_TABS in llmSkillsLogic.ts) filter on `category`, and the
 # generic create flows are how custom scouts and review-hog skills are authored — without the stamp
 # they'd never surface beside their canonical siblings. Values mirror SCOUT_SKILL_CATEGORY /
 # REVIEW_HOG_SKILL_CATEGORY (products can't import each other, so they're duplicated here exactly
@@ -19,6 +19,16 @@ CATEGORY_BY_NAME_PREFIX: tuple[tuple[str, str], ...] = (
 
 def category_for_skill_name(name: str) -> str:
     return next((category for prefix, category in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
+
+
+class LLMSkillProvenance(models.TextChoices):
+    """Who wrote a skill, as opposed to `category`, which says what the skill is.
+
+    Only the non-default value is enumerated: an empty `provenance` means the team wrote it
+    themselves, which is every skill unless a PostHog staff member authored it for them.
+    """
+
+    POSTHOG = "posthog", "PostHog"
 
 
 class LLMSkill(UUIDModel):
@@ -54,6 +64,15 @@ class LLMSkill(UUIDModel):
     # value (e.g. "scout") groups the skill into its own surface in the UI. Producers own the value
     # (the Signals harness stamps "scout"); the skills product treats it as an opaque string.
     category = models.CharField(max_length=64, blank=True, default="", db_default="")
+
+    # Authorship, orthogonal to `category`: a skill a PostHog staff member wrote for this specific
+    # team carries "posthog" here whatever kind of skill it is, so a bespoke scout still lists under
+    # Scouts while also surfacing in the "Written for you" tab. Server-stamped from the request by
+    # resolve_skill_authorship, never client-writable — the tab is a provenance claim, so accepting it
+    # from the request body would let anyone in the team mint one.
+    provenance = models.CharField(
+        max_length=32, blank=True, default="", db_default="", choices=LLMSkillProvenance.choices
+    )
 
     # Versioning (same pattern as LLMPrompt)
     version = models.PositiveIntegerField(default=1)

@@ -11,6 +11,7 @@ from posthog.api.shared import UserBasicSerializer
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
 from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
+from .skill_authorship import resolve_skill_authorship
 from .skill_services import (
     LLMSkillOwnerNotFoundError,
     resolve_owner_users,
@@ -20,9 +21,9 @@ from .skill_services import (
 )
 
 # Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
-# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
+# form, and the rest mirror the tab slugs registered under /skills/<slug> in
 # products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
-RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog"}
+RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "written-for-you"}
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
@@ -171,6 +172,13 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text='Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to '
         "return only uncategorized skills. Omit the parameter entirely to return skills of every category.",
+    )
+    provenance = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text='Filter skills to this exact provenance. Pass "posthog" for skills a PostHog staff member '
+        "wrote for this team, or an empty string to return only skills the team wrote themselves. Omit the "
+        "parameter entirely to return skills of every provenance.",
     )
 
 
@@ -437,6 +445,13 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         "not writable via the API. Empty for an ordinary skill. Groups skills into their own surface "
         "(e.g. the Scouts tab) independently of the skill name.",
     )
+    provenance = serializers.CharField(
+        read_only=True,
+        help_text="Server-owned authorship, stamped from the request and not writable via the API. "
+        '"posthog" means a PostHog staff member wrote this skill for this team, which the UI surfaces '
+        'as the "Written for you" tab. Empty means the team wrote it themselves. Independent of '
+        "category, so a skill can be both a scout and written by PostHog.",
+    )
     owners = serializers.SerializerMethodField(
         help_text="Users who own this skill, seed-creator first. Ownership is keyed on the logical skill "
         "(not a version), so it's stable across edits. Prefer this over created_by to learn who to route "
@@ -474,6 +489,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "allowed_tools",
             "metadata",
             "category",
+            "provenance",
             "owners",
             "files",
             "outline",
@@ -648,14 +664,19 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         files = validated_data.pop("files", None)
         owner_uuids = validated_data.pop("owners", None)
 
+        # Credits the operator rather than the impersonated account when PostHog staff author a
+        # skill for a customer, and stamps the provenance that surfaces it in "Written for you".
+        authorship = resolve_skill_authorship(request, requesting_user=request.user)
+
         with transaction.atomic():
-            # `category` is read-only on the serializer, so it can never arrive in validated_data —
-            # the server-owned prefix stamp is the only writer.
+            # `category` and `provenance` are read-only on the serializer, so neither can arrive in
+            # validated_data — the server-owned stamps are the only writers.
             skill = LLMSkill.objects.create(
                 team=team,
-                created_by=request.user,
+                created_by=authorship.created_by,
                 is_latest=True,
                 category=category_for_skill_name(validated_data["name"]),
+                provenance=authorship.provenance,
                 **validated_data,
             )
             if files:

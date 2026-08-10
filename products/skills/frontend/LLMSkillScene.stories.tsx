@@ -70,6 +70,7 @@ const SKILL: LLMSkillApi = {
     allowed_tools: ['read', 'shell'],
     metadata: {},
     category: '',
+    provenance: '',
     files: [
         { path: 'scripts/extract.sh', content_type: 'text/x-shellscript' },
         { path: 'references/pdf-spec.md', content_type: 'text/markdown' },
@@ -108,6 +109,7 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     allowed_tools: SKILL.allowed_tools,
     metadata: {},
     category: SKILL.category,
+    provenance: SKILL.provenance,
     outline: SKILL.outline,
     version: SKILL.version,
     version_description: SKILL.version_description,
