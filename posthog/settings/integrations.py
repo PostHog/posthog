@@ -72,6 +72,11 @@ STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_
 META_ADS_APP_CLIENT_ID = get_from_env("META_ADS_APP_CLIENT_ID", "")
 META_ADS_APP_CLIENT_SECRET = get_from_env("META_ADS_APP_CLIENT_SECRET", "")
 
+# Instagram professional accounts authorize through Facebook Login, so these may point at the
+# same Meta app as META_ADS_APP_* — the two grants differ only in the scopes they request.
+INSTAGRAM_APP_CLIENT_ID = get_from_env("INSTAGRAM_APP_CLIENT_ID", "")
+INSTAGRAM_APP_CLIENT_SECRET = get_from_env("INSTAGRAM_APP_CLIENT_SECRET", "")
+
 BING_ADS_CLIENT_ID = get_from_env("BING_ADS_CLIENT_ID", "")
 BING_ADS_CLIENT_SECRET = get_from_env("BING_ADS_CLIENT_SECRET", "")
 BING_ADS_CLIENT_ID_FALLBACK = get_from_env("BING_ADS_CLIENT_ID_FALLBACK", "")
