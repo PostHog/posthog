@@ -19,6 +19,7 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
+    _WRITING_GUIDE,
     _artifact_delivery_state_updates,
     _build_posthog_code_task_description,
     _format_author_token,
@@ -74,7 +75,10 @@ def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_
         "1234.5678",
         mentioner_slack_user_id="U_GEORGIY",
     )
-    assert out == expected
+    # No context block wraps a single-message thread, but the writing guide still
+    # prefixes every Slack-initiated task's prompt.
+    assert out == f"{_WRITING_GUIDE}\n\n{expected}"
+    assert _THREAD_CONTEXT_TAG not in out
 
 
 @pytest.mark.parametrize(

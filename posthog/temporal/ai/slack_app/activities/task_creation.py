@@ -32,6 +32,15 @@ _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
 
+# Applied to every Slack-initiated task so the agent's Slack replies and any PR prose
+# read plainly. Mirrors the guidance signals and review_hog point their agents at; the
+# skill ships baked into the sandbox base image, so the agent discovers it on disk.
+_WRITING_GUIDE = (
+    "Write everything you produce (your Slack replies and any pull request prose) in "
+    "Simplified Technical English, following the `writing-simplified-technical-english` skill: "
+    "one meaning per word, active voice, simple tenses, one idea per sentence."
+)
+
 # Slack scopes the canvas/file living-artifact adapters check at delivery time.
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
 _SLACK_ARTIFACT_DELIVERY_KEY = "slack_artifact_delivery"
@@ -303,7 +312,7 @@ def _build_posthog_code_task_description(
         context_entries.pop()
 
     if not context_entries:
-        return prompt
+        return f"{_WRITING_GUIDE}\n\n{prompt}"
 
     # Fall back to deriving the mentioner from `mentioner_slack_user_id` when the
     # initiator's message isn't part of the thread fetch (rare, but defensive). The
@@ -347,7 +356,7 @@ def _build_posthog_code_task_description(
     header = "\n".join(header_lines)
     roles_block = ("\n" + "\n".join(role_lines)) if role_lines else ""
     context_block = "\n".join(context_entries)
-    return f"<{_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{_THREAD_CONTEXT_TAG}>\n\n{prompt}"
+    return f"{_WRITING_GUIDE}\n\n<{_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{_THREAD_CONTEXT_TAG}>\n\n{prompt}"
 
 
 def _ts_in_diff_window(candidate_ts: str, *, after_ts: str | None, before_ts: str | None) -> bool:
