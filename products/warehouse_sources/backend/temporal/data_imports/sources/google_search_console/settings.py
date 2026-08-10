@@ -19,14 +19,15 @@ class SearchAnalyticsSchema(TypedDict):
     # watermark. Only sane for tables whose window is a handful of days and whose
     # rows Google keeps restating.
     ignore_incremental_watermark: NotRequired[bool]
-    # Offer this table for web search only, because its dimension or dataState is
-    # meaningless outside web results.
+    # Offer this table for web search only. Google documents neither support nor a
+    # restriction for pairing `hour`/`searchAppearance` with a non-web `type`, so these
+    # stay web-only rather than shipping tables that may silently sync nothing.
     web_only: NotRequired[bool]
 
 
 DEFAULT_SEARCH_TYPE = "web"
-# Google's `type` parameter. `discover` and `googleNews` are deliberately left out: they
-# reject the `query` and `searchAppearance` dimensions, so they need their own reduced
+# Google's `type` parameter. `discover` and `googleNews` are deliberately left out: both
+# reject `aggregationType=byProperty` and behave differently enough to need their own
 # dimension catalog rather than a cross product with the schemas below.
 SEARCH_TYPES = ("web", "image", "video", "news")
 NON_WEB_SEARCH_TYPES = tuple(t for t in SEARCH_TYPES if t != DEFAULT_SEARCH_TYPE)
