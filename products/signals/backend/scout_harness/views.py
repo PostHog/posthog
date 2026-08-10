@@ -530,16 +530,18 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="List each scout's most recent runs",
         description=(
-            "Return the most recent `per_scout_limit` runs of *every* scout on the project (default "
-            "25), newest-first across the fleet. The per-scout ranking is the point: a fleet-wide "
-            "time window has to serve hourly and weekly scouts from one result cap, so the busy "
-            "scouts crowd out the sparse ones and a scout's visible history shrinks as the rest of "
-            "the fleet gets busier. Ranking within each `skill_name` gives every scout the same "
+            "Return the most recent `per_scout_limit` runs of *every* configured scout on the "
+            "project (default 25), newest-first across the fleet. The per-scout probe is the point: "
+            "a fleet-wide time window has to serve hourly and weekly scouts from one result cap, so "
+            "the busy scouts crowd out the sparse ones and a scout's visible history shrinks as the "
+            "rest of the fleet gets busier. Probing each `skill_name` gives every scout the same "
             "depth of history whatever its schedule, and bounds the response at scouts x "
-            "`per_scout_limit` rather than at the fleet's run rate. Runs older than `max_age_days` "
-            "(default 30) are excluded, so a scout that stopped running reads as stale instead of "
-            "healthy. Use `list` instead when you want a literal time window or a text/emitted "
-            "filter. Strictly team-scoped."
+            "`per_scout_limit` rather than at the fleet's run rate. Only scouts that still have a "
+            "config are covered, so runs left behind by a deleted or renamed scout are excluded. "
+            "Runs older than the staleness guard are excluded too, so a scout that stopped running "
+            "reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, "
+            "which each scout's own cadence extends. Use `list` instead when you want a literal "
+            "time window or a text/emitted filter. Strictly team-scoped."
         ),
         operation_id="signals_scout_runs_recent_per_scout",
     )

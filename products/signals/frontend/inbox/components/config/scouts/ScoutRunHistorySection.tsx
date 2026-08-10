@@ -21,7 +21,7 @@ import {
     runReportActivity,
     ScoutRunFilter,
     scoutReportActivityLabel,
-    SCOUT_RUNS_MAX_AGE_DAYS,
+    SCOUT_NO_RECENT_RUNS,
     SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutTimestamp } from './ScoutTimestamp'
@@ -260,7 +260,7 @@ export function ScoutRunHistorySection({ skillName }: { skillName: string }): JS
                 <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
                     {runs.length > 0
                         ? `No runs match this filter in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`
-                        : `No runs in the last ${SCOUT_RUNS_MAX_AGE_DAYS} days.`}
+                        : SCOUT_NO_RECENT_RUNS}
                 </div>
             ) : (
                 <>

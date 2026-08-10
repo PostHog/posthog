@@ -28,11 +28,11 @@ export const SCOUT_RUNS_PER_SCOUT = 25
 export const SCOUT_RUNS_PER_SCOUT_LABEL = `last ${SCOUT_RUNS_PER_SCOUT} runs`
 
 /**
- * The endpoint's staleness guard, mirrored for copy. Counting runs alone would let a scout that
- * stopped weeks ago keep rendering its last runs as if they were current, so runs older than this
- * are dropped even when a scout has fewer than `SCOUT_RUNS_PER_SCOUT` newer ones.
+ * Empty-state copy for a scout the window returned nothing for. Deliberately not "no runs in the
+ * last 30 days": the endpoint's staleness guard stretches with each scout's own cadence, so the
+ * cutoff a given scout was judged against is not a number the client knows.
  */
-export const SCOUT_RUNS_MAX_AGE_DAYS = 30
+export const SCOUT_NO_RECENT_RUNS = 'No recent runs.'
 
 /**
  * The time window the fleet-wide findings feed describes. Unlike the per-scout stats, that feed

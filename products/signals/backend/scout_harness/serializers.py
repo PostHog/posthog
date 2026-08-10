@@ -48,6 +48,7 @@ from products.signals.backend.scout_harness.tools.runs import (
     MAX_FINDINGS_WINDOW_HOURS,
     MAX_RUNS_PER_SCOUT,
     MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    STALENESS_INTERVAL_MULTIPLE,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 from products.signals.backend.scout_harness.tools.structured_output import (
@@ -536,10 +537,13 @@ class RecentRunsPerScoutQuerySerializer(serializers.Serializer):
         min_value=1,
         max_value=MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS,
         help_text=(
-            f"Staleness guard on `created_at` — runs older than this are excluded even when a scout "
-            f"has fewer than `per_scout_limit` newer ones (default "
+            f"Floor for the staleness guard on `created_at`, in days (default "
             f"{DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS}, hard cap {MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS}). "
-            f"Keeps a scout that stopped running from reporting its last runs as current."
+            f"Runs older than the guard are excluded even when a scout has fewer than "
+            f"`per_scout_limit` newer ones, so a scout that stopped running doesn't report its last "
+            f"runs as current. Each scout's own cadence extends its guard to cover "
+            f"{STALENESS_INTERVAL_MULTIPLE} runs' worth of its schedule, so a slow scout on a "
+            f"monthly cron or a 30-day interval keeps its history."
         ),
     )
 

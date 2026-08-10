@@ -4123,7 +4123,7 @@ export type SignalsScoutRunsFindingsSummaryParams = {
 
 export type SignalsScoutRunsRecentPerScoutParams = {
     /**
-     * Staleness guard on `created_at` — runs older than this are excluded even when a scout has fewer than `per_scout_limit` newer ones (default 30, hard cap 365). Keeps a scout that stopped running from reporting its last runs as current.
+     * Floor for the staleness guard on `created_at`, in days (default 30, hard cap 365). Runs older than the guard are excluded even when a scout has fewer than `per_scout_limit` newer ones, so a scout that stopped running doesn't report its last runs as current. Each scout's own cadence extends its guard to cover 3 runs' worth of its schedule, so a slow scout on a monthly cron or a 30-day interval keeps its history.
      * @minimum 1
      * @maximum 365
      */

@@ -544,7 +544,9 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
 
     def test_returns_each_scouts_newest_runs(self) -> None:
         # Wiring guard: the action reaches `recent_runs_per_scout` and honours `per_scout_limit`.
-        # The ranking rules themselves are covered against the helper in test_scout_harness_tools.
+        # The probe rules themselves are covered against the helper in test_scout_harness_tools.
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
         busy = [_make_run(self.team, skill_name="signals-scout-errors") for _ in range(3)]
         quiet = _make_run(self.team, skill_name="signals-scout-surveys")
         response = self.client.get(self._url(), data={"per_scout_limit": 1})

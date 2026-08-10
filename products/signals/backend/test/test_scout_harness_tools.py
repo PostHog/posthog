@@ -327,6 +327,9 @@ class TestSearchRecentRuns(BaseTest):
 
 
 class TestRecentRunsPerScout(BaseTest):
+    def _configure(self, skill_name: str, *, team=None, **overrides) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.create(team=team or self.team, skill_name=skill_name, **overrides)
+
     def _run_at(self, *, skill_name: str, hours_ago: float, team=None) -> SignalScoutRun:
         run = _create_run(team or self.team, skill_name=skill_name)
         SignalScoutRun.objects.filter(id=run.id).update(created_at=timezone.now() - timedelta(hours=hours_ago))
@@ -335,7 +338,9 @@ class TestRecentRunsPerScout(BaseTest):
     def test_a_busy_scout_does_not_crowd_out_a_sparse_one(self) -> None:
         # The reason this helper exists: under a fleet-wide window with a shared row cap, the hourly
         # scout's runs consume the budget and the daily scout's history shrinks as the fleet gets
-        # busier. Ranking per `skill_name` has to give both the same depth.
+        # busier. Probing per scout has to give both the same depth.
+        self._configure("signals-scout-hourly", run_interval_minutes=60)
+        self._configure("signals-scout-daily", run_interval_minutes=1440)
         for hour in range(20):
             self._run_at(skill_name="signals-scout-hourly", hours_ago=hour)
         daily = [self._run_at(skill_name="signals-scout-daily", hours_ago=24 * day) for day in range(1, 4)]
@@ -349,6 +354,8 @@ class TestRecentRunsPerScout(BaseTest):
         assert per_skill["signals-scout-daily"] == [str(run.id) for run in daily]
 
     def test_keeps_each_scouts_newest_runs_and_orders_the_fleet_newest_first(self) -> None:
+        self._configure("signals-scout-errors")
+        self._configure("signals-scout-surveys")
         newest = self._run_at(skill_name="signals-scout-errors", hours_ago=1)
         older = self._run_at(skill_name="signals-scout-errors", hours_ago=2)
         dropped = self._run_at(skill_name="signals-scout-errors", hours_ago=3)
@@ -362,6 +369,8 @@ class TestRecentRunsPerScout(BaseTest):
     def test_excludes_runs_older_than_the_age_guard(self) -> None:
         # A scout that stopped running weeks ago must read as stale, not render its last runs as
         # current just because it has fewer than `per_scout_limit` of them.
+        self._configure("signals-scout-errors")
+        self._configure("signals-scout-abandoned")
         recent = self._run_at(skill_name="signals-scout-errors", hours_ago=1)
         self._run_at(skill_name="signals-scout-abandoned", hours_ago=24 * 40)
 
@@ -369,10 +378,43 @@ class TestRecentRunsPerScout(BaseTest):
 
         assert [hit.run_id for hit in hits] == [str(recent.id)]
 
+    @parameterized.expand(
+        [
+            # `run_interval_minutes` allows exactly 43200 (30 days), which is the guard's floor, so a
+            # fixed cutoff erased a correctly-running scout's whole history the moment dispatch
+            # slipped. A monthly cron is the same failure with more headroom.
+            ("slowest supported interval", {"run_interval_minutes": 43200}, 24 * 35),
+            ("monthly cron", {"run_cron_schedule": "0 9 1 * *"}, 24 * 40),
+        ]
+    )
+    def test_a_slow_scout_keeps_history_past_the_guard_floor(
+        self, _name: str, schedule: dict, run_age_hours: float
+    ) -> None:
+        self._configure("signals-scout-slow", **schedule)
+        run = self._run_at(skill_name="signals-scout-slow", hours_ago=run_age_hours)
+
+        hits = recent_runs_per_scout(team_id=self.team.id, max_age_days=30)
+
+        assert [hit.run_id for hit in hits] == [str(run.id)]
+
+    def test_ignores_runs_left_behind_by_a_scout_with_no_config(self) -> None:
+        # Runs outlive their config, and the fleet rollups derive success/emit rates from whatever
+        # skill names come back — so a deleted or renamed scout would keep moving the live fleet's
+        # numbers for as long as its runs stay inside the window.
+        self._configure("signals-scout-errors")
+        live = self._run_at(skill_name="signals-scout-errors", hours_ago=1)
+        self._run_at(skill_name="signals-scout-deleted", hours_ago=24 * 5)
+
+        hits = recent_runs_per_scout(team_id=self.team.id)
+
+        assert [hit.run_id for hit in hits] == [str(live.id)]
+
     def test_does_not_leak_runs_from_other_teams(self) -> None:
         from posthog.models import Team
 
         other = Team.objects.create(organization=self.organization, name="other")
+        self._configure("signals-scout-errors")
+        self._configure("signals-scout-errors", team=other)
         mine = self._run_at(skill_name="signals-scout-errors", hours_ago=1)
         self._run_at(skill_name="signals-scout-errors", hours_ago=1, team=other)
 

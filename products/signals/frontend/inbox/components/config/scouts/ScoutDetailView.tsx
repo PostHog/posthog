@@ -10,7 +10,7 @@ import { captureScoutDetailViewed } from '../../../inboxAnalytics'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { SCOUT_RUNS_MAX_AGE_DAYS, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import { SCOUT_NO_RECENT_RUNS, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutReportCard } from './ScoutReportCard'
 import { ScoutRowCard } from './ScoutRowCard'
@@ -107,7 +107,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                                     )}
                                 </>
                             ) : (
-                                `No runs in the last ${SCOUT_RUNS_MAX_AGE_DAYS} days.`
+                                SCOUT_NO_RECENT_RUNS
                             )}
                         </span>
                     </div>
