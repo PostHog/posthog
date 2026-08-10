@@ -70,7 +70,7 @@ class TestFilters(BaseTest):
         )
 
     def test_raises_when_filters_empty_and_not_events_or_sessions(self):
-        select = self._parse_select("SELECT person FROM persons where {filters}")
+        select = self._parse_select("SELECT type FROM heatmaps where {filters}")
 
         with self.assertRaisesMessage(
             QueryError,
@@ -85,7 +85,7 @@ class TestFilters(BaseTest):
             replace_filters(select, HogQLFilters(), self.team)
 
     def test_raises_when_filters_and_not_events_or_sessions(self):
-        select = self._parse_select("SELECT person FROM persons where {filters}")
+        select = self._parse_select("SELECT type FROM heatmaps where {filters}")
 
         with self.assertRaisesMessage(
             QueryError,
@@ -500,13 +500,113 @@ class TestFilters(BaseTest):
         )
 
     def test_raises_when_filters_and_not_supported_table_includes_groups(self):
-        select = self._parse_select("SELECT person FROM persons where {filters}")
+        select = self._parse_select("SELECT type FROM heatmaps where {filters}")
 
         with self.assertRaisesMessage(
             QueryError,
             "Cannot use 'filters' placeholder in a SELECT clause that does not select from",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+
+    def test_replace_filters_persons_empty(self):
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            HogQLFilters(),
+            self.team,
+        )
+        self.assertEqual(self._print_ast(select), f"SELECT id FROM persons WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}")
+
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            None,
+            self.team,
+        )
+        self.assertEqual(self._print_ast(select), f"SELECT id FROM persons WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}")
+
+    def test_replace_filters_persons_date_range(self):
+        with freeze_time("2020-02-15T13:37:42Z"):
+            select = replace_filters(
+                self._parse_select("SELECT id FROM persons where {filters}"),
+                HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
+                self.team,
+            )
+            self.assertEqual(
+                self._print_ast(select),
+                "SELECT id FROM persons WHERE "
+                "and(lessOrEquals(created_at, toDateTime('2020-02-15 23:59:59.999999')), "
+                f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+
+    def test_replace_filters_persons_property(self):
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            HogQLFilters(
+                properties=[PersonPropertyFilter(key="email", operator="exact", value="max@example.com", type="person")]
+            ),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT id FROM persons WHERE equals(properties.email, 'max@example.com') LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_persons_event_property_raises(self):
+        select = self._parse_select("SELECT id FROM persons where {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "The 'event' property filter does not work in 'person' scope",
+        ):
+            replace_filters(
+                select,
+                HogQLFilters(
+                    properties=[EventPropertyFilter(key="$browser", operator="exact", value="Chrome", type="event")]
+                ),
+                self.team,
+            )
+
+    def test_replace_filters_persons_test_accounts(self):
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "type": "person",
+                "value": "posthog.com",
+                "operator": "not_icontains",
+            }
+        ]
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            HogQLFilters(filterTestAccounts=True),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT id FROM persons WHERE notILike(toString(properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_events_joined_with_persons_keep_event_scope(self):
+        with freeze_time("2020-02-15T13:37:42Z"):
+            select = replace_filters(
+                self._parse_select(
+                    "SELECT event FROM events JOIN persons ON events.person_id = persons.id where {filters}"
+                ),
+                HogQLFilters(
+                    dateRange=DateRange(date_from="2020-02-02"),
+                    properties=[
+                        PersonPropertyFilter(key="email", operator="exact", value="max@example.com", type="person")
+                    ],
+                ),
+                self.team,
+            )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events JOIN persons ON equals(events.person_id, persons.id) WHERE "
+            "and(equals(person.properties.email, 'max@example.com'), "
+            "lessOrEquals(timestamp, toDateTime('2020-02-15 23:59:59.999999')), "
+            f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
 
     def test_raises_for_unsupported_filters_placeholder(self):
         select = self._parse_select("SELECT dateTrunc({filters.granularity}, timestamp) FROM events WHERE {filters}")
