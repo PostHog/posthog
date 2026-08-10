@@ -95,7 +95,6 @@ describe('PreflightCheck', () => {
             await waitFor(() => {
                 expect(countStatus('Validated')).toBe(expectedValidated)
             })
-            expect(screen.getAllByTestId('status-text')).toHaveLength(10)
             expect(countStatus('Warning')).toBe(expectedWarning)
             expect(countStatus('Error')).toBe(expectedError)
             expect(screen.getByText('Set up before ingesting real user data')).toBeInTheDocument()

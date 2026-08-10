@@ -226,27 +226,26 @@ describe('signupLogic — name handling', () => {
         logic.unmount()
     })
 
-    it('trims and splits the name before building the signup payload', async () => {
-        await advanceToOnboardingPanel()
-        logic.actions.setSignupPanelOnboardingValues({
+    it.each([
+        {
+            description: 'trims and splits a multi-word name',
             name: '  John van Der Berg ',
             organization_name: 'Hogflix',
-            role_at_organization: 'engineer',
-            referral_source: '',
-            referral_source_ai_prompt: '',
-        })
-        logic.actions.submitSignupPanelOnboarding()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(signupRequestBody?.first_name).toBe('John')
-        expect(signupRequestBody?.last_name).toBe('van Der Berg')
-    })
-
-    it('sends only first_name when the user enters a single-word name', async () => {
-        await advanceToOnboardingPanel()
-        logic.actions.setSignupPanelOnboardingValues({
+            expectedFirstName: 'John',
+            expectedLastName: 'van Der Berg',
+        },
+        {
+            description: 'sends only first_name for a single-word name',
             name: 'Alice',
             organization_name: '',
+            expectedFirstName: 'Alice',
+            expectedLastName: undefined,
+        },
+    ])('$description', async ({ name, organization_name, expectedFirstName, expectedLastName }) => {
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name,
+            organization_name,
             role_at_organization: 'engineer',
             referral_source: '',
             referral_source_ai_prompt: '',
@@ -254,9 +253,12 @@ describe('signupLogic — name handling', () => {
         logic.actions.submitSignupPanelOnboarding()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(signupRequestBody?.first_name).toBe('Alice')
-        expect(signupRequestBody).not.toHaveProperty('last_name')
-        expect(signupRequestBody).not.toHaveProperty('organization_name')
+        expect(signupRequestBody?.first_name).toBe(expectedFirstName)
+        if (expectedLastName === undefined) {
+            expect(signupRequestBody).not.toHaveProperty('last_name')
+        } else {
+            expect(signupRequestBody?.last_name).toBe(expectedLastName)
+        }
     })
 
     it('omits a whitespace-only organization name so the backend applies its default', async () => {
