@@ -720,6 +720,34 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert passed_integration.id == self.posthog_code_integration.id
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_routes_to_project_integration(self, mock_claims, mock_unfurl):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config=self.posthog_code_integration.sensitive_config,
+        )
+        task_id = "e1452e73-2055-4305-a9de-c9912efa78a3"
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "links": [{"url": f"https://us.posthog.com/project/{other_team.id}/tasks/{task_id}"}],
+        }
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_claims.call_args.kwargs["team_id"] == other_team.id
+        mock_unfurl.assert_called_once_with(event, other_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_link_shared_works_with_only_notifications_integration(self, mock_unfurl):
         # Delete the coding-agent integration and create a notifications-only integration for same workspace

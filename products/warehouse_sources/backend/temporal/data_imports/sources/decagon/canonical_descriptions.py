@@ -66,4 +66,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         ),
         "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
     },
+    "tags": {
+        "description": (
+            "A tag in Decagon's taxonomy, one row per tag across all hierarchies. Resolves the "
+            "tag ids embedded in conversation rows to names, parents, and hierarchy positions."
+        ),
+        "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
+        "columns": {
+            "id": "Unique identifier for the tag.",
+            "parent_id": "Identifier of the parent tag. Null for root tags.",
+            "name": "Name of the tag.",
+            "depth": "Depth of the tag within its hierarchy.",
+            "is_frozen": "Whether the tag is frozen against edits.",
+            "is_outcome": "Whether the tag represents a conversation outcome.",
+            "external_key": "External key assigned to the tag, if any.",
+            "tag_hierarchy_id": "Identifier of the hierarchy the tag belongs to.",
+            "description": "Description of the tag.",
+            "config": "Configuration attached to the tag.",
+            "human_count": (
+                "Number of conversations tagged by a human, as of the most recent sync. A "
+                "point-in-time aggregate, not a historical series."
+            ),
+            "total_count": (
+                "Total number of tagged conversations, as of the most recent sync. A "
+                "point-in-time aggregate, not a historical series."
+            ),
+        },
+    },
 }
