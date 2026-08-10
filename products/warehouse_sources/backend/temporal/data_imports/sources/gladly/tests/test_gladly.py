@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
     GladlyResumeConfig,
     GladlyRetryableError,
     _base_url,
+    _clean_domain,
     _clean_organization,
     _normalize_report_column,
     get_rows,
@@ -95,8 +96,34 @@ class TestCleanOrganization:
         with pytest.raises(ValueError):
             _clean_organization(value)
 
-    def test_base_url(self):
-        assert _base_url("myorg") == "https://myorg.gladly.com/api/v1"
+    @pytest.mark.parametrize(
+        "domain, expected",
+        [
+            (None, "https://myorg.gladly.com/api/v1"),
+            ("gladly.com", "https://myorg.gladly.com/api/v1"),
+            ("gladly.qa", "https://myorg.gladly.qa/api/v1"),
+        ],
+    )
+    def test_base_url(self, domain, expected):
+        assert (_base_url("myorg") if domain is None else _base_url("myorg", domain)) == expected
+
+
+class TestCleanDomain:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("gladly.com", "gladly.com"),
+            ("gladly.qa", "gladly.qa"),
+            ("  GLADLY.QA  ", "gladly.qa"),
+        ],
+    )
+    def test_allowed_domains(self, value, expected):
+        assert _clean_domain(value) == expected
+
+    @pytest.mark.parametrize("value", ["", "evil.com", "gladly.com.evil.com", "gladly.qa.evil.com", "gladly.dev"])
+    def test_domains_outside_the_allowlist_raise(self, value):
+        with pytest.raises(ValueError):
+            _clean_domain(value)
 
 
 class TestValidateCredentials:
@@ -141,6 +168,30 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert "Invalid Gladly organization" in (message or "")
+        mock_session.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "domain, expected_url",
+        [
+            ("gladly.com", "https://myorg.gladly.com/api/v1/agents"),
+            ("gladly.qa", "https://myorg.gladly.qa/api/v1/agents"),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_probe_targets_the_selected_domain(self, mock_session, domain, expected_url):
+        response = mock.MagicMock()
+        response.status_code = 200
+        mock_session.return_value.get.return_value = response
+
+        assert validate_credentials("myorg", "agent@x.com", "token", domain) == (True, None)
+        assert mock_session.return_value.get.call_args.args[0] == expected_url
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_domain_outside_the_allowlist_is_never_probed(self, mock_session):
+        is_valid, message = validate_credentials("myorg", "agent@x.com", "token", "evil.com")
+
+        assert is_valid is False
+        assert "Invalid Gladly domain" in (message or "")
         mock_session.assert_not_called()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")

@@ -99,10 +99,40 @@ const inferTypes = (result: NotebookNodeSQLV2Result): [string, string][] =>
         return [column, typeof sample === 'number' ? 'Float64' : 'String']
     })
 
-const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
+// A notebook stores the whole result envelope, and a cell the sandbox kernel ran can hold raw
+// pandas dtypes ('float64', 'str'). The chart layer reads ClickHouse names to decide which
+// columns can go on a numeric axis, so map those over rather than make a saved cell re-run.
+const PANDAS_DTYPE_NAMES: Record<string, string> = {
+    bool: 'Bool',
+    boolean: 'Bool',
+    category: 'String',
+    object: 'String',
+    str: 'String',
+}
+
+const toClickhouseTypeName = (type: string): string => {
+    const dtype = type.toLowerCase()
+    if (PANDAS_DTYPE_NAMES[dtype]) {
+        return PANDAS_DTYPE_NAMES[dtype]
+    }
+    if (dtype.startsWith('datetime64')) {
+        return 'DateTime'
+    }
+    if (/^u?int(8|16|32|64)$/.test(dtype)) {
+        return 'Int64'
+    }
+    if (/^float(16|32|64)$/.test(dtype)) {
+        return 'Float64'
+    }
+    return type
+}
+
+export const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
     results: result.first_page ?? [],
     columns: result.columns ?? [],
-    types: result.types?.length ? result.types : inferTypes(result),
+    types: result.types?.length
+        ? result.types.map(([column, type]): [string, string] => [column, toClickhouseTypeName(type)])
+        : inferTypes(result),
 })
 
 const Component = ({
