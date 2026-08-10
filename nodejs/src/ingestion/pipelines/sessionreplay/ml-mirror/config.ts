@@ -43,6 +43,17 @@ export type MlMirrorConfig = {
      * both the scrub consumer lane AND ref-aware downstream readers must be live first.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
+
+    /**
+     * Collect the URLs of remote images as well, so the fetch lane can download them later.
+     *
+     * Enabling changes the mirrored JSONL shape a second time: a remote image's `src` carries an
+     * `image:<pseudoTeam>:<hash>` ref instead of the grey placeholder. Nothing fetches those URLs
+     * yet, so every such ref is dangling, and a dangling ref already renders as that same
+     * placeholder. The visible result is therefore unchanged, and what this buys is the measurement
+     * of how many URLs and how many distinct hosts real traffic carries.
+     */
+    SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
@@ -110,6 +121,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_REDIS_HOST: '',
         SESSION_RECORDING_ML_REDIS_PORT: 6379,
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.

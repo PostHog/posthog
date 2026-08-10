@@ -173,6 +173,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                               outputs,
                               pseudonymSecret,
                               producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                              collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
                           }
                         : undefined
                 ),

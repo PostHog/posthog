@@ -37,6 +37,8 @@ export interface MlMirrorImageScrubProducer {
     /** The ML pseudonym HMAC key (also used by the block-metadata sink), for the per-team ref prefix. */
     pseudonymSecret: string | Buffer
     producedRefCacheMax: number
+    /** Also collect remote image URLs for the fetch lane. Measurement only until that lane exists. */
+    collectUrls?: boolean
 }
 
 export function createMlMirrorReplayPipeline(
@@ -143,6 +145,7 @@ export function createMlMirrorReplayPipeline(
                                                             createParseAndAnonymizeMessageStep(
                                                                 imageScrub && {
                                                                     pseudonymSecret: imageScrub.pseudonymSecret,
+                                                                    collectUrls: imageScrub.collectUrls,
                                                                 }
                                                             ),
                                                             [

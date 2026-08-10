@@ -11,6 +11,11 @@ export type MlAnonymizeRoute = 'stream' | 'tree' | ''
 
 export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed'
 
+/** Stages of the URL lane. Deliberately the same vocabulary as {@link MlImageLaneStage}, so the two
+ *  lanes read the same way on a dashboard even though only `collected` exists until the fetch lane
+ *  ships. */
+export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed'
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -83,6 +88,18 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['outcome'],
     })
 
+    private static readonly mlUrlsCollected = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_urls_collected',
+        help: 'Remote image URLs through the fetch lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed)',
+        labelNames: ['outcome'],
+    })
+
+    private static readonly mlUrlHostsPerMessage = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_hosts_per_message',
+        help: 'Distinct hosts among the URLs collected from one message. The fetch topic is keyed by host, so this is how many Kafka messages one replay message becomes, and how concentrated a page is on one CDN',
+        buckets: [1, 2, 3, 5, 8, 13, 21, 34],
+    })
+
     private static readonly mlImageBytesProduced = new Counter({
         name: 'recording_blob_ingestion_v2_ml_image_bytes_produced',
         help: 'Bytes of collected images delivered to the scrub topic (acked)',
@@ -140,6 +157,14 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlUrlsCollected(outcome: MlUrlLaneStage, count: number): void {
+        this.mlUrlsCollected.labels(outcome).inc(count)
+    }
+
+    public static observeMlUrlHostsPerMessage(hosts: number): void {
+        this.mlUrlHostsPerMessage.observe(hosts)
     }
 
     public static incrementMlImageBytesProduced(bytes: number): void {

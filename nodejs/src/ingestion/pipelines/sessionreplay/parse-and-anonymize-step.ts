@@ -13,7 +13,12 @@ import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionre
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { hashImageBytes, imageRef, isImageRef } from './ml-mirror-image-scrub/content-ref'
-import { PSEUDONYM_IMAGE_CONTENT_KEY, PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
+import {
+    PSEUDONYM_IMAGE_CONTENT_KEY,
+    PSEUDONYM_IMAGE_URL_KEY,
+    PSEUDONYM_TEAM,
+    pseudonymize,
+} from './ml-mirror/pseudonymize'
 import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
@@ -44,13 +49,34 @@ export interface CollectedImage {
     bytes: Buffer
 }
 
+/**
+ * A remote image URL the addon collected for the fetch lane.
+ *
+ * `url` is the original, unscrubbed URL. It carries whatever the page put in its path and query, so
+ * it is as sensitive as the raw replay payload and must not reach a log line, a metric label, or
+ * any destination outside the fetch topic.
+ */
+export interface CollectedUrl {
+    /** `image:<pseudoTeam>:<hash>` — the same ref shape the mirrored line now carries. */
+    ref: string
+    url: string
+    /** The fetch topic's Kafka key, so every URL for one host lands on one partition. */
+    host: string
+}
+
 export interface ParseAndAnonymizeStepOutput extends ParseMessageStepOutput {
     collectedImages?: CollectedImage[]
+    collectedUrls?: CollectedUrl[]
 }
 
 export interface ImageCollectionConfig {
     /** The ML pseudonym HMAC key; only its per-team derivatives (never the key) cross the FFI. */
     pseudonymSecret: string | Buffer
+    /**
+     * Also collect the URLs of remote images. Off until the fetch lane can consume them; with it
+     * off a remote image keeps the media placeholder it has today.
+     */
+    collectUrls?: boolean
 }
 
 /**
@@ -72,6 +98,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
     interface TeamImageKeys {
         pseudoTeam: string
         contentKey: string
+        urlKey?: string
     }
     const teamKeysCache = new Map<number, TeamImageKeys>()
     const teamKeysFor = (teamId: number): TeamImageKeys | undefined => {
@@ -94,7 +121,13 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
                 SessionRecordingIngesterMetrics.incrementMlImagePseudoTeamInvalid()
                 return undefined
             }
-            keys = { pseudoTeam, contentKey }
+            keys = {
+                pseudoTeam,
+                contentKey,
+                urlKey: imageCollection.collectUrls
+                    ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, String(teamId))
+                    : undefined,
+            }
             teamKeysCache.set(teamId, keys)
         }
         return keys
@@ -123,7 +156,8 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
                 message.value,
                 contentEncoding,
                 teamKeys?.pseudoTeam,
-                teamKeys?.contentKey
+                teamKeys?.contentKey,
+                teamKeys?.urlKey
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
@@ -230,7 +264,8 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         }
 
         const collectedImages = teamKeys ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images) : undefined
-        return ok({ ...input, parsedMessage, collectedImages })
+        const collectedUrls = teamKeys?.urlKey ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
+        return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
 }
 
@@ -260,4 +295,26 @@ function unpackCollectedImages(
     }
     SessionRecordingIngesterMetrics.incrementMlImagesCollected('collected', images.length)
     return images.length > 0 ? images : undefined
+}
+
+/**
+ * Turn the addon's `meta.urls` into produce-ready records.
+ *
+ * Also reports how many distinct hosts they span, because the fetch topic is keyed by host: that
+ * number is how many Kafka messages one replay message becomes, and it is the measurement the
+ * dry-run phase exists to take.
+ */
+function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
+    if (!meta.urls?.length) {
+        return undefined
+    }
+    const urls: CollectedUrl[] = []
+    const hosts = new Set<string>()
+    for (const entry of meta.urls) {
+        urls.push({ ref: imageRef(pseudoTeam, entry.hash), url: entry.url, host: entry.host })
+        hosts.add(entry.host)
+    }
+    SessionRecordingIngesterMetrics.incrementMlUrlsCollected('collected', urls.length)
+    SessionRecordingIngesterMetrics.observeMlUrlHostsPerMessage(hosts.size)
+    return urls
 }
