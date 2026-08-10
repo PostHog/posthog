@@ -64,6 +64,8 @@ class _Recorder:
         self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed", "needs_user_github"]] = {}
         # ts per personal-GitHub gate call, in execution order.
         self.github_gate_calls: list[str] = []
+        # repository per authorship-gate call, in execution order.
+        self.authorship_calls: list[str] = []
         # event text per needs-repo classifier call, in execution order.
         self.needs_repo_calls: list[str] = []
         # ts -> gate the create-task fake blocks on, to hold a message mid-processing.
@@ -159,7 +161,10 @@ def _fake_activities(rec: _Recorder) -> list:
         workflow_id: str,
         repository: str,
     ) -> str:
-        return "proceed"
+        rec.authorship_calls.append(repository)
+        # Blocks whenever it is reached, so a test that expects a task can only pass
+        # by not reaching it.
+        return "blocked"
 
     @activity.defn(name="block_posthog_code_task_if_no_personal_github_activity")
     async def block_github(
@@ -403,6 +408,18 @@ async def test_mention_resolving_no_repo_creates_a_task_without_the_github_gate(
     assert rec.created == [("1.1", None)]
     assert rec.github_gate_calls == []
     assert rec.needs_repo_calls == []
+
+
+@pytest.mark.asyncio
+async def test_mention_resolving_a_repo_creates_a_task_without_the_authorship_gate():
+    rec = _Recorder()
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == [("1.1", "org/auto-repo")]
+    assert rec.authorship_calls == []
 
 
 @pytest.mark.asyncio

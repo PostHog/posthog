@@ -294,13 +294,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             )
                             return
                         repository = self._selected_repo
-            if repository:
-                # A resolved repository is the one place a GitHub requirement is not a
-                # guess, so authorship is still settled before the sandbox starts: without
-                # a usable install the run would fail partway through the clone.
-                workflow.deprecate_patch("posthog-code-authorship-confirm-2026-06")
-                if await self._resolve_authorship(inputs, channel, thread_ts, slack_user_id, user_id, repository):
-                    return
             # Read a per-task model choice ("use fable for this one") out of the
             # mention. Runs here, past every gate that can still abandon the
             # mention, so the reply announcing the model only ever describes a task
