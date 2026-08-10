@@ -4,6 +4,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
+
+from products.slack_app.backend.services.message_footer import RunProvenance
 from products.slack_app.backend.slack_thread import (
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
@@ -322,3 +325,43 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
 
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["text"].startswith(expected_text_start)
+
+
+class TestReplyFooterGate(SimpleTestCase):
+    def _handler(self) -> SlackThreadHandler:
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        return SlackThreadHandler(context, RunProvenance(model="claude-opus-5"))
+
+    @parameterized.expand([("off", False, False), ("on", True, True)])
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_streamed_reply_carries_the_footer_only_inside_the_rollout(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        expected: bool,
+        mock_get_client,
+        mock_get_integration,
+        _mock_home_enabled,
+    ) -> None:
+        # Losing this gate would put the footer under every workspace's replies at once.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={}, integration_id="T1")
+
+        with patch(
+            "products.slack_app.backend.slack_thread.is_slack_app_message_footer_enabled",
+            return_value=flag_enabled,
+        ):
+            self._handler().stop_status_stream(ts="1.0", final_markdown="Done.")
+
+        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
+        # The footer rides as a `blocks` chunk: a `context` block is the only muted text,
+        # and Slack's streamed markdown_text has no equivalent.
+        assert any(chunk.get("type") == "blocks" for chunk in chunks) is expected

@@ -2139,7 +2139,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._current_slack_relay_workflow_id = relay_workflow_id
         await workflow.start_child_workflow(
             SlackAgentDesignRelayWorkflow.run,
-            SlackAgentDesignRelayInput(slack_thread_context=slack_ctx),
+            SlackAgentDesignRelayInput(slack_thread_context=slack_ctx, run_id=self.context.run_id),
             id=relay_workflow_id,
             task_queue=workflow.info().task_queue,
             # Cancel on parent close so the relay's finally block runs

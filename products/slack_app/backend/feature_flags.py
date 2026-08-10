@@ -42,6 +42,7 @@ SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
 SLACK_APP_LIVING_ARTIFACTS_FLAG = "slack-app-living-artifacts"
 SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
 SLACK_APP_MODEL_CLASSIFIER_FLAG = "slack-app-model-classifier"
+SLACK_APP_MESSAGE_FOOTER_FLAG = "slack-app-message-footer"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -132,6 +133,32 @@ def is_slack_app_model_classifier_enabled(integration: Integration) -> bool:
     except Exception:
         logger.exception(
             "slack_app_model_classifier_feature_flag_check_failed",
+            integration_id=integration.id,
+        )
+        return False
+
+
+def is_slack_app_message_footer_enabled(integration: Integration) -> bool:
+    """Gate for the provenance footer under a finished reply — where to open the run,
+    and which model produced it. Adds blocks to messages the bot already posts, so this
+    is the flag alone. Keyed on the Slack workspace + PostHog org.
+
+    Independent of ``slack-app-home``: the footer reports the model a run actually used,
+    which is worth showing whether or not the workspace can pick one."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_MESSAGE_FOOTER_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_message_footer_feature_flag_check_failed",
             integration_id=integration.id,
         )
         return False

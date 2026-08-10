@@ -7,7 +7,8 @@ from slack_sdk import WebClient
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.services.model_catalogue import describe_run_model
+from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_message_footer_enabled
+from products.slack_app.backend.services.message_footer import RunProvenance, app_home_url, reply_footer_block
 from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
 
 logger = structlog.get_logger(__name__)
@@ -114,8 +115,9 @@ class SlackThreadContext:
 class SlackThreadHandler:
     """Handler for posting updates to a Slack thread during task execution."""
 
-    def __init__(self, context: SlackThreadContext) -> None:
+    def __init__(self, context: SlackThreadContext, provenance: RunProvenance | None = None) -> None:
         self.context = context
+        self.provenance = provenance or RunProvenance()
         self._integration: Integration | None = None
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
@@ -131,6 +133,30 @@ class SlackThreadHandler:
             integration = self._get_integration()
             self._client = SlackIntegration(integration).client
         return self._client
+
+    def footer_enabled(self) -> bool:
+        """Whether this workspace shows run provenance. Public so a caller can skip the
+        work of describing a run nobody will be shown."""
+        return is_slack_app_message_footer_enabled(self._get_integration())
+
+    def _footer_block(self) -> dict[str, Any] | None:
+        """This handler's footer, or `None` when the workspace isn't in the rollout.
+
+        "Configure" points at the Home tab, so it only appears where that tab exists — a
+        workspace outside the Home rollout would land on an empty one. The Home flag is
+        only consulted once there is actually a link to gate.
+        """
+        # A handler with nothing to describe can't produce a footer, so it never pays for
+        # the flag lookups. Configure alone, under a reply, isn't worth a line.
+        if not self.provenance:
+            return None
+        if not self.footer_enabled():
+            return None
+        integration = self._get_integration()
+        configure_url = app_home_url(integration)
+        if configure_url and not is_slack_app_home_enabled(integration):
+            configure_url = None
+        return reply_footer_block(self.provenance, configure_url)
 
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
@@ -256,7 +282,11 @@ class SlackThreadHandler:
     ) -> None:
         """Final flush: mark the last plan-block step complete, stream the final
         answer as markdown_text chunks (this is what STAYS in the message body),
-        append a trailing @-mention for one notification, then chat.stopStream."""
+        append a trailing @-mention for one notification, then chat.stopStream.
+
+        The provenance footer closes the message. It arrives as a `blocks` chunk
+        because a `context` block is the only way to get muted text, and it goes
+        after the mention so the ping stays adjacent to the prose it answers."""
         final_chunks: list[dict[str, Any]] = []
         if complete_task_id and complete_task_title:
             final_chunks.append(
@@ -268,6 +298,9 @@ class SlackThreadHandler:
         if self.context.mentioning_slack_user_id:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
             final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{self.context.mentioning_slack_user_id}>"})
+        footer = self._footer_block()
+        if footer:
+            final_chunks.append({"type": "blocks", "blocks": [footer]})
         if final_chunks:
             try:
                 self._get_client().chat_appendStream(
@@ -303,13 +336,9 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
 
-        if model:
-            blocks.append(
-                {
-                    "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": describe_run_model(model, reasoning_effort)}],
-                }
-            )
+        model_line = reply_footer_block(RunProvenance(model=model, reasoning_effort=reasoning_effort))
+        if model_line:
+            blocks.append(model_line)
 
         if task_url:
             blocks.append(
@@ -398,6 +427,9 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "actions", "elements": buttons},
         ]
+        footer = self._footer_block()
+        if footer:
+            blocks.append(footer)
 
         self._delete_progress_and_post(header, blocks)
 
@@ -442,6 +474,9 @@ class SlackThreadHandler:
                     ],
                 }
             )
+        footer = self._footer_block()
+        if footer:
+            blocks.append(footer)
 
         self._delete_progress_and_post(header, blocks)
 
@@ -477,6 +512,10 @@ class SlackThreadHandler:
                 }
             )
 
+        footer = self._footer_block()
+        if footer:
+            blocks.append(footer)
+
         self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
 
     def post_cancelled(self, task_url: str | None, recovery_hint: str | None = DEFAULT_CANCELLED_RECOVERY_HINT) -> None:
@@ -505,6 +544,9 @@ class SlackThreadHandler:
                     ],
                 }
             )
+        footer = self._footer_block()
+        if footer:
+            blocks.append(footer)
 
         self._delete_progress_and_post(header, blocks)
 
