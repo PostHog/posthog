@@ -324,7 +324,7 @@ class TestTaskRunMetrics(TestCase):
     def test_agent_turn_failure_counter_uses_effective_runtime(
         self,
         _name: str,
-        runtime: str,
+        runtime: Task.Runtime,
         extra_state: dict,
         expected_task_runtime: str,
         expected_runtime_adapter: str,
