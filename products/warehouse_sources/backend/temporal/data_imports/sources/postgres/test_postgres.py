@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -423,6 +424,21 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: server closed the connection unexpectedly',
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: SSL connection has been closed unexpectedly',
+        ],
+    )
+    def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
+        # These transient drops are retried in-process, then re-raised once that budget is exhausted.
+        # If they drop out of get_retryable_errors, _handle_import_error logs the self-recovering
+        # failure as a tracked exception again instead of a warning. They must also stay out of
+        # get_non_retryable_errors so the sync keeps retrying rather than being disabled.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
 
     @pytest.mark.parametrize(
         "error_msg",
