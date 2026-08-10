@@ -535,5 +535,13 @@ describe('loginLogic', () => {
             handleLoginRedirect()
             expect(hrefSpy).not.toHaveBeenCalled()
         })
+
+        it('does a full navigation for a project token the middleware resolves server-side', () => {
+            // A `phc_` key or a legacy allowlisted api_token can't be compared to the numeric team id,
+            // so it must reach AutoProjectMiddleware for resolution — client-side routing wouldn't switch.
+            router.actions.push(`/login?next=${encodeURIComponent('/project/phc_ABC123/pipeline/destinations')}`)
+            handleLoginRedirect()
+            expect(hrefSpy).toHaveBeenCalledWith('/project/phc_ABC123/pipeline/destinations')
+        })
     })
 })
