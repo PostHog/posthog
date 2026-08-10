@@ -1047,17 +1047,25 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_ticketless_coalesce_ownership_mismatch_creates_ticket(self) -> None:
+    @parameterized.expand(
+        [
+            ("append", "Earlier question", "New question"),
+            ("replay", "Same question", "Same question"),
+        ]
+    )
+    def test_ticketless_coalesce_ownership_mismatch_creates_ticket(
+        self, _name: str, previous_content: str, new_content: str
+    ) -> None:
         derived_widget_session_id = str(uuid.UUID(self.identity_hash[:32]))
         previous_ticket = self._create_ticket(
             distinct_id="previous_distinct_id",
             widget_session_id=derived_widget_session_id,
         )
-        Comment.objects.create(
+        previous_comment = Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(previous_ticket.id),
-            content="Earlier question",
+            content=previous_content,
             item_context={"author_type": "customer"},
         )
 
@@ -1070,7 +1078,7 @@ class TestWidgetIdentityVerification(BaseTest):
                 {
                     "identity_distinct_id": self.distinct_id,
                     "identity_hash": self.identity_hash,
-                    "message": "New question",
+                    "message": new_content,
                 },
                 **self._get_headers(),
             )
@@ -1078,12 +1086,49 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         get_person_distinct_ids_mock.assert_called_once_with(self.team.id, self.distinct_id)
         self.assertNotEqual(response.json()["ticket_id"], str(previous_ticket.id))
+        self.assertNotEqual(response.json()["message_id"], str(previous_comment.id))
         self.assertEqual(
             Ticket.objects.filter(team=self.team, widget_session_id=derived_widget_session_id).count(),
             2,
         )
+        previous_ticket.refresh_from_db()
+        self.assertEqual(previous_ticket.unread_team_count, 0)
         created_ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(created_ticket.distinct_id, self.distinct_id)
+
+    def test_ticketless_replay_with_owned_identity_returns_existing_message(self) -> None:
+        derived_widget_session_id = str(uuid.UUID(self.identity_hash[:32]))
+        ticket = self._create_ticket(widget_session_id=derived_widget_session_id)
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Same question",
+            item_context={"author_type": "customer"},
+        )
+
+        with patch(
+            "products.conversations.backend.api.widget.get_person_distinct_ids",
+            return_value=[self.distinct_id],
+        ) as get_person_distinct_ids_mock:
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "identity_distinct_id": self.distinct_id,
+                    "identity_hash": self.identity_hash,
+                    "message": "Same question",
+                },
+                **self._get_headers(),
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        get_person_distinct_ids_mock.assert_called_once_with(self.team.id, self.distinct_id)
+        self.assertEqual(response.json()["ticket_id"], str(ticket.id))
+        self.assertEqual(response.json()["message_id"], str(comment.id))
+        self.assertEqual(
+            Ticket.objects.filter(team=self.team, widget_session_id=derived_widget_session_id).count(),
+            1,
+        )
 
     def test_send_message_invalid_hash_no_session_returns_forbidden(self):
         response = self.client.post(

@@ -54,7 +54,8 @@ def resolve(*, team_id: int, widget_session_id: str, content: str, now: datetime
     The latest comment participates in recency because last_message_at is updated
     on commit and can briefly lag behind release of the advisory lock.
 
-    Replay is checked across all unanswered candidates before append.
+    Replay only applies to the latest customer message on the newest unanswered ticket.
+    A matching message on any older ticket appends to the newest ticket instead.
     """
     replay_cutoff = now - timedelta(seconds=IDENTICAL_REPLAY_WINDOW_SECONDS)
     append_cutoff = now - timedelta(seconds=APPEND_WINDOW_SECONDS)
@@ -84,34 +85,34 @@ def resolve(*, team_id: int, widget_session_id: str, content: str, now: datetime
             )
         )
         .filter(last_activity__gte=append_cutoff)
-        .order_by("-last_activity")[:_CANDIDATE_LIMIT]
+        .order_by("-last_activity", "-created_at", "-id")[:_CANDIDATE_LIMIT]
     )
 
-    ticket_by_id = {str(ticket.id): ticket for ticket in candidates}
     answered_ticket_ids = _ticket_ids_with_non_customer_replies(
         team_id=team_id, ticket_ids=[ticket.id for ticket in candidates]
     )
     unanswered = [ticket for ticket in candidates if str(ticket.id) not in answered_ticket_ids]
 
-    identical = (
+    if not unanswered:
+        return None
+
+    ticket = unanswered[0]
+    latest_customer_comment = (
         Comment.objects.filter(
             team_id=team_id,
             scope="conversations_ticket",
-            item_id__in=[str(ticket.id) for ticket in unanswered],
+            item_id=str(ticket.id),
             deleted=False,
-            content=content,
-            created_at__gte=replay_cutoff,
             item_context__author_type="customer",
         )
         .order_by("-created_at")
         .first()
     )
-    if identical is not None and identical.item_id is not None:
-        ticket = ticket_by_id.get(identical.item_id)
-        if ticket is not None:
-            return ReplayTarget(ticket=ticket, comment=identical)
+    if (
+        latest_customer_comment is not None
+        and latest_customer_comment.created_at >= replay_cutoff
+        and latest_customer_comment.content == content
+    ):
+        return ReplayTarget(ticket=ticket, comment=latest_customer_comment)
 
-    if unanswered:
-        return AppendTarget(ticket=unanswered[0])
-
-    return None
+    return AppendTarget(ticket=ticket)

@@ -74,10 +74,10 @@ class TestTicketCoalesceResolve(BaseTest):
 
         self.assertEqual(target, ReplayTarget(ticket=ticket, comment=comment))
 
-    def test_replays_older_identical_body_over_newer_different_candidate(self) -> None:
+    def test_appends_to_newest_ticket_instead_of_replaying_older_candidate(self) -> None:
         with freeze_time(self.now - timedelta(seconds=20)):
             older = self._ticket()
-            older_comment = self._customer_comment(older, "Original wording")
+            self._customer_comment(older, "Original wording")
         with freeze_time(self.now - timedelta(seconds=10)):
             newer = self._ticket()
             self._customer_comment(newer, "Different follow-up wording")
@@ -89,7 +89,39 @@ class TestTicketCoalesceResolve(BaseTest):
             now=self.now,
         )
 
-        self.assertEqual(target, ReplayTarget(ticket=older, comment=older_comment))
+        self.assertEqual(target, AppendTarget(ticket=newer))
+
+    def test_appends_repeated_text_when_a_different_message_intervened(self) -> None:
+        ticket = self._ticket()
+        with freeze_time(self.now - timedelta(seconds=20)):
+            self._customer_comment(ticket, "Repeated wording")
+        with freeze_time(self.now - timedelta(seconds=10)):
+            self._customer_comment(ticket, "Intervening message")
+
+        target = resolve(
+            team_id=self.team.id,
+            widget_session_id=self.widget_session_id,
+            content="Repeated wording",
+            now=self.now,
+        )
+
+        self.assertEqual(target, AppendTarget(ticket=ticket))
+
+    def test_replays_when_identical_text_is_the_latest_of_multiple_messages(self) -> None:
+        ticket = self._ticket()
+        with freeze_time(self.now - timedelta(seconds=20)):
+            self._customer_comment(ticket, "Earlier message")
+        with freeze_time(self.now - timedelta(seconds=10)):
+            latest_comment = self._customer_comment(ticket, "Repeated wording")
+
+        target = resolve(
+            team_id=self.team.id,
+            widget_session_id=self.widget_session_id,
+            content="Repeated wording",
+            now=self.now,
+        )
+
+        self.assertEqual(target, ReplayTarget(ticket=ticket, comment=latest_comment))
 
     @parameterized.expand(
         [

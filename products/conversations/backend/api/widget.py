@@ -148,6 +148,18 @@ def _verify_identity(data: dict, team: Team) -> str | None:
     raise IdentityVerificationFailed("Invalid identity hash")
 
 
+def _request_owns_ticket(
+    *,
+    ticket: Ticket,
+    team_id: int,
+    verified_distinct_id: str | None,
+    widget_session_id: str,
+) -> bool:
+    if verified_distinct_id is not None:
+        return ticket.distinct_id in get_person_distinct_ids(team_id, verified_distinct_id)
+    return ticket.widget_session_id == widget_session_id
+
+
 class WidgetMessageView(APIView):
     """
     POST /api/conversations/v1/widget/message
@@ -260,9 +272,15 @@ class WidgetMessageView(APIView):
                         now=timezone.now(),
                     )
                     if isinstance(target, ticket_coalesce.ReplayTarget):
-                        ticket = target.ticket
-                        comment = target.comment
-                        coalesce_reason = "replayed"
+                        if _request_owns_ticket(
+                            ticket=target.ticket,
+                            team_id=team.id,
+                            verified_distinct_id=verified_distinct_id,
+                            widget_session_id=widget_session_id,
+                        ):
+                            ticket = target.ticket
+                            comment = target.comment
+                            coalesce_reason = "replayed"
                     elif isinstance(target, ticket_coalesce.AppendTarget):
                         ticket_id = str(target.ticket.id)
                         coalesce_reason = "appended"
@@ -274,16 +292,12 @@ class WidgetMessageView(APIView):
                         # read unlocked because an ownership mismatch can proceed to ticket creation.
                         ticket = Ticket.objects.get(id=ticket_id, team=team)
 
-                        owned = True
-                        if verified_distinct_id is not None:
-                            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-                            if ticket.distinct_id not in allowed_ids:
-                                owned = False
-                        elif ticket.widget_session_id != widget_session_id:
-                            # CRITICAL: anonymous access is by widget_session_id, not distinct_id
-                            owned = False
-
-                        if not owned:
+                        if not _request_owns_ticket(
+                            ticket=ticket,
+                            team_id=team.id,
+                            verified_distinct_id=verified_distinct_id,
+                            widget_session_id=widget_session_id,
+                        ):
                             # Coalesced append must not 403 a send that used to create a ticket.
                             # Explicit ticket_id keeps the old Forbidden/Not-found behaviour.
                             if coalesce_reason == "appended":
