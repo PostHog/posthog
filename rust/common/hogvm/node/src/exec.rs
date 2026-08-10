@@ -10,7 +10,9 @@ use serde_json::Value;
 use crate::ext_fns::transformation_ext_fns;
 use crate::logs;
 
-const PARALLEL_CHUNK_SIZE: usize = 500;
+// Floor on the derived rayon chunk size: each chunk rebuilds the Program and ExecutionContext
+// (STL + ext fns), so chunks need enough events to amortize that setup.
+const MIN_PARALLEL_CHUNK_SIZE: usize = 50;
 
 // The Node VM has no heap ceiling; the crate's 1MB default trips on real events with large
 // properties. A cap (not a preallocation), and rayon bounds how many contexts run at once.
@@ -99,8 +101,15 @@ pub fn run_batch_program(
         return run_chunk(program, events, max_steps);
     }
 
+    // Chunk size follows the batch so any batch worth parallelizing splits across the rayon
+    // pool; a fixed size tied to the caller's max batch size would put the whole batch in one
+    // chunk and never fan out.
+    let chunk_size = events
+        .len()
+        .div_ceil(rayon::current_num_threads())
+        .max(MIN_PARALLEL_CHUNK_SIZE);
     events
-        .par_chunks(PARALLEL_CHUNK_SIZE)
+        .par_chunks(chunk_size)
         .flat_map_iter(|chunk| run_chunk(program, chunk, max_steps).into_iter())
         .collect()
 }
@@ -227,7 +236,7 @@ mod tests {
 
     #[test]
     fn executes_each_event_with_its_own_globals_in_order() {
-        // Enough events for several PARALLEL_CHUNK_SIZE chunks in the parallel case.
+        // Enough events for several rayon chunks in the parallel case.
         let events: Vec<Value> = (0..1200)
             .map(|i| json!({ "name": i.to_string() }))
             .collect();
@@ -444,7 +453,7 @@ mod tests {
 
     #[test]
     fn parallel_execution_does_not_mix_print_logs_across_events() {
-        // Enough events for several PARALLEL_CHUNK_SIZE chunks spread over rayon workers.
+        // Enough events for several chunks spread over rayon workers.
         let events: Vec<Value> = (0..1500)
             .map(|i| json!({ "g": format!("marker-{i}") }))
             .collect();
