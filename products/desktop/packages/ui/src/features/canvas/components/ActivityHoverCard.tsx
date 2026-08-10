@@ -21,13 +21,18 @@ import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activ
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { track } from "@posthog/ui/shell/analytics";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   activityReadPayload,
+  activityUnreadTotalForLabel,
   getUnreadActivityItems,
   getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
+
+// How many pages the popover will pull looking for a row to show before it settles on the empty
+// state. Enough to cover a page whose rows are all filtered out, short of paging a whole history.
+const MAX_EMPTY_PAGES_TO_FILL = 3;
 
 interface ActivityHoverCardProps {
   onClose: () => void;
@@ -60,6 +65,15 @@ export function ActivityHoverCard({
   const visibleItems = getVisibleActivityItems(items, commentsEnabled);
   const unreadItems = getUnreadActivityItems(visibleItems);
   const shownItems = unreadsOnly ? unreadItems : visibleItems;
+  // An empty list with pages left is still filling rather than empty, so it shows the spinner
+  // instead of claiming the viewer is caught up: the unread can be on the page still loading.
+  // Bounded, because with the unreads filter on a caught-up viewer has no unread on any page,
+  // and an unbounded sentinel would walk their whole activity history every time this opens.
+  const emptyPagesFetched = useRef(0);
+  const canFillFromNextPages =
+    hasNextPage && emptyPagesFetched.current < MAX_EMPTY_PAGES_TO_FILL;
+  const isFilling =
+    shownItems.length === 0 && (isLoading || canFillFromNextPages);
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   useEffect(() => {
@@ -69,10 +83,15 @@ export function ActivityHoverCard({
     });
   }, []);
   useEffect(() => {
-    if (loadMoreInView && hasNextPage) {
-      void fetchNextPage();
+    if (!loadMoreInView || !hasNextPage) return;
+    if (shownItems.length === 0) {
+      if (emptyPagesFetched.current >= MAX_EMPTY_PAGES_TO_FILL) return;
+      emptyPagesFetched.current += 1;
+    } else {
+      emptyPagesFetched.current = 0;
     }
-  }, [fetchNextPage, hasNextPage, loadMoreInView]);
+    void fetchNextPage();
+  }, [fetchNextPage, hasNextPage, loadMoreInView, shownItems.length]);
 
   const markRead = (item: (typeof items)[number]) => {
     markTasksRead(activityReadPayload([item]));
@@ -101,14 +120,22 @@ export function ActivityHoverCard({
               onClick={markAllRead}
             >
               <ChecksIcon size={14} />
-              {markLoadedReadLabel(unreadItems.length, unreadCount)}
+              {markLoadedReadLabel(
+                unreadItems.length,
+                activityUnreadTotalForLabel({
+                  commentsEnabled,
+                  unreadCount,
+                  loadedVisibleUnread: unreadItems.length,
+                  hasNextPage,
+                }),
+              )}
             </Button>
           )}
           <ActivityUnreadsToggle />
         </div>
       </div>
       <div ref={setScrollRoot} className="max-h-[480px] overflow-y-auto p-1.5">
-        {isLoading && shownItems.length === 0 ? (
+        {isFilling ? (
           <div className="flex justify-center py-10">
             <Spinner />
           </div>

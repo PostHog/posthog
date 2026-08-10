@@ -66,6 +66,9 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityView", () => ({
     </button>
   ),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
+  useBlockedTaskIds: () => new Set<string>(),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));
@@ -193,4 +196,30 @@ describe("ActivityHoverCard", () => {
 
     expect(screen.getAllByText("Activity row")).toHaveLength(1);
   });
+
+  it.each([
+    ["older pages are still loading", true, false],
+    ["the feed has no more pages", false, true],
+  ])(
+    "says the viewer is caught up only once %s",
+    (_case, hasNextPage, isCaughtUp) => {
+      mocks.hasNextPage = hasNextPage;
+      mocks.items = [
+        {
+          id: "read-activity",
+          taskId: "task-1",
+          activityAt: "2026-08-07T00:00:00Z",
+          activityKind: "mention",
+          isUnread: false,
+        } as TaskActivityItem,
+      ];
+      useActivityFilterStore.setState({ unreadsOnly: true });
+
+      render(<ActivityHoverCard onClose={vi.fn()} />);
+
+      expect(screen.queryByText("You're all caught up.") !== null).toBe(
+        isCaughtUp,
+      );
+    },
+  );
 });

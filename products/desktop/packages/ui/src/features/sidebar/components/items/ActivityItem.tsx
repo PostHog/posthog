@@ -1,7 +1,7 @@
 import { BellIcon } from "@phosphor-icons/react";
 import { Popover, PopoverTrigger } from "@posthog/quill";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
-import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useVisibleActivityUnreadCount } from "@posthog/ui/features/canvas/hooks/useVisibleActivityUnreadCount";
 import { useRef, useState } from "react";
 import { SidebarItem } from "../SidebarItem";
 import { SidebarCountBadge } from "./SidebarCountBadge";
@@ -20,7 +20,7 @@ export function ActivityItem({
   onClick,
   depth = 0,
 }: ActivityItemProps) {
-  const { unreadCount } = useTaskActivity();
+  const unreadCount = useVisibleActivityUnreadCount();
   const [open, setOpen] = useState(false);
   const suppressClickOpenRef = useRef(false);
   const item = (

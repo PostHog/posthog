@@ -62,6 +62,7 @@ import {
   getUnreadActivityItems,
   getVisibleActivityItems,
   markLoadedReadLabel,
+  visibleActivityUnreadCount,
 } from "./activityFeed";
 
 function ChannelSuffix({ channelName }: { channelName: string | null }) {
@@ -195,12 +196,13 @@ export function ActivityRow({
   // already say that in blue. Yellow is everything else the feed carries:
   // something happened that you haven't read.
   //
-  // Read against the live sessions rather than the row's kind alone, so this is
-  // the same fact the sidebar's blue dot is drawn from. The row records that the
-  // agent asked at a moment in time; whether it is still waiting is a question
-  // only the session can answer, and answering the prompt has to clear the dot.
-  const awaitsReply =
-    item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
+  // Read against the session and the run rather than the row's own kind, which
+  // records what happened at a moment in time: the backend collapses lifecycle
+  // rows per task, so a task can be waiting on you under a row that says the
+  // agent completed it. Comment rows are excluded because they do not collapse,
+  // and a blocked task with three unread mentions would otherwise wear four
+  // blue dots for one prompt.
+  const awaitsReply = !item.commentId && blockedTaskIds.has(item.taskId);
   const openTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "open_task",
@@ -365,7 +367,12 @@ export function ActivityView() {
   );
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const shownItems = unreadsOnly ? unreadItems : visibleItems;
-  const visibleUnreadCount = activityUnreadTotalForLabel({
+  const visibleUnreadCount = visibleActivityUnreadCount({
+    commentsEnabled,
+    unreadCount,
+    loadedVisibleUnread: unreadItems.length,
+  });
+  const markReadLabelTotal = activityUnreadTotalForLabel({
     commentsEnabled,
     unreadCount,
     loadedVisibleUnread: unreadItems.length,
@@ -403,7 +410,7 @@ export function ActivityView() {
       onClick={markAllRead}
     >
       <ChecksIcon size={14} />
-      {markLoadedReadLabel(unreadItems.length, visibleUnreadCount)}
+      {markLoadedReadLabel(unreadItems.length, markReadLabelTotal)}
     </Button>
   );
 
@@ -422,6 +429,15 @@ export function ActivityView() {
     </div>
   );
 
+  // A page can hold no unread while older pages still do, so only the last page
+  // can claim the viewer is caught up.
+  const unreadsEmptyState = hasNextPage
+    ? {
+        title: "No unread activity on this page",
+        description: "Load more to check older activity.",
+      }
+    : { title: "No unread activity", description: "You're all caught up." };
+
   // The feed body is identical in both shells; only the empty-state copy tracks
   // the layout's naming ("spaces" vs "channels").
   const feed =
@@ -437,11 +453,11 @@ export function ActivityView() {
               <BellIcon size={20} />
             </EmptyMedia>
             <EmptyTitle>
-              {unreadsOnly ? "No unread activity" : "No activity yet"}
+              {unreadsOnly ? unreadsEmptyState.title : "No activity yet"}
             </EmptyTitle>
             <EmptyDescription>
               {unreadsOnly
-                ? "You're all caught up."
+                ? unreadsEmptyState.description
                 : `Task updates and comment notifications across ${spacesLayout ? "spaces" : "channels"} appear here.`}
             </EmptyDescription>
           </EmptyHeader>
@@ -465,7 +481,6 @@ export function ActivityView() {
         </div>
         {loadMoreButton}
       </>
-
     );
 
   if (spacesLayout) {
@@ -475,13 +490,13 @@ export function ActivityView() {
           <PageHeaderHeading>
             <PageHeaderTitleRow>
               <PageHeaderTitle>Activity</PageHeaderTitle>
-              {unreadCount > 0 && (
+              {visibleUnreadCount > 0 && (
                 <PageHeaderChip icon={<BellIcon size={12} weight="fill" />}>
-                  {unreadCount} unread
+                  {visibleUnreadCount} unread
                 </PageHeaderChip>
               )}
               <PageHeaderActions>
-                {unreadCount > 0 && markAllReadButton}
+                {visibleUnreadCount > 0 && markAllReadButton}
                 <ActivityUnreadsToggle />
               </PageHeaderActions>
             </PageHeaderTitleRow>
@@ -511,7 +526,7 @@ export function ActivityView() {
             </Text>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {unreadCount > 0 && markAllReadButton}
+            {visibleUnreadCount > 0 && markAllReadButton}
             <ActivityUnreadsToggle />
           </div>
         </div>

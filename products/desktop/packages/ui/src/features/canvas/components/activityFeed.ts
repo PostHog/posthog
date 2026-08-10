@@ -30,6 +30,23 @@ export function markLoadedReadLabel(
     : "Mark visible as read";
 }
 
+/**
+ * The unread total to show the viewer. The server counts comment activity whether
+ * or not the comments flag is on, so with it off that total runs ahead of the rows
+ * the feed renders; the loaded rows the viewer can see are the honest number there.
+ */
+export function visibleActivityUnreadCount({
+  commentsEnabled,
+  unreadCount,
+  loadedVisibleUnread,
+}: {
+  commentsEnabled: boolean;
+  unreadCount: number;
+  loadedVisibleUnread: number;
+}): number {
+  return commentsEnabled ? unreadCount : loadedVisibleUnread;
+}
+
 export function activityUnreadTotalForLabel({
   commentsEnabled,
   unreadCount,
@@ -41,6 +58,13 @@ export function activityUnreadTotalForLabel({
   loadedVisibleUnread: number;
   hasNextPage: boolean;
 }): number {
-  if (commentsEnabled) return unreadCount;
-  return loadedVisibleUnread + (hasNextPage ? 1 : 0);
+  const visibleUnread = visibleActivityUnreadCount({
+    commentsEnabled,
+    unreadCount,
+    loadedVisibleUnread,
+  });
+  if (commentsEnabled) return visibleUnread;
+  // Counting only loaded rows cannot see unread activity on a further page, so
+  // assume one is waiting and keep the action labelled as a partial read.
+  return visibleUnread + (hasNextPage ? 1 : 0);
 }

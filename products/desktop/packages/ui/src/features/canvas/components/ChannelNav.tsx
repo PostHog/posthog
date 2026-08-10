@@ -20,7 +20,7 @@ import {
   ANALYTICS_EVENTS,
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
-import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useVisibleActivityUnreadCount } from "@posthog/ui/features/canvas/hooks/useVisibleActivityUnreadCount";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -188,7 +188,7 @@ export function ChannelNav() {
     ignoreFilters: true,
     refetchIntervalMs: INBOX_REFETCH_INTERVAL_MS,
   });
-  const { unreadCount: unseenActivity } = useTaskActivity();
+  const unseenActivity = useVisibleActivityUnreadCount();
   const commandCenterCount = useCommandCenterActiveCount();
 
   const withTrack = (item: SidebarNavItem, action: () => void) => () => {

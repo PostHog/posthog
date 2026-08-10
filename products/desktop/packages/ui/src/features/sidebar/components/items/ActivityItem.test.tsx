@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
-  useTaskActivity: () => ({ unreadCount: 2 }),
+  useTaskActivity: () => ({ unreadCount: 2, items: [] }),
+}));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => true,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,

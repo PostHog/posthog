@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
-  useTaskActivity: () => ({ unreadCount: 1 }),
+  useTaskActivity: () => ({ unreadCount: 1, items: [] }),
 }));
 vi.mock(
   "@posthog/ui/features/command-center/useCommandCenterActiveCount",
