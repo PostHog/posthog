@@ -687,6 +687,26 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "time_zone": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 },
             ),
+            # Same rows as `bing_campaigns` plus a second row for campaign 123456, to prove the
+            # additive entity join can't multiply report rows. See
+            # `test_bing_ads_duplicate_entity_row_does_not_multiply_spend`.
+            "bing_campaigns_duplicate_id": DataConfig(
+                csv_filename="test/bing_ads/campaigns_duplicate_id.csv",
+                table_name="bingads_campaigns_duplicate_id",
+                platform="Bing Ads",
+                source_type="BingAds",
+                bucket_suffix="bing_campaigns_duplicate_id",
+                column_schema={
+                    "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "budget_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "daily_budget": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "campaign_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "languages": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "time_zone": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
             "bing_campaign_performance_report": DataConfig(
                 csv_filename="test/bing_ads/campaign_performance_report.csv",
                 table_name="bingads_campaign_performance_report",
@@ -1709,7 +1729,13 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert from_expr.table.chain == ["bingads_campaign_performance_report"], "report is the anchor"
         join = from_expr.next_join
         assert join is not None and join.join_type == "LEFT JOIN"
-        assert isinstance(join.table, ast.Field) and join.table.chain == ["bingads_campaigns"]
+        # One row per id, not the table itself — additive means it can't multiply rows either.
+        assert isinstance(join.table, ast.SelectQuery), "campaigns must be collapsed before joining"
+        assert join.alias == "bingads_campaigns", "aliased back so field references are unchanged"
+        assert join.table.select_from is not None
+        assert isinstance(join.table.select_from.table, ast.Field)
+        assert join.table.select_from.table.chain == ["bingads_campaigns"]
+        assert [g.to_hogql() for g in (join.table.group_by or [])] == ["id"]
         assert join.next_join is None, "the campaigns join is the only one — purely additive"
 
         name_hogql = adapter._get_campaign_name_field().to_hogql()
@@ -2373,6 +2399,54 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         sources = [row[3] for row in results]
         assert all(source == "bing" for source in sources), "All sources should be 'bing'"
+
+    def test_bing_ads_duplicate_entity_row_does_not_multiply_spend(self):
+        """The mirror image of the bug this PR fixes: `SUM(spend)` is now computed after a join
+        the report is on the *left* of, so a campaign with two entity rows would fan its report
+        rows out and double its cost — an overcount, as silent as the undercount we removed.
+
+        `campaigns` is keyed on `Id` in the import schema, so this shouldn't happen; the point is
+        that spend stays correct even if it does, and that `any(campaigns.name)` is only exact
+        while the name is functionally dependent on the id. The entity table here is the standard
+        fixture plus a second row for 123456, which has two rows in the performance report.
+        """
+        campaign_info = self._setup_csv_table("bing_campaigns_duplicate_id")
+        stats_info = self._setup_csv_table("bing_campaign_performance_report")
+
+        config = BingAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=stats_info.table,
+            source_type="BingAds",
+            source_id="bing_ads",
+        )
+
+        adapter = BingAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+        assert query is not None, "BingAdsAdapter should generate a query"
+        try:
+            results = self._execute_query_and_validate(query)
+        finally:
+            # A second campaigns table for the same team, which source discovery would otherwise
+            # pick up as an extra Bing source in later tests. Drop it as soon as the query has
+            # run rather than leaving it registered until tearDown.
+            self.test_tables.pop("bing_campaigns_duplicate_id", None)
+            campaign_info.table.delete()
+
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
+        by_id = {row[2]: row for row in results}
+        assert len(results) == 9, f"Expected the same 9 campaigns as with unique ids, got {len(results)}"
+        assert len(by_id) == 9, "the duplicated entity row must not add a row"
+
+        duplicated = by_id["123456"]
+        assert abs(float(duplicated[6]) - 2851.25) < 0.01, f"spend must not be doubled, got {duplicated[6]}"
+        assert int(duplicated[4]) == 47000, "impressions must not be doubled"
+        assert int(duplicated[5]) == 2350, "clicks must not be doubled"
+        assert duplicated[1] == "SpringSale2024"
+
+        # Totals are the same as the unique-id fixture — the join added nothing but a name.
+        assert sum(int(row[4] or 0) for row in results) == 412000
+        assert sum(int(row[5] or 0) for row in results) == 20600
 
     def test_bing_ads_ad_group_grain_with_real_data(self):
         """The campaign-grain end-to-end above has an AD_GROUP twin, because the ad-group report

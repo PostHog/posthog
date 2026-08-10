@@ -502,6 +502,24 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         )
 
     @staticmethod
+    def _one_row_per_id(table_name: str, id_column: str, name_column: str) -> ast.SelectQuery:
+        """`SELECT <id>, any(<name>) AS <name> FROM <table> GROUP BY <id>` — the table collapsed
+        to one row per id, so joining it can only add columns, never multiply rows.
+
+        Aliased back to the table's own name by the caller, so downstream field references read
+        the same either way. `any` over the names of a single id is arbitrary only if that id
+        carries more than one name; collapsing here is what makes it a non-question.
+        """
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=[id_column]),
+                ast.Alias(alias=name_column, expr=ast.Call(name="any", args=[ast.Field(chain=[name_column])])),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+            group_by=[ast.Field(chain=[id_column])],
+        )
+
+    @staticmethod
     def _coalesce_nonempty(primary: ast.Expr, fallback: ast.Expr) -> ast.Expr:
         """`coalesce(nullIf(primary, ''), fallback)` — take `primary` unless it's missing.
 
@@ -764,10 +782,15 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             # `campaign_name` drifts after a rename. So bring the campaigns table back as a purely
             # ADDITIVE LEFT JOIN, letting `_get_campaign_name_field` prefer its one current name.
             # Additive matters: nothing here touches the WHERE, so this join cannot drop a single
-            # report row — unlike the entity-anchored shape it replaced. (An entity table holding
-            # duplicate ids would multiply rows and inflate SUM(spend), but that exposure is
-            # unchanged from the pre-flip shape where campaigns was the anchor. If it ever bites,
-            # join `(SELECT id, any(name) AS name FROM campaigns GROUP BY id)` instead.)
+            # report row — unlike the entity-anchored shape it replaced.
+            # It joins one row per id rather than the table directly, because a join is only
+            # additive while it can't multiply rows: two entity rows for one id would duplicate
+            # every report row behind them and double SUM(spend). The warehouse keys campaigns on
+            # its id so that shouldn't happen, but the whole point of the anchor flip is that
+            # spend can't be silently wrong, and an overcount is as silent as the undercount it
+            # replaced. Collapsing here makes SUM independent of the entity table's row count,
+            # and makes `_get_campaign_name_field`'s `any()` exact rather than merely correct
+            # under an invariant nothing checks.
             # `join_key` casts both sides because Bing's campaigns.id is Int64 in the warehouse
             # while the report's campaign_id arrives as a String — without the casts the join
             # silently matches zero rows.
@@ -777,7 +800,10 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             return ast.JoinExpr(
                 table=ast.Field(chain=[entity_table_name]),
                 next_join=ast.JoinExpr(
-                    table=ast.Field(chain=[campaign_table_name]),
+                    table=self._one_row_per_id(
+                        campaign_table_name, self._campaign_pk_column, self._campaign_name_column
+                    ),
+                    alias=campaign_table_name,
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
