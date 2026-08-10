@@ -1,5 +1,5 @@
 import { cn } from "@posthog/quill";
-import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
+import { LoadingLogo } from "@posthog/ui/primitives/LoadingLogo";
 
 interface LoadingScreenProps {
   logoSize?: number;
@@ -17,7 +17,7 @@ export function LoadingScreen({
         className,
       )}
     >
-      <AnimatedLogo size={logoSize} />
+      <LoadingLogo size={logoSize} />
     </div>
   );
 }
