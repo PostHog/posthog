@@ -854,6 +854,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't "
             "belong to the team."
         ),
+        include_serializer_context=True,
     )
     @action(detail=False, methods=["post"], url_path="warm", required_scopes=["task:write"])
     def warm(self, request, **kwargs):

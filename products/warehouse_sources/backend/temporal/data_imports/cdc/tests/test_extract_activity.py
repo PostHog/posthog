@@ -6,11 +6,13 @@ from typing import Literal
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.db.utils import OperationalError
+from django.db.utils import InterfaceError, OperationalError
 
 import pyarrow as pa
 import psycopg.errors
 from parameterized import parameterized
+
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -824,6 +826,37 @@ class TestCDCExtractActivity:
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         cdc_extract_activity(inputs)
 
+        mock_get_adapter.assert_not_called()
+
+    @parameterized.expand([("operational", OperationalError), ("interface", InterfaceError)])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_setup_app_db_connection_blip_is_not_reported(
+        self,
+        _name,
+        exception_cls,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        # `_setup` only reads our own app DB (never a customer's), so a dropped connection here
+        # (e.g. PgBouncer closing an idle connection) is a transient blip, not a broken sync. It
+        # must still be retried by Temporal, but shouldn't page as a fresh, reportable bug on
+        # every attempt.
+        MockSourceModel.DoesNotExist = ExternalDataSource.DoesNotExist
+        MockSourceModel.objects.get.side_effect = exception_cls("server closed the connection unexpectedly")
+
+        inputs = CDCExtractInput(team_id=1, source_id=uuid.uuid4())
+
+        with pytest.raises(NonReportableError, match="server closed the connection unexpectedly"):
+            cdc_extract_activity(inputs)
+
+        mock_get_schemas.assert_not_called()
         mock_get_adapter.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
