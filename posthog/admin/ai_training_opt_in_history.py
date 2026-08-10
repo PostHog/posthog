@@ -1,8 +1,8 @@
 """Reconstructs an organization's AI training opt-in history for the Django admin.
 
-Everything here is derived from what was recorded: the organization's current value and the
-`ActivityLog` rows that changed `is_ai_training_opted_in`. The rules that decide the starting
-value (region, license, HIPAA) are deliberately not reproduced here.
+This module reads two sources: the organization's current value, and the `ActivityLog` rows that
+changed `is_ai_training_opted_in`. It reports only what those sources recorded. It does not repeat
+the rules that set the starting value. Those rules cover region, license, and HIPAA.
 """
 
 from dataclasses import dataclass
@@ -16,13 +16,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 
-# Matches `detail.changes[].field`, which carries the *display* name from `field_name_overrides`.
-# It equals the model field name only because Organization has no override for this field; adding
-# one would silently empty this panel, which `test_manual_opt_in_then_opt_out...` would catch.
+# This value matches `detail.changes[].field`. That key holds the display name from
+# `field_name_overrides`. It equals the model field name because Organization sets no override for
+# this field. An override would empty this panel. `test_manual_opt_in_then_opt_out...` catches that.
 AI_TRAINING_OPT_IN_FIELD = "is_ai_training_opted_in"
 
-# One ActivityLog row per organization save, carrying every field changed in that save, so a row
-# holds at most one opt-in change. 50 rows means 50 actual toggles; beyond that the panel says so.
+# Each organization save writes one ActivityLog row. That row holds every field the save changed, so
+# it holds at most one opt-in change. 50 rows mean 50 toggles. The panel reports any row above 50.
 MAX_ENTRIES_SHOWN = 50
 
 
@@ -61,8 +61,8 @@ def _describe_value(value: Optional[bool]) -> str:
 
 
 def _was_system(entry: ActivityLog) -> bool:
-    # is_system is written as `user is None` and then frozen, while user is SET_NULL on delete. So a
-    # null user alone does not mean automation: it also describes a change by a since-deleted person.
+    # log_activity sets is_system from `user is None` and never updates it. Deleting a user sets the
+    # user column to null. A null user therefore means automation or a deleted person.
     if entry.is_system is None:
         return entry.user_id is None
     return entry.is_system
@@ -107,9 +107,9 @@ def _opt_in_activity(organization: Organization):
         organization_id=organization.id,
         scope="Organization",
         item_id=str(organization.id),
-        # Whole-column containment, not `detail__changes__contains`: jsonb containment is recursive
-        # so this matches the same rows, but only this form can use the GIN index on detail.
-        # Filtering on `detail -> 'changes'` scans the org's whole activity history.
+        # This filter uses whole-column containment, not `detail__changes__contains`. Both match the
+        # same rows, because jsonb containment is recursive. Only this form uses the GIN index on
+        # detail. A filter on `detail -> 'changes'` scans the organization's whole activity history.
         detail__contains={"changes": [{"field": AI_TRAINING_OPT_IN_FIELD}]},
     )
 
@@ -117,8 +117,8 @@ def _opt_in_activity(organization: Organization):
 def _was_opted_in(organization: Organization, changes: list[OptInChange], truncated: bool) -> bool:
     if any(c.after is True or c.before is True for c in changes):
         return True
-    # An untruncated window is the whole history, so the scan above already answered this. Only a
-    # truncated one can hide an older opt-in and needs the uncapped query below.
+    # A window that holds every row is the whole history, so the scan above already answered this.
+    # Only a truncated window can hide an older opt-in, so only it needs the uncapped query.
     return truncated and _has_recorded_opt_in(organization)
 
 
@@ -134,8 +134,8 @@ def _has_recorded_opt_in(organization: Organization) -> bool:
 
 
 def _fetch_changes(organization: Organization) -> tuple[list[OptInChange], bool]:
-    # Newest-first so an organization over the cap keeps its most recent changes, which are the ones
-    # support is asking about. Reversed below so the panel reads oldest to newest.
+    # This query sorts newest first, so an organization above the cap keeps its most recent changes.
+    # Support asks about those. The loop below reverses them, so the panel reads oldest to newest.
     entries = list(
         _opt_in_activity(organization).select_related("user").order_by("-created_at", "-id")[: MAX_ENTRIES_SHOWN + 1]
     )
@@ -157,18 +157,18 @@ def _build_headline(current: Optional[bool], was_opted_in: bool) -> str:
     if current is True:
         return "Currently opted in"
 
-    # "No recorded opt-in" rather than "Never opted in": an opt-out written outside the ORM, or a
-    # dropped activity-log write, would leave no row to find.
+    # This says "No recorded opt-in", not "Never opted in". Two paths leave no row to find: an
+    # opt-out written outside the ORM, and an activity-log write that failed.
     headline = "Currently opted out, was opted in previously" if was_opted_in else "No recorded opt-in"
-    # The column is nullable, and null reads as opted out everywhere else. Say so rather than let
-    # support assume someone set it to false.
+    # The column accepts null, and every other surface reads null as opted out. Name the null value
+    # here, so support does not assume that a person set the column to false.
     return f"{headline} (value is null)" if current is None else headline
 
 
 def _hipaa_conflict_warning(organization: Organization) -> Optional[str]:
-    # The replay ML mirror gates on is_ai_training_opted_in alone, in
-    # nodejs/src/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step.ts, and nothing in
-    # that pipeline reads is_hipaa. Revisit this warning if that gate starts checking HIPAA.
+    # The replay ML mirror reads is_ai_training_opted_in alone. That gate is in
+    # nodejs/src/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step.ts. No code in that
+    # pipeline reads is_hipaa. Change this warning if that gate starts to read is_hipaa.
     if not organization.is_hipaa or organization.is_ai_training_opted_in is not True:
         return None
     return (
@@ -181,9 +181,9 @@ def _hipaa_conflict_warning(organization: Organization) -> Optional[str]:
 
 def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
     try:
-        # Savepoint so a failed query rolls back cleanly: the admin wraps change-form POSTs in a
-        # transaction, and swallowing the error without this leaves it aborted, turning a form
-        # validation error into an opaque 500 from the next unrelated query.
+        # This savepoint rolls a failed query back cleanly. The admin runs each change-form POST in
+        # a transaction. Without the savepoint, a caught error leaves that transaction aborted, and
+        # the next query turns a form validation error into a 500.
         with transaction.atomic():
             changes, truncated = _fetch_changes(organization)
             was_opted_in = _was_opted_in(organization, changes, truncated)

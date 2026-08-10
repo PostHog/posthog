@@ -18,8 +18,8 @@ class TestAITrainingOptInHistory(APIBaseTest):
         self.organization_membership.save()
 
     def _set_opt_in_without_logging(self, value: bool | None) -> None:
-        # Mirrors how the organization gets its starting value: the creation default and the
-        # column's migration default both land in Postgres without an activity log row.
+        # This mirrors how an organization gets its starting value. The creation default and the
+        # column's migration default both write to Postgres without an activity log row.
         Organization.objects.filter(pk=self.organization.pk).update(is_ai_training_opted_in=value)
         self.organization.refresh_from_db()
 
@@ -141,8 +141,8 @@ class TestAITrainingOptInHistory(APIBaseTest):
     def test_opt_in_older_than_the_cap_still_counts_towards_the_headline(self) -> None:
         self._set_opt_in_without_logging(False)
         self._log_opt_in_change(user=None, before=False, after=True, is_system=True)
-        # The column is nullable, so the newest changes can oscillate without ever touching True,
-        # which pushes the only opt-in out of the displayed window.
+        # The column accepts null, so the newest changes can alternate without ever holding True.
+        # These changes push the only opt-in out of the displayed window.
         for index in range(MAX_ENTRIES_SHOWN + 1):
             before, after = (None, False) if index % 2 == 0 else (False, None)
             self._log_opt_in_change(user=None, before=before, after=after, is_system=True)

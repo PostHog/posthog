@@ -316,10 +316,10 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     @admin.display(description="AI training opt-in history")
     def ai_training_opt_in_history_display(self, organization: Organization):
-        # UUIDT ids are assigned before save, so pk is set even on the add form's unsaved instance.
+        # UUIDT sets the id before the save, so the add form's unsaved instance also has a pk.
         if organization._state.adding:
             return "-"
-        # render_to_string already returns a SafeString, so no mark_safe is needed here.
+        # render_to_string returns a SafeString, so this method does not need mark_safe.
         return render_to_string(
             "admin/organization/ai_training_opt_in_history.html",
             {"history": get_ai_training_opt_in_history(organization)},
