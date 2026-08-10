@@ -2236,7 +2236,9 @@ def route_posthog_code_event_to_relevant_region(
             ):
                 logger.info("slack_link_unfurl_channel_unapproved", slack_team_id=slack_team_id, channel=channel_id)
                 return ROUTE_HANDLED_LOCALLY
-            handle_posthog_link_unfurl(event, local_match)
+            # Every connected project is in play: the handler picks per link, from the URL's
+            # `/project/:id` where present.
+            handle_posthog_link_unfurl(event, link_result.candidates)
         return ROUTE_HANDLED_LOCALLY
     return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 

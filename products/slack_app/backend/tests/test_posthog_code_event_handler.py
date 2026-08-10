@@ -716,8 +716,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
         assert result == ROUTE_HANDLED_LOCALLY
         mock_unfurl.assert_called_once()
-        passed_integration = mock_unfurl.call_args[0][1]
-        assert passed_integration.id == self.posthog_code_integration.id
+        passed_candidates = mock_unfurl.call_args[0][1]
+        assert [c.id for c in passed_candidates] == [self.posthog_code_integration.id]
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -739,10 +739,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
         assert result == ROUTE_HANDLED_LOCALLY
         mock_unfurl.assert_called_once()
-        # Don't assert on which integration row was passed: "first row by id" picking is a known
-        # limitation for multi-team workspaces and shouldn't be baked into the test contract.
-        passed_integration = mock_unfurl.call_args[0][1]
-        assert passed_integration.integration_id == "T12345"
+        passed_candidates = mock_unfurl.call_args[0][1]
+        assert [c.integration_id for c in passed_candidates] == ["T12345"]
 
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")

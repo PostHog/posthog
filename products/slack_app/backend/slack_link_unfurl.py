@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 
 import structlog
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
@@ -21,6 +21,9 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.api import SlackUserContext
 
 logger = structlog.get_logger(__name__)
 
@@ -355,16 +358,126 @@ def _attach_public_slack_thread_reference(
     )
 
 
-def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
+def _integrations_for_link(url: str, integrations: list[Integration]) -> list[Integration]:
+    """Order a workspace's connected projects for one link, most likely first.
+
+    A workspace can connect many projects, so "the connected project" is not a single thing. App
+    URLs carry `/project/:id`, which names the project the resource actually lives in — the only
+    signal available before hitting the database. When the segment is absent (short `/i/:short_id`
+    links) or names a project this workspace hasn't connected, fall back to trying every candidate.
+
+    Selecting a candidate is not authorization: the caller still resolves the sharer against the
+    chosen project and runs the per-resource access check.
+    """
+    url_team_id = _url_team_id(url)
+    if url_team_id is None:
+        return integrations
+    return [i for i in integrations if i.team_id == url_team_id] or integrations
+
+
+def _unfurl_for_resource(
+    *,
+    raw_url: str,
+    kind: str,
+    ref: str | int,
+    integration: Integration,
+    user: User,
+    slack: SlackIntegration,
+    event: dict,
+    slack_user_id: str,
+    public_channel_cache: dict[str, bool],
+    owner_access_cache: dict[str, bool],
+) -> dict | None:
+    """Build the unfurl payload for one link against one project, or None if it doesn't resolve there."""
+    team = integration.team
+    uac = UserAccessControl(user, team=team)
+
+    if kind == "insight":
+        if not isinstance(ref, str):
+            return None
+        insight = Insight.objects.filter(team_id=team.pk, short_id=ref).first()
+        if not insight:
+            return None
+        level = uac.get_user_access_level(insight)
+        if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
+            return None
+        title = insight.name or insight.derived_name or "Untitled"
+        desc = (insight.description or "").strip() or None
+        return _unfurl_payload(resource_label=_insight_resource_label(insight), title=title, description=desc)
+
+    if kind == "dashboard":
+        if not isinstance(ref, int):
+            return None
+        dashboard = Dashboard.objects.filter(pk=ref, team_id=team.pk).first()
+        if not dashboard:
+            return None
+        level = uac.get_user_access_level(dashboard)
+        if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
+            return None
+        title = dashboard.name or "Untitled"
+        desc = (dashboard.description or "").strip() or None
+        return _unfurl_payload(resource_label="Dashboard", title=title, description=desc)
+
+    if kind == "ticket":
+        if not isinstance(ref, str):
+            return None
+        # Ticket numbers are per-project sequential, so the same number exists in every project.
+        # Unlike insights/dashboards (globally-unique ids, safe to resolve within any candidate), a
+        # link that names a different project must not resolve to this project's ticket of the same
+        # number — refuse rather than show the wrong ticket.
+        url_team_id = _url_team_id(raw_url)
+        if url_team_id is not None and url_team_id != team.pk:
+            return None
+        ticket = _find_ticket(team.pk, ref)
+        if not ticket or not uac.check_access_level_for_object(ticket, required_level="viewer"):
+            return None
+        return _ticket_unfurl_payload(
+            url=raw_url,
+            ticket=ticket,
+            requester=_escape_mrkdwn(_ticket_requester(team, ticket)),
+            opening_message=_ticket_opening_message(team.pk, ticket.id),
+        )
+
+    if kind == "task":
+        if not isinstance(ref, str):
+            return None
+        task = tasks_facade.get_task_for_slack_unfurl(ref, team.pk, user.id)
+        if task is None:
+            return None
+        label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
+        payload = _unfurl_payload(resource_label=label, title=_escape_mrkdwn(task.title), description=None)
+        try:
+            _attach_public_slack_thread_reference(
+                slack=slack,
+                integration=integration,
+                task=task,
+                event=event,
+                shared_by_slack_user_id=slack_user_id,
+                public_channel_cache=public_channel_cache,
+                owner_access_cache=owner_access_cache,
+            )
+        except Exception:
+            logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
+        return payload
+
+    return None
+
+
+def handle_posthog_link_unfurl(event: dict, integrations: list[Integration]) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
 
-    Scope is always the Slack-connected project (`integration.team`); `resolve_slack_user` enforces
-    that the sharer can access it. Insights, dashboards, and tickets add a per-resource
-    access-control check. Ticket links naming a different project are also refused because ticket
-    numbers are per-project and could otherwise resolve to the wrong ticket.
+    ``integrations`` is every project this Slack workspace has connected. Each link is resolved
+    against the project its URL names, falling back to trying all of them; `resolve_slack_user`
+    enforces that the sharer can access whichever project answers, and insights, dashboards, and
+    tickets add a per-resource access-control check on top.
     """
-    slack = SlackIntegration(integration)
+    if not integrations:
+        return
+
+    # Any of the workspace's integrations carries a bot token for the same workspace, so the client
+    # is interchangeable — only the project scope differs between candidates.
+    slack = SlackIntegration(integrations[0])
     channel = event.get("channel")
     message_ts = event.get("message_ts")
     slack_user_id = event.get("user")
@@ -381,21 +494,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     # Imported here to avoid circular import with api (api imports this module at load time).
     from products.slack_app.backend.api import resolve_slack_user
 
-    user_context = resolve_slack_user(
-        slack,
-        integration,
-        slack_user_id,
-        channel,
-        message_ts,
-        post_feedback=False,
-    )
-    if not user_context:
-        return
-
-    user = user_context.user
-    team = integration.team
-    uac = UserAccessControl(user, team=team)
-
+    # One `users.info` round-trip per project, not per link.
+    user_contexts: dict[int, SlackUserContext | None] = {}
     unfurls: dict[str, dict] = {}
 
     for link_obj in links:
@@ -408,75 +508,48 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             continue
 
         kind, ref = parsed
+        candidates = _integrations_for_link(raw_url, integrations)
+        payload: dict | None = None
 
-        if kind == "insight":
-            if not isinstance(ref, str):
-                continue
-            insight = Insight.objects.filter(team_id=team.pk, short_id=ref).first()
-            if not insight:
-                continue
-            level = uac.get_user_access_level(insight)
-            if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
-                continue
-            title = insight.name or insight.derived_name or "Untitled"
-            desc = (insight.description or "").strip() or None
-            unfurls[raw_url] = _unfurl_payload(
-                resource_label=_insight_resource_label(insight), title=title, description=desc
-            )
-        elif kind == "dashboard":
-            if not isinstance(ref, int):
-                continue
-            dashboard = Dashboard.objects.filter(pk=ref, team_id=team.pk).first()
-            if not dashboard:
-                continue
-            level = uac.get_user_access_level(dashboard)
-            if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
-                continue
-            title = dashboard.name or "Untitled"
-            desc = (dashboard.description or "").strip() or None
-            unfurls[raw_url] = _unfurl_payload(resource_label="Dashboard", title=title, description=desc)
-        elif kind == "ticket":
-            if not isinstance(ref, str):
-                continue
-            # Ticket numbers are per-project sequential, so the same number exists in every project.
-            # Unlike insights/dashboards (globally-unique ids, safe to resolve within the connected
-            # project), a link that names a different project must not resolve to our project's ticket
-            # of the same number — refuse rather than show the wrong ticket.
-            url_team_id = _url_team_id(raw_url)
-            if url_team_id is not None and url_team_id != team.pk:
-                continue
-            ticket = _find_ticket(team.pk, ref)
-            if not ticket or not uac.check_access_level_for_object(ticket, required_level="viewer"):
-                continue
-            unfurls[raw_url] = _ticket_unfurl_payload(
-                url=raw_url,
-                ticket=ticket,
-                requester=_escape_mrkdwn(_ticket_requester(team, ticket)),
-                opening_message=_ticket_opening_message(team.pk, ticket.id),
-            )
-        elif kind == "task":
-            if not isinstance(ref, str):
-                continue
-            url_team_id = _url_team_id(raw_url)
-            if url_team_id is not None and url_team_id != team.pk:
-                continue
-            task = tasks_facade.get_task_for_slack_unfurl(ref, team.pk, user.id)
-            if task is None:
-                continue
-            label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
-            unfurls[raw_url] = _unfurl_payload(resource_label=label, title=_escape_mrkdwn(task.title), description=None)
-            try:
-                _attach_public_slack_thread_reference(
-                    slack=slack,
-                    integration=integration,
-                    task=task,
-                    event=event,
-                    shared_by_slack_user_id=slack_user_id,
-                    public_channel_cache=public_channel_cache,
-                    owner_access_cache=owner_access_cache,
+        for integration in candidates:
+            if integration.id not in user_contexts:
+                user_contexts[integration.id] = resolve_slack_user(
+                    slack,
+                    integration,
+                    slack_user_id,
+                    channel,
+                    message_ts,
+                    post_feedback=False,
                 )
-            except Exception:
-                logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
+            user_context = user_contexts[integration.id]
+            if not user_context:
+                continue
+            payload = _unfurl_for_resource(
+                raw_url=raw_url,
+                kind=kind,
+                ref=ref,
+                integration=integration,
+                user=user_context.user,
+                slack=slack,
+                event=event,
+                slack_user_id=slack_user_id,
+                public_channel_cache=public_channel_cache,
+                owner_access_cache=owner_access_cache,
+            )
+            if payload is not None:
+                break
+
+        if payload is None:
+            logger.info(
+                "slack_link_unfurl_unresolved",
+                resource_type=kind,
+                resource_ref=str(ref),
+                url_team_id=_url_team_id(raw_url),
+                candidate_team_ids=[i.team_id for i in candidates],
+            )
+            continue
+
+        unfurls[raw_url] = payload
 
     if not unfurls:
         return
@@ -490,4 +563,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     try:
         slack.client.chat_unfurl(**unfurl_kwargs)
     except Exception:
-        logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
+        logger.exception(
+            "slack_link_unfurl_chat_unfurl_failed",
+            slack_team_id=integrations[0].integration_id,
+            channel=channel,
+        )

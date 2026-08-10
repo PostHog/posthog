@@ -148,7 +148,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "user": "U1",
                 "links": [{"url": url, "domain": "testserver"}],
             },
-            self.integration,
+            [self.integration],
         )
 
         mock_client.chat_unfurl.assert_called_once()
@@ -196,8 +196,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             "links": [{"url": url}],
         }
 
-        handle_posthog_link_unfurl(event, self.integration)
-        handle_posthog_link_unfurl(event, self.integration)
+        handle_posthog_link_unfurl(event, [self.integration])
+        handle_posthog_link_unfurl(event, [self.integration])
 
         text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
         assert "Review &lt;https://example.com|Slack task links&gt;" in text
@@ -245,7 +245,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "source": "conversations_history",
                 "links": [{"url": url}],
             },
-            self.integration,
+            [self.integration],
         )
 
         mock_client.chat_unfurl.assert_called_once()
@@ -268,7 +268,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "user": "U1",
                 "links": [{"url": f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"}],
             },
-            self.integration,
+            [self.integration],
         )
 
         mock_client.chat_unfurl.assert_not_called()
@@ -278,7 +278,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def test_unfurls_insight_when_project_segment_mismatched(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
-        """Project id in the URL is ignored; lookup uses the connected team + short_id only."""
+        """A project id the workspace hasn't connected falls back to trying the candidates."""
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
@@ -291,11 +291,61 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "user": "U1",
                 "links": [{"url": url}],
             },
-            self.integration,
+            [self.integration],
         )
 
         mock_client.chat_unfurl.assert_called_once()
         assert url in mock_client.chat_unfurl.call_args.kwargs["unfurls"]
+
+    def _connect_second_project(self) -> Integration:
+        other_team = Team.objects.create(organization=self.organization, name="Second project")
+        return Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id=self.integration.integration_id,
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurls_resource_from_project_named_in_url(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        other = self._connect_second_project()
+        dashboard = Dashboard.objects.create(team=other.team, name="Second board")
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"http://testserver/project/{other.team_id}/dashboard/{dashboard.pk}"
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
+            [self.integration, other],
+        )
+
+        text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
+        assert "Second board" in text
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurls_short_link_by_trying_every_connected_project(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        # `/i/:short_id` carries no project segment, so the only way to find it is to try each project.
+        other = self._connect_second_project()
+        insight = Insight.objects.create(team=other.team, short_id="insight2", name="Signups", saved=True)
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        url = f"http://testserver/i/{insight.short_id}"
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
+            [self.integration, other],
+        )
+
+        text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
+        assert "Signups" in text
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
@@ -315,7 +365,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "user": "U1",
                 "links": [{"url": url}],
             },
-            self.integration,
+            [self.integration],
         )
 
         mock_client.chat_unfurl.assert_called_once()
@@ -351,7 +401,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         url = f"http://testserver/project/{self.team.pk}/support/tickets/{ticket.ticket_number}"
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
-            self.integration,
+            [self.integration],
         )
 
         mock_client.chat_unfurl.assert_called_once()
@@ -392,7 +442,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         url = f"http://testserver/project/{self.team.pk}/support/tickets/{ticket.ticket_number}"
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
-            self.integration,
+            [self.integration],
         )
 
         mock_client.chat_unfurl.assert_not_called()
@@ -411,7 +461,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         url = f"http://testserver/project/{self.team.pk + 1}/support/tickets/{ticket.ticket_number}"
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
-            self.integration,
+            [self.integration],
         )
 
         mock_client.chat_unfurl.assert_not_called()
@@ -438,7 +488,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         url = f"http://testserver/support/tickets/{ticket.ticket_number}"
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
-            self.integration,
+            [self.integration],
         )
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
@@ -465,7 +515,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         url = f"http://testserver/support/tickets/{ticket.ticket_number}"
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
-            self.integration,
+            [self.integration],
         )
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
@@ -501,7 +551,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         url = f"http://testserver/support/tickets/{ticket.ticket_number}"
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "1.2", "user": "U1", "links": [{"url": url}]},
-            self.integration,
+            [self.integration],
         )
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
