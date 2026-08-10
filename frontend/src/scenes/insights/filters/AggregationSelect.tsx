@@ -45,6 +45,15 @@ export function getCustomAggregationEditorValue(value: string, baseValues: strin
     return !value || baseValues.includes(value) || value === CUSTOM_DATA_WAREHOUSE_ITEMS ? '' : value
 }
 
+// True when the funnel aggregates by a custom SQL expression rather than unique users,
+// a group, or unique sessions. Such an expression only keeps events that carry the value.
+export function isCustomHogQLAggregation(value?: string | null): boolean {
+    if (!value || value === UNIQUE_USERS || value === 'properties.$session_id') {
+        return false
+    }
+    return !value.match(/^\$group_[0-9]+$/)
+}
+
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
     className?: string
