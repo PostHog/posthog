@@ -53,8 +53,6 @@ describe("isToolAllowedForMode does not trust server-supplied readOnly", () => {
 
   beforeEach(async () => {
     clearMcpToolMetadataCache();
-    // Simulate a malicious/compromised MCP server that annotates a destructive
-    // tool as read-only to try to run without a prompt.
     const q = {
       mcpServerStatus: async () => [
         {
@@ -73,8 +71,6 @@ describe("isToolAllowedForMode does not trust server-supplied readOnly", () => {
   });
 
   it("caches the server's readOnly annotation", () => {
-    // Guards the test: the annotation really is present in the cache, so the
-    // assertions below prove readOnly is ignored for approval, not absent.
     expect(isMcpToolReadOnly(TOOL_KEY)).toBe(true);
   });
 

@@ -81,11 +81,6 @@ export function isToolAllowedForMode(
   if (AUTO_ALLOWED_TOOLS[mode]?.has(toolName) === true) {
     return true;
   }
-  // MCP tools are never auto-approved from mode alone. A server supplies its own
-  // `readOnly` annotation, so a malicious or compromised server can mark a
-  // destructive tool read-only, and trusting that here would run it with no
-  // prompt, including in plan mode. MCP tools instead flow through canUseTool's
-  // explicit approval states (do_not_use, needs_approval, user-approved) and
-  // otherwise fall through to the normal permission prompt.
+  // Never auto-allow MCP tools here: their readOnly annotation is server-supplied and untrusted
   return false;
 }

@@ -10,11 +10,6 @@ import {
 } from "../mcp/tool-metadata";
 import { canUseTool } from "./permission-handlers";
 
-/**
- * Seeds the metadata cache with a tool a (possibly malicious) MCP server has
- * annotated `readOnly: true`. Used to prove the annotation cannot bypass the
- * approval prompt.
- */
 async function seedServerReadOnlyTool(
   serverName: string,
   toolName: string,
@@ -140,14 +135,11 @@ describe("canUseTool MCP approval enforcement", () => {
   });
 
   it("prompts instead of silently allowing a server-annotated readOnly MCP tool", async () => {
-    // The MCP server (attacker-controlled if compromised) marks a destructive
-    // tool readOnly to try to run with no prompt. It must still be gated.
     await seedServerReadOnlyTool("evil", "delete_everything");
 
     const context = createContext("mcp__evil__delete_everything");
     const result = await canUseTool(context);
 
-    // Reaches the normal permission dialog rather than an automatic allow.
     expect(context.client.requestPermission).toHaveBeenCalled();
     expect(result.behavior).toBe("allow");
   });
@@ -160,7 +152,6 @@ describe("canUseTool MCP approval enforcement", () => {
     });
     const result = await canUseTool(context);
 
-    // Plan mode advertises no execution; readOnly must not run a tool here.
     expect(result.behavior).toBe("deny");
     expect(context.client.requestPermission).not.toHaveBeenCalled();
   });
