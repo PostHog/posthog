@@ -15,6 +15,7 @@ import {
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { EventTriggerSelect } from 'lib/components/IngestionControls/triggers/EventTrigger'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS, TeamMembershipLevel } from 'lib/constants'
@@ -60,15 +61,16 @@ function triggerFiltersToPropertyFilters(filters: TriggerPropertyFilter[]): AnyP
     )
 }
 
-/** Convert PropertyFilters output back to our trigger property filter format */
-function propertyFiltersToTriggerFilters(filters: AnyPropertyFilter[]): TriggerPropertyFilter[] {
+/** Convert PropertyFilters output back to our trigger property filter format. Drops half-typed rows
+ * (a key picked but no value yet), which JSON would send without a `value` and the API rejects. */
+export function propertyFiltersToTriggerFilters(filters: AnyPropertyFilter[]): TriggerPropertyFilter[] {
     return filters
-        .filter((f) => f.key)
+        .filter((f) => f.key && !isEmptyProperty(f))
         .map((f) => ({
             key: f.key!,
             type: f.type === PropertyFilterType.Person ? ('person' as const) : ('event' as const),
             operator: 'operator' in f ? (f.operator as TriggerPropertyFilter['operator']) : 'exact',
-            value: 'value' in f ? (f.value as TriggerPropertyFilter['value']) : undefined,
+            value: (f as { value: TriggerPropertyFilter['value'] }).value,
         }))
 }
 
