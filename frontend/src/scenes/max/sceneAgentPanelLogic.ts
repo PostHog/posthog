@@ -47,7 +47,7 @@ export type sceneAgentPanelLogicType = MakeLogicType<sceneAgentPanelLogicValues,
 /**
  * Auto-opens the PostHog AI side panel for scenes that opt in (via `useSceneAgentPanel`), with a
  * persisted per-scene opt-out: once the user closes the panel while such a scene is active, that
- * scene stops auto-opening on this device. Only ever opens the new (sandbox) view — the legacy Max
+ * scene stops auto-opening on this device. Only ever opens the new (sandbox) view - the legacy Max
  * view has its own scene-context system and predates this behavior.
  */
 export const sceneAgentPanelLogic = kea<sceneAgentPanelLogicType>([
@@ -87,33 +87,46 @@ export const sceneAgentPanelLogic = kea<sceneAgentPanelLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        sceneEntered: ({ sceneKey }) => {
+    listeners(({ actions, values }) => {
+        // Shared by the open and dismissal paths: dismissal must be gated exactly like auto-open, or a
+        // Max close on this scene before the feature reaches the user permanently opts them out.
+        const autoOpenEligible = (): boolean =>
+            Boolean(
+                values.featureFlags[FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN] &&
+                values.effectivePhaiView === 'new' &&
+                values.isMaxAvailable &&
+                values.sidePanelAvailable &&
+                // In modal mode (narrow viewports) the panel overlays the whole scene - never force it open.
+                !values.modalMode
+            )
+        const maybeAutoOpen = (sceneKeys: string[]): void => {
             if (
-                !values.featureFlags[FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN] ||
-                values.effectivePhaiView !== 'new' ||
-                !values.isMaxAvailable ||
-                !values.sidePanelAvailable ||
-                // In modal mode (narrow viewports) the panel overlays the whole scene — never force it open.
-                values.modalMode ||
-                values.autoOpenDismissedScenes[sceneKey] ||
+                !autoOpenEligible() ||
+                sceneKeys.every((key) => values.autoOpenDismissedScenes[key]) ||
                 // Already open: either on Max (nothing to do) or on a tab the user chose (don't clobber it).
                 values.sidePanelOpen
             ) {
                 return
             }
             actions.openSidePanel(SidePanelTab.Max)
-        },
-        [sidePanelStateLogic.actionTypes.closeSidePanel]: ({ tab }: { tab?: SidePanelTab }) => {
-            // Any close of the Max tab while an opted-in scene is active counts as "stop auto-opening
-            // here" — regardless of whether this logic or the user opened the panel.
-            if (values.activeSceneKeys.length === 0) {
-                return
-            }
-            if ((tab && tab !== SidePanelTab.Max) || values.selectedTab !== SidePanelTab.Max) {
-                return
-            }
-            actions.markAutoOpenDismissed(values.activeSceneKeys)
-        },
-    })),
+        }
+        return {
+            sceneEntered: ({ sceneKey }) => maybeAutoOpen([sceneKey]),
+            // The gates resolve asynchronously on a cold load (flags fetch, side panel mount), so a
+            // scene entered before they land would otherwise silently miss its auto-open until re-entry.
+            [featureFlagLogic.actionTypes.setFeatureFlags]: () => maybeAutoOpen(values.activeSceneKeys),
+            [sidePanelStateLogic.actionTypes.setSidePanelAvailable]: () => maybeAutoOpen(values.activeSceneKeys),
+            [sidePanelStateLogic.actionTypes.closeSidePanel]: ({ tab }: { tab?: SidePanelTab }) => {
+                // Any close of the Max tab while an opted-in scene is active counts as "stop auto-opening
+                // here" - regardless of whether this logic or the user opened the panel.
+                if (values.activeSceneKeys.length === 0 || !autoOpenEligible()) {
+                    return
+                }
+                if ((tab && tab !== SidePanelTab.Max) || values.selectedTab !== SidePanelTab.Max) {
+                    return
+                }
+                actions.markAutoOpenDismissed(values.activeSceneKeys)
+            },
+        }
+    }),
 ])

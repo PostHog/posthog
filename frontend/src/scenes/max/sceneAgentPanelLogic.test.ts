@@ -120,6 +120,51 @@ describe('sceneAgentPanelLogic', () => {
         expect(logic.values.autoOpenDismissedScenes).toEqual({})
     })
 
+    // A user who closes Max on the scene before the feature reaches them (flag off / legacy view)
+    // never exercised auto-open, so it must not be recorded as a permanent opt-out.
+    it('does not record a dismissal when the auto-open flag is off', async () => {
+        setFlags([FEATURE_FLAGS.PHAI_SANDBOX_MODE])
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+
+        await expectLogic(logic, () => {
+            logic.actions.sceneEntered('workflow')
+            sidePanelStateLogic.actions.closeSidePanel()
+        }).toFinishAllListeners()
+
+        expect(logic.values.autoOpenDismissedScenes).toEqual({})
+    })
+
+    // On a cold load the gates resolve asynchronously; a scene entered before they land must still
+    // get its auto-open when they do, not silently miss it until the user re-enters the scene.
+    it.each([
+        {
+            name: 'the feature flags load after the scene was entered',
+            setup: () => {},
+            resolve: () => setFlags(allFlags),
+        },
+        {
+            name: 'the side panel becomes available after the scene was entered',
+            setup: () => {
+                setFlags(allFlags)
+                sidePanelStateLogic.actions.setSidePanelAvailable(false)
+            },
+            resolve: () => sidePanelStateLogic.actions.setSidePanelAvailable(true),
+        },
+    ])('opens the panel when $name', async ({ setup, resolve }) => {
+        setup()
+
+        await expectLogic(logic, () => {
+            logic.actions.sceneEntered('workflow')
+        }).toFinishAllListeners()
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+
+        await expectLogic(logic, () => {
+            resolve()
+        }).toFinishAllListeners()
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
+    })
+
     it('does not record a dismissal for scenes registered after the panel was closed', async () => {
         setFlags(allFlags)
 
