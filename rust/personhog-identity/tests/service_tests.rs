@@ -435,3 +435,34 @@ async fn new_rpcs_reject_wrapping_team_ids() {
         .await;
     assert_eq!(expand.unwrap_err().code(), Code::InvalidArgument);
 }
+
+/// A repeated person id must not multiply its rows: the limited query
+/// runs its lateral lookup per occurrence, so without dedupe one group
+/// would carry duplicates and exceed the advertised per-person limit.
+#[tokio::test]
+async fn repeated_person_ids_do_not_exceed_the_per_person_limit() {
+    let t = ServiceTestContext::new().await;
+    let mut entry = t.entry("dup-expand-primary");
+    entry.extra_distinct_ids = vec!["dup-expand-extra".to_string()];
+    let (person_id, _) = t.get_or_create_single(entry).await.expect("seed");
+    let person_id = person_id.expect("seeded person has an id");
+
+    let response = t
+        .service
+        .get_distinct_ids_for_persons(Request::new(GetDistinctIdsForPersonsRequest {
+            team_id: t.ctx.team_id,
+            person_ids: vec![person_id, person_id, person_id],
+            limit_per_person: Some(1),
+        }))
+        .await
+        .expect("expansion must succeed")
+        .into_inner();
+
+    assert_eq!(response.person_distinct_ids.len(), 1);
+    let group = &response.person_distinct_ids[0];
+    assert_eq!(
+        group.distinct_ids.len(),
+        1,
+        "the per-person limit must hold under repeated ids"
+    );
+}

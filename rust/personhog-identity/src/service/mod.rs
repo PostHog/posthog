@@ -152,9 +152,17 @@ impl PersonHogIdentity for PersonHogIdentityService {
         validate_team_id(req.team_id)?;
         validate_batch_size(&self.limits, req.person_ids.len())?;
 
+        // Dedupe: the response groups by person, so a repeated id adds
+        // nothing — but the limited query's UNNEST + LATERAL runs per
+        // occurrence, and duplicated rows would merge into one group
+        // that exceeds the advertised per-person limit.
+        let mut person_ids = req.person_ids;
+        person_ids.sort_unstable();
+        person_ids.dedup();
+
         let mappings = self
             .storage
-            .get_distinct_ids_for_persons(req.team_id, &req.person_ids, req.limit_per_person)
+            .get_distinct_ids_for_persons(req.team_id, &person_ids, req.limit_per_person)
             .await
             .map_err(|e| {
                 crate::service::error::log_and_convert_error(e, "get_distinct_ids_for_persons")
