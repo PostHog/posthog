@@ -4686,10 +4686,10 @@ snapshots:
         hash: v1.k794b7964.ea754a4783f7653247f127337c407a8cdd4a9c6bc3f1b908d8d00dd1a090b966.KQ3yKnRzi4l3ZeYVThZdmo4L6mAbxtNa2uQh7y-kGWA
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--tile-filters-read-only--light:
         hash: v1.k794b7964.b2ca2efc52a9ccf56953159c66d3c8766acd1d3a17379d5faec45a4715ae24a9.fK76p7ZVcgvFJNcKJ5Ixy3YnBm_BcBSFnoytLS2jZdU
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark:
-        hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light:
-        hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark
+    :   hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light
+    :   hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--dark:
         hash: v1.k794b7964.b1e0f5f542426e34dec73826f3135902a392c0c13dade4fec14037c615186b13.kbxxijyDI1SdvgdKwkRnIRLLgmsine5AYvOcD79DYsY
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--light:
@@ -5678,6 +5678,14 @@ snapshots:
         hash: v1.k794b7964.6b964cf605487984882e7cbcfcdeb70145d5c82b515548f13c26b9cfc7c48774.Hv4r6gCj6NHtIdIcpwTfjWxoTR0WicAcnKFT5QzJ1mA
     scenes-app-data-management--ingestion-warnings--light:
         hash: v1.k794b7964.3209e00fefa6b56227f01db9fe3f231e0bef672e4fbae05757144510e79094f1.hzeCCQksEIyxI52va51UNvenmIlxwKNAFf21tLkD_MI
+    scenes-app-data-management--warehouse-properties--dark:
+        hash: v1.k794b7964.665922080691f05ad35d117c89b0eb715ad678a707cb278892eb627eb2ff62c2.ESs6rHGY5A-Ss_ssl5SyF7uc98sfu2wZij4pmR6la18
+    scenes-app-data-management--warehouse-properties--light:
+        hash: v1.k794b7964.cbb43b5ac8dd2d367d44359ebfc3153294dfdb618b7663a5202d9fbfd14d77e6.3zG1301UKdyuoQRz9vTIjlLTTs8LygETMtOTsDK5UqA
+    scenes-app-data-management--warehouse-properties-groups-tab--dark:
+        hash: v1.k794b7964.e7a956ea10bc12b0665dacf6f77e06007c5c881e6af54e6253010a378d216f29.DG8_wQnqLMr-LisByo39mZnjiMBs5r22TzkUYIWBGhc
+    scenes-app-data-management--warehouse-properties-groups-tab--light:
+        hash: v1.k794b7964.64bfec93b16ecc0852691d8f407d19f27b5c3c07b3292ef7fe3eddf57e23c56d.pRBZME1SPf0vemOSwV41eu3dIa91C2E6c5r1imkukTI
     scenes-app-data-management-actions--action--dark:
         hash: v1.k794b7964.00b57c65346e514c9454e88054c04eb8aef6f1093d64fdc46cbbef3604e7f2d6.89yiroC6COFhV4T8jtCoYYdBQat6ZW24vyN_AW3GRTI
     scenes-app-data-management-actions--action--light:
