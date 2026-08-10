@@ -4,9 +4,11 @@ import { ActivityPanel } from "@posthog/ui/features/canvas/components/ActivityPa
 import { ThreadPanel } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { track } from "@posthog/ui/shell/analytics";
 import { useState } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
 
 // The right-hand dock for a task's thread (collapsible, resizable). Flag on
 // swaps the legacy ThreadPanel for the tabbed ActivityPanel.
@@ -46,6 +48,19 @@ export function ThreadSidebar({
       task_id: taskId,
     });
   };
+
+  useHotkeys(
+    SHORTCUTS.TOGGLE_ACTIVITY_PANEL,
+    () => toggleCollapsed(!collapsed),
+    {
+      enabled: channelsLayout,
+      enableOnContentEditable: true,
+      enableOnFormTags: true,
+      preventDefault: true,
+    },
+    [channelsLayout, collapsed, taskId],
+  );
+
   const panelProps = {
     taskId,
     channelId,
