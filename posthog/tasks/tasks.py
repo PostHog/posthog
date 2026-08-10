@@ -1381,12 +1381,13 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         total_clickhouse_results = 0
 
         # ORDER BY ensures the most recent rows survive if LIMIT truncates results.
-        # Read through `distributed_events_recent` rather than `events_recent`: both are
-        # Distributed proxies over `sharded_events_recent`, but `events_recent` is only
-        # present on the dedicated 5-minute batch-export cluster, whereas the offline
-        # cluster this task's queries land on (Celery forces Workload.OFFLINE) reaches
-        # recent events through `distributed_events_recent`. Querying `events_recent`
-        # here fails with UNKNOWN_TABLE.
+        # Celery forces Workload.OFFLINE, so this query lands on
+        # CLICKHOUSE_OFFLINE_CLUSTER_HOST. There, `events_recent` and
+        # `distributed_events_recent` are both Distributed proxies over the same
+        # `sharded_events_recent` data, but they resolve through different clusters:
+        # `distributed_events_recent` reads the batch-export shard through both of its
+        # replicas, while `events_recent` is pinned to a single replica, so one
+        # unavailable node fails the entire scan with nothing to fall back to.
         chunk_query = """
             SELECT
                 team_id,
