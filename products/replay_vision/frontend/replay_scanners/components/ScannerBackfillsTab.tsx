@@ -126,17 +126,27 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
             key: 'progress',
             render: (_, backfill) => {
                 const settled = backfill.succeeded_count + backfill.failed_count + backfill.ineligible_count
-                // Skipped recordings are done with, so they count toward progress; leaving them out
-                // strands the bar short of its total on any window the scanner had already partly tried.
-                const handled = backfill.dispatched_count + backfill.skipped_count
-                const skippedNote = backfill.skipped_count ? `, ${backfill.skipped_count} already scanned` : ''
+                // Only dispatched counts toward the total. Skipped recordings are ones the walk stepped over
+                // because they were already scanned, and they were never in `total_count` to begin with —
+                // adding them produced progress like "159 of 7".
+                const skippedNote = backfill.skipped_count
+                    ? `, ${backfill.skipped_count} stepped over (already scanned)`
+                    : ''
+                const nothingToDo = backfill.status === 'completed' && backfill.dispatched_count === 0
                 return (
                     <Tooltip
                         title={`${backfill.succeeded_count} succeeded, ${backfill.failed_count} failed, ${backfill.ineligible_count} ineligible, ${backfill.in_flight_count} in flight${skippedNote}`}
                     >
                         <span>
-                            {handled.toLocaleString('en-US')} of {backfill.total_count.toLocaleString('en-US')} handled
-                            {settled > 0 ? ` (${settled.toLocaleString('en-US')} settled)` : ''}
+                            {nothingToDo ? (
+                                <span className="text-muted">Nothing left to scan</span>
+                            ) : (
+                                <>
+                                    {backfill.dispatched_count.toLocaleString('en-US')} of{' '}
+                                    {backfill.total_count.toLocaleString('en-US')} scanned
+                                    {settled > 0 ? ` (${settled.toLocaleString('en-US')} settled)` : ''}
+                                </>
+                            )}
                         </span>
                     </Tooltip>
                 )

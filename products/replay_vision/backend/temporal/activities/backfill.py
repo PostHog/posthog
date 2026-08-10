@@ -18,7 +18,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -156,12 +156,14 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         candidate_limit=inputs.candidate_limit,
     ).run()
 
-    # Dedup at creation only collides with a *running* apply, so without this a re-run over an
-    # already-scanned window pays for a child workflow per session just to no-op.
+    # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on. Skipping
+    # every status instead made the quote describe a different set than the walk: a session whose earlier scan
+    # failed emits no event, so it was counted as work to do and then silently stepped over.
     already_observed = set(
         ReplayObservation.objects.filter(
             team_id=inputs.team_id,
             scanner_id=backfill.scanner_id,
+            status=ObservationStatus.SUCCEEDED,
             session_id__in=[c.session_id for c in candidates],
         ).values_list("session_id", flat=True)
     )

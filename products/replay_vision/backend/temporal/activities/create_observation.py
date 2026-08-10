@@ -137,6 +137,25 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             )
         # Route through the validator so a malformed legacy snapshot surfaces as a tagged non-retryable error.
         existing_snapshot = ScannerSnapshot.load_for(existing.id, existing.scanner_snapshot)
+        # A backfill quotes every session without a success event, which includes ones whose earlier scan
+        # failed. Returning the failed row unchanged would let the walk report progress for a scan that never
+        # re-ran, so retake the row instead. Filtered on FAILED so a concurrent success or a live-sweep
+        # apply wins and this becomes a no-op.
+        if backfill is not None and existing.status == ObservationStatus.FAILED:
+            retaken = ReplayObservation.objects.filter(pk=existing.pk, status=ObservationStatus.FAILED).update(
+                status=ObservationStatus.PENDING,
+                workflow_id=inputs.workflow_id,
+                scanner_snapshot=snapshot_dict,
+                backfill=backfill,
+                triggered_by=inputs.triggered_by,
+                triggered_by_user_id=inputs.triggered_by_user_id,
+            )
+            if retaken:
+                return CreateObservationOutput(
+                    observation_id=existing.id,
+                    was_created=True,
+                    scanner_type=existing_snapshot.scanner_type,
+                )
         # A still-PENDING row stamped with our own workflow id is our earlier lost-result insert — reclaim it.
         reclaimed = existing.workflow_id == inputs.workflow_id and existing.status == ObservationStatus.PENDING
         return CreateObservationOutput(
