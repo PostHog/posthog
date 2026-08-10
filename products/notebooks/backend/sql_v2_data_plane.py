@@ -148,9 +148,12 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         # Two independent gates. The deployment gate says the environment can serve objects
         # at all; the per-user flag says this user is in the rollout. Failing either one
         # falls through to the inline transport below, which is correct for any user but
-        # clamped at the async row ceiling.
+        # clamped at the async row ceiling. DEBUG stands in for the flag, the way the SQLV2
+        # endpoints already treat `revamped-py-notebooks`, so local dev reaches the object
+        # path by setting NOTEBOOKS_FRAME_STORE_ENABLED alone. Without it, local testing
+        # would need a real flag on whichever project this instance sends analytics to.
         frame_store_configured = frame_store.is_enabled()
-        if frame_store_configured and is_frame_store_enabled(user):
+        if frame_store_configured and (settings.DEBUG or is_frame_store_enabled(user)):
             # Whole-frame materialization: stream the result to object storage via a
             # Temporal worker; the poll answers with a 302 to a presigned URL. The
             # frame_materialize module is imported lazily — it pulls temporalio and the

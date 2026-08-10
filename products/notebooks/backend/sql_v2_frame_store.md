@@ -201,7 +201,9 @@ serve objects at all, and the `notebooks-frame-store` feature flag says a given 
 Failing either one degrades that request to the inline transport and its 50k clamp, so the environment
 setting can be enabled estate-wide while the flag stays targeted at a handful of users. The flag is checked
 in the web process at delivery-decision time, which is the only place a materialization is ever enqueued —
-nothing downstream re-checks it. The `reason` label on `posthog_notebooks_frame_store_fallback_inline`
+nothing downstream re-checks it. `DEBUG` stands in for the flag, so local dev only needs
+`NOTEBOOKS_FRAME_STORE_ENABLED=1` on the web and worker processes to exercise the object path.
+The `reason` label on `posthog_notebooks_frame_store_fallback_inline`
 separates the two: `not_in_rollout` is the expected state during a ramp, `not_configured` means the
 deployment cannot serve objects and should be near zero once provisioned.
 
