@@ -21,6 +21,8 @@ import {
     TeamType,
 } from '~/types'
 
+import { evaluationsList } from 'products/ai_observability/frontend/generated/api'
+import type { EvaluationApi } from 'products/ai_observability/frontend/generated/api.schemas'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
     engineeringAnalyticsCiSignalsConfigRetrieve,
@@ -28,7 +30,8 @@ import {
 } from 'products/engineering_analytics/frontend/generated/api'
 import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
-import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
+import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
+import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
@@ -50,6 +53,12 @@ export interface SourceToolStatus {
 
 /** Event definitions probed to tell whether each source's tool is receiving data. */
 const TOOL_USAGE_EVENTS = ['$exception', '$ai_generation', '$ai_trace', '$pageview', '$autocapture']
+
+/**
+ * Cap on the per-source entity lists the roster inlines. Well past the tail: the busiest projects
+ * run a few dozen scanners or evaluations, and the median runs one.
+ */
+const ENTITY_PAGE_SIZE = 100
 
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
 export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
@@ -215,7 +224,12 @@ export interface signalSourcesLogicValues {
     evalReportsConfig: SignalSourceConfig | null
     githubIssuesConfig: SignalSourceConfig | null
     hasEmittingScanner: boolean | null
-    hasEmittingScannerLoading: boolean
+    visionScanners: ReplayScannerApi[] | null
+    visionScannersLoading: boolean
+    evaluations: EvaluationApi[] | null
+    evaluationsLoading: boolean
+    signalEmittingEvaluationIds: string[]
+    errorTrackingTypeStates: { sourceType: SignalSourceType; enabled: boolean }[]
     hasNoSources: boolean
     healthChecksConfig: SignalSourceConfig | null
     isAnomalyInvestigationToggling: boolean
@@ -289,21 +303,39 @@ export interface signalSourcesLogicActions {
         ciSignalsConfig: CISignalsConfigApi
         payload?: any
     }
-    loadHasEmittingScanner: () => any
-    loadHasEmittingScannerFailure: (
+    loadVisionScanners: () => any
+    loadVisionScannersFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadHasEmittingScannerSuccess: (
-        hasEmittingScanner: boolean,
+    loadVisionScannersSuccess: (
+        visionScanners: ReplayScannerApi[],
         payload?: any
     ) => {
-        hasEmittingScanner: boolean
+        visionScanners: ReplayScannerApi[]
         payload?: any
     }
+    toggleScannerSignals: (scannerId: string) => { scannerId: string }
+    loadEvaluations: () => any
+    loadEvaluationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEvaluationsSuccess: (
+        evaluations: EvaluationApi[],
+        payload?: any
+    ) => {
+        evaluations: EvaluationApi[]
+        payload?: any
+    }
+    toggleEvaluationSignals: (evaluationId: string) => { evaluationId: string }
+    toggleErrorTrackingType: (sourceType: SignalSourceType) => { sourceType: SignalSourceType }
     loadSourceConfigs: () => any
     loadSourceConfigsFailure: (
         error: string,
@@ -432,6 +464,11 @@ export interface signalSourcesLogicMeta {
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
         isSessionAnalysisRunning: (sessionAnalysisConfig: SignalSourceConfig | null) => boolean
         enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null) => number
+        hasEmittingScanner: (visionScanners: ReplayScannerApi[] | null) => boolean | null
+        signalEmittingEvaluationIds: (sourceConfigs: SignalSourceConfig[] | null) => string[]
+        errorTrackingTypeStates: (
+            sourceConfigs: SignalSourceConfig[] | null
+        ) => { sourceType: SignalSourceType; enabled: boolean }[]
         hasNoSources: (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number) => boolean
     }
 }
@@ -476,6 +513,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
+        toggleErrorTrackingType: (sourceType: SignalSourceType) => ({ sourceType }),
+        toggleEvaluationSignals: (evaluationId: string) => ({ evaluationId }),
         toggleCiSignals: (viaSetupWizard?: boolean) => ({ viaSetupWizard: viaSetupWizard ?? false }),
         toggleCiSignalsComplete: true,
         toggleHealthChecks: true,
@@ -488,7 +527,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         clearSessionAnalysisFilters: true,
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         sourceConfigs: [
             null as SignalSourceConfig[] | null,
             {
@@ -520,28 +559,58 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         // Replay Vision never writes a `SignalSourceConfig` row: each scanner's own `emits_signals`
         // flag is the per-source authorization, so its roster row reads the scanners API instead.
         // `null` until the answer is in, so callers can tell "nothing there" from "not asked yet".
-        hasEmittingScanner: [
-            null as boolean | null,
+        visionScanners: [
+            null as ReplayScannerApi[] | null,
             {
-                loadHasEmittingScanner: async (): Promise<boolean> => {
+                loadVisionScanners: async (): Promise<ReplayScannerApi[]> => {
                     try {
                         // `ApiConfig` over `teamLogic.values.currentTeamId`: the team loads async, so
                         // on a cold mount the kea value is still null and the source reads as off.
                         const response = await visionScannersList(String(ApiConfig.getCurrentProjectId()), {
                             enabled: 'enabled',
-                            emits_signals: true,
-                            limit: 1,
+                            limit: ENTITY_PAGE_SIZE,
                         })
-                        return response.count > 0
+                        return response.results
                     } catch {
-                        // This only ever adds a source, so a blip should read as "none" rather than
-                        // stranding every consumer of the count on a loading state.
-                        return false
+                        // Replay Vision 404s when its flag is off, and this source only ever adds to
+                        // the count, so a failure reads as "no scanners" rather than stranding every
+                        // consumer of the count on a loading state.
+                        return []
+                    }
+                },
+                toggleScannerSignals: async ({ scannerId }): Promise<ReplayScannerApi[]> => {
+                    const scanners = values.visionScanners ?? []
+                    const scanner = scanners.find((existing: ReplayScannerApi) => existing.id === scannerId)
+                    if (!scanner) {
+                        return scanners
+                    }
+                    const updated = await visionScannersPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        scannerId,
+                        { emits_signals: !scanner.emits_signals }
+                    )
+                    return scanners.map((existing: ReplayScannerApi) =>
+                        existing.id === scannerId ? updated : existing
+                    )
+                },
+            },
+        ],
+        evaluations: [
+            null as EvaluationApi[] | null,
+            {
+                loadEvaluations: async (): Promise<EvaluationApi[]> => {
+                    try {
+                        const response = await evaluationsList(String(ApiConfig.getCurrentProjectId()), {
+                            limit: ENTITY_PAGE_SIZE,
+                        })
+                        return response.results
+                    } catch {
+                        return []
                     }
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
         sourcesModalOpen: [
@@ -852,6 +921,43 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.sessionAnalysisConfig],
             (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
         ],
+        // `null` until the scanners load, so callers can tell "no scanner emits" from "not asked yet".
+        hasEmittingScanner: [
+            (s) => [s.visionScanners],
+            (visionScanners: ReplayScannerApi[] | null): boolean | null =>
+                visionScanners === null ? null : visionScanners.some((scanner) => scanner.emits_signals),
+        ],
+        // Each error tracking signal type is its own config row, so each can be armed on its own.
+        errorTrackingTypeStates: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): { sourceType: SignalSourceType; enabled: boolean }[] =>
+                ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) => ({
+                    sourceType,
+                    enabled:
+                        sourceConfigs?.find(
+                            (row) =>
+                                row.source_product === SignalSourceProduct.ErrorTracking &&
+                                row.source_type === sourceType
+                        )?.enabled === true,
+                })),
+        ],
+        // Per-evaluation emission is an allowlist on the `evaluation` row's config, not a flag on the
+        // evaluation itself, so an evaluation can keep running while its findings stay out of the inbox.
+        signalEmittingEvaluationIds: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): string[] => {
+                const row = sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.LlmAnalytics &&
+                        c.source_type === SignalSourceType.Evaluation
+                )
+                if (!row?.enabled) {
+                    return []
+                }
+                const ids = (row.config as { evaluation_ids?: unknown })?.evaluation_ids
+                return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
+            },
+        ],
         enabledSourcesCount: [
             (s) => [s.sourceConfigs, s.hasEmittingScanner],
             // The scout gate is a meta-toggle surfaced in the Scout troop section, not a generic
@@ -1074,6 +1180,62 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.loadSourceConfigs()
                 }
             },
+            toggleErrorTrackingType: async ({ sourceType }, breakpoint) => {
+                const configs = values.sourceConfigs ?? []
+                const existing = configs.find(
+                    (c) => c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
+                )
+                const desiredEnabled = !(existing?.enabled ?? false)
+                try {
+                    if (existing && !existing.id.startsWith('new_')) {
+                        await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
+                    } else if (desiredEnabled) {
+                        await api.signalSourceConfigs.create({
+                            source_product: SignalSourceProduct.ErrorTracking,
+                            source_type: sourceType,
+                            enabled: true,
+                            config: {},
+                        })
+                    }
+                    breakpoint()
+                } catch (error: any) {
+                    breakpoint()
+                    lemonToast.error(error?.detail || error?.message || 'Failed to toggle this signal type')
+                }
+                actions.loadSourceConfigs()
+            },
+            toggleEvaluationSignals: async ({ evaluationId }, breakpoint) => {
+                const current = values.signalEmittingEvaluationIds
+                const nextIds = current.includes(evaluationId)
+                    ? current.filter((id) => id !== evaluationId)
+                    : [...current, evaluationId]
+                const existing = (values.sourceConfigs ?? []).find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.LlmAnalytics &&
+                        c.source_type === SignalSourceType.Evaluation
+                )
+                try {
+                    if (existing && !existing.id.startsWith('new_')) {
+                        await api.signalSourceConfigs.update(existing.id, {
+                            // The row gates the whole allowlist, so an empty list means nothing to send.
+                            enabled: nextIds.length > 0,
+                            config: { ...existing.config, evaluation_ids: nextIds },
+                        })
+                    } else {
+                        await api.signalSourceConfigs.create({
+                            source_product: SignalSourceProduct.LlmAnalytics,
+                            source_type: SignalSourceType.Evaluation,
+                            enabled: nextIds.length > 0,
+                            config: { evaluation_ids: nextIds },
+                        })
+                    }
+                    breakpoint()
+                } catch (error: any) {
+                    breakpoint()
+                    lemonToast.error(error?.detail || error?.message || 'Failed to toggle this evaluation')
+                }
+                actions.loadSourceConfigs()
+            },
             toggleCiSignals: async ({ viaSetupWizard }, breakpoint) => {
                 const desiredEnabled = !values.ciSignalsIsFullyEnabled
                 const wasConnected = values.ciSignalsConfig?.configured ?? false
@@ -1255,7 +1417,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()
-                actions.loadHasEmittingScanner()
+                actions.loadVisionScanners()
+                actions.loadEvaluations()
                 if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
                     actions.loadCiSignalsConfig()
                 }
