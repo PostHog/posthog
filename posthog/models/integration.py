@@ -3408,13 +3408,14 @@ class GitHubIntegration(GitHubIntegrationBase):
         now = int(time.time())
         expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
 
+        owner_type: str | None = dot_get(installation_access.installation_info, "account.type", None)
         config = {
             "installation_id": installation_id,
             "expires_in": expires_in,
             "refreshed_at": now,
             "repository_selection": installation_access.repository_selection,
             "account": {
-                "type": dot_get(installation_access.installation_info, "account.type", None),
+                "type": owner_type,
                 "name": dot_get(installation_access.installation_info, "account.login", installation_id),
             },
         }
@@ -3448,7 +3449,6 @@ class GitHubIntegration(GitHubIntegrationBase):
                 report_user_action,  # noqa: PLC0415 — posthog.event_usage imports posthog.models
             )
 
-            owner_type = config["account"]["type"]
             report_user_action(
                 created_by,
                 "integration created",
