@@ -68,6 +68,49 @@ message GetOrCreatePersonsByDistinctIdsResponse {
   repeated GetOrCreatePersonResult results = 1;
 }
 
+// A single resolution key: distinct_id within team_id.
+message PersonKey {
+  int64 team_id = 1;
+  string distinct_id = 2;
+}
+
+message GetPersonsByDistinctIdsRequest {
+  // Max 250 per request. Keys may span teams.
+  repeated PersonKey keys = 1;
+}
+
+// The per-key outcome of a batch resolve. Mirrors GetOrCreatePersonResult
+// minus the creation fields: resolution never creates, so an absent key
+// is a result, not an error.
+message GetPersonByDistinctIdResult {
+  int64 team_id = 1;
+  string distinct_id = 2;
+  // Absent when the distinct id resolves to no live person — unknown,
+  // tombstoned, or its person deleted.
+  optional personhog.types.v1.Person person = 3;
+}
+
+message GetPersonsByDistinctIdsResponse {
+  // Same order as the request keys.
+  repeated GetPersonByDistinctIdResult results = 1;
+}
+
+// The identity-side twin of the service RPC of the same name, minus
+// ReadOptions: identity always reads the primary, so there is no
+// consistency to choose.
+message GetDistinctIdsForPersonsRequest {
+  int64 team_id = 1;
+  // Max 250 per request.
+  repeated int64 person_ids = 2;
+  // Max distinct ids returned per person; identified ids survive the
+  // cut. 0 or absent = no limit.
+  optional int64 limit_per_person = 3;
+}
+
+message GetDistinctIdsForPersonsResponse {
+  repeated personhog.types.v1.PersonDistinctIds person_distinct_ids = 1;
+}
+
 // PersonHogIdentity owns the identity graph: distinct id resolution and
 // get-or-create orchestration across the sync plane (Postgres primary) and
 // the async plane (leader-owned properties). Ingestion calls this service
@@ -83,4 +126,12 @@ message GetOrCreatePersonsByDistinctIdsResponse {
 service PersonHogIdentity {
   rpc GetOrCreatePersonByDistinctId(GetOrCreatePersonByDistinctIdRequest) returns (GetOrCreatePersonByDistinctIdResponse);
   rpc GetOrCreatePersonsByDistinctIds(GetOrCreatePersonsByDistinctIdsRequest) returns (GetOrCreatePersonsByDistinctIdsResponse);
+  // Resolve-only counterpart of get-or-create: same primary-backed
+  // resolution, same Person payload, never creates. This is the strong
+  // resolve — the router's GetPersonsByDistinctIds reads the replica and
+  // its consistency option does not change that.
+  rpc GetPersonsByDistinctIds(GetPersonsByDistinctIdsRequest) returns (GetPersonsByDistinctIdsResponse);
+  // Person-id to distinct-ids expansion on the primary; the strong twin
+  // of the router RPC of the same name (which reads the replica).
+  rpc GetDistinctIdsForPersons(GetDistinctIdsForPersonsRequest) returns (GetDistinctIdsForPersonsResponse);
 }
