@@ -35,7 +35,11 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.event_usage import groups
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
+from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
 
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
@@ -400,14 +404,18 @@ def publish_source_project(
     has_expected_version: bool,
     expected_version_id: str | None,
     task_id: UUID | None,
-    created_by_id: int | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
 ) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
     """Publish a validated project as the canvas's new head version.
 
     Upload-then-commit: the immutable source object goes up before the
     transaction, so a conflicting publish leaves at most an unreferenced
-    upload. Returns (canvas, version, build, first_publish). Raises
-    CanvasVersionConflict, CanvasBuildCapacityExceeded, or ObjectStorageError.
+    upload. Writes the "published" activity-log entry here (not in the API
+    layer) so every caller is audited and the capabilities diff is computed
+    against the head this publish actually replaced. Returns (canvas,
+    version, build, first_publish). Raises CanvasVersionConflict,
+    CanvasBuildCapacityExceeded, or ObjectStorageError.
     """
     # Lock-free fail-fast: reject a doomed publish before paying for the
     # upload. Its answer can go stale before the commit transaction re-checks
@@ -459,7 +467,8 @@ def publish_source_project(
             source_size=size,
             task_id=task_id,
             prompt=prompt or None,
-            created_by_id=created_by_id,
+            created_by=created_by,
+            capabilities=project.get("capabilities") or {},
         )
         build = _queue_build(version)
 
@@ -472,11 +481,47 @@ def publish_source_project(
             update_fields.append("name")
         canvas.save(update_fields=update_fields)
 
+    # The pre-publish capabilities come from the parent version the claim
+    # recorded under the head lock — exact even against a concurrent publish,
+    # unlike a read taken before the transaction. None means "predates the
+    # snapshot", not "empty".
+    previous_capabilities = (
+        CanvasSourceVersion.objects.for_team(canvas.team_id)
+        .filter(pk=version.parent_version_id)
+        .values_list("capabilities", flat=True)
+        .first()
+        if version.parent_version_id
+        else None
+    )
+    changes = None
+    if previous_capabilities != version.capabilities:
+        changes = [
+            Change(
+                type="Canvas",
+                action="changed",
+                field="capabilities",
+                before=previous_capabilities,
+                after=version.capabilities,
+            )
+        ]
+    _log_canvas_activity(
+        canvas,
+        user=created_by,
+        was_impersonated=was_impersonated,
+        activity="published",
+        detail=Detail(name=canvas.name, changes=changes),
+    )
+
     return canvas, version, build, first_publish
 
 
 def revert_to_version(
-    canvas: Canvas, version_id: str | UUID, expected_current_version_id: str | UUID | None
+    canvas: Canvas,
+    version_id: str | UUID,
+    expected_current_version_id: str | UUID | None,
+    *,
+    user: User | None = None,
+    was_impersonated: bool = False,
 ) -> tuple[Canvas, CanvasBuild]:
     """Move the canvas's head back to an existing version and rebuild it.
 
@@ -485,11 +530,45 @@ def revert_to_version(
     """
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(canvas, has_expected_version=True, expected_version_id=expected_current_version_id)
+        previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=version_id, canvas_id=canvas.id)
         canvas.current_source_version = version
         canvas.save(update_fields=["current_source_version", "updated_at"])
         build = _queue_build(version)
+    _log_canvas_activity(
+        canvas,
+        user=user,
+        was_impersonated=was_impersonated,
+        activity="reverted",
+        detail=Detail(
+            name=canvas.name,
+            changes=[
+                Change(
+                    type="Canvas",
+                    action="changed",
+                    field="current_source_version",
+                    before=previous_head_id,
+                    after=str(version.id),
+                )
+            ],
+        ),
+    )
     return canvas, build
+
+
+def _log_canvas_activity(
+    canvas: Canvas, *, user: User | None, was_impersonated: bool, activity: str, detail: Detail
+) -> None:
+    log_activity(
+        organization_id=canvas.team.organization_id,
+        team_id=canvas.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=canvas.id,
+        scope="Canvas",
+        activity=activity,
+        detail=detail,
+    )
 
 
 def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBuild:
@@ -672,6 +751,46 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         max(0, ((build.finished_at or timezone.now()) - build.created_at).total_seconds())
     )
     CANVAS_BUILD_ARTIFACT_BYTES.observe(sum(asset["sizeBytes"] for asset in manifest["assets"]))
+    _capture_build_completed(build, outcome="ready")
+
+
+def _capture_build_completed(build: CanvasBuild, *, outcome: str) -> None:
+    """Product-analytics record of a terminal build, attributed to the version's
+    publisher when there is one. Diagnostics contribute codes only — messages can
+    quote source. Deferred to commit so no network work runs while a caller's
+    transaction still holds row locks, and delivered through the background
+    client (no per-call setup or blocking flush). Telemetry must never fail a
+    build, so errors are swallowed.
+    """
+
+    def send() -> None:
+        try:
+            team = build.team
+            user = build.source_version.created_by
+            duration_seconds = max(0, ((build.finished_at or timezone.now()) - build.created_at).total_seconds())
+            error_codes = [
+                str(item.get("code"))
+                for item in (build.diagnostics or [])
+                if isinstance(item, dict) and item.get("severity") == "error"
+            ][:10]
+            ph_background_capture()(
+                distinct_id=user.distinct_id if user else str(team.uuid),
+                event="canvas build completed",
+                properties={
+                    "canvas_id": str(build.canvas_id),
+                    "build_id": str(build.id),
+                    "source_version_id": str(build.source_version_id),
+                    "outcome": outcome,
+                    "attempt_count": build.attempt_count,
+                    "duration_seconds": round(duration_seconds, 2),
+                    "error_codes": error_codes,
+                },
+                groups=groups(team.organization, team),
+            )
+        except Exception:
+            logger.warning("canvas_build_capture_failed", build_id=str(build.id), exc_info=True)
+
+    transaction.on_commit(send)
 
 
 def _finalize_ready(
@@ -779,6 +898,7 @@ def _finish_failed(stale_build: CanvasBuild, diagnostics: list[dict[str, Any]]) 
     CANVAS_BUILD_DURATION_SECONDS.labels(outcome="failed").observe(
         max(0, (build.finished_at - build.created_at).total_seconds())
     )
+    _capture_build_completed(build, outcome="failed")
 
 
 def sweep_canvas_builds() -> dict[str, int]:
