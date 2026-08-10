@@ -1,10 +1,13 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
+
+from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQuery
 
 from posthog.hogql.database.database import Database
 
-from products.endpoints.backend.logic.validation import validate_hogql_query
+from products.endpoints.backend.logic.validation import DIRECT_CONNECTION_UNSUPPORTED, validate_hogql_query
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -14,7 +17,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
-class TestDirectConnectionValidation(BaseTest):
+class TestDirectConnectionValidation(APIBaseTest):
     def _dual_mode_source(self) -> ExternalDataSource:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -65,8 +68,38 @@ class TestDirectConnectionValidation(BaseTest):
         assert without_connection.has_table("postgres.pg.pg_users")
         assert not without_connection.has_table("public.users")
 
-    def test_endpoint_validation_accepts_a_query_the_editor_resolves(self):
+    def test_a_direct_connection_query_is_refused_by_name(self):
+        source = self._dual_mode_source()
+
+        with self.assertRaises(ValidationError) as ctx:
+            validate_hogql_query(
+                HogQLQuery(query="SELECT id FROM public.users", connectionId=str(source.id)),
+                self.team,
+                self.user,
+            )
+
+        assert str(ctx.exception.detail["query"]) == DIRECT_CONNECTION_UNSUPPORTED
+
+    def test_the_synced_copy_of_the_same_table_still_validates(self):
         self._dual_mode_source()
 
-        # The editor resolves this against the selected connection; endpoint creation must too.
-        validate_hogql_query(HogQLQuery(query="SELECT id FROM public.users"), self.team, self.user)
+        validate_hogql_query(HogQLQuery(query="SELECT id FROM postgres.pg.pg_users"), self.team, self.user)
+
+    def test_creating_an_endpoint_over_a_direct_connection_is_refused(self):
+        source = self._dual_mode_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {
+                "name": "direct_users",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT id FROM public.users",
+                    "connectionId": str(source.id),
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == DIRECT_CONNECTION_UNSUPPORTED

@@ -41,7 +41,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
     const { endpoints } = useValues(endpointsLogic)
 
     const { variablesForInsight } = useValues(variablesLogic)
-    const { queryInput } = useValues(sqlEditorLogic)
+    const { queryInput, selectedConnectionId } = useValues(sqlEditorLogic)
 
     const handleSubmit = (): void => {
         const sqlQuery = queryInput || ''
@@ -166,7 +166,17 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                     resourceType={AccessControlResourceType.Endpoint}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonButton type="primary" onClick={handleSubmit} icon={<IconEndpoints />} size="medium">
+                    <LemonButton
+                        type="primary"
+                        onClick={handleSubmit}
+                        icon={<IconEndpoints />}
+                        size="medium"
+                        disabledReason={
+                            selectedConnectionId
+                                ? "Endpoints can't query a direct connection. Switch the connection to PostHog (ClickHouse) and query a synced table instead."
+                                : undefined
+                        }
+                    >
                         {isUpdateMode ? 'Update endpoint' : 'Create endpoint'}
                     </LemonButton>
                 </AccessControlAction>
