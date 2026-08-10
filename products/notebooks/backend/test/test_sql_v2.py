@@ -1597,6 +1597,23 @@ class TestSQLV2DataPlaneToken(SimpleTestCase):
             verify_data_plane_token(make_token())
 
 
+class TestFrameStoreFlagResolution(SimpleTestCase):
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_frame_store_flag_is_its_own_flag(self, _name, flag_value):
+        # Every other frame-store test patches is_frame_store_enabled, so this is the only
+        # place the flag key is checked. It shares _flag_enabled_for with is_sql_v2_enabled,
+        # and a refactor that collapsed the two would put every revamped-notebooks user on
+        # object storage — in production only, with the rest of the suite still green.
+        from products.notebooks.backend.sql_v2 import NOTEBOOKS_FRAME_STORE_FLAG, is_frame_store_enabled
+
+        user = SimpleNamespace(distinct_id="user-distinct-id", organization=None)
+        with patch("products.notebooks.backend.sql_v2.posthoganalytics.feature_enabled") as feature_enabled:
+            feature_enabled.return_value = flag_value
+            self.assertEqual(is_frame_store_enabled(user), flag_value)
+        self.assertEqual(feature_enabled.call_args.args[0], NOTEBOOKS_FRAME_STORE_FLAG)
+        self.assertEqual(NOTEBOOKS_FRAME_STORE_FLAG, "notebooks-frame-store")
+
+
 class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     URL = "/internal/notebooks/data_plane/query/"
 
