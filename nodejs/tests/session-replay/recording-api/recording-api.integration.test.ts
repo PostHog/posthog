@@ -827,7 +827,7 @@ describe('Recording API encryption integration', () => {
 
         // Set up a real fetchable block so a request that PASSES auth returns 200 (not just "not 401").
         const setupBlock = async (): Promise<{ key: string; startByte: string; endByte: string }> => {
-            const sessionKey = await keyStore.generateKey(SESSION, TEAM)
+            const sessionKey = await keyStore.generateKey(SESSION, TEAM, 30)
             const blockData = await createBlockData([{ type: 2, data: { content: 'hi' } }])
             const { data: encrypted } = encryptor.encryptBlockWithKey(SESSION, TEAM, blockData, sessionKey)
             mockS3Send.mockResolvedValue({ Body: { transformToByteArray: () => Promise.resolve(encrypted) } })
