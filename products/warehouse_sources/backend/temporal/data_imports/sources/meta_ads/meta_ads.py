@@ -860,6 +860,33 @@ def _make_paginated_api_request(
         yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
 
+def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
+    """Attribution settings to add to an Insights request, only when the source configures them.
+
+    Omitted entirely when unset, so existing connections keep Meta's default attribution and
+    produce byte-for-byte the same request as before. When set, they let a user reconcile
+    PostHog's spend and conversion numbers with what Ads Manager shows.
+
+    - ``action_attribution_windows``: a comma-separated list in config (e.g. ``7d_click,1d_view``),
+      sent JSON-encoded the way Meta's Graph API accepts a list parameter.
+    - ``use_unified_attribution_setting``: a string flag (``"true"``/``"false"``) sent verbatim;
+      any other value (including the "use Meta's default" empty option) leaves it unset.
+    """
+    params: dict[str, str] = {}
+
+    windows_raw = getattr(config, "action_attribution_windows", None)
+    if windows_raw:
+        windows = [window.strip() for window in windows_raw.split(",") if window.strip()]
+        if windows:
+            params["action_attribution_windows"] = json.dumps(windows)
+
+    use_unified = getattr(config, "use_unified_attribution_setting", None)
+    if use_unified in ("true", "false"):
+        params["use_unified_attribution_setting"] = use_unified
+
+    return params
+
+
 def meta_ads_source(
     resource_name: str,
     config: MetaAdsSourceConfig,
@@ -930,6 +957,10 @@ def meta_ads_source(
             "limit": PAGE_LIMIT_FALLBACK_SIZES[0],
             **schema.extra_params,
         }
+        # Attribution settings apply only to Insights (stats) tables; entity endpoints (campaigns,
+        # ads, ...) don't take them and Meta would reject the extra params.
+        if schema.is_stats:
+            params.update(_attribution_params(config))
 
         yield from _make_paginated_api_request(
             formatted_url, params, access_token, time_range, resumable_source_manager
