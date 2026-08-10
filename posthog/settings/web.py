@@ -359,7 +359,7 @@ GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLE
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
-# region's project; env-overridable since the id differs across cloud deployments.
+# region's project.
 GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env(
     "GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 1 if (CLOUD_DEPLOYMENT or "").upper() == "EU" else 2, type_cast=int
 )
