@@ -1454,8 +1454,13 @@ def _schemas_from_conn(
             )
             result = cursor.fetchall()
         except psycopg.errors.QueryCanceled as e:
-            # Exceeding even the raised METADATA_STATEMENT_TIMEOUT_MS means the catalog is too big
-            # to enumerate in time — retrying re-runs the same futile scan against the same schema.
+            # QueryCanceled also covers a hot-standby recovery conflict mid-scan ("conflict with
+            # recovery"), which `get_schemas`'s outer `_retry_on_connection_dropped` already retries
+            # via `_is_recovery_conflict_error` — that one is transient and must keep propagating
+            # unconverted. Only a genuine statement_timeout means the catalog is too big to enumerate
+            # in time, where retrying re-runs the same futile scan against the same schema.
+            if "statement timeout" not in " ".join(str(arg) for arg in e.args).lower():
+                raise
             raise _schema_discovery_timeout_error() from e
 
         columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)

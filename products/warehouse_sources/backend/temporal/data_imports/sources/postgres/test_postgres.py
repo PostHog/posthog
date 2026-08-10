@@ -6130,6 +6130,27 @@ class TestGetTable:
         assert str(exc_info.value) == str(_schema_discovery_timeout_error())
 
     @pytest.mark.django_db
+    def test_schemas_from_conn_recovery_conflict_stays_retryable(self):
+        # A hot-standby recovery conflict during the catalog scan is also a QueryCanceled, but it's
+        # transient and already retried by `get_schemas`'s outer `_retry_on_connection_dropped` (via
+        # `_is_recovery_conflict_error`). It must propagate unconverted, not get mapped to the
+        # non-retryable timeout error meant for a genuinely oversized catalog.
+        cursor = MagicMock()
+        cursor.execute.side_effect = [
+            None,  # SET statement_timeout
+            psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"),
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+            return_value=({"big_table": (None, "public", "big_table")}, False),
+        ):
+            with pytest.raises(psycopg.errors.QueryCanceled, match="conflict with recovery"):
+                _schemas_from_conn(cast(Any, connection), "public", None)
+
+    @pytest.mark.django_db
     def test_regular_table(self):
         logger = structlog.get_logger()
 
