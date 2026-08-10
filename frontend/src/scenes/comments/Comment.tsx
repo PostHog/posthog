@@ -34,7 +34,7 @@ import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 
 // Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
 // rides in item_context.
-function getCommentAuthorName(comment: CommentType): string {
+export function getCommentAuthorName(comment: CommentType): string {
     if (comment.created_by) {
         return comment.created_by.first_name ?? 'Unknown user'
     }
