@@ -73,6 +73,7 @@ class TestInstagramSource:
         assert config.label == "Instagram"
         assert config.category == DataWarehouseSourceCategory.COMMUNICATION
         assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.featureFlag == "dwh-instagram"
         assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/instagram.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/instagram"

@@ -81,6 +81,7 @@ Connect your Instagram account, then pick the professional account you want to s
             docsUrl="https://posthog.com/docs/cdp/sources/instagram",
             keywords=["ig", "meta", "social"],
             releaseStatus=ReleaseStatus.ALPHA,
+            featureFlag="dwh-instagram",
             fields=cast(
                 list[FieldType],
                 [
