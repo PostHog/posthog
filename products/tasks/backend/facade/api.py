@@ -6764,7 +6764,8 @@ def emit_task_event(
     Supplying one makes the write idempotent against the partial unique index on
     ``(task, event, event_key)``, so a redelivered webhook or a retried Temporal
     activity is a no-op rather than a duplicate row. Returns ``None`` when the row
-    already existed.
+    already existed — though a ``notify`` caller's projection still re-runs, so a
+    retry can finish work an earlier attempt dropped.
 
     ``notify`` opts a row into the notification feed and mention indexing. Lifecycle
     rows leave it off: a run starting is timeline material, not something to mark a
@@ -6793,13 +6794,21 @@ def emit_task_event(
             event_key=event_key,
             defaults=row,
         )
-        if not created:
-            return None
     else:
-        message = TaskThreadMessage.objects.for_team(task.team_id).create(**row)
+        message, created = TaskThreadMessage.objects.for_team(task.team_id).create(**row), True
 
-    if not notify:
-        return message
+    if notify:
+        # Runs for an existing row too. The row commits before its notifications, so a caller
+        # retrying after a projection failure would otherwise find the row, return early, and
+        # leave the feed permanently short of one event. Both steps are idempotent — the
+        # activity row is an upsert and mention rows ignore conflicts — so repeating them is
+        # cheaper than losing them.
+        _project_task_event_notifications(message)
+    return message if created else None
+
+
+def _project_task_event_notifications(message: TaskThreadMessage) -> None:
+    """Put an event row on the feeds of everyone it concerns, and index its mentions."""
     project_thread_message_activity(message)
     try:
         mentioned_user_ids = resolve_mentioned_user_ids(
@@ -6808,7 +6817,6 @@ def emit_task_event(
         _index_thread_message_mentions(message, mentioned_user_ids)
     except Exception:
         logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
-    return message
 
 
 def _agent_thread_updates_enabled(creator: User | None) -> bool:

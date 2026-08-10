@@ -33,22 +33,15 @@ UPDATE posthog_task_thread_message AS message
    AND ranked.rank = 1
 """
 
-# Reversing re-empties only the keys this migration could have set, leaving rows written by
-# the emitter (which never writes an event_key that isn't in its payload) untouched.
-REVERSE_SQL = """
-UPDATE posthog_task_thread_message
-   SET event_key = ''
- WHERE event = 'pr_created'
-   AND event_key <> ''
-   AND event_key = payload->>'pr_url'
-"""
 
-
+# Irreversible on purpose. A backfilled row is indistinguishable from one the live emitter
+# wrote: both store the same url in event_key and payload.pr_url, so any reverse query wide
+# enough to clear the backfill also strips idempotency keys from rows written after it.
 class Migration(migrations.Migration):
     dependencies = [
         ("tasks", "0087_taskthreadmessage_event_key_unique"),
     ]
 
     operations = [
-        migrations.RunSQL(sql=BACKFILL_SQL, reverse_sql=REVERSE_SQL),
+        migrations.RunSQL(sql=BACKFILL_SQL, reverse_sql=migrations.RunSQL.noop),
     ]

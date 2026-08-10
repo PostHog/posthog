@@ -388,6 +388,23 @@ class TestEmitTaskEvent(TestCase):
         assert activity is not None
         self.assertEqual(activity.kind, TaskActivity.Kind.MESSAGE)
 
+    def test_a_retry_finishes_notifications_the_first_attempt_dropped(self) -> None:
+        # The row commits before its notifications, so a caller retrying after a projection
+        # failure must not be told "already exists" and leave the feed one event short.
+        with patch(
+            "products.tasks.backend.facade.api.project_thread_message_activity",
+            side_effect=RuntimeError("feed down"),
+        ):
+            with self.assertRaises(RuntimeError):
+                emit_task_event(self.task, event="pr_created", content="opened", event_key="url", notify=True)
+
+        emit_task_event(self.task, event="pr_created", content="opened", event_key="url", notify=True)
+
+        self.assertEqual(len(self._events()), 1)
+        self.assertTrue(
+            TaskActivity.objects.for_team(self.team.id).filter(task=self.task, kind=TaskActivity.Kind.MESSAGE).exists()
+        )
+
     def test_events_are_authorless_agent_rows(self) -> None:
         # Clients decide between an avatar and an icon on author_kind, so an event row that
         # carried an author would render as a person having said something.
