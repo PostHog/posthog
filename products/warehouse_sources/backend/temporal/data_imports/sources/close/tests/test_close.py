@@ -41,16 +41,16 @@ class TestCloseOffsetPaginator:
     def test_update_state_has_more_advances_offset(self) -> None:
         paginator = CloseOffsetPaginator()
         response = MagicMock()
-        response.json.return_value = {"data": [{"id": "lead_1"}], "has_more": True}
-        paginator.update_state(response, [{"id": "lead_1"}])
+        response.json.return_value = {"data": [{"id": "user_1"}], "has_more": True}
+        paginator.update_state(response, [{"id": "user_1"}])
         assert paginator.offset == 100
         assert paginator.has_next_page is True
 
     def test_update_state_no_more_stops(self) -> None:
         paginator = CloseOffsetPaginator()
         response = MagicMock()
-        response.json.return_value = {"data": [{"id": "lead_1"}], "has_more": False}
-        paginator.update_state(response, [{"id": "lead_1"}])
+        response.json.return_value = {"data": [{"id": "user_1"}], "has_more": False}
+        paginator.update_state(response, [{"id": "user_1"}])
         assert paginator.has_next_page is False
 
     def test_update_state_missing_has_more_stops(self) -> None:
@@ -71,15 +71,15 @@ class TestCloseOffsetPaginator:
     def test_get_resume_state_when_next_page(self) -> None:
         paginator = CloseOffsetPaginator()
         response = MagicMock()
-        response.json.return_value = {"data": [{"id": "lead_1"}], "has_more": True}
-        paginator.update_state(response, [{"id": "lead_1"}])
+        response.json.return_value = {"data": [{"id": "user_1"}], "has_more": True}
+        paginator.update_state(response, [{"id": "user_1"}])
         assert paginator.get_resume_state() == {"skip": 100}
 
     def test_get_resume_state_none_on_terminal_page(self) -> None:
         paginator = CloseOffsetPaginator()
         response = MagicMock()
-        response.json.return_value = {"data": [{"id": "lead_1"}], "has_more": False}
-        paginator.update_state(response, [{"id": "lead_1"}])
+        response.json.return_value = {"data": [{"id": "user_1"}], "has_more": False}
+        paginator.update_state(response, [{"id": "user_1"}])
         assert paginator.get_resume_state() is None
 
     def test_set_resume_state_round_trip(self) -> None:
@@ -148,7 +148,7 @@ class TestGetResource:
         assert resource["primary_key"] == ["id"]
         assert _endpoint(resource)["data_selector"] == "data"
 
-    @pytest.mark.parametrize("endpoint", ["Leads", "Contacts", "Users", "Pipelines"])
+    @pytest.mark.parametrize("endpoint", ["Users", "Pipelines", "EmailTemplates"])
     def test_full_refresh_endpoints_never_incremental(self, endpoint: str) -> None:
         # Even when the user enables incremental, endpoints with no server-side date filter
         # stay on full replace and emit no `__gte` param.
@@ -184,7 +184,7 @@ class TestGetResource:
         resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None)
         assert isinstance(_endpoint(resource)["paginator"], SinglePagePaginator)
 
-    @pytest.mark.parametrize("endpoint", ["Leads", "Contacts", "Opportunities", "Activities", "Tasks", "Users"])
+    @pytest.mark.parametrize("endpoint", ["Opportunities", "Activities", "Tasks", "Users", "EmailTemplates"])
     def test_paginated_endpoints_inherit_client_paginator(self, endpoint: str) -> None:
         # Offset-paginated endpoints don't set an endpoint-level paginator, so they fall back to
         # the client-level CloseOffsetPaginator.
@@ -216,6 +216,7 @@ class TestCloseSourcePartitioning:
             team_id=1,
             job_id="job",
             resumable_source_manager=manager,
+            logger=MagicMock(),
             db_incremental_field_last_value=None,
             should_use_incremental_field=False,
         )
@@ -272,6 +273,7 @@ class TestCloseSourceResumeBehavior:
                 team_id=123,
                 job_id="test_job",
                 resumable_source_manager=manager,
+                logger=MagicMock(),
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
@@ -284,11 +286,11 @@ class TestCloseSourceResumeBehavior:
         manager.can_resume.return_value = False
 
         responses = [
-            _make_http_response({"data": [{"id": "lead_1"}], "has_more": True}),
-            _make_http_response({"data": [{"id": "lead_2"}], "has_more": True}),
-            _make_http_response({"data": [{"id": "lead_3"}], "has_more": False}),
+            _make_http_response({"data": [{"id": "user_1"}], "has_more": True}),
+            _make_http_response({"data": [{"id": "user_2"}], "has_more": True}),
+            _make_http_response({"data": [{"id": "user_3"}], "has_more": False}),
         ]
-        sent_params = self._drive("Leads", manager, responses)
+        sent_params = self._drive("Users", manager, responses)
 
         assert [p.get("_skip") for p in sent_params] == [0, 100, 200]
 
@@ -300,8 +302,8 @@ class TestCloseSourceResumeBehavior:
         manager.can_resume.return_value = True
         manager.load_state.return_value = CloseResumeConfig(next_skip=200)
 
-        responses = [_make_http_response({"data": [{"id": "lead_9"}], "has_more": False})]
-        sent_params = self._drive("Leads", manager, responses)
+        responses = [_make_http_response({"data": [{"id": "user_9"}], "has_more": False})]
+        sent_params = self._drive("Users", manager, responses)
 
         assert [p.get("_skip") for p in sent_params] == [200]
         manager.load_state.assert_called_once()
@@ -311,7 +313,7 @@ class TestCloseSourceResumeBehavior:
         manager.can_resume.return_value = False
 
         responses = [_make_http_response({"data": [{"id": "only"}], "has_more": False})]
-        self._drive("Leads", manager, responses)
+        self._drive("Users", manager, responses)
 
         manager.save_state.assert_not_called()
 
@@ -320,7 +322,7 @@ class TestCloseSourceResumeBehavior:
         manager.can_resume.return_value = False
 
         responses = [_make_http_response({"data": [{"id": "a"}], "has_more": False})]
-        self._drive("Leads", manager, responses)
+        self._drive("Users", manager, responses)
 
         manager.load_state.assert_not_called()
 

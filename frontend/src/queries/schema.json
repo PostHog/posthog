@@ -21668,6 +21668,10 @@
             "additionalProperties": false,
             "description": "Exposure criteria for experiment API payloads.",
             "properties": {
+                "activation_config": {
+                    "$ref": "#/definitions/ExperimentApiExposureConfig",
+                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`."
+                },
                 "exposure_config": {
                     "$ref": "#/definitions/ExperimentApiExposureConfig"
                 },
@@ -21942,6 +21946,10 @@
         "ExperimentExposureCriteria": {
             "additionalProperties": false,
             "properties": {
+                "activation_config": {
+                    "$ref": "#/definitions/ExperimentExposureConfig",
+                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`."
+                },
                 "exposure_config": {
                     "$ref": "#/definitions/ExperimentExposureConfig"
                 },
@@ -24197,6 +24205,7 @@
                 "PeecAI",
                 "Healthchecks",
                 "Impact",
+                "ImpactPartner",
                 "AikidoSecurity",
                 "Alguna",
                 "Anthropic",
@@ -26958,11 +26967,19 @@
             "additionalProperties": false,
             "description": "Filters object that will be converted to a HogQL {filters} placeholder",
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval."
                 },
                 "properties": {
                     "items": {

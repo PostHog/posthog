@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.de
     validate_credentials as validate_decagon_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.settings import (
+    DECAGON_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -102,7 +103,8 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
             SourceSchema(
                 name=endpoint,
                 supports_incremental=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                supports_append=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
+                supports_append=DECAGON_ENDPOINTS[endpoint].supports_append
+                and len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS
@@ -140,4 +142,9 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            incremental_field=inputs.incremental_field,
         )

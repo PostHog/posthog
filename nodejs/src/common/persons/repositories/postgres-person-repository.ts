@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { buildIntegerMatcher } from '~/common/config/config'
 import { PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
 import {
     oversizedPersonPropertiesTrimmedCounter,
@@ -30,18 +29,13 @@ import {
     RawPerson,
     Team,
     TeamId,
-    ValueMatcher,
 } from '~/types'
 
 import {
-    DistinctIdConflictError,
     InternalPersonWithDistinctId,
-    LifecycleMarkPerson,
-    PersonClaimedByLifecycleOpError,
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
-    PersonTombstoneBlockedError,
 } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
@@ -79,29 +73,24 @@ export interface PostgresPersonRepositoryOptions {
     personPropertiesDbConstraintLimitBytes: number
     /** Target JSON size (stringified) to trim down to when remediating oversized properties */
     personPropertiesTrimTargetBytes: number
-    /** Teams whose merge deletes tombstone the person row instead of hard-deleting it ('*' for all) */
-    personMergeTombstoneTeamAllowlist: string
 }
 
 const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
     calculatePropertiesSize: 0,
     personPropertiesDbConstraintLimitBytes: DEFAULT_PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES,
     personPropertiesTrimTargetBytes: DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES,
-    personMergeTombstoneTeamAllowlist: '',
 }
 
 export class PostgresPersonRepository
     implements PersonRepository, RawPostgresPersonRepository, PersonRepositoryTransaction
 {
     private options: PostgresPersonRepositoryOptions
-    private isTombstoneTeam: ValueMatcher<number>
 
     constructor(
         private postgres: PostgresRouter,
         options?: Partial<PostgresPersonRepositoryOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
-        this.isTombstoneTeam = buildIntegerMatcher(this.options.personMergeTombstoneTeamAllowlist, true)
     }
 
     private async handleOversizedPersonProperties(
@@ -530,40 +519,29 @@ export class PostgresPersonRepository
         extraDistinctIds: { distinctId: string; version?: number }[] = [],
         tx?: TransactionClient
     ): Promise<CreatePersonResult> {
-        // A conflicted create is undone by a compensating statement, which is only
-        // atomic with the create inside a transaction. Without one, the created person
-        // would be briefly visible to concurrent requests before the undo tombstones it.
-        if (!tx) {
-            return await this.inRawTransaction('createPerson', (newTx) =>
-                this.createPerson(
-                    createdAt,
-                    properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
-                    teamId,
-                    isUserId,
-                    isIdentified,
-                    uuid,
-                    primaryDistinctId,
-                    extraDistinctIds,
-                    newTx
-                )
-            )
-        }
-
-        // Dedupe by distinct id: ON CONFLICT DO UPDATE raises 21000 when one command
-        // carries the same key twice, even when the WHERE qual would exclude the row.
-        const distinctIds = [primaryDistinctId, ...extraDistinctIds].filter(
-            (entry, index, all) => all.findIndex((other) => other.distinctId === entry.distinctId) === index
-        )
+        const distinctIds = [primaryDistinctId, ...extraDistinctIds]
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
         }
 
-        // Fresh inserts start at version 0; a tombstone conflict revives at death_version + 1 instead.
+        // The Person is being created, and so we can hardcode version 0!
         const personVersion = 0
 
         try {
+            const columns = [
+                'created_at',
+                'properties',
+                'properties_last_updated_at',
+                'properties_last_operation',
+                'team_id',
+                'is_user_id',
+                'is_identified',
+                'uuid',
+                'version',
+                'last_seen_at',
+            ]
+            const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+
             // Sanitize and measure JSON field sizes
             const sanitizedProperties = sanitizeJsonbValue(properties)
             const sanitizedPropertiesLastUpdatedAt = sanitizeJsonbValue(propertiesLastUpdatedAt)
@@ -602,119 +580,69 @@ export class PostgresPersonRepository
                 lastSeenAt.toISO(),
             ]
 
-            // A conflict with a tombstoned row is a revival: continue the version
-            // counter above the death version so the reborn key outranks its own
-            // ClickHouse tombstone from its first write. Conflicts with live rows
-            // fail the WHERE qual and surface as CreationConflict below.
-            const query = `
-                WITH inserted_person AS (
-                    INSERT INTO posthog_person (
-                        created_at, properties, properties_last_updated_at, properties_last_operation,
-                        team_id, is_user_id, is_identified, uuid, version, last_seen_at
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                    ON CONFLICT (team_id, uuid) DO UPDATE SET
-                        is_deleted = false,
-                        version = COALESCE(posthog_person.version, 0) + 1,
-                        properties = EXCLUDED.properties,
-                        properties_last_updated_at = EXCLUDED.properties_last_updated_at,
-                        properties_last_operation = EXCLUDED.properties_last_operation,
-                        created_at = EXCLUDED.created_at,
-                        is_user_id = EXCLUDED.is_user_id,
-                        is_identified = EXCLUDED.is_identified,
-                        last_seen_at = EXCLUDED.last_seen_at
-                    WHERE posthog_person.is_deleted = true
-                    RETURNING ${PERSON_COLUMNS}
-                ),
-                inserted_distinct_ids AS (
-                    -- NOTE: Keep this in sync with the posthog_persondistinctid INSERT in addDistinctId
-                    INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                    SELECT d.distinct_id, ip.id, $5, d.version
-                    FROM inserted_person ip
-                    CROSS JOIN unnest($11::text[], $12::bigint[]) AS d(distinct_id, version)
-                    ON CONFLICT (team_id, distinct_id) DO UPDATE SET
-                        person_id = EXCLUDED.person_id,
-                        version = COALESCE(posthog_persondistinctid.version, 0) + 1,
-                        is_deleted = false
-                    WHERE posthog_persondistinctid.is_deleted = true
-                    RETURNING id, distinct_id, version
-                )
-                SELECT
-                    ip.*,
-                    (
-                        SELECT COALESCE(jsonb_agg(jsonb_build_object('id', d.id::text, 'distinct_id', d.distinct_id, 'version', d.version)), '[]'::jsonb)
-                        FROM inserted_distinct_ids d
-                    ) AS distinct_id_rows
-                FROM inserted_person ip;`
+            // Find the actual index of team_id in the personParams array (1-indexed for SQL)
+            const teamIdParamIndex = personParams.indexOf(teamId) + 1
+            const distinctIdVersionStartIndex = columns.length + 1
+            const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
 
-            const { rows } = await this.postgres.query<
-                RawPerson & { distinct_id_rows: { id: string; distinct_id: string; version: number }[] }
-            >(
+            const distinctIdsCTE =
+                distinctIds.length > 0
+                    ? `, distinct_ids AS (
+                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                            VALUES ${distinctIds
+                                .map(
+                                    // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                                    // `addDistinctId`
+                                    (_, index) => `(
+                                $${distinctIdStartIndex + index},
+                                (SELECT id FROM inserted_person),
+                                $${teamIdParamIndex},
+                                $${distinctIdVersionStartIndex + index}
+                            )`
+                                )
+                                .join(', ')}
+                        )`
+                    : ''
+
+            const query =
+                `WITH inserted_person AS (
+                        INSERT INTO posthog_person (${columns.join(', ')})
+                        VALUES (${valuePlaceholders})
+                        RETURNING ${PERSON_COLUMNS}
+                    )` +
+                distinctIdsCTE +
+                ` SELECT * FROM inserted_person;`
+
+            const { rows } = await this.postgres.query<RawPerson>(
                 tx ?? PostgresUse.PERSONS_WRITE,
                 query,
                 [
                     ...personParams,
-                    distinctIds.map(({ distinctId }) => distinctId),
-                    distinctIds.map(({ version }) => version),
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ version }) => version),
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ distinctId }) => distinctId),
                 ],
                 'insertPerson',
                 'warn'
             )
-
-            if (rows.length === 0) {
-                // A live row already owns this (team_id, uuid): a concurrent create or
-                // an existing person. Same outcome as a unique violation.
-                return {
-                    success: false,
-                    error: 'CreationConflict',
-                    distinctIds: distinctIds.map((d) => d.distinctId),
-                }
-            }
-
-            const { distinct_id_rows: distinctIdRows, ...personRow } = rows[0]
-            const person = this.toPerson(personRow)
-
-            if (distinctIdRows.length < distinctIds.length) {
-                // A live mapping owns one of the distinct ids, so the create must not
-                // stand: a person row without that mapping would be unreachable by it
-                // and would block the key's future revival. Tombstoning what this
-                // statement wrote (a monotonic version bump, correct for revived rows
-                // too) restores the pre-insert state.
-                await this.postgres.query(
-                    tx ?? PostgresUse.PERSONS_WRITE,
-                    `WITH undone_distinct_ids AS (
-                        UPDATE posthog_persondistinctid
-                        SET is_deleted = true, version = COALESCE(version, 0) + 1
-                        WHERE team_id = $2 AND id = ANY($1::bigint[]) AND is_deleted = false
-                    )
-                    UPDATE posthog_person
-                    SET is_deleted = true,
-                        version = COALESCE(version, 0) + 1,
-                        properties = '{}'::jsonb,
-                        properties_last_updated_at = '{}'::jsonb,
-                        properties_last_operation = '{}'::jsonb
-                    WHERE team_id = $2 AND id = $3 AND is_deleted = false`,
-                    [distinctIdRows.map((row) => row.id), teamId, person.id],
-                    'undoInsertPerson'
-                )
-                return {
-                    success: false,
-                    error: 'CreationConflict',
-                    distinctIds: distinctIds.map((d) => d.distinctId),
-                }
-            }
+            const person = this.toPerson(rows[0])
 
             const kafkaMessages: PersonMessage[] = [generateKafkaPersonUpdateMessage(person)]
 
-            for (const row of distinctIdRows) {
+            for (const distinctId of distinctIds) {
                 kafkaMessages.push({
                     output: PERSON_DISTINCT_IDS_OUTPUT,
                     value: Buffer.from(
                         JSON.stringify({
                             person_id: person.uuid,
                             team_id: teamId,
-                            distinct_id: row.distinct_id,
-                            version: Number(row.version),
+                            distinct_id: distinctId.distinctId,
+                            version: distinctId.version,
                             is_deleted: 0,
                         })
                     ),
@@ -728,6 +656,16 @@ export class PostgresPersonRepository
                 created: true,
             }
         } catch (error) {
+            // Handle constraint violation - another process created the person concurrently
+            if (error instanceof Error && error.message.includes('unique constraint')) {
+                // This is not of type CreatePersonResult?
+                return {
+                    success: false,
+                    error: 'CreationConflict',
+                    distinctIds: distinctIds.map((d) => d.distinctId),
+                }
+            }
+
             if (this.isPropertiesSizeConstraintViolation(error)) {
                 // For createPerson, we just log and reject since there's no existing person to update
                 personPropertiesSizeViolationCounter.inc({
@@ -753,10 +691,6 @@ export class PostgresPersonRepository
     }
 
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<PersonMessage[]> {
-        if (this.isTombstoneTeam(person.team_id)) {
-            return await this.tombstonePersons([person], tx)
-        }
-
         let rows: { version: string }[] = []
         try {
             const result = await this.postgres.query<{ version: string }>(
@@ -768,7 +702,8 @@ export class PostgresPersonRepository
             rows = result.rows
         } catch (error) {
             if (error.code === '40P01') {
-                logger.warn('🔒', 'Deadlock detected — rolling back for the caller to retry.', {
+                // Deadlock detected — assume someone else is deleting and skip.
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
                     team_id: person.team_id,
                     person_id: person.id,
                 })
@@ -780,83 +715,9 @@ export class PostgresPersonRepository
 
         if (rows.length > 0) {
             const [row] = rows
-            kafkaMessages = [
-                // The +100 outranks any version bump that landed between our stale read and the
-                // delete; keep in sync with delete_person in posthog/models/person/util.py.
-                generateKafkaPersonUpdateMessage(person, true, Number(row.version || 0) + 100),
-            ]
+            kafkaMessages = [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
         }
         return kafkaMessages
-    }
-
-    /**
-     * Tombstone-mode delete: the row stays in place as the key's version floor, with the
-     * death version stamped atomically and the properties scrubbed.
-     *
-     * Runs under the merge's lifecycle marks, which exclude every concurrent identity
-     * mutation of these persons. The live-mapping guard on the stamp is therefore an
-     * invariant assertion rather than the primary defense: rows it finds mean an
-     * identity-mutation path skipped the mark claim. PersonTombstoneBlockedError feeds
-     * the same refresh-and-retry handling as the hard delete's FK violation.
-     */
-    private async tombstonePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]> {
-        const teamId = persons[0].team_id
-        const personById = new Map(persons.map((person) => [person.id, person]))
-        const personIds = [...personById.keys()].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
-
-        try {
-            const live = await this.postgres.query<{ id: string }>(
-                tx ?? PostgresUse.PERSONS_WRITE,
-                `SELECT id FROM posthog_person
-                 WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
-                 ORDER BY id`,
-                [teamId, personIds],
-                'tombstonePersonsPrecheck'
-            )
-            if (live.rows.length === 0) {
-                // Already tombstoned or gone — same outcome as an empty DELETE.
-                return []
-            }
-            const liveIds = live.rows.map((row) => row.id)
-
-            const { rows } = await this.postgres.query<{ id: string; version: string }>(
-                tx ?? PostgresUse.PERSONS_WRITE,
-                `UPDATE posthog_person p
-                 SET is_deleted = true,
-                     version = COALESCE(version, 0) + 1,
-                     properties = '{}'::jsonb,
-                     properties_last_updated_at = '{}'::jsonb,
-                     properties_last_operation = '{}'::jsonb
-                 WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
-                   AND NOT EXISTS (
-                       SELECT 1 FROM posthog_persondistinctid d
-                       WHERE d.team_id = $1 AND d.person_id = p.id AND d.is_deleted = false
-                   )
-                 RETURNING id, version`,
-                [teamId, liveIds],
-                'tombstonePersons'
-            )
-
-            if (rows.length < liveIds.length) {
-                throw new PersonTombstoneBlockedError('Live distinct ids still point at the person', teamId)
-            }
-
-            return rows.flatMap((row) => {
-                const person = personById.get(String(row.id))
-                if (!person) {
-                    return []
-                }
-                return [generateKafkaPersonUpdateMessage({ ...person, properties: {} }, true, Number(row.version || 0))]
-            })
-        } catch (error) {
-            if (error.code === '40P01') {
-                logger.warn('🔒', 'Deadlock detected — rolling back for the caller to retry.', {
-                    team_id: teamId,
-                    person_ids: personIds,
-                })
-            }
-            throw error
-        }
     }
 
     async deletePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]> {
@@ -866,10 +727,6 @@ export class PostgresPersonRepository
 
         // All persons in a folded merge belong to one team.
         const teamId = persons[0].team_id
-        if (this.isTombstoneTeam(teamId)) {
-            return await this.tombstonePersons(persons, tx)
-        }
-
         const personById = new Map(persons.map((person) => [person.id, person]))
         // Postgres acquires the row locks in index scan order (btree scans sort
         // the id keys ascending), not in array-parameter order, so concurrent
@@ -888,7 +745,8 @@ export class PostgresPersonRepository
             rows = result.rows
         } catch (error) {
             if (error.code === '40P01') {
-                logger.warn('🔒', 'Deadlock detected — rolling back for the caller to retry.', {
+                // Deadlock detected — assume someone else is deleting and skip.
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
                     team_id: teamId,
                     person_ids: personIds,
                 })
@@ -901,89 +759,8 @@ export class PostgresPersonRepository
             if (!person) {
                 return []
             }
-            return [
-                // The +100 outranks any version bump that landed between our stale read and the
-                // delete; keep in sync with delete_person in posthog/models/person/util.py.
-                generateKafkaPersonUpdateMessage(person, true, Number(row.version || 0) + 100),
-            ]
+            return [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
         })
-    }
-
-    async claimLifecycleMarks(
-        opId: string,
-        teamId: number,
-        persons: LifecycleMarkPerson[],
-        tx?: TransactionClient
-    ): Promise<void> {
-        // Sorted claims keep the mark-index insert order deterministic across concurrent
-        // merges touching overlapping persons, so they block instead of deadlocking.
-        const sorted = [...persons].sort((a, b) => (BigInt(a.personId) < BigInt(b.personId) ? -1 : 1))
-        try {
-            await this.postgres.query(
-                tx ?? PostgresUse.PERSONS_WRITE,
-                `INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, completed_at)
-                 VALUES ($1, 'merge', $2, 'completed', $3::jsonb, now())`,
-                [opId, teamId, JSON.stringify({ source: 'ingestion-merge' })],
-                'claimLifecycleOp'
-            )
-            await this.postgres.query(
-                tx ?? PostgresUse.PERSONS_WRITE,
-                `INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, ordinal, status)
-                 SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, 'marked'
-                 FROM unnest($3::bigint[], $4::uuid[], $5::text[], $6::int[]) AS u(person_id, person_uuid, role, ordinal)`,
-                [
-                    opId,
-                    teamId,
-                    sorted.map((p) => p.personId),
-                    sorted.map((p) => p.personUuid),
-                    sorted.map((p) => p.role),
-                    sorted.map((p) => p.ordinal ?? null),
-                ],
-                'claimLifecycleMarks'
-            )
-        } catch (error) {
-            // The mark index turns "someone else holds this person" into a unique
-            // violation; a duplicate op_id means a concurrent delivery of the same event.
-            if (
-                error.code === '23505' &&
-                ['lifecycle_op_person_mark', 'lifecycle_op_pkey'].includes(error.constraint)
-            ) {
-                throw new PersonClaimedByLifecycleOpError(
-                    'Person is claimed by a concurrent lifecycle operation',
-                    teamId
-                )
-            }
-            throw error
-        }
-    }
-
-    async releaseLifecycleMarks(opId: string, teamId: number, tx?: TransactionClient): Promise<void> {
-        // lifecycle_op_person rows go with the header via ON DELETE CASCADE. Running in
-        // the claiming transaction means committed state never contains this merge's
-        // marks: a concurrent claimant blocked on the index proceeds the moment we
-        // commit, and the delete saga's sweeper never sees an ingestion op to resume.
-        // The team and op-type guards keep a caller bug or op-id collision from ever
-        // deleting another team's op or a delete saga's.
-        await this.postgres.query(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            `DELETE FROM lifecycle_op WHERE op_id = $1 AND team_id = $2 AND op_type = 'merge'`,
-            [opId, teamId],
-            'releaseLifecycleMarks'
-        )
-    }
-
-    async isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean> {
-        // Run this as its own statement after claimLifecycleMarks: a claim that waited
-        // on the mark index resumes with its original snapshot, so only a fresh
-        // statement reliably sees a tombstone committed during the wait. Under the mark
-        // the answer is then stable until commit.
-        const { rows } = await this.postgres.query(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            'SELECT 1 FROM posthog_person WHERE team_id = $1 AND id = $2 AND is_deleted = false',
-            [person.team_id, person.id],
-            'isPersonLive'
-        )
-        return rows.length > 0
     }
 
     async addDistinctId(
@@ -994,44 +771,21 @@ export class PostgresPersonRepository
     ): Promise<PersonMessage[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
-            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`.
-            // A conflict with a tombstoned mapping is a revival: repoint it and continue the
-            // version counter above the death version. A live mapping is left untouched and
-            // reported as a conflict, matching the pre-tombstone unique violation.
-            `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (team_id, distinct_id) DO UPDATE SET
-                 person_id = EXCLUDED.person_id,
-                 version = COALESCE(posthog_persondistinctid.version, 0) + 1,
-                 is_deleted = false
-             WHERE posthog_persondistinctid.is_deleted = true
-             RETURNING *`,
+            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
             [distinctId, person.id, person.team_id, version],
             'addDistinctId',
             'warn'
         )
 
-        if (insertResult.rows.length === 0) {
-            throw new DistinctIdConflictError(
-                'Distinct id is already owned by a live mapping',
-                person.team_id,
-                distinctId
-            )
-        }
-
-        const {
-            id,
-            is_deleted,
-            version: insertedVersion,
-            ...personDistinctIdCreated
-        } = insertResult.rows[0] as PersonDistinctId & { is_deleted: boolean }
+        const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         return [
             {
                 output: PERSON_DISTINCT_IDS_OUTPUT,
                 value: Buffer.from(
                     JSON.stringify({
                         ...personDistinctIdCreated,
-                        version: Number(insertedVersion || 0),
+                        version,
                         person_id: person.uuid,
                         is_deleted: 0,
                     })
@@ -1056,7 +810,6 @@ export class PostgresPersonRepository
                         FROM posthog_persondistinctid
                         WHERE person_id = $2
                           AND team_id = $3
-                          AND is_deleted = false
                         ORDER BY id
                         FOR UPDATE SKIP LOCKED
                         LIMIT $4
@@ -1071,7 +824,6 @@ export class PostgresPersonRepository
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = $2
                       AND team_id = $3
-                      AND is_deleted = false
                     RETURNING *
                 `
 
@@ -1187,7 +939,6 @@ export class PostgresPersonRepository
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = ANY($2::bigint[])
                       AND team_id = $3
-                      AND is_deleted = false
                     RETURNING *`,
                 [target.id, sourceIds, target.team_id],
                 'updateDistinctIdPersonFold'
@@ -1426,14 +1177,14 @@ export class PostgresPersonRepository
             update
         ).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex} AND is_deleted = false
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING ${PERSON_COLUMNS}, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
         /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex} AND is_deleted = false
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING ${PERSON_COLUMNS}
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
@@ -1513,7 +1264,7 @@ export class PostgresPersonRepository
                     is_identified = $4,
                     last_seen_at = $5,
                     version = COALESCE(version, 0)::numeric + 1
-                WHERE team_id = $6 AND uuid = $7 AND version = $8 AND is_deleted = false
+                WHERE team_id = $6 AND uuid = $7 AND version = $8
                 RETURNING ${PERSON_COLUMNS}
                 `,
                 [
@@ -1639,7 +1390,7 @@ export class PostgresPersonRepository
                     $7::text[],
                     $8::text[]
                 ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
-                WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
+                WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
                 [

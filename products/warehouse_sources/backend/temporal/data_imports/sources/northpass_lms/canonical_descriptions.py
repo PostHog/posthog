@@ -125,4 +125,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_active_on": "Timestamp of the person's last activity in the learning path.",
         },
     },
+    "course_activities": {
+        "description": "Activities (lessons) that make up each course, one row per activity. Fanned out per course.",
+        "docs_url": "https://developers.northpass.com/reference/get_v2-courses-course-uuid-activities",
+        "columns": {
+            "id": "Unique identifier (UUID) for the activity.",
+            "type": "JSON:API resource type, always 'activities'.",
+            "title": "The activity title.",
+            "course_id": "UUID of the course the activity belongs to.",
+        },
+    },
+    "activity_events": {
+        "description": "Lesson-level learning events, one row per person, activity, and timestamp (e.g. a learner viewed an activity).",
+        "docs_url": "https://developers.northpass.com/reference/get_v2-events",
+        "columns": {
+            "type": "Event type (e.g. 'learner_viewed_activity_events').",
+            "created_at": "Timestamp when the event occurred.",
+            "person_id": "UUID of the person the event belongs to.",
+            "activity_id": "UUID of the activity (lesson) the event relates to.",
+        },
+    },
 }
