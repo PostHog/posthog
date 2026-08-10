@@ -436,23 +436,59 @@ class TestPostHogCallback:
     def test_callback_name_is_posthog(self, callback: PostHogCallback) -> None:
         assert callback.callback_name == "posthog"
 
+    @pytest.mark.parametrize(
+        "model,provider,usage_object,expected",
+        [
+            pytest.param(
+                "claude-sonnet-4-6",
+                "anthropic",
+                {"cache_read_input_tokens": 60, "cache_creation_input_tokens": 30},
+                {"$ai_cache_read_input_tokens": 60, "$ai_cache_creation_input_tokens": 30},
+                id="anthropic_reports_cache_read_and_write",
+            ),
+            pytest.param(
+                "claude-sonnet-4-6",
+                "anthropic",
+                {"cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
+                {"$ai_cache_read_input_tokens": 0, "$ai_cache_creation_input_tokens": 0},
+                id="anthropic_keeps_explicit_zeros",
+            ),
+            pytest.param(
+                "gpt-5.2",
+                "openai",
+                {"prompt_tokens_details": {"cached_tokens": 60}},
+                {"$ai_cache_read_input_tokens": 60},
+                id="openai_reports_cached_tokens_on_details",
+            ),
+            pytest.param(
+                "gpt-5.2",
+                "openai",
+                {"prompt_tokens_details": {"cached_tokens": 0}},
+                {},
+                id="openai_drops_cache_miss",
+            ),
+            pytest.param("gpt-5.2", "openai", {}, {}, id="provider_reports_no_cache_usage"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_on_success_emits_cache_tokens_when_present(
-        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
+    async def test_on_success_maps_cache_tokens_for_each_provider_usage_shape(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        mock_posthog_client: tuple,
+        model: str,
+        provider: str,
+        usage_object: dict,
+        expected: dict,
     ) -> None:
         _, mock_client = mock_posthog_client
         kwargs = {
             "standard_logging_object": {
-                "model": "claude-sonnet-4-6",
-                "custom_llm_provider": "anthropic",
+                "model": model,
+                "custom_llm_provider": provider,
                 "prompt_tokens": 100,
                 "completion_tokens": 20,
-                "metadata": {
-                    "usage_object": {
-                        "cache_read_input_tokens": 60,
-                        "cache_creation_input_tokens": 30,
-                    },
-                },
+                "metadata": {"usage_object": usage_object},
             },
             "litellm_params": {},
         }
@@ -464,29 +500,11 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         props = mock_client.capture.call_args.kwargs["properties"]
-        assert props["$ai_cache_read_input_tokens"] == 60
-        assert props["$ai_cache_creation_input_tokens"] == 30
-
-    @pytest.mark.asyncio
-    async def test_on_success_omits_cache_tokens_when_absent(
-        self,
-        callback: PostHogCallback,
-        auth_user: AuthenticatedUser,
-        standard_logging_object: dict,
-        mock_posthog_client: tuple,
-    ) -> None:
-        _, mock_client = mock_posthog_client
-        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
-
-        with (
-            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
-        ):
-            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
-
-        props = mock_client.capture.call_args.kwargs["properties"]
-        assert "$ai_cache_read_input_tokens" not in props
-        assert "$ai_cache_creation_input_tokens" not in props
+        assert {
+            key: props[key]
+            for key in ("$ai_cache_read_input_tokens", "$ai_cache_creation_input_tokens")
+            if key in props
+        } == expected
 
     @pytest.mark.parametrize(
         "cost_breakdown,expected_props",
