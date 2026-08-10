@@ -814,6 +814,27 @@ class TestOAuthAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_provisioning_partner_rejected_without_assertion(self):
+        # A provisioning partner registers through CIMD and declares private_key_jwt too, so
+        # it matches the fallback shape without needing it: partners do send assertions, and
+        # the key is the credential their registration is built on. Letting them omit it
+        # would hand every partner a way to downgrade itself by sending nothing.
+        app, grant, _ = self._create_private_key_jwt_app_and_grant()
+        app.is_provisioning_partner = True
+        app.save(update_fields=["is_provisioning_partner"])
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "https://partner.example.com/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_invalid_assertion_is_not_downgraded_to_the_credentialless_fallback(self):

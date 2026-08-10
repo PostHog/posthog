@@ -456,7 +456,12 @@ class OAuthValidator(OAuth2Validator):
         CIMD private_key_jwt client presenting no credential of any kind. Any presented
         credential (assertion, secret, Basic auth) disqualifies the request so it
         authenticates or fails, and the grant-type gate excludes requests without a token
-        grant, which is how revocation stays on the declared method."""
+        grant, which is how revocation stays on the declared method.
+
+        Provisioning partners are excluded. They register through CIMD and declare
+        private_key_jwt too, so they match this shape without needing it: they do send
+        assertions, and the key is the credential their registration is built on. Including
+        them would hand every partner a way to downgrade itself by sending nothing."""
         if getattr(request, "grant_type", None) not in ("authorization_code", "refresh_token"):
             return None
         if getattr(request, "client_assertion", None):
@@ -467,7 +472,7 @@ class OAuthValidator(OAuth2Validator):
             return None
         app = self._load_application(getattr(request, "client_id", None) or "", request)
         if app is not None and app.is_cimd_client and app.uses_private_key_jwt_auth:
-            return app
+            return None if app.is_provisioning_partner else app
         return None
 
     def authenticate_client(self, request, *args, **kwargs):
