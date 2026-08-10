@@ -278,6 +278,30 @@ async fn mixed_batch_diverts_only_ai_events(#[case] ai_events_overflow_enabled: 
     assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
 }
 
+/// Ai-mode deployments don't divert: their main topic is already the AI
+/// topic, so `$ai_*` events stay on the analytics lane alongside everything
+/// else. Pins the no-divert path end-to-end; the `routes_ai_events()` unit
+/// test alone can't catch the router failing to thread the mode into the
+/// pipeline.
+#[tokio::test]
+async fn ai_mode_keeps_ai_events_on_the_analytics_lane() {
+    let (router, sink) = setup_router_for_mode(CaptureMode::Ai, false, None, None);
+    let client = TestClient::new(router);
+
+    post_batch(&client, mixed_batch_payload()).await;
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 2);
+    for event in &events {
+        assert_eq!(
+            event.metadata.data_type,
+            DataType::AnalyticsMain,
+            "no event may divert on an Ai-mode deployment ({})",
+            event.metadata.event_name,
+        );
+    }
+}
+
 fn force_keyed_limiter() -> Arc<OverflowLimiter> {
     let hot_key = format!("{TOKEN}:{DISTINCT_ID}");
     Arc::new(OverflowLimiter::new(
