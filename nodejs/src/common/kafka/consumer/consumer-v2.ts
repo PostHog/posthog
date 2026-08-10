@@ -435,7 +435,6 @@ export class KafkaConsumerV2 {
         }
 
         if (event.type === 'REVOKE') {
-            this.generation++
             logger.info('🔁', 'kafka_consumer_v2_revoke_starting', {
                 inFlight: this.inFlight.length,
                 generation: this.generation,
@@ -445,7 +444,15 @@ export class KafkaConsumerV2 {
             // hook gets the remainder, so CONSUMER_REBALANCE_TIMEOUT_MS bounds the total hold
             // on the rebalance — not each phase separately.
             const revokeDeadline = Date.now() + this.drainTimeoutMs
+            // Drain before fencing. A batch that settles inside the budget has already run its
+            // side effects and still holds its partitions, so its offset store is valid and
+            // librdkafka commits it on the unassign below. Fencing first discarded those offsets,
+            // so the next owner replayed work that was already done — for a CDP destination that
+            // is a second outbound request (duplicate Slack message, webhook, CRM write).
             await this.drainAll('revoke')
+            // Whatever is still unsettled missed the budget: fence it here so a late settle can't
+            // store offsets for work we can no longer vouch for on partitions we are giving up.
+            this.generation++
 
             if (this.onPartitionsRevoked) {
                 const hookBudgetMs = Math.max(revokeDeadline - Date.now(), 0)

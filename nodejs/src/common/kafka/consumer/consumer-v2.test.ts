@@ -298,7 +298,7 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
     })
 
-    it('H2 regression: stale tasks across generations skip storeOffsets and never trigger unassign', async () => {
+    it('H2 regression: a task settling inside the drain stores its offsets, and a sticky reassign arms nothing extra', async () => {
         ;(consumer as any).maxBackgroundTasks = 5
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
@@ -315,9 +315,11 @@ describe('KafkaConsumerV2', () => {
         slow.resolve()
         await delay(20)
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledTimes(1)
-        // The slow task crossed the rebalance generation — its storeOffsets MUST have been
-        // skipped (generation-tag mechanism). Validates the H2 protection directly.
-        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+        // The task finished inside the drain budget, while the partition was still assigned, so
+        // its offsets are stored (and committed on the unassign below) rather than discarded —
+        // discarding them is what made the next owner replay completed work. A task that misses
+        // the budget is fenced instead: see the "Generation tag" test.
+        expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ offset: 2, partition: 0, topic: 'test-topic' }])
 
         // Snapshot offsetsStore + unassign call counts before the reassign so we can assert
         // nothing further happens once we re-acquire the partition.
@@ -340,13 +342,12 @@ describe('KafkaConsumerV2', () => {
         // The v1 H3 race was: drain awaited t.promise (raw), so the late task's storeOffsets
         // could fire AFTER incrementalUnassign. v2 fixes this two ways:
         //   (a) drain awaits the post-storeOffsets `settled` chain, not the raw task; and
-        //   (b) the generation tag in trackTask makes any storeOffsets call during DRAINING
-        //       a no-op (see the "Generation tag" test).
+        //   (b) the generation bump after the drain fences anything that settles later, so a task
+        //       that missed the budget can't store against a partition we gave up (see the
+        //       "Generation tag" test).
         //
-        // (b) means we can't meaningfully assert offsetsStore-vs-unassign ordering during a
-        // REVOKE — storeOffsets simply never runs in that path. So this test verifies the
-        // (a) property directly: with two tasks resolving out of order, drainAll awaits both
-        // settled callbacks before incrementalUnassign fires. If drain awaited only `raw`,
+        // This test verifies (a) directly: with two tasks resolving out of order, drainAll awaits
+        // both settled callbacks before incrementalUnassign fires. If drain awaited only `raw`,
         // it could fire before the second task settled.
         ;(consumer as any).maxBackgroundTasks = 5
         const eachBatch = jest.fn(() => Promise.resolve({}))
