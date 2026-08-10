@@ -40,7 +40,7 @@ This degrades at trivial concurrency (tens of streams already give multi-second 
 
 ## Why per-stream over a pool, for our workload
 
-Our streams are task-run watchers: relatively few at a time, long-lived (minutes up to the 6h sandbox TTL), low churn. For that shape a connection per stream is simple and obviously correct:
+Our streams are task-run watchers: relatively few at a time, long-lived (minutes up to the 2h sandbox TTL), low churn. For that shape a connection per stream is simple and obviously correct:
 
 - the connection's lifetime is the stream's lifetime (created right before the read loop, closed in the generator's `finally` on completion, error or client disconnect)
 - no shared state, no head-of-line blocking between streams, nothing to rebalance

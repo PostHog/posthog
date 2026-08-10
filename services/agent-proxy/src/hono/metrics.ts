@@ -36,7 +36,7 @@ export const taskRunStreamConnectionsClosedTotal = new Counter({
     registers: [register],
 })
 
-// Connection lifetimes span a few seconds (cold reconnect) to the 6h sandbox
+// Connection lifetimes span a few seconds (cold reconnect) to the 2h sandbox
 // TTL. The 120s bucket is deliberate: it isolates connections cut at the
 // Envoy/Contour response_timeout boundary from genuinely long-lived ones.
 export const taskRunStreamConnectionDurationSeconds = new Histogram({

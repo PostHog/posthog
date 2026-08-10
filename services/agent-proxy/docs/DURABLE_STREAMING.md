@@ -60,7 +60,7 @@ Ranked by how much it matters for the current use case (watching a live agent ru
    comment in `src/lib/types.ts` and `DESIGN.md`). Closing it means either a
    client-visible "you missed events from A to B" signal, a backfill from durable storage,
    or both.
-2. **Bounded retention.** "Durable" here means roughly a 6h TTL plus a ~20k event
+2. **Bounded retention.** "Durable" here means roughly a 2h TTL plus a ~20k event
    `MAXLEN` (`STREAM_TTL_SECONDS`, `STREAM_MAX_LENGTH` in `src/lib/constants.ts`), after
    which data is gone. That bound is the cause of gap awareness above. It is fine for
    watching a run live, but not for replaying a run's stream much later. If long replay
@@ -93,7 +93,7 @@ Ranked by how much it matters for the current use case (watching a live agent ru
 | Backpressure to slow readers                 | Have                                      |
 | Multi-reader fan-out                         | Have                                      |
 | Gap awareness on trimmed resume              | **Missing** (detected, not signalled)     |
-| Retention beyond ~6h / ~20k                  | **Partial** (bounded, then dropped)       |
+| Retention beyond ~2h / ~20k                  | **Partial** (bounded, then dropped)       |
 | Caught-up-to-tail signal                     | Missing                                   |
 | Producer fencing across writers              | Partial (single-producer by construction) |
 | Forking / subscriptions / consumer groups    | Missing (not needed)                      |
