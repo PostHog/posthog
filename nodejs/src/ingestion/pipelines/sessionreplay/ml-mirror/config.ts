@@ -27,8 +27,8 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
 
     /**
-     * Host of a Redis dedicated to this lane. Empty keeps the mirror on the shared session-replay
-     * cluster, which is both the previous behaviour and the rollback.
+     * Host of a Redis dedicated to this lane. Empty sends the mirror to the shared session-replay
+     * cluster instead, so clearing this value is the supported rollback.
      *
      * The mirror's SessionTracker, SessionFilter and RetentionService keys sit on the cluster that
      * also serves the primary replay lane, so memory pressure from the mirror reaches the lane that
