@@ -465,7 +465,6 @@ export function ActivityView() {
         </div>
         {loadMoreButton}
       </>
-
     );
 
   if (spacesLayout) {
