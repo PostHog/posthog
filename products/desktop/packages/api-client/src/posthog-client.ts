@@ -87,6 +87,7 @@ import type {
   SignalReport,
   SignalReportArtefact,
   SignalReportArtefactsResponse,
+  SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -4311,6 +4312,41 @@ export class PostHogAPIClient {
   }
 
   /**
+   * Refund a report's billed PR. The server freezes the billing path, archives
+   * the report, and kicks off the billing credit when one is due; it also
+   * enforces eligibility, so callers only gate for display.
+   */
+  async refundSignalReport(
+    reportId: string,
+    input: { reason: SignalReportRefundReason; note?: string },
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/refund/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any non-2xx, so
+    // unwrap that into the endpoint's clean `error` message (e.g. the eligibility failures)
+    // rather than surfacing the raw string.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Failed to refund this report's PR"),
+      );
+    }
+
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
    * Edit a report's suggested reviewers. The server appends a new `suggested_reviewers` status
    * artefact (latest-wins), canonicalizes each entry to a lowercase `github_login`, and carries
    * `relevant_commits` / `github_name` forward from the current reviewers for surviving logins.
@@ -6849,6 +6885,34 @@ export class PostHogAPIClient {
       throw new Error(data.error);
     }
     return { results: data.results ?? [], columns: data.columns ?? [] };
+  }
+
+  /**
+   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
+   * the team's project and returns the raw response. `refresh: "blocking"`
+   * serves a fresh-enough cached result and computes synchronously otherwise —
+   * the same mode PostHog insights use. Backs inbox report charts, whose query
+   * nodes are scout-authored and arrive unparsed.
+   */
+  async runQuery(
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ query, refresh: "blocking" }),
+      },
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (typeof data.error === "string" && data.error) {
+      throw new Error(data.error);
+    }
+    return data;
   }
 
   /**

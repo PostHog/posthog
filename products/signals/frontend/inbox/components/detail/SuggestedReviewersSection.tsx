@@ -189,7 +189,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
             {baseReviewers.length === 0 ? (
                 <span className="text-xs text-tertiary">No reviewers assigned. Use "Add" to suggest one.</span>
             ) : (
-                <div className="flex flex-col gap-1.5">
+                <div className="@container flex flex-col gap-1.5">
                     {(showAllReviewers ? baseReviewers : baseReviewers.slice(0, MAX_VISIBLE_REVIEWERS)).map(
                         (reviewer: EnrichedReviewer) => (
                             <ReviewerRow
@@ -246,7 +246,7 @@ function ReviewerRow({
     )
 
     return (
-        <div className="group grid grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5">
+        <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5 @lg:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto]">
             {/* no row hover: the row isn't clickable, only the remove button is */}
             <Tooltip
                 title={
@@ -273,7 +273,7 @@ function ReviewerRow({
                     )}
                 </span>
             </Tooltip>
-            <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+            <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-0.5 [overflow-wrap:anywhere] @lg:col-span-1 @lg:row-start-auto">
                 {reviewer.relevant_commits.length > 0 && (
                     <span className="text-xs text-tertiary">
                         {reviewer.relevant_commits.map((commit, i) => (
