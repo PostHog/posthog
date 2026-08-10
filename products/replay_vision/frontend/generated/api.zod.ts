@@ -398,6 +398,10 @@ export const visionScannersCreateBodyDescriptionMax = 1000
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
+export const visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax = 400
+
+export const visionScannersCreateBodyExperimentTargetingOneVariantKeysMax = 50
+
 export const VisionScannersCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -468,6 +472,29 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
             ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant_keys: zod
+                            .array(zod.string().max(visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax))
+                            .max(visionScannersCreateBodyExperimentTargetingOneVariantKeysMax)
+                            .describe('Targeted experiment variants. Empty means every variant.'),
+                        use_exposure_fallback: zod
+                            .boolean()
+                            .describe(
+                                'True when the exposure event is captured server-side and the query filters on the `$feature\/<flag_key>` property instead.'
+                            ),
+                    })
+                    .describe("The experiment a scanner's targeting watches. Metadata only; scanning never reads it."),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
+            ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
 
@@ -480,6 +507,10 @@ export const visionScannersPartialUpdateBodyDescriptionMax = 1000
 
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
+
+export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax = 400
+
+export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysMax = 50
 
 export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -555,6 +586,33 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
             ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant_keys: zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax)
+                            )
+                            .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysMax)
+                            .describe('Targeted experiment variants. Empty means every variant.'),
+                        use_exposure_fallback: zod
+                            .boolean()
+                            .describe(
+                                'True when the exposure event is captured server-side and the query filters on the `$feature\/<flag_key>` property instead.'
+                            ),
+                    })
+                    .describe("The experiment a scanner's targeting watches. Metadata only; scanning never reads it."),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
+            ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
 
@@ -626,6 +684,44 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
             .describe('ID of the session recording to apply the scanner to.'),
     })
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
+
+/**
+ * Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
+ *
+ * The enumeration reruns here rather than trusting the client-confirmed estimate: the count is
+ * billing-relevant, so the authoritative value is computed server-side at creation time. New
+ * settled sessions between estimate and confirm can nudge total_count slightly.
+ */
+export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
+    window_start: zod.iso
+        .datetime({ offset: true })
+        .describe('Inclusive lower bound of the historical window to scan.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+})
+
+/**
+ * Stop an active backfill; already-dispatched observations finish, nothing new dispatches.
+ */
+export const VisionScannersBackfillsCancelCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Restart a backfill that paused when the monthly quota ran out.
+ */
+export const VisionScannersBackfillsResumeCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Exactly enumerate what a backfill over the given window would dispatch and cost.
+ */
+export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.object({
+    window_start: zod.iso
+        .datetime({ offset: true })
+        .describe('Inclusive lower bound of the historical window to scan.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+})
 
 /**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.

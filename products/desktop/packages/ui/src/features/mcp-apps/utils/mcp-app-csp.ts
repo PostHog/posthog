@@ -21,29 +21,36 @@ export function sanitizeDomain(domain: string): string {
   return domain.replace(/[^a-zA-Z0-9.*:-]/g, "");
 }
 
-export function buildCspString(csp?: McpUiResourceCsp): string {
-  if (!csp) return DEFAULT_CSP;
+export function buildCspString(
+  csp?: McpUiResourceCsp,
+  scriptNonce?: string | null,
+): string {
+  if (!csp && scriptNonce === undefined) return DEFAULT_CSP;
 
-  const resourceDomainsSuffix = csp.resourceDomains?.length
+  const resourceDomainsSuffix = csp?.resourceDomains?.length
     ? ` ${csp.resourceDomains.map(sanitizeDomain).join(" ")}`
     : "";
 
   const directives: string[] = [
     "default-src 'none'",
-    `script-src 'self' 'unsafe-inline'${resourceDomainsSuffix}`,
+    scriptNonce === undefined
+      ? `script-src 'self' 'unsafe-inline'${resourceDomainsSuffix}`
+      : scriptNonce === null
+        ? "script-src 'none'"
+        : `script-src 'nonce-${scriptNonce}'`,
     `style-src 'self' 'unsafe-inline'${resourceDomainsSuffix}`,
     "object-src 'none'",
     "form-action 'none'",
   ];
 
-  if (csp.connectDomains?.length) {
+  if (csp?.connectDomains?.length) {
     const domains = csp.connectDomains.map(sanitizeDomain).join(" ");
     directives.push(`connect-src ${domains}`);
   } else {
     directives.push("connect-src 'none'");
   }
 
-  if (csp.resourceDomains?.length) {
+  if (csp?.resourceDomains?.length) {
     const domains = csp.resourceDomains.map(sanitizeDomain).join(" ");
     directives.push(`img-src 'self' data: ${domains}`);
     directives.push(`media-src 'self' data: ${domains}`);
@@ -53,14 +60,14 @@ export function buildCspString(csp?: McpUiResourceCsp): string {
     directives.push("media-src 'self' data:");
   }
 
-  if (csp.frameDomains?.length) {
+  if (csp?.frameDomains?.length) {
     const domains = csp.frameDomains.map(sanitizeDomain).join(" ");
     directives.push(`frame-src ${domains}`);
   } else {
     directives.push("frame-src 'none'");
   }
 
-  if (csp.baseUriDomains?.length) {
+  if (csp?.baseUriDomains?.length) {
     const domains = csp.baseUriDomains.map(sanitizeDomain).join(" ");
     directives.push(`base-uri ${domains}`);
   } else {
@@ -79,14 +86,21 @@ export function escapeAttr(str: string): string {
     .replace(/>/g, "&gt;");
 }
 
-export function buildCspMetaTag(csp?: McpUiResourceCsp): string {
-  const cspString = buildCspString(csp);
+export function buildCspMetaTag(
+  csp?: McpUiResourceCsp,
+  scriptNonce?: string | null,
+): string {
+  const cspString = buildCspString(csp, scriptNonce);
   return `<meta http-equiv="Content-Security-Policy" content="${escapeAttr(cspString)}">`;
 }
 
 // After any doctype, which must stay first or the frame enters quirks mode.
-export function applyCspToHtml(html: string, csp?: McpUiResourceCsp): string {
-  const meta = buildCspMetaTag(csp);
+export function applyCspToHtml(
+  html: string,
+  csp?: McpUiResourceCsp,
+  scriptNonce?: string | null,
+): string {
+  const meta = buildCspMetaTag(csp, scriptNonce);
   const doctype = html.match(/^\s*<!doctype[^>]*>/i);
   if (doctype) {
     return (

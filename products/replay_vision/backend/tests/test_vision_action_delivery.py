@@ -1,11 +1,9 @@
-from typing import Any, cast
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
-from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -104,12 +102,6 @@ class TestVisionActionDelivery(APIBaseTest):
         self.assertEqual(resp.status_code, 201, resp.content)
         return VisionAction.all_teams.get(id=resp.json()["id"])
 
-    def _request(self) -> Request:
-        # provision_delivery threads a DRF Request into HogFunctionSerializer, which reads request.user.
-        drf_request = Request(APIRequestFactory().post("/"))
-        drf_request.user = self.user
-        return cast(Request, drf_request)
-
     def _provision_action(self, delivery_config: list[dict[str, Any]]) -> VisionAction:
         """Create an action with delivery_config set on the model and provision it directly, bypassing
         the API serializer so a delivery type's provisioning can be exercised independently of the
@@ -122,7 +114,7 @@ class TestVisionActionDelivery(APIBaseTest):
             delivery_config=delivery_config,
         )
         action.save()
-        provision_delivery(action, request=self._request(), team=self.team)
+        provision_delivery(action, user=self.user, team=self.team)
         return action
 
     def _destinations(self, action: VisionAction) -> list[HogFunction]:
@@ -295,6 +287,6 @@ class TestVisionActionDelivery(APIBaseTest):
 
         action.delivery_config = [{"type": "webhook", "url": "https://example.com/hook"}]
         action.save(update_fields=["delivery_config"])
-        provision_delivery(action, request=self._request(), team=self.team)
+        provision_delivery(action, user=self.user, team=self.team)
 
         self.assertEqual([d.template_id for d in self._destinations(action)], ["template-webhook"])

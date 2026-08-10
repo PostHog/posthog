@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
@@ -22,6 +23,7 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxProvisionError,
     SnapshotCreationError,
+    SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
@@ -834,6 +836,52 @@ class TestModalSandboxAgentServer:
         assert result == "snapshot-456"
         mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(timeout=240, ttl=None)
 
+    def _trigger_snapshot(self, mock_sandbox: Any, snapshot_method: str, error: Exception) -> None:
+        mock_sandbox._sandbox.snapshot_directory.side_effect = error
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = error
+        if snapshot_method == "create_directory_snapshot":
+            mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR)
+        else:
+            mock_sandbox.create_snapshot()
+
+    @pytest.mark.parametrize("snapshot_method", ["create_directory_snapshot", "create_snapshot"])
+    def test_snapshot_over_file_cap_raises_classified_error(self, mock_sandbox: Any, snapshot_method: str) -> None:
+        # Modal's 1M-file cap is permanent, not transient: it must surface as the classified,
+        # non-retryable error rather than a generic captured SnapshotCreationError.
+        cap_error = ModalResourceExhaustedError("filesystem snapshot contains more than 1000000 files")
+
+        with pytest.raises(SnapshotFileLimitExceededError) as exc:
+            self._trigger_snapshot(mock_sandbox, snapshot_method, cap_error)
+
+        assert exc.value.non_retryable is True
+
+    @pytest.mark.parametrize("snapshot_method", ["create_directory_snapshot", "create_snapshot"])
+    def test_generic_resource_exhausted_is_transient_not_file_cap(
+        self, mock_sandbox: Any, snapshot_method: str
+    ) -> None:
+        # A generic quota/rate-limit RESOURCE_EXHAUSTED must stay retryable, not be misclassified
+        # as the permanent file-count cap.
+        quota_error = ModalResourceExhaustedError("resource quota exceeded, please try again later")
+
+        with pytest.raises(SnapshotTimeoutError):
+            self._trigger_snapshot(mock_sandbox, snapshot_method, quota_error)
+
+    def test_prune_snapshot_heavy_dirs_targets_reproducible_trees(self, mock_sandbox: Any) -> None:
+        with patch.object(ModalSandbox, "execute") as execute:
+            mock_sandbox.prune_snapshot_heavy_dirs(DEFAULT_SANDBOX_WORKING_DIR)
+
+        prune_command = execute.call_args_list[0].args[0]
+        assert "node_modules" in prune_command
+        assert ".venv" in prune_command
+        assert DEFAULT_SANDBOX_WORKING_DIR in prune_command
+
+    def test_prune_snapshot_heavy_dirs_is_best_effort(self, mock_sandbox: Any) -> None:
+        # A failed or timed-out prune must not raise — the caller decides what to do next.
+        with patch.object(
+            ModalSandbox, "execute", side_effect=SandboxExecutionError("prune timed out", {}, cause=RuntimeError())
+        ):
+            mock_sandbox.prune_snapshot_heavy_dirs(DEFAULT_SANDBOX_WORKING_DIR)
+
 
 class TestModalSandboxProvisionDiagnostics:
     @pytest.mark.parametrize(
@@ -992,6 +1040,19 @@ class TestModalSandboxCommandEscaping:
             assert shlex.quote(task_id) in command
             assert shlex.quote(run_id) in command
             assert shlex.quote(mode) in command
+
+
+class TestModalSandboxResourceUsage:
+    def test_reads_cgroup_cpu_usage(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.return_value = "usage_usec 12345678\nuser_usec 10000000\n"
+
+        assert sandbox.read_cpu_usage_usec() == 12_345_678
+
+        sandbox._sandbox.filesystem.read_text.assert_called_once_with("/sys/fs/cgroup/cpu.stat")
 
 
 class TestModalSandboxAgentServerStartupHelpers:
