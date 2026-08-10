@@ -9,6 +9,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SuggestedTable,
 )
 
@@ -221,6 +223,28 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                         required=False,
                         placeholder="90",
                         secret=False,
+                    ),
+                    # Attribution settings for insights (spend/conversion) tables. Left unset, Meta
+                    # applies its own default, so existing connections are unaffected. Set them to
+                    # reconcile PostHog's numbers with Ads Manager, which reports on a specific window.
+                    SourceFieldInputConfig(
+                        name="action_attribution_windows",
+                        label="Attribution windows for insights (comma-separated, e.g. 7d_click,1d_view)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="7d_click,1d_view",
+                        secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="use_unified_attribution_setting",
+                        label="Use Meta's unified attribution setting",
+                        required=False,
+                        defaultValue="",
+                        options=[
+                            SourceFieldSelectConfigOption(label="Use Meta's default", value=""),
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
                     ),
                 ],
             ),
