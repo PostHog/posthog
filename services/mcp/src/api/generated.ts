@@ -5791,6 +5791,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       MetaAds: 'meta-ads',
+      Instagram: 'instagram',
       Clickup: 'clickup',
       RedditAds: 'reddit-ads',
       Databricks: 'databricks',
@@ -40029,6 +40030,7 @@ export namespace Schemas {
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -40079,6 +40081,7 @@ export namespace Schemas {
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
+      Instagram: 'instagram',
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
@@ -40129,6 +40132,7 @@ export namespace Schemas {
        * * `google-search-console` - Google Search Console
        * * `google-sheets` - Google Sheets
        * * `hubspot` - Hubspot
+       * * `instagram` - Instagram
        * * `intercom` - Intercom
        * * `jira` - Jira
        * * `linear` - Linear
@@ -84877,6 +84881,7 @@ export namespace Schemas {
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -84938,6 +84943,7 @@ export namespace Schemas {
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
+      Instagram: 'instagram',
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
