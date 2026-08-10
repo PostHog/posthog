@@ -1,10 +1,17 @@
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** One on-screen window, as reported by CoreGraphics. */
 export interface CgWindow {
   /** Owning application's name; "Dock" for Mission Control's own surfaces. */
   ownerName: string;
   /** Cocoa window level. Normal app windows are 0. */
   layer: number;
-  bounds: { x: number; y: number; width: number; height: number };
+  bounds: Rect;
 }
 
 /**

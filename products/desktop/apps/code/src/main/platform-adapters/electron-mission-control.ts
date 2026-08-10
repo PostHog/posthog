@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { TypedEventEmitter } from "@posthog/shared";
+import { screen } from "electron";
 import { injectable, preDestroy } from "inversify";
 import { createWindowListSampler } from "../services/mission-control/cg-window-list";
 import {
@@ -14,6 +15,7 @@ import {
 } from "../services/mission-control/schemas";
 import type {
   CgWindow,
+  Rect,
   WindowListSampler,
 } from "../services/mission-control/window-list";
 import { logger } from "../utils/logger";
@@ -128,7 +130,8 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
       while (Date.now() < deadline) {
         await delay(POLL_INTERVAL_MS);
         const current = sampler.sample();
-        if (detectMissionControl(current)) detected = true;
+        if (detectMissionControl(current, this.displayBounds()))
+          detected = true;
 
         const currentKeys = new Set(current.map(windowKey));
         for (const window of current) {
@@ -140,7 +143,7 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
         }
       }
 
-      return {
+      const result: MissionControlProbe = {
         available: true,
         durationMs,
         detected,
@@ -150,6 +153,15 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
           .map(([, window]) => window),
         baselineCount: baseline.length,
       };
+      // Logged here rather than from the renderer, where it was raised: renderer
+      // lines do not reach the dev toolbar's log panel, and this is the one
+      // artifact worth keeping a durable copy of.
+      log.info("Probe finished", {
+        detected: result.detected,
+        appeared: result.appeared.length,
+        displays: this.displayBounds(),
+      });
+      return result;
     } catch (error) {
       log.warn("Failed to read the window list", { error });
       return { available: false, ...empty };
@@ -190,12 +202,24 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
     return this.sampler;
   }
 
+  /**
+   * Display bounds for the coverage test, read per sample rather than cached so
+   * plugging in a monitor or changing resolution needs no invalidation. It is an
+   * in-process lookup, cheap at this interval.
+   */
+  private displayBounds(): Rect[] {
+    return screen.getAllDisplays().map((display) => display.bounds);
+  }
+
   private poll(): void {
     if (!this.sampler) return;
 
     let detected: boolean;
     try {
-      detected = detectMissionControl(this.sampler.sample());
+      detected = detectMissionControl(
+        this.sampler.sample(),
+        this.displayBounds(),
+      );
       this.consecutiveErrors = 0;
     } catch (error) {
       this.consecutiveErrors += 1;

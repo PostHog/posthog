@@ -1,21 +1,53 @@
-import type { CgWindow } from "./window-list";
+import type { CgWindow, Rect } from "./window-list";
 
 const DOCK = "Dock";
 
 /**
- * macOS exposes no API — public or private — for "is Mission Control on screen
- * right now". The one workable signal is that entering Mission Control makes
- * the Dock process put up a backing window that isn't there otherwise, sitting
- * one pixel above the top of the display.
- *
- * The Dock owns plenty of other windows (the Dock itself, Exposé leftovers,
- * Notification Center), so the y origin is what separates them. It is
- * undocumented and has no compatibility guarantee: check it against a real macOS
- * release with `dev.probeMissionControl` before trusting a change here.
+ * A window can sit a pixel outside the display it covers, so compare with slack
+ * rather than for equality.
  */
-export function detectMissionControl(windows: CgWindow[]): boolean {
+const COVERAGE_SLACK_PX = 2;
+
+/** Whether `bounds` spans the whole of `display`. */
+function coversDisplay(bounds: Rect, display: Rect): boolean {
+  return (
+    bounds.x <= display.x + COVERAGE_SLACK_PX &&
+    bounds.y <= display.y + COVERAGE_SLACK_PX &&
+    bounds.x + bounds.width >= display.x + display.width - COVERAGE_SLACK_PX &&
+    bounds.y + bounds.height >= display.y + display.height - COVERAGE_SLACK_PX
+  );
+}
+
+/**
+ * macOS exposes no API — public or private — for "is Mission Control on screen
+ * right now". The workable signal is that opening it makes the Dock process put
+ * up full-display backing windows above the normal window level, which are not
+ * there otherwise. On macOS 26 there are two, at layers 18 and 20.
+ *
+ * Both halves of the test carry weight. The Dock owns plenty of other windows —
+ * the Dock strip itself, the per-window badges Mission Control draws at layer 17,
+ * and a full-display window at layer 0 — so size alone and layer alone each match
+ * things that are not Mission Control. Requiring a layer above the normal window
+ * level also keeps the desktop wallpaper, which the Dock draws far below it, out.
+ *
+ * This is undocumented and has no compatibility guarantee. An earlier revision
+ * keyed off a y origin of -1, which held on OS X 10.10 and does not now. Re-check
+ * it against a real macOS release with `dev.probeMissionControl` rather than
+ * adjusting it from first principles.
+ *
+ * App Exposé, Launchpad and Show Desktop put up similar Dock windows and so match
+ * too. That is harmless: each either hides our window completely or slides it off
+ * screen, so the overlay is either invisible or a reasonable thing to show.
+ */
+export function detectMissionControl(
+  windows: CgWindow[],
+  displays: Rect[],
+): boolean {
   return windows.some(
-    (window) => window.ownerName === DOCK && Math.round(window.bounds.y) === -1,
+    (window) =>
+      window.ownerName === DOCK &&
+      window.layer > 0 &&
+      displays.some((display) => coversDisplay(window.bounds, display)),
   );
 }
 

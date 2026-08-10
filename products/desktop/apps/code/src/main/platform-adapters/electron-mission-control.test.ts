@@ -23,18 +23,30 @@ vi.mock("../services/mission-control/cg-window-list", () => ({
   createWindowListSampler: sampler.create,
 }));
 
+// One 2560x1440 display, so the full-display coverage test has something to
+// match against.
+vi.mock("electron", () => ({
+  screen: {
+    getAllDisplays: () => [
+      { bounds: { x: 0, y: 0, width: 2560, height: 1440 } },
+    ],
+  },
+}));
+
 import { MissionControlService } from "./electron-mission-control";
 
-const DOCK_AT_MINUS_ONE: CgWindow = {
+/** The full-display Dock window Mission Control puts up. */
+const MISSION_CONTROL_BACKING: CgWindow = {
   ownerName: "Dock",
   layer: 20,
-  bounds: { x: 0, y: -1, width: 1440, height: 901 },
+  bounds: { x: 0, y: 0, width: 2560, height: 1440 },
 };
 
+/** The Dock's own strip, present with or without Mission Control. */
 const DOCK_STRIP: CgWindow = {
   ownerName: "Dock",
   layer: 20,
-  bounds: { x: 0, y: 830, width: 1440, height: 70 },
+  bounds: { x: 1030, y: 1330, width: 500, height: 110 },
 };
 
 /** A sampler whose next return value the test controls. */
@@ -84,7 +96,7 @@ describe("MissionControlService", () => {
     vi.advanceTimersByTime(1000);
     expect(seen).toEqual([]);
 
-    state.windows = [DOCK_AT_MINUS_ONE];
+    state.windows = [MISSION_CONTROL_BACKING];
     vi.advanceTimersByTime(1000);
 
     state.windows = [];
@@ -95,7 +107,7 @@ describe("MissionControlService", () => {
   });
 
   it("stops polling once disarmed, and drops the overlay", () => {
-    const { state, impl } = fakeSampler([DOCK_AT_MINUS_ONE]);
+    const { state, impl } = fakeSampler([MISSION_CONTROL_BACKING]);
     sampler.create.mockReturnValue(impl);
     const service = new MissionControlService();
 
@@ -107,7 +119,7 @@ describe("MissionControlService", () => {
     expect(service.getState().active).toBe(false);
 
     // Mission Control is still "open", but nothing is watching any more.
-    state.windows = [DOCK_AT_MINUS_ONE];
+    state.windows = [MISSION_CONTROL_BACKING];
     vi.advanceTimersByTime(5000);
     expect(service.getState().active).toBe(false);
   });
@@ -196,15 +208,15 @@ describe("MissionControlService", () => {
 
     const probe = service.probe(1000);
     await vi.advanceTimersByTimeAsync(250);
-    state.windows = [DOCK_STRIP, DOCK_AT_MINUS_ONE];
+    state.windows = [DOCK_STRIP, MISSION_CONTROL_BACKING];
     await vi.advanceTimersByTimeAsync(250);
-    state.windows = [DOCK_AT_MINUS_ONE];
+    state.windows = [MISSION_CONTROL_BACKING];
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(await probe).toMatchObject({
       available: true,
       detected: true,
-      appeared: [DOCK_AT_MINUS_ONE],
+      appeared: [MISSION_CONTROL_BACKING],
       disappeared: [DOCK_STRIP],
       baselineCount: 1,
     });
