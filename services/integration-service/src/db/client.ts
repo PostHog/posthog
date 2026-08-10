@@ -33,6 +33,20 @@ CREATE TABLE IF NOT EXISTS integration_secret_usage (
 CREATE INDEX IF NOT EXISTS integration_secret_usage_bucket_idx
     ON integration_secret_usage (bucket);
 
+-- Last-seen, separate from the bucketed counts and never pruned.
+--
+-- safeToRetirePrevious has to consider every deployment known to read a key, not only
+-- those active inside the rolling window: a consumer that reads less often than the window
+-- would otherwise drop out of the verdict, and one read from an active caller could
+-- declare the previous value retirable while that consumer is still on it. Keeping this
+-- out of the bucketed table is what makes "known to read" mean all time.
+CREATE TABLE IF NOT EXISTS integration_secret_last_seen (
+    secret_key text        NOT NULL,
+    deployment text        NOT NULL,
+    last_seen  timestamptz NOT NULL,
+    PRIMARY KEY (secret_key, deployment)
+);
+
 -- When this content first appeared, agreed across replicas and surviving a restart. A
 -- mounted secret carries no AWS version, so first-observation is what "the value changed
 -- at" means now.

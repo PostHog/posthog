@@ -96,6 +96,13 @@ export class UsageRecorder {
                      last_seen = GREATEST(integration_secret_usage.last_seen, EXCLUDED.last_seen)`,
                 [keys, deployments, buckets, reads, lastSeen]
             )
+            await this.pool.query(
+                `INSERT INTO integration_secret_last_seen (secret_key, deployment, last_seen)
+                 SELECT * FROM unnest($1::text[], $2::text[], $3::timestamptz[])
+                 ON CONFLICT (secret_key, deployment) DO UPDATE
+                 SET last_seen = GREATEST(integration_secret_last_seen.last_seen, EXCLUDED.last_seen)`,
+                [keys, deployments, lastSeen]
+            )
         } catch (err) {
             logger.warn('usage:flush_failed', {
                 entries: batch.size,
@@ -104,7 +111,13 @@ export class UsageRecorder {
         }
     }
 
-    /** Sum the last `hours` buckets per key/deployment, with the newest last-seen. */
+    /**
+     * Reads inside the window, and last-seen across all time.
+     *
+     * The two come from different tables on purpose. Window-filtering last-seen would drop
+     * a deployment that reads a key less often than the window out of the retirement
+     * verdict entirely — see the note on integration_secret_last_seen.
+     */
     async summarize(hours: number): Promise<{
         reads: Map<string, number>
         lastSeen: Map<string, number>
@@ -115,28 +128,33 @@ export class UsageRecorder {
             return { reads, lastSeen }
         }
 
-        const { rows } = await this.pool.query<{
-            secret_key: string
-            deployment: string
-            reads: string
-            last_seen: Date
-        }>(
-            `SELECT secret_key, deployment, SUM(reads) AS reads, MAX(last_seen) AS last_seen
+        const counted = await this.pool.query<{ secret_key: string; deployment: string; reads: string }>(
+            `SELECT secret_key, deployment, SUM(reads) AS reads
              FROM integration_secret_usage
              WHERE bucket >= now() - make_interval(hours => $1)
              GROUP BY secret_key, deployment`,
             [hours]
         )
-
-        for (const row of rows) {
-            const field = `${row.secret_key}|${row.deployment}`
-            reads.set(field, Number(row.reads))
-            lastSeen.set(field, row.last_seen.getTime())
+        for (const row of counted.rows) {
+            reads.set(`${row.secret_key}|${row.deployment}`, Number(row.reads))
         }
+
+        const seen = await this.pool.query<{ secret_key: string; deployment: string; last_seen: Date }>(
+            `SELECT secret_key, deployment, last_seen FROM integration_secret_last_seen`
+        )
+        for (const row of seen.rows) {
+            lastSeen.set(`${row.secret_key}|${row.deployment}`, row.last_seen.getTime())
+        }
+
         return { reads, lastSeen }
     }
 
-    /** Drop buckets past the retention window, so the table stays small. */
+    /**
+     * Drop buckets past the retention window, so the counts table stays small.
+     *
+     * Deliberately does not touch integration_secret_last_seen: a dormant deployment has to
+     * keep holding the retirement verdict back however long it has been quiet.
+     */
     async prune(retentionDays: number): Promise<void> {
         if (!this.pool) {
             return
