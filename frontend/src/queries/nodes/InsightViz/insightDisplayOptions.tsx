@@ -90,9 +90,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     const isPie = display === ChartDisplayType.ActionsPie
-    // Percent stacking normally replaces the raw values, taking the unit with it. A pie is the
-    // exception: it can show the value and the percentage side by side, so the unit still applies.
-    const percentReplacesValues = !!showPercentStackView && !(isPie && showValuesOnSeries)
+    // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
+    // A pie is the exception: it can show the value and the percentage together.
+    const showsRawValues = !showPercentStackView || (isPie && !!showValuesOnSeries)
     // When the chart draws its own positioned in-chart legend, show the position selector instead
     // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
     // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
@@ -202,7 +202,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    if (!percentReplacesValues && isTrends && !isCalendarHeatmap) {
+    if (showsRawValues && isTrends && !isCalendarHeatmap) {
         items.push({
             title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
             items: [DisplayOptions.Unit],
@@ -255,7 +255,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (isPie && trendsFilter?.showLabelsOnSeries ? 1 : 0) +
-        (!percentReplacesValues &&
+        (showsRawValues &&
         isTrends &&
         trendsFilter?.aggregationAxisFormat &&
         trendsFilter.aggregationAxisFormat !== 'numeric'
