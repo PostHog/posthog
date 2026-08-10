@@ -47,16 +47,24 @@ function initAs(onboardingSkippedReason: OnboardingSkippedReason, team: TeamType
 
 describe('activeCloudRunLogic', () => {
     describe('scopedCloudRun', () => {
-        it.each([
+        const paHandle: CloudRunHandle = { ...handle, productKey: 'product_analytics' }
+        it.each<[string, CloudRunHandle | null, number | null, string | null | undefined, CloudRunHandle | null]>([
             // The persisted handle is browser-wide localStorage — a fresh account inheriting another
             // project's run must never surface it.
-            ['a handle from another project', handle, 7, null],
-            ['a legacy handle without a projectId', { ...handle, projectId: undefined }, 2, null],
-            ['no current project resolved yet', handle, null, null],
-            ['no handle at all', null, 2, null],
-            ['a handle for the current project', handle, 2, handle],
-        ])('returns %s correctly', (_name, persisted, currentProjectId, expected) => {
-            expect(scopedCloudRun(persisted, currentProjectId as number | null)).toEqual(expected)
+            ['a handle from another project', handle, 7, undefined, null],
+            ['a legacy handle without a projectId', { ...handle, projectId: undefined }, 2, undefined, null],
+            ['no current project resolved yet', handle, null, undefined, null],
+            ['no handle at all', null, 2, undefined, null],
+            ['a handle for the current project', handle, 2, undefined, handle],
+            // Product scoping: an install step passes its own product key, so a run started by
+            // another product's onboarding stays out of it — the leak this fixes.
+            ['a run from another product', paHandle, 2, 'session_replay', null],
+            ['a run for the current product', paHandle, 2, 'product_analytics', paHandle],
+            // A handle predating the stamp carries no productKey, so it is left unscoped by product
+            // rather than hidden everywhere during rollout.
+            ['a handle without a stamped product', handle, 2, 'session_replay', handle],
+        ])('returns %s correctly', (_name, persisted, currentProjectId, currentProductKey, expected) => {
+            expect(scopedCloudRun(persisted, currentProjectId, currentProductKey)).toEqual(expected)
         })
     })
 

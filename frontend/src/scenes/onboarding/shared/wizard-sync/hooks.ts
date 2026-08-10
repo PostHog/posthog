@@ -6,6 +6,8 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
+import { onboardingLogic } from '../../legacy/onboardingLogic'
+import { activeCloudRunLogic, type CloudRunHandle, scopedCloudRun } from './activeCloudRunLogic'
 import { installationProgressLogic } from './installationProgressLogic'
 import { wizardActiveSessionDetectorLogic, watchWorkflowWhileMounted } from './wizardActiveSessionDetectorLogic'
 import { SELF_DRIVING_WORKFLOW_ID } from './workflows'
@@ -69,6 +71,19 @@ export function useSelfDrivingRunState(): { inFlight: boolean; resolved: boolean
     }, [])
 
     return { inFlight: activeWorkflowId === SELF_DRIVING_WORKFLOW_ID, resolved: hasResolvedSessionState }
+}
+
+/**
+ * The active cloud run, but only when it belongs to the onboarding the user is on now — the run's
+ * own project AND product. A finished run stays behind in the install step that started it instead
+ * of following the user into another product's setup box. The app-wide FAB is deliberately not
+ * scoped this way (it reads the project-scoped `activeCloudRun` directly), so it still carries the
+ * run everywhere.
+ */
+export function useOnboardingScopedCloudRun(): CloudRunHandle | null {
+    const { persistedCloudRun, currentProjectId } = useValues(activeCloudRunLogic)
+    const { currentStepProductKey } = useValues(onboardingLogic)
+    return scopedCloudRun(persistedCloudRun, currentProjectId, currentStepProductKey)
 }
 
 /**

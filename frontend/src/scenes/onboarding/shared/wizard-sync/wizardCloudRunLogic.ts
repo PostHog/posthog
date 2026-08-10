@@ -56,8 +56,10 @@ export interface wizardCloudRunLogicActions {
         taskId: string,
         runId: string,
         startedAt: string,
-        projectId: number
+        projectId: number,
+        productKey?: string
     ) => {
+        productKey: string | undefined
         projectId: number
         runId: string
         startedAt: string
@@ -216,7 +218,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
     }),
     listeners(({ values, actions }) => ({
         startCloudRun: async () => {
-            const { githubIntegration, selectedRepository, currentProjectId } = values
+            const { githubIntegration, selectedRepository, currentProjectId, currentStepProductKey } = values
             if (!githubIntegration || !selectedRepository || !currentProjectId) {
                 actions.startCloudRunFailure()
                 return
@@ -240,8 +242,16 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                 )
                 actions.setCloudRunHandle(task_id, run_id)
                 // teamLogic's currentProjectId can be the '@current' placeholder pre-load; by kickoff
-                // time the team is loaded, so this is a plain numeric coercion in practice.
-                actions.setActiveCloudRun(task_id, run_id, new Date().toISOString(), Number(currentProjectId))
+                // time the team is loaded, so this is a plain numeric coercion in practice. The
+                // product key scopes the run to this onboarding, so its outcome can't surface in a
+                // different product's install step.
+                actions.setActiveCloudRun(
+                    task_id,
+                    run_id,
+                    new Date().toISOString(),
+                    Number(currentProjectId),
+                    currentStepProductKey ?? undefined
+                )
                 // Frontend side of the kickoff, pairing with the backend `task_run_created` (GROW-89).
                 actions.reportSelfDrivingOnboardingCloudRunQueued({ taskId: task_id, runId: run_id, repository })
                 actions.startCloudRunSuccess()

@@ -9,6 +9,7 @@ import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelper
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { activeCloudRunLogic } from './activeCloudRunLogic'
+import { useOnboardingScopedCloudRun } from './hooks'
 import { InstallationProgressView } from './InstallationProgressView'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
 import { WizardModeShell } from './WizardModeShell'
@@ -36,7 +37,7 @@ export function WizardCloudRunBlock({
     const { isCloudOrDev } = useWizardCommand()
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl } = useValues(wizardCloudRunLogic)
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const activeCloudRun = useOnboardingScopedCloudRun()
     const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
 

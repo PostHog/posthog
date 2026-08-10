@@ -23,12 +23,31 @@ export interface CloudRunHandle {
     /** Project the run belongs to. Optional: runs persisted before this field existed will not have
      * it — those are treated as stale and never surfaced (see `activeCloudRun`). */
     projectId?: number
+    /** Onboarding product whose install step started the run. Optional: runs persisted before this
+     * field existed, and runs seeded server-side, will not have it. Lets a product's onboarding show
+     * only its own run, so a finished run can't follow the user into another product's install step
+     * (see `scopedCloudRun`). */
+    productKey?: string
 }
 
-// The persisted handle, but only when it belongs to the given project. Handles without a projectId
-// predate the stamp and can't be attributed, so they're stale by definition.
-export function scopedCloudRun(handle: CloudRunHandle | null, currentProjectId: number | null): CloudRunHandle | null {
-    return handle?.projectId != null && handle.projectId === currentProjectId ? handle : null
+// The persisted handle, but only when it belongs to the given project — and, when a product key is
+// supplied, only when the run was started by that product's onboarding. Handles without a projectId
+// predate the stamp and can't be attributed, so they're stale by definition. Product scoping is
+// opt-in: the app-wide FAB passes no product key and keeps surfacing the run anywhere, while an
+// install step passes its own key so a run started elsewhere stays out of it. A handle without a
+// stamped productKey predates that stamp and is left unscoped by product.
+export function scopedCloudRun(
+    handle: CloudRunHandle | null,
+    currentProjectId: number | null,
+    currentProductKey?: string | null
+): CloudRunHandle | null {
+    if (handle?.projectId == null || handle.projectId !== currentProjectId) {
+        return null
+    }
+    if (currentProductKey !== undefined && handle.productKey != null && handle.productKey !== currentProductKey) {
+        return null
+    }
+    return handle
 }
 
 // How often the persisted handle is re-checked against the server while one is held. The run stream
@@ -95,8 +114,10 @@ export interface activeCloudRunLogicActions {
         taskId: string,
         runId: string,
         startedAt: string,
-        projectId: number
+        projectId: number,
+        productKey?: string
     ) => {
+        productKey: string | undefined
         projectId: number
         runId: string
         startedAt: string
@@ -149,11 +170,18 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
         values: [projectLogic, ['currentProjectId'], teamLogic, ['currentTeam'], userLogic, ['isProvisionedUser']],
     })),
     actions({
-        setActiveCloudRun: (taskId: string, runId: string, startedAt: string, projectId: number) => ({
+        setActiveCloudRun: (
+            taskId: string,
+            runId: string,
+            startedAt: string,
+            projectId: number,
+            productKey?: string
+        ) => ({
             taskId,
             runId,
             startedAt,
             projectId,
+            productKey,
         }),
         clearActiveCloudRun: true,
         // Set by the inline install-step progress view while it's mounted, so the floating FAB hides
@@ -176,11 +204,12 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
             null as CloudRunHandle | null,
             { persist: true },
             {
-                setActiveCloudRun: (_, { taskId, runId, startedAt, projectId }) => ({
+                setActiveCloudRun: (_, { taskId, runId, startedAt, projectId, productKey }) => ({
                     taskId,
                     runId,
                     startedAt,
                     projectId,
+                    productKey,
                 }),
                 clearActiveCloudRun: () => null,
             },
