@@ -635,7 +635,9 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         return False
 
     try:
-        pause_schedule(temporal, schedule_id=batch_export_id, note=note)
+        # Coerce to str: callers like delete_batch_export pass a UUID instance, which the
+        # Temporal protobuf schedule_id field rejects with a TypeError.
+        pause_schedule(temporal, schedule_id=str(batch_export_id), note=note)
     except Exception as exc:
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
@@ -664,7 +666,9 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         return False
 
     try:
-        await a_pause_schedule(temporal, schedule_id=batch_export_id, note=note)
+        # Coerce to str: callers like delete_batch_export pass a UUID instance, which the
+        # Temporal protobuf schedule_id field rejects with a TypeError.
+        await a_pause_schedule(temporal, schedule_id=str(batch_export_id), note=note)
     except Exception as exc:
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 

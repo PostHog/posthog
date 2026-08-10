@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 
 import pytest
@@ -9,7 +10,11 @@ from rest_framework import status
 
 from posthog.temporal.common.schedule import describe_schedule
 
-from products.batch_exports.backend.service import batch_export_delete_schedule
+from products.batch_exports.backend.models.batch_export import BatchExport
+from products.batch_exports.backend.service import (
+    batch_export_delete_schedule,
+    pause_batch_export as pause_batch_export_service,
+)
 from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
@@ -73,6 +78,40 @@ def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organizati
     assert data["paused"] is False
     schedule_desc = describe_schedule(temporal, data["id"])
     assert schedule_desc.schedule.state.paused is False
+
+
+def test_pause_batch_export_accepts_uuid_schedule_id(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
+    """The delete path passes the model's UUID id, not a str, so pausing must still reach Temporal."""
+    destination_data = {
+        "type": "AwsS3",
+        "integration": aws_s3_integration.id,
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+
+    instance = BatchExport.objects.get(id=batch_export["id"])
+    assert isinstance(instance.id, uuid.UUID)
+
+    paused = pause_batch_export_service(temporal, instance.id)
+
+    assert paused is True
+    schedule_desc = describe_schedule(temporal, str(instance.id))
+    assert schedule_desc.schedule.state.paused is True
 
 
 def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
