@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any, Optional
 
 import pytest
@@ -9,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     CheckoutComResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
-    MAX_SEARCH_WINDOW,
     checkout_com_payments_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -28,9 +26,10 @@ NOW = "2024-03-01T00:00:00Z"
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: Any = None) -> None:
+    def __init__(self, status_code: int = 200, json_data: Any = None, text: str = "") -> None:
         self.status_code = status_code
         self._json_data = json_data
+        self.text = text
 
     @property
     def ok(self) -> bool:
@@ -169,6 +168,8 @@ class TestPaymentsWindowWalking:
             ("2024-02-29T12:00:00Z", "2024-03-01T00:00:00Z"),
         ]
         assert all(s["json"]["limit"] == 2 and s["auth"] is not None for s in session.searches)
+        # The search endpoint rejects a request without a non-empty `query` as unprocessable.
+        assert all(s["json"]["query"] for s in session.searches)
         # Each completed window checkpoints its end, ascending.
         assert [state.search_window_to for state in manager.saved_states] == [
             "2024-02-29T12:00:00Z",
@@ -178,10 +179,12 @@ class TestPaymentsWindowWalking:
     @pytest.mark.parametrize(
         "start_date, should_use_incremental_field, last_value, expected_from, expected_search_count",
         [
-            # A year-long default backfill exceeds MAX_SEARCH_WINDOW, so it's chunked
-            # into 5 requests (4 full 90-day chunks plus a 5-day remainder).
-            (None, False, None, "2023-03-02T00:00:00Z", 5),
+            # No configured start: the default backfill reaches the ~90-day search horizon,
+            # which fits a single MAX_SEARCH_WINDOW request.
+            (None, False, None, "2023-12-02T00:00:00Z", 1),
             ("2024-01-01", False, None, "2024-01-01T00:00:00Z", 1),
+            # A start older than the horizon clamps to it; search can't return older payments.
+            ("2023-01-01", False, None, "2023-12-02T00:00:00Z", 1),
             ("2024-01-01", True, "2024-02-01T00:00:00Z", "2024-02-01T00:00:00Z", 1),
         ],
     )
@@ -211,28 +214,6 @@ class TestPaymentsWindowWalking:
         assert len(session.searches) == expected_search_count
         assert session.searches[0]["json"]["from"] == expected_from
         assert session.searches[-1]["json"]["to"] == NOW
-
-    @mock.patch(SESSION_PATCH)
-    def test_default_backfill_is_chunked_to_max_search_window(self, mock_make_session):
-        # The search API 422s on a full one-year range sent as a single request, so the
-        # overall sync range is walked in MAX_SEARCH_WINDOW-sized chunks.
-        session = _FakeSession(search_responses=[_search_page([]) for _ in range(5)])
-        mock_make_session.side_effect = [session]
-
-        _rows(_source("payments"))
-
-        spans = [
-            (
-                datetime.fromisoformat(s["json"]["from"].replace("Z", "+00:00")),
-                datetime.fromisoformat(s["json"]["to"].replace("Z", "+00:00")),
-            )
-            for s in session.searches
-        ]
-        assert all(end - start <= MAX_SEARCH_WINDOW for start, end in spans)
-        # Chunks are contiguous and ascending, covering the full backfill range.
-        assert all(spans[i][1] == spans[i + 1][0] for i in range(len(spans) - 1))
-        assert spans[0][0] == datetime.fromisoformat("2023-03-02T00:00:00+00:00")
-        assert spans[-1][1] == datetime.fromisoformat(NOW.replace("Z", "+00:00"))
 
     @mock.patch(SESSION_PATCH)
     def test_resume_checkpoint_wins_over_watermark(self, mock_make_session):
@@ -274,6 +255,34 @@ class TestPaymentsWindowWalking:
         assert [row["id"] for row in rows] == ["pay_1"]
         assert len(session.searches) == 1
         logger.error.assert_called_once()
+
+    @mock.patch(SESSION_PATCH)
+    def test_search_error_raises_and_logs_response_body(self, mock_make_session):
+        # The 4xx body carries the machine-readable reason (`error_codes`); without it in
+        # the log a rejected request is undiagnosable server-side.
+        session = _FakeSession(
+            search_responses=[
+                _FakeResponse(
+                    status_code=422,
+                    text='{"error_type":"request_invalid","error_codes":["query_required"]}',
+                )
+            ]
+        )
+        mock_make_session.side_effect = [session]
+        logger = mock.MagicMock()
+
+        response = checkout_com_payments_source(
+            environment="production",
+            client_id="ack_id",
+            client_secret="secret",
+            schema_name="payments",
+            logger=logger,
+            resumable_source_manager=_FakeManager(),
+        )
+        with pytest.raises(Exception, match="422"):
+            _rows(response)
+
+        assert "query_required" in logger.error.call_args[0][0]
 
 
 @freeze_time(NOW)
