@@ -57,7 +57,7 @@ export interface wizardCloudRunLogicActions {
         runId: string,
         startedAt: string,
         projectId: number,
-        productKey?: string
+        productKey?: string | undefined
     ) => {
         productKey: string | undefined
         projectId: number
