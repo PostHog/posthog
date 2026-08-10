@@ -1,11 +1,12 @@
-import { ArrowSquareIn, type Icon, SlackLogo } from "@phosphor-icons/react";
+import { ArrowSquareIn, type Icon } from "@phosphor-icons/react";
+import { SlackMark } from "@posthog/ui/primitives/SlackMark";
 import { describe, expect, it } from "vitest";
 
 import { taskBadges } from "./taskStatusVocabulary";
 
 describe("taskBadges", () => {
   it.each([
-    ["slack", SlackLogo],
+    ["slack", SlackMark],
     ["signals_scout", ArrowSquareIn],
     ["error_tracking", ArrowSquareIn],
   ])("marks a %s row with its source glyph", (originProduct, expected) => {

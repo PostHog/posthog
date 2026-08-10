@@ -5,12 +5,12 @@ import {
   GitPullRequest,
   type Icon,
   Laptop,
-  SlackLogo,
 } from "@phosphor-icons/react";
 import {
   getOriginProductMeta,
   type TaskIconProps,
 } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
+import { SlackMark } from "@posthog/ui/primitives/SlackMark";
 
 /**
  * The task state a status dot / badge stack is drawn from: what the shipped
@@ -242,7 +242,7 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
   if (origin) {
     badges.push({
       key: "origin",
-      Icon: props.originProduct === "slack" ? SlackLogo : ArrowSquareIn,
+      Icon: props.originProduct === "slack" ? SlackMark : ArrowSquareIn,
       label: `Source: ${origin.label}`,
     });
   }
