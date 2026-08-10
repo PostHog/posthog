@@ -68,11 +68,12 @@ SETTINGS index_granularity=512
     )
 
 
-def KAFKA_LOG_ENTRIES_TABLE_SQL(on_cluster=True):
+def KAFKA_LOG_ENTRIES_TABLE_SQL(on_cluster=True, group: str | None = None):
+    engine_kwargs = {"group": group} if group is not None else {}
     return LOG_ENTRIES_TABLE_BASE_SQL.format(
         table_name="kafka_" + LOG_ENTRIES_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=kafka_engine(topic=KAFKA_LOG_ENTRIES),
+        engine=kafka_engine(topic=KAFKA_LOG_ENTRIES, **engine_kwargs),
         extra_fields="",
     )
 
