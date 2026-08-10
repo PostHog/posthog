@@ -19,6 +19,7 @@ describe("modeApprovalPolicy", () => {
   it.each([
     ["read-only", "untrusted"],
     ["auto", "on-request"],
+    ["multitask", "on-request"],
     ["full-access", "never"],
   ])("maps mode %s to approval policy %s", (mode, policy) => {
     expect(modeApprovalPolicy(mode)).toBe(policy);
@@ -48,7 +49,7 @@ describe("sandboxPolicyFor", () => {
     });
   });
 
-  it("restores an editable sandbox for auto + full-access (turn overrides are sticky)", () => {
+  it("restores an editable sandbox for editable modes (turn overrides are sticky)", () => {
     expect(sandboxPolicyFor("full-access")).toEqual({
       type: "dangerFullAccess",
     });
@@ -57,6 +58,7 @@ describe("sandboxPolicyFor", () => {
         ? { type: "workspaceWrite", networkAccess: false }
         : { type: "dangerFullAccess" },
     );
+    expect(sandboxPolicyFor("multitask")).toEqual(sandboxPolicyFor("auto"));
   });
 
   it("returns undefined for unknown ids", () => {
@@ -69,7 +71,7 @@ describe("buildCodexModes", () => {
   const sandboxFor = (platform: string, id: string) =>
     buildCodexModes(platform).find((m) => m.id === id)?.sandboxPolicy;
 
-  it("gives auto the platform's editable sandbox (Seatbelt workspace-write on macOS, danger elsewhere)", () => {
+  it("gives editable modes the platform's editable sandbox (Seatbelt workspace-write on macOS, danger elsewhere)", () => {
     // Network stays restricted: egress still goes through codex's escalation prompt.
     expect(sandboxFor("darwin", "auto")).toEqual({
       type: "workspaceWrite",
@@ -77,6 +79,13 @@ describe("buildCodexModes", () => {
     });
     expect(sandboxFor("linux", "auto")).toEqual({ type: "dangerFullAccess" });
     expect(sandboxFor("win32", "auto")).toEqual({ type: "dangerFullAccess" });
+    expect(sandboxFor("darwin", "multitask")).toEqual({
+      type: "workspaceWrite",
+      networkAccess: false,
+    });
+    expect(sandboxFor("linux", "multitask")).toEqual({
+      type: "dangerFullAccess",
+    });
   });
 
   it.each(["darwin", "linux", "win32"])(
@@ -107,6 +116,7 @@ describe("collaborationModeFor", () => {
     expect(collaborationModeFor("plan")).toBe("plan");
     expect(collaborationModeFor("read-only")).toBe("default");
     expect(collaborationModeFor("auto")).toBe("default");
+    expect(collaborationModeFor("multitask")).toBe("default");
     expect(collaborationModeFor("full-access")).toBe("default");
     expect(collaborationModeFor(undefined)).toBe("default");
   });
@@ -116,6 +126,7 @@ describe("resolveCodexMode", () => {
   it.each([
     ["read-only", "read-only"],
     ["auto", "auto"],
+    ["multitask", "multitask"],
     ["full-access", "full-access"],
     ["bypassPermissions", "full-access"],
     ["default", "auto"],
@@ -126,6 +137,31 @@ describe("resolveCodexMode", () => {
 });
 
 describe("SessionConfigState", () => {
+  it("adds orchestrator instructions only in multitask mode", () => {
+    const config = new SessionConfigState("gpt-5.5");
+
+    config.setOption("mode", "multitask");
+
+    expect(config.collaborationModeForTurn()).toEqual({
+      mode: "default",
+      settings: {
+        model: "gpt-5.5",
+        developerInstructions: expect.stringContaining(
+          "Delegate each independent user task to its own subagent",
+        ),
+      },
+    });
+    expect(config.approvalPolicy()).toBe("on-request");
+    expect(config.sandboxPolicy()).toEqual(sandboxPolicyFor("auto"));
+
+    config.setOption("mode", "auto");
+
+    expect(config.collaborationModeForTurn()).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.5" },
+    });
+  });
+
   it("canonicalizes bypassPermissions during a live mode update", () => {
     const config = new SessionConfigState("gpt-5.5");
 
@@ -253,6 +289,7 @@ describe("buildConfigOptions", () => {
       "plan",
       "read-only",
       "auto",
+      "multitask",
       "full-access",
     ]);
   });

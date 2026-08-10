@@ -56,6 +56,15 @@ export interface CodexMode {
   collaborationMode?: "plan" | "default";
 }
 
+const MULTITASK_DEVELOPER_INSTRUCTIONS = [
+  "You are the root orchestrator in multitask mode.",
+  "Delegate each independent user task to its own subagent as soon as possible.",
+  "Continue useful coordination and integration work while subagents run.",
+  "Use available subagent slots for independent work instead of queueing or steering it into the active task.",
+  "Keep tightly coupled work with one owner to avoid conflicting edits.",
+  "Wait for required subagents, integrate their results, and report one coherent outcome to the user.",
+].join("\n");
+
 /**
  * The editable sandbox for a platform, mirroring spawn.ts's `sandbox_mode`:
  * macOS Seatbelt supports workspace-write; linux/windows have no sandbox
@@ -90,6 +99,10 @@ function modePolicies(
       sandboxPolicy: { type: "readOnly", networkAccess: true },
     },
     auto: {
+      approvalPolicy: "on-request",
+      sandboxPolicy: editableSandboxPolicy(platform),
+    },
+    multitask: {
       approvalPolicy: "on-request",
       sandboxPolicy: editableSandboxPolicy(platform),
     },
@@ -368,7 +381,12 @@ export class SessionConfigState {
   collaborationModeForTurn(): unknown {
     return {
       mode: collaborationModeFor(this._mode),
-      settings: { model: this._model },
+      settings: {
+        model: this._model,
+        ...(this._mode === "multitask"
+          ? { developerInstructions: MULTITASK_DEVELOPER_INSTRUCTIONS }
+          : {}),
+      },
     };
   }
 

@@ -2,7 +2,7 @@ import type { Adapter } from "./adapter";
 import type { ExecutionMode } from "./exec-types";
 
 export interface CodexModePreset {
-  id: "plan" | "read-only" | "auto" | "full-access";
+  id: "plan" | "read-only" | "auto" | "multitask" | "full-access";
   name: string;
   description: string;
 }
@@ -30,6 +30,11 @@ export const CODEX_MODE_PRESETS: readonly CodexModePreset[] = [
     description: "Edits the workspace; asks before risky operations",
   },
   {
+    id: "multitask",
+    name: "Multitask",
+    description: "Delegates tasks to subagents and coordinates their work",
+  },
+  {
     id: "full-access",
     name: "Full access",
     description: "Auto-approves all operations",
@@ -47,6 +52,7 @@ const CLAUDE_CLOUD_PERMISSION_MODES = [
 const CODEX_CLOUD_PERMISSION_MODES = [
   "plan",
   "auto",
+  "multitask",
   "read-only",
   "full-access",
 ] as const;
@@ -81,6 +87,7 @@ const CLAUDE_CLOUD_MODE_FALLBACKS: Record<
   ClaudeCloudPermissionMode
 > = {
   "read-only": "plan",
+  multitask: "auto",
   "full-access": "bypassPermissions",
 };
 

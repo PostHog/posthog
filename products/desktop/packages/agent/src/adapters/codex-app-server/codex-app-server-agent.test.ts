@@ -1840,7 +1840,7 @@ describe("CodexAppServerAgent", () => {
     ]);
     expect(
       opts.find((o) => o.category === "mode").options.map((x: any) => x.value),
-    ).toEqual(["plan", "read-only", "auto", "full-access"]);
+    ).toEqual(["plan", "read-only", "auto", "multitask", "full-access"]);
     expect(
       opts
         .find((o) => o.category === "thought_level")

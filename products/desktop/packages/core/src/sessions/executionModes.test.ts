@@ -7,7 +7,7 @@ import {
 describe("getAvailableModesForAdapter", () => {
   it.each([
     ["claude", ["default", "acceptEdits", "plan", "bypassPermissions", "auto"]],
-    ["codex", ["plan", "read-only", "auto", "full-access"]],
+    ["codex", ["plan", "read-only", "auto", "multitask", "full-access"]],
   ] as const)("returns %s execution modes", (adapter, expected) => {
     expect(getAvailableModesForAdapter(adapter).map((mode) => mode.id)).toEqual(
       expected,

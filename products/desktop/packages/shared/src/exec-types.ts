@@ -4,5 +4,6 @@ export type ExecutionMode =
   | "plan"
   | "bypassPermissions"
   | "auto"
+  | "multitask"
   | "read-only"
   | "full-access";
