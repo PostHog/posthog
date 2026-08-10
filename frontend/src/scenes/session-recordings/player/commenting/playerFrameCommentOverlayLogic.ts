@@ -270,6 +270,11 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 lemonToast.error(`Emoji comments must be emojis 🙈, this string was too long: "${emoji}"`)
                 return
             }
+            const dateForTimestamp = values.dateForCurrentTimestamp
+            if (!dateForTimestamp) {
+                lemonToast.error('Could not save your comment: the recording has no timestamp yet.')
+                return
+            }
             const loadingTimeout = setTimeout(() => {
                 actions.setLoading(true)
             }, 250)
@@ -281,12 +286,14 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     item_id: props.recordingId,
                     item_context: {
                         is_emoji: true,
-                        time_in_recording: dayjs(values.currentTimestamp).toISOString(),
+                        time_in_recording: dateForTimestamp.toISOString(),
                         milliseconds_into_recording: values.currentPlayerTime,
                     },
                     slug: `/replay/${props.recordingId}#panel=discussion`,
                 })
                 playerCommentModel.actions.commentEdited(props.recordingId)
+            } catch (e) {
+                lemonToast.error(`Could not save your comment: ${(e as Error).message}`)
             } finally {
                 if (loadingTimeout) {
                     clearTimeout(loadingTimeout)
