@@ -25,8 +25,11 @@ services:
         profiles: [temporal]
     temporal-admin-tools:
         profiles: [temporal]
+    # Not in the temporal profile: Temporal reads and writes visibility through its
+    # Postgres store, so nothing in the stack needs a live Elasticsearch. Opt in
+    # explicitly if you want one.
     elasticsearch:
-        profiles: [temporal]
+        profiles: [elasticsearch]
 
     # Observability capability - tracing and logging
     otel-collector:

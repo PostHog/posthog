@@ -827,7 +827,7 @@ jobs:
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
                     db redis7 clickhouse zookeeper kafka objectstorage \
-                    temporal elasticsearch objectstorage-azure
+                    temporal objectstorage-azure
 
             # Dedicated app: this product matrix alone is ~half the offloadable
             # setup-action volume, enough to threaten any shared 15k/hr bucket.

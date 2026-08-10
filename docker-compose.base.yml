@@ -729,16 +729,11 @@ services:
             - POSTGRES_PWD=posthog
             - POSTGRES_SEEDS=db
             - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-            - ENABLE_ES=true
-            - ES_SEEDS=elasticsearch
-            - ES_VERSION=v7
         image: temporalio/auto-setup:1.26.2
         labels:
             kompose.volume.type: configMap
         depends_on:
             db:
-                condition: service_healthy
-            elasticsearch:
                 condition: service_healthy
     temporal-admin-tools:
         environment:
