@@ -10,6 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { quietHoursFormError } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
+import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import {
     logsAlertsCreate,
     logsAlertsPartialUpdate,
@@ -43,6 +45,7 @@ export interface LogsAlertFormType {
     evaluationPeriods: number
     datapointsToAlarm: number
     cooldownMinutes: number
+    scheduleRestriction: ScheduleRestriction | null
 }
 
 export interface LogsAlertFormLogicProps {
@@ -74,6 +77,7 @@ export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): Logs
         evaluationPeriods: alert?.evaluation_periods ?? 1,
         datapointsToAlarm: alert?.datapoints_to_alarm ?? 1,
         cooldownMinutes: alert?.cooldown_minutes ?? 0,
+        scheduleRestriction: (alert?.schedule_restriction as ScheduleRestriction | null) ?? null,
     }
 }
 
@@ -90,6 +94,7 @@ export interface logsAlertFormLogicValues {
     alertFormTouched: boolean
     alertFormTouches: Record<string, boolean>
     alertFormValidationErrors: DeepPartialMap<LogsAlertFormType, ValidationErrorType>
+    checkIntervalMinutes: number
     isAlertFormSubmitting: boolean
     isAlertFormValid: boolean
     isEditing: boolean
@@ -204,6 +209,7 @@ export interface logsAlertFormLogicActions {
 export interface logsAlertFormLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        checkIntervalMinutes: (arg: any) => number
         isEditing: (arg: any) => boolean
     }
 }
@@ -297,6 +303,10 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
 
     selectors({
         isEditing: [() => [(_, props) => props.alert], (alert: LogsAlertConfigurationApi | null) => alert !== null],
+        checkIntervalMinutes: [
+            () => [(_, props) => props.alert],
+            (alert: LogsAlertConfigurationApi | null) => alert?.check_interval_minutes ?? 5,
+        ],
     }),
 
     afterMount(({ actions, props }) => {
@@ -321,6 +331,11 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     lemonToast.error('At least one filter is required')
                     throw new Error('At least one filter is required')
                 }
+                const quietHoursError = quietHoursFormError(form.scheduleRestriction)
+                if (quietHoursError) {
+                    lemonToast.error(quietHoursError)
+                    throw new Error(quietHoursError)
+                }
                 const projectId = String(values.currentTeamId)
                 const payload = {
                     name: form.name.trim(),
@@ -331,6 +346,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     evaluation_periods: form.evaluationPeriods,
                     datapoints_to_alarm: form.datapointsToAlarm,
                     cooldown_minutes: form.cooldownMinutes,
+                    schedule_restriction: form.scheduleRestriction,
                 }
 
                 try {

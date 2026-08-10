@@ -1973,6 +1973,53 @@ class TestCohortManifest(unittest.TestCase):
         all_alert_ids = [aid for m in manifests for aid in m.alert_ids]
         assert all_alert_ids == ["019dec00-0000-0000-0000-000000000001"]
 
+    def test_manifests_defer_alerts_inside_quiet_hours(self):
+        # 10:00 UTC is 12:00 in Berlin (CEST): a 11:00-13:00 local window blocks the
+        # Berlin alert but not the UTC alert with the identical window. The blocked
+        # alert is deferred to the window end converted back to UTC (13:00 CEST =
+        # 11:00 UTC); a malformed stored value is treated as no quiet hours so the
+        # alert keeps checking.
+        from products.logs.backend.temporal.activities import _cohort_manifests_from_alerts
+
+        def row(suffix: int, tz: str, schedule_restriction: dict | None) -> dict[str, Any]:
+            return {
+                "id": f"019dec00-0000-0000-0000-{suffix:012d}",
+                "team_id": 1,
+                "window_minutes": 5,
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {"serviceNames": ["svc"]},
+                "next_check_at": None,
+                "schedule_restriction": schedule_restriction,
+                "team__timezone": tz,
+            }
+
+        window = {"blocked_windows": [{"start": "11:00", "end": "13:00"}]}
+        rows = [
+            row(1, "Europe/Berlin", window),
+            row(2, "UTC", window),
+            row(3, "UTC", None),
+            row(4, "UTC", {"blocked_windows": [{"start": "banana", "end": "12:00"}]}),
+        ]
+        now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
+
+        with (
+            patch("products.logs.backend.temporal.activities.is_projection_eligible", return_value=True),
+            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities._defer_alert_for_quiet_hours") as defer,
+        ):
+            manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
+
+        scheduled = sorted(aid for m in manifests for aid in m.alert_ids)
+        assert scheduled == [
+            "019dec00-0000-0000-0000-000000000002",
+            "019dec00-0000-0000-0000-000000000003",
+            "019dec00-0000-0000-0000-000000000004",
+        ]
+        defer.assert_called_once()
+        assert defer.call_args.args[0] == "019dec00-0000-0000-0000-000000000001"
+        assert defer.call_args.args[1] == datetime(2026, 5, 5, 11, 0, tzinfo=UTC)
+
 
 class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False

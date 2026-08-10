@@ -27,7 +27,10 @@ function normalizeTimeInput(v: string): string {
 
 export interface QuietHoursFieldsProps {
     scheduleRestriction: ScheduleRestriction | null | undefined
-    calculationInterval: AlertCalculationInterval
+    /** Insight alert cadence. Drives the coarse-interval banner and the slot preview. */
+    calculationInterval?: AlertCalculationInterval
+    /** Fixed minute cadence for alerts without a calculation interval (logs alerts). Drives the slot preview. */
+    checkIntervalMinutes?: number
     teamTimezone: string
     onChange: (next: ScheduleRestriction | null) => void
 }
@@ -35,6 +38,7 @@ export interface QuietHoursFieldsProps {
 export function QuietHoursFields({
     scheduleRestriction,
     calculationInterval,
+    checkIntervalMinutes,
     teamTimezone,
     onChange,
 }: QuietHoursFieldsProps): JSX.Element {
@@ -80,11 +84,12 @@ export function QuietHoursFields({
 
     const highFrequencySlotPreview = useMemo(() => {
         const cadenceMinutes =
-            calculationInterval === AlertCalculationInterval.EVERY_15_MINUTES
+            checkIntervalMinutes ??
+            (calculationInterval === AlertCalculationInterval.EVERY_15_MINUTES
                 ? 15
                 : calculationInterval === AlertCalculationInterval.HOURLY
                   ? 60
-                  : null
+                  : null)
         if (!enabled || cadenceMinutes == null) {
             return null
         }
@@ -96,23 +101,24 @@ export function QuietHoursFields({
         return {
             slotApprox,
             totalSlots,
-            cadenceLabel: cadenceMinutes === 15 ? '15-minute' : 'hourly',
-            intervalLabel: cadenceMinutes === 15 ? '15 minutes' : 'clock hour',
+            cadenceLabel: cadenceMinutes === 60 ? 'hourly' : `${cadenceMinutes}-minute`,
+            intervalLabel: cadenceMinutes === 60 ? 'clock hour' : `${cadenceMinutes} minutes`,
         }
-    }, [enabled, calculationInterval, scheduleRestriction?.blocked_windows, teamTimezone])
+    }, [enabled, calculationInterval, checkIntervalMinutes, scheduleRestriction?.blocked_windows, teamTimezone])
 
     const quietIssue = useMemo(
         () => (enabled && windows.length > 0 ? findQuietHoursIssues(windows) : null),
         [enabled, windows]
     )
 
-    const coarseInterval = !isSubDailyAlertInterval(calculationInterval)
-        ? calculationInterval === AlertCalculationInterval.DAILY
-            ? 'day'
-            : calculationInterval === AlertCalculationInterval.WEEKLY
-              ? 'week'
-              : 'month'
-        : null
+    const coarseInterval =
+        calculationInterval && !isSubDailyAlertInterval(calculationInterval)
+            ? calculationInterval === AlertCalculationInterval.DAILY
+                ? 'day'
+                : calculationInterval === AlertCalculationInterval.WEEKLY
+                  ? 'week'
+                  : 'month'
+            : null
 
     const atWindowLimit = windows.length >= MAX_BLOCKED_WINDOWS
     const addWindowButtonLabel = atWindowLimit ? `Maximum of ${MAX_BLOCKED_WINDOWS} time windows` : 'Add time window'

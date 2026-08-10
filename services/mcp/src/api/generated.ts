@@ -41533,6 +41533,8 @@ export namespace Schemas {
          * @nullable
          */
       snooze_until?: string | null;
+      /** Quiet hours: blocked local time windows (HH:MM in the project timezone) during which the alert is not evaluated. Interval is half-open [start, end): start inclusive, end exclusive. Use a blocked_windows array of {start, end}. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
          * When the next evaluation is scheduled. Server-managed.
          * @nullable
@@ -55605,6 +55607,8 @@ export namespace Schemas {
          * @nullable
          */
       snooze_until?: string | null;
+      /** Quiet hours: blocked local time windows (HH:MM in the project timezone) during which the alert is not evaluated. Interval is half-open [start, end): start inclusive, end exclusive. Use a blocked_windows array of {start, end}. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
          * When the next evaluation is scheduled. Server-managed.
          * @nullable

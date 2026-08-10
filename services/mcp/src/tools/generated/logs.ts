@@ -69,6 +69,9 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
         if (params.snooze_until !== undefined) {
             body['snooze_until'] = params.snooze_until
         }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
@@ -309,6 +312,9 @@ const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchem
         }
         if (params.snooze_until !== undefined) {
             body['snooze_until'] = params.snooze_until
+        }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
         }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',

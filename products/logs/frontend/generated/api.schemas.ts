@@ -368,6 +368,18 @@ export const LogsAlertConfigurationStateEnumApi = {
     Broken: 'broken',
 } as const
 
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
+}
+
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
+}
+
 export interface LogsAlertStateIntervalApi {
     /** Interval start (UTC, inclusive). */
     start: string
@@ -514,6 +526,8 @@ export interface LogsAlertConfigurationApi {
      * @nullable
      */
     snooze_until?: string | null
+    /** Quiet hours: blocked local time windows (HH:MM in the project timezone) during which the alert is not evaluated. Interval is half-open [start, end): start inclusive, end exclusive. Use a blocked_windows array of {start, end}. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
      * When the next evaluation is scheduled. Server-managed.
      * @nullable
@@ -621,6 +635,8 @@ export interface PatchedLogsAlertConfigurationApi {
      * @nullable
      */
     snooze_until?: string | null
+    /** Quiet hours: blocked local time windows (HH:MM in the project timezone) during which the alert is not evaluated. Interval is half-open [start, end): start inclusive, end exclusive. Use a blocked_windows array of {start, end}. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
      * When the next evaluation is scheduled. Server-managed.
      * @nullable

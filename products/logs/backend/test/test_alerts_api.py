@@ -501,6 +501,72 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
 
+    # --- Quiet hours (schedule_restriction) ---
+
+    def test_create_with_quiet_hours_persists_normalized_windows(self):
+        data = self._create_via_api(
+            schedule_restriction={
+                "blocked_windows": [
+                    {"start": "23:00", "end": "01:00"},
+                    {"start": "22:00", "end": "23:30"},
+                ]
+            }
+        )
+        expected = {"blocked_windows": [{"start": "22:00", "end": "01:00"}]}
+        assert data["schedule_restriction"] == expected
+        alert = LogsAlertConfiguration.objects.get(id=data["id"])
+        assert alert.schedule_restriction == expected
+
+    @parameterized.expand(
+        [
+            ("full_day", [{"start": "00:00", "end": "12:00"}, {"start": "12:00", "end": "00:00"}]),
+            ("too_short", [{"start": "10:00", "end": "10:10"}]),
+            ("bad_format", [{"start": "10", "end": "12:00"}]),
+            ("too_many_windows", [{"start": f"{h:02d}:00", "end": f"{h:02d}:59"} for h in range(6)]),
+        ]
+    )
+    def test_create_rejects_invalid_quiet_hours(self, _name, blocked_windows):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(schedule_restriction={"blocked_windows": blocked_windows}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "schedule_restriction"
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("empty_object", {}),
+            ("empty_windows", {"blocked_windows": []}),
+        ]
+    )
+    def test_quiet_hours_off_payloads_store_null(self, _name, payload):
+        created = self._create_via_api(schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]})
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"schedule_restriction": payload},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        alert = LogsAlertConfiguration.objects.get(id=created["id"])
+        assert alert.schedule_restriction is None
+
+    def test_quiet_hours_change_reschedules_next_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(id=created["id"])
+        alert.next_check_at = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
+        alert.save(update_fields=["next_check_at"])
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        alert.refresh_from_db()
+        assert alert.next_check_at is None
+
     # --- Per-team limit ---
 
     @parameterized.expand(

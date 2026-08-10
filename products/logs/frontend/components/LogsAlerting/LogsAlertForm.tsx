@@ -13,12 +13,14 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { AlertAdvancedOptions } from 'products/alerts/frontend/components/AlertAdvancedOptions'
 import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
+import { QuietHoursFields } from 'products/alerts/frontend/components/QuietHoursFields'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
 import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
@@ -102,8 +104,9 @@ function CheckDotsTooltip({ datapoints, periods }: { datapoints: number; periods
 }
 
 export function LogsAlertForm(): JSX.Element {
-    const { alertForm } = useValues(logsAlertFormLogic)
+    const { alertForm, checkIntervalMinutes } = useValues(logsAlertFormLogic)
     const { setAlertFormValue } = useActions(logsAlertFormLogic)
+    const { timezone } = useValues(teamLogic)
 
     const handleFilterGroupChange = useCallback(
         (group: UniversalFiltersGroup) => setAlertFormValue('filterGroup', group),
@@ -111,7 +114,8 @@ export function LogsAlertForm(): JSX.Element {
     )
     const enabledAdvancedOptionsCount =
         Number(alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1) +
-        Number(alertForm.cooldownMinutes > 0)
+        Number(alertForm.cooldownMinutes > 0) +
+        Number((alertForm.scheduleRestriction?.blocked_windows?.length ?? 0) > 0)
 
     return (
         <div className="space-y-6 max-w-2xl">
@@ -237,6 +241,12 @@ export function LogsAlertForm(): JSX.Element {
                         <span className="text-sm">minutes</span>
                     </div>
                 </LemonField.Pure>
+                <QuietHoursFields
+                    scheduleRestriction={alertForm.scheduleRestriction}
+                    checkIntervalMinutes={checkIntervalMinutes}
+                    teamTimezone={timezone}
+                    onChange={(next) => setAlertFormValue('scheduleRestriction', next)}
+                />
             </AlertAdvancedOptions>
         </div>
     )

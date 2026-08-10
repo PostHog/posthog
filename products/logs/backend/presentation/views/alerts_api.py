@@ -29,6 +29,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
+from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.facade.api import (
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
@@ -40,6 +41,7 @@ from products.alerts.backend.facade.api import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
+from products.alerts.backend.scheduling import validate_and_normalize_schedule_restriction
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
@@ -152,6 +154,11 @@ class LogsAlertFiltersField(serializers.JSONField):
         return value
 
 
+@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
+class ScheduleRestrictionField(serializers.JSONField):
+    pass
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(
         read_only=True,
@@ -222,6 +229,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text="ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+    )
+    schedule_restriction = ScheduleRestrictionField(
+        required=False,
+        allow_null=True,
+        help_text="Quiet hours: blocked local time windows (HH:MM in the project timezone) during which the alert "
+        "is not evaluated. Interval is half-open [start, end): start inclusive, end exclusive. Use a blocked_windows "
+        "array of {start, end}. Null disables quiet hours.",
     )
     next_check_at = serializers.DateTimeField(
         read_only=True,
@@ -420,6 +434,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "datapoints_to_alarm",
             "cooldown_minutes",
             "snooze_until",
+            "schedule_restriction",
             "next_check_at",
             "last_notified_at",
             "last_checked_at",
@@ -480,6 +495,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def validate_schedule_restriction(self, value: dict | None) -> dict | None:
+        try:
+            return validate_and_normalize_schedule_restriction(value)
+        except ValueError as e:
+            raise ValidationError(str(e)) from e
+
     def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
         if "name" in validated_data and not validated_data.get("name", "").strip():
             validated_data["name"] = "Untitled alert"
@@ -496,6 +517,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
         threshold_changed = _any_field_changed(instance, validated_data, threshold_or_filter_fields)
         window_changed = _any_field_changed(instance, validated_data, {"window_minutes"})
+        schedule_restriction_changed = _any_field_changed(instance, validated_data, {"schedule_restriction"})
 
         enabled_change: bool | None = None
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
@@ -531,7 +553,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             if snooze_data is not _SENTINEL:
                 instance.snooze_until = snooze_data
 
-            if threshold_changed or window_changed:
+            if threshold_changed or window_changed or schedule_restriction_changed:
                 instance.clear_next_check()
 
             return super().update(instance, validated_data)

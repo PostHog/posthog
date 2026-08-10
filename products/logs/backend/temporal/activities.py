@@ -32,6 +32,11 @@ from products.alerts.backend.destinations import (
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
+from products.alerts.backend.scheduling import (
+    is_utc_datetime_blocked,
+    parse_blocked_windows_tuples,
+    scan_next_unblocked_utc,
+)
 from products.logs.backend.alert_check_query import (
     AlertCheckQuery,
     BatchedAlertCheckQuery,
@@ -374,6 +379,8 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
             "check_interval_minutes",
             "filters",
             "next_check_at",
+            "schedule_restriction",
+            "team__timezone",
         )
     )
 
@@ -463,6 +470,52 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
         capture_exception(e)
 
 
+def _quiet_hours_deferred_until(row: dict, now: datetime) -> datetime | None:
+    """Next unblocked instant when `now` falls inside the alert's quiet hours, else None.
+
+    A malformed stored value is treated as no quiet hours rather than raising:
+    silently never checking the alert would be worse than checking it during a
+    window the API would have rejected anyway. When the unblock scan exceeds its
+    step cap on pathological windows, fall back to bumping a day like insight
+    alerts do.
+    """
+    try:
+        windows = parse_blocked_windows_tuples(row.get("schedule_restriction"))
+    except ValueError:
+        logger.warning(
+            "Ignoring malformed schedule_restriction on logs alert",
+            alert_id=str(row.get("id")),
+            team_id=row.get("team_id"),
+        )
+        return None
+    if not windows:
+        return None
+    tz_name = row.get("team__timezone") or "UTC"
+    if not is_utc_datetime_blocked(now, tz_name, windows):
+        return None
+    unblocked = scan_next_unblocked_utc(now, tz_name, windows)
+    if unblocked is None:
+        return (now + timedelta(days=1)).replace(microsecond=0)
+    return unblocked
+
+
+def _defer_alert_for_quiet_hours(alert_id: str, next_check_at: datetime) -> None:
+    """Park the alert's next check at the end of its quiet hours window.
+
+    Runs in the same sync DB pool as discovery; a failure on one row must not
+    brick discovery for the rest of the project.
+    """
+    try:
+        LogsAlertConfiguration.objects.filter(pk=alert_id).update(next_check_at=next_check_at)
+    except Exception as e:
+        logger.exception(
+            "Failed to defer logs alert for quiet hours",
+            alert_id=alert_id,
+            error=str(e),
+        )
+        capture_exception(e)
+
+
 def _cohort_manifests_from_alerts(
     rows: Sequence[dict],
     *,
@@ -490,6 +543,16 @@ def _cohort_manifests_from_alerts(
                     reason=broken_reason,
                 )
                 _mark_alert_broken_for_bad_config(str(row["id"]), broken_reason)
+                continue
+            deferred_until = _quiet_hours_deferred_until(row, now)
+            if deferred_until is not None:
+                logger.info(
+                    "Skipping logs alert check because of quiet hours",
+                    alert_id=str(row["id"]),
+                    team_id=row.get("team_id"),
+                    next_check_at=deferred_until.isoformat(),
+                )
+                _defer_alert_for_quiet_hours(str(row["id"]), deferred_until)
                 continue
             nca = row["next_check_at"] if row["next_check_at"] is not None else now
             date_to = resolve_alert_date_to(nca, checkpoint)

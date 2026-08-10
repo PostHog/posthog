@@ -46,6 +46,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     evaluation_periods: 2,
     datapoints_to_alarm: 1,
     cooldown_minutes: 10,
+    schedule_restriction: { blocked_windows: [{ start: '22:00', end: '07:00' }] },
     state: LogsAlertConfigurationStateEnumApi.NotFiring,
     check_interval_minutes: 5,
     next_check_at: null,
@@ -84,6 +85,7 @@ const VALID_FORM_VALUES: LogsAlertFormType = {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     cooldownMinutes: 0,
+    scheduleRestriction: null,
 }
 
 describe('logsAlertFormLogic', () => {
@@ -350,6 +352,41 @@ describe('logsAlertFormLogic', () => {
             )
         })
 
+        it('includes quiet hours windows in payload when set', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAlertFormValues({
+                    ...VALID_FORM_VALUES,
+                    scheduleRestriction: { blocked_windows: [{ start: '22:00', end: '07:00' }] },
+                })
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(mockLogsAlertsCreate).toHaveBeenCalledWith(
+                MOCK_PROJECT_ID,
+                expect.objectContaining({
+                    schedule_restriction: { blocked_windows: [{ start: '22:00', end: '07:00' }] },
+                })
+            )
+        })
+
+        it('blocks submit when quiet hours windows are invalid', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAlertFormValues({
+                    ...VALID_FORM_VALUES,
+                    scheduleRestriction: {
+                        blocked_windows: [
+                            { start: '00:00', end: '12:00' },
+                            { start: '12:00', end: '00:00' },
+                        ],
+                    },
+                })
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Leave at least one time in the day when this alert can run.')
+            expect(mockLogsAlertsCreate).not.toHaveBeenCalled()
+        })
+
         it('excludes empty filter keys from payload filters', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setAlertFormValues({
@@ -478,6 +515,10 @@ describe('logsAlertFormLogic', () => {
             expect(logic.values.alertForm.evaluationPeriods).toBe(MOCK_ALERT.evaluation_periods)
             expect(logic.values.alertForm.datapointsToAlarm).toBe(MOCK_ALERT.datapoints_to_alarm)
             expect(logic.values.alertForm.cooldownMinutes).toBe(MOCK_ALERT.cooldown_minutes)
+        })
+
+        it('pre-populates quiet hours from existing alert', () => {
+            expect(logic.values.alertForm.scheduleRestriction).toEqual(MOCK_ALERT.schedule_restriction)
         })
 
         it('shows error toast when partial update API throws', async () => {
