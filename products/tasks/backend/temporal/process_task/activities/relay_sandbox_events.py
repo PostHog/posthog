@@ -529,9 +529,7 @@ async def _relay_loop(
                         run_id=run_id,
                         status_code=status,
                     )
-                    await _mark_sandbox_error_best_effort(
-                        redis_stream, run_id, f"Sandbox returned HTTP {status}"
-                    )
+                    await _mark_sandbox_error_best_effort(redis_stream, run_id, f"Sandbox returned HTTP {status}")
                     return True
                 # 5xx — transient server error, worth retrying
                 reconnect_count += 1
@@ -578,9 +576,7 @@ async def _relay_loop(
             pass
 
 
-async def _mark_sandbox_error_best_effort(
-    redis_stream: TaskRunRedisStream, run_id: str, message: str
-) -> None:
+async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_id: str, message: str) -> None:
     try:
         await redis_stream.mark_error(message)
     except Exception as error:
