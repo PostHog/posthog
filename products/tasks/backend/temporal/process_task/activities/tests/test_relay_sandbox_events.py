@@ -631,7 +631,7 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream_mock.mark_complete.assert_not_awaited()
         redis_stream_mock.mark_error.assert_not_awaited()
 
-    async def test_normal_stream_close_marks_stream_complete(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_normal_stream_close_reconnects_before_terminal_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
             mark_complete=AsyncMock(),
@@ -654,10 +654,19 @@ class TestRelaySandboxEventsErrorHandling:
                 for event in events:
                     yield event
 
+        terminal_event = {
+            "type": "notification",
+            "notification": {"method": "_posthog/task_complete"},
+        }
+
+        class TerminalEventSource(EmptyEventSource):
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
         def fake_connect_sse(*_args: object, **_kwargs: object) -> EmptyEventSource:
             nonlocal connect_attempts
             connect_attempts += 1
-            return EmptyEventSource()
+            return EmptyEventSource() if connect_attempts == 1 else TerminalEventSource()
 
         async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
             return None
@@ -675,10 +684,10 @@ class TestRelaySandboxEventsErrorHandling:
             task_id="task-id",
         )
 
-        assert connect_attempts == 1
-        assert sandbox_gone is True
-        sleep_mock.assert_not_awaited()
-        redis_stream.write_event.assert_not_awaited()
+        assert connect_attempts == 2
+        assert sandbox_gone is False
+        sleep_mock.assert_awaited_once_with(2)
+        redis_stream.write_event.assert_awaited_once_with(terminal_event)
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 

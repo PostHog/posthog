@@ -492,12 +492,18 @@ async def _relay_loop(
                                     await redis_stream.mark_complete()
                                 return False
 
-                    # SSE stream ended normally (sandbox closed connection)
-                    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
-                    if finalize_stream_on_exit:
-                        await redis_stream.mark_complete()
-                    logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
-                    return True
+                    # A clean HTTP close does not prove the sandbox stopped. Reconnect before
+                    # declaring it gone; proxies and agent-server restarts can close a healthy stream.
+                    reconnect_count += 1
+                    agent_active[0] = False
+                    pending_text_parts.clear()
+                    final_message_tracker.reset()
+                    logger.warning(
+                        "relay_sandbox_events_stream_closed",
+                        run_id=run_id,
+                        reconnect_count=reconnect_count,
+                    )
+                    await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
