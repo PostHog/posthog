@@ -8,16 +8,18 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
-from requests.exceptions import ProxyError, RequestException
+from requests.exceptions import HTTPError, ProxyError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
     MailchimpPaginator,
     MailchimpResumeConfig,
+    MailchimpRetryableError,
     _fetch_contacts_for_list,
     _format_incremental_value,
     _get_contacts_iterator,
     _get_endpoint_iterator,
+    _get_with_retry,
     _incremental_query_params,
     extract_data_center,
     mailchimp_source,
@@ -102,6 +104,31 @@ class TestFormatIncrementalValue:
         assert _format_incremental_value("2024-01-15") == "2024-01-15"
 
 
+class TestGetWithRetry:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp.MAX_RETRY_ATTEMPTS", 1)
+    @pytest.mark.parametrize(
+        ("status_code", "expected_error"),
+        [
+            (429, MailchimpRetryableError),
+            (500, MailchimpRetryableError),
+            (401, HTTPError),
+        ],
+    )
+    def test_errors_are_classified(self, status_code, expected_error):
+        session = MagicMock()
+        session.get.return_value = _make_http_response({}, status_code=status_code)
+
+        with pytest.raises(expected_error):
+            _get_with_retry(session, "https://us6.api.mailchimp.com/3.0/automations")
+
+    def test_success_returns_response_unchanged(self):
+        session = MagicMock()
+        response = _make_http_response({"total_items": 0}, status_code=200)
+        session.get.return_value = response
+
+        assert _get_with_retry(session, "https://us6.api.mailchimp.com/3.0/lists") is response
+
+
 class TestMailchimpPaginator:
     def test_initial_state(self):
         paginator = MailchimpPaginator(page_size=100)
@@ -176,6 +203,7 @@ def _fake_manager(*, can_resume: bool = False, load_state: MailchimpResumeConfig
 
 def _build_response(members: list[dict[str, Any]], total_items: int) -> MagicMock:
     response = MagicMock()
+    response.status_code = 200
     response.json.return_value = {"members": members, "total_items": total_items}
     response.raise_for_status.return_value = None
     return response
@@ -529,6 +557,7 @@ def _routed_session(routes: dict[str, list[dict[str, Any]]]) -> tuple[Any, list[
         seen[path] = seen.get(path, 0) + 1
 
         response = MagicMock()
+        response.status_code = 200
         response.json.return_value = bodies[index]
         response.raise_for_status.return_value = None
         return response
