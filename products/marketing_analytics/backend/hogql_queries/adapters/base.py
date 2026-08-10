@@ -502,21 +502,65 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         )
 
     @staticmethod
-    def _one_row_per_id(table_name: str, id_column: str, name_column: str) -> ast.SelectQuery:
-        """`SELECT <id>, any(<name>) AS <name> FROM <table> GROUP BY <id>` — the table collapsed
+    def _one_row_per_id(table_name: str, id_column: str, *value_columns: str) -> ast.SelectQuery:
+        """`SELECT <id>, any(<col>) AS <col>, … FROM <table> GROUP BY <id>` — the table collapsed
         to one row per id, so joining it can only add columns, never multiply rows.
 
         Aliased back to the table's own name by the caller, so downstream field references read
-        the same either way. `any` over the names of a single id is arbitrary only if that id
-        carries more than one name; collapsing here is what makes it a non-question.
+        the same either way. `any` over the values of a single id is arbitrary only if that id
+        carries more than one, and collapsing here is what makes that a non-question.
+
+        Every column the query reads off this table has to be listed — the subquery hides the
+        rest, so a missed one fails with "Field not found" rather than degrading silently.
         """
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=[id_column]),
-                ast.Alias(alias=name_column, expr=ast.Call(name="any", args=[ast.Field(chain=[name_column])])),
+                *(
+                    ast.Alias(alias=column, expr=ast.Call(name="any", args=[ast.Field(chain=[column])]))
+                    for column in value_columns
+                ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
             group_by=[ast.Field(chain=[id_column])],
+        )
+
+    @staticmethod
+    def _join_key(table: str, column: str) -> ast.Call:
+        """Entity and report/stats tables can store the same id with different types (e.g.
+        Reddit's `ad_groups.id` vs `ad_group_report.ad_group_id`), so cast both sides of a join
+        to String — otherwise the join silently matches zero rows."""
+        return ast.Call(name="toString", args=[ast.Field(chain=[table, column])])
+
+    def _collapsed_parent_join(
+        self,
+        table_name: str,
+        id_column: str,
+        *value_columns: str,
+        left_table: str,
+        left_column: str,
+    ) -> ast.JoinExpr:
+        """LEFT JOIN a parent entity table that has been collapsed to one row per id.
+
+        Parent joins are meant to add context columns (the campaign a row belongs to, the ad
+        group an ad belongs to), never to change which rows exist. Joining the table directly
+        only holds to that while its ids are unique: two rows for one id duplicate every fact
+        row behind them and double `SUM(spend)`. The warehouse keys these tables on their id so
+        it shouldn't happen, but an overcount is exactly as silent as the undercount that
+        motivated anchoring on the report, so make it structurally impossible instead.
+        """
+        return ast.JoinExpr(
+            table=self._one_row_per_id(table_name, id_column, *value_columns),
+            alias=table_name,
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    left=self._join_key(left_table, left_column),
+                    op=ast.CompareOperationOp.Eq,
+                    right=self._join_key(table_name, id_column),
+                ),
+                constraint_type="ON",
+            ),
         )
 
     @staticmethod
@@ -749,11 +793,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         # the campaign-grain check. `_stats_are_unified` is the union of the two.
         is_unified = self._stats_are_unified()
 
-        # Entity and report/stats tables can store the same id with different types
-        # (e.g. Reddit's ad_groups.id vs ad_group_report.ad_group_id), so cast both
-        # join keys to String — otherwise the LEFT JOIN silently matches zero rows.
-        def join_key(table: str, column: str) -> ast.Call:
-            return ast.Call(name="toString", args=[ast.Field(chain=[table, column])])
+        join_key = self._join_key
 
         # entity LEFT JOIN stats ON entity.<pk> = stats.<fk> — skipped in unified mode
         # because entity_table === stats_table (a single performance report).
@@ -782,37 +822,20 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             # `campaign_name` drifts after a rename. So bring the campaigns table back as a purely
             # ADDITIVE LEFT JOIN, letting `_get_campaign_name_field` prefer its one current name.
             # Additive matters: nothing here touches the WHERE, so this join cannot drop a single
-            # report row — unlike the entity-anchored shape it replaced.
-            # It joins one row per id rather than the table directly, because a join is only
-            # additive while it can't multiply rows: two entity rows for one id would duplicate
-            # every report row behind them and double SUM(spend). The warehouse keys campaigns on
-            # its id so that shouldn't happen, but the whole point of the anchor flip is that
-            # spend can't be silently wrong, and an overcount is as silent as the undercount it
-            # replaced. Collapsing here makes SUM independent of the entity table's row count,
-            # and makes `_get_campaign_name_field`'s `any()` exact rather than merely correct
-            # under an invariant nothing checks.
-            # `join_key` casts both sides because Bing's campaigns.id is Int64 in the warehouse
-            # while the report's campaign_id arrives as a String — without the casts the join
-            # silently matches zero rows.
+            # report row — unlike the entity-anchored shape it replaced. `_collapsed_parent_join`
+            # is what keeps it from multiplying rows either, and makes
+            # `_get_campaign_name_field`'s `any()` exact rather than merely correct under an
+            # invariant nothing checks.
             # The ad-group / ad names get no such treatment: a unified source has no entity table
             # for them, so `_get_ad_group_name_field` can only take the report's latest value.
-            campaign_table_name = config.campaign_table.name
             return ast.JoinExpr(
                 table=ast.Field(chain=[entity_table_name]),
-                next_join=ast.JoinExpr(
-                    table=self._one_row_per_id(
-                        campaign_table_name, self._campaign_pk_column, self._campaign_name_column
-                    ),
-                    alias=campaign_table_name,
-                    join_type="LEFT JOIN",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            left=join_key(entity_table_name, self._unified_campaign_pk_column),
-                            op=ast.CompareOperationOp.Eq,
-                            right=join_key(campaign_table_name, self._campaign_pk_column),
-                        ),
-                        constraint_type="ON",
-                    ),
+                next_join=self._collapsed_parent_join(
+                    config.campaign_table.name,
+                    self._campaign_pk_column,
+                    self._campaign_name_column,
+                    left_table=entity_table_name,
+                    left_column=self._unified_campaign_pk_column,
                 ),
             )
         # At AD level with adsets synced, chain ads → adsets → campaigns. Going through
@@ -822,17 +845,15 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         # adsets aren't synced.
         if level == MarketingAnalyticsDrillDownLevel.AD and config.adset_table:
             parent_joins.append(
-                ast.JoinExpr(
-                    table=ast.Field(chain=[config.adset_table.name]),
-                    join_type="LEFT JOIN",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            left=join_key(entity_table_name, self._ad_adset_fk_column),
-                            op=ast.CompareOperationOp.Eq,
-                            right=join_key(config.adset_table.name, self._adset_pk_column),
-                        ),
-                        constraint_type="ON",
-                    ),
+                self._collapsed_parent_join(
+                    config.adset_table.name,
+                    self._adset_pk_column,
+                    # `campaign_id` too: the campaigns join below reads it off this table, and the
+                    # collapsed subquery hides every column it isn't asked for.
+                    self._adset_name_column,
+                    self._adset_campaign_fk_column,
+                    left_table=entity_table_name,
+                    left_column=self._ad_adset_fk_column,
                 )
             )
         # At AD_GROUP / AD, LEFT JOIN campaigns to surface campaign name/id.
@@ -850,17 +871,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 campaign_join_table = entity_table_name
                 campaign_fk = self._adset_campaign_fk_column
             parent_joins.append(
-                ast.JoinExpr(
-                    table=ast.Field(chain=[config.campaign_table.name]),
-                    join_type="LEFT JOIN",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            left=join_key(campaign_join_table, campaign_fk),
-                            op=ast.CompareOperationOp.Eq,
-                            right=join_key(config.campaign_table.name, self._campaign_pk_column),
-                        ),
-                        constraint_type="ON",
-                    ),
+                self._collapsed_parent_join(
+                    config.campaign_table.name,
+                    self._campaign_pk_column,
+                    self._campaign_name_column,
+                    left_table=campaign_join_table,
+                    left_column=campaign_fk,
                 )
             )
 

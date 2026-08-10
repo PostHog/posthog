@@ -421,6 +421,89 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     },
                 },
             ),
+            # Ad-group / ad hierarchy for the non-unified adapters, used by
+            # `test_meta_ads_duplicate_campaign_row_does_not_multiply_spend`. The campaigns table
+            # deliberately repeats one id; the rest is the smallest tree that reaches AD level.
+            "meta_campaigns_duplicate_id": DataConfig(
+                csv_filename="test/meta_ads/campaigns_duplicate_id.csv",
+                table_name="metaads_campaigns_duplicate_id",
+                platform="Meta Ads",
+                source_type="MetaAds",
+                bucket_suffix="meta_campaigns_duplicate_id",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "effective_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "configured_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "objective": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "buying_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "budget_remaining": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "start_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "stop_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "created_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "updated_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "special_ad_categories": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                },
+            ),
+            "meta_adsets": DataConfig(
+                csv_filename="test/meta_ads/adsets.csv",
+                table_name="metaads_adsets",
+                platform="Meta Ads",
+                source_type="MetaAds",
+                bucket_suffix="meta_adsets",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "effective_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "daily_budget": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "created_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "updated_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
+            "meta_ads_entities": DataConfig(
+                csv_filename="test/meta_ads/ads.csv",
+                table_name="metaads_ads",
+                platform="Meta Ads",
+                source_type="MetaAds",
+                bucket_suffix="meta_ads_entities",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "adset_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "effective_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "created_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "updated_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
+            "meta_ad_stats": DataConfig(
+                csv_filename="test/meta_ads/ad_stats.csv",
+                table_name="metaads_ad_stats",
+                platform="Meta Ads",
+                source_type="MetaAds",
+                bucket_suffix="meta_ad_stats",
+                column_schema={
+                    "ad_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "account_currency": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "date_start": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "date_stop": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "impressions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "clicks": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "spend": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                },
+            ),
             "meta_campaign_stats": DataConfig(
                 csv_filename="test/meta_ads/campaign_stats.csv",
                 table_name="metaads_campaign_stats",
@@ -2447,6 +2530,67 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         # Totals are the same as the unique-id fixture — the join added nothing but a name.
         assert sum(int(row[4] or 0) for row in results) == 412000
         assert sum(int(row[5] or 0) for row in results) == 20600
+
+    def test_meta_ads_duplicate_campaign_row_does_not_multiply_spend(self):
+        """The non-unified twin of `test_bing_ads_duplicate_entity_row_does_not_multiply_spend`.
+
+        Bing anchors on its report, but the other adapters still anchor on their entity table and
+        LEFT JOIN the parents (adsets, campaigns) for context. Those joins have the same exposure:
+        a parent table with a repeated id fans out every fact row behind it and doubles
+        `SUM(spend)`. Here campaign `…001` appears twice, and all three ads hang off it.
+
+        This runs at AD level on purpose — it's the only query that puts *both* collapsed
+        subqueries in one statement, so it also proves each exposes every column the query reads
+        off it. The snapshots can't: they compare SQL as a string and never resolve it, so a
+        column the subquery forgot to expose would look fine there and fail only at execution.
+        """
+        campaign_info = self._setup_csv_table("meta_campaigns_duplicate_id")
+        adset_info = self._setup_csv_table("meta_adsets")
+        ad_info = self._setup_csv_table("meta_ads_entities")
+        ad_stats_info = self._setup_csv_table("meta_ad_stats")
+
+        config = MetaAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=ad_stats_info.table,
+            adset_table=adset_info.table,
+            adset_stats_table=ad_stats_info.table,
+            ad_table=ad_info.table,
+            ad_stats_table=ad_stats_info.table,
+            source_type="MetaAds",
+            source_id="meta_ads",
+        )
+        context = replace(self.context, drill_down_level=MarketingAnalyticsDrillDownLevel.AD)
+        adapter = MetaAdsAdapter(config=config, context=context)
+
+        query = adapter.build_query()
+        assert query is not None
+        try:
+            results = self._execute_query_and_validate(query, expected_columns=EXPECTED_COLUMN_COUNT + 4)
+        finally:
+            # A second campaigns table for the same team would be picked up by source discovery
+            # as an extra Meta source in later tests — drop it as soon as the query has run.
+            self.test_tables.pop("meta_campaigns_duplicate_id", None)
+            campaign_info.table.delete()
+
+        # Column indices at AD: match_key=0, campaign=1, id=2, source=3, ad_group_name=4,
+        # ad_group_id=5, ad_name=6, ad_id=7, impressions=8, clicks=9, cost=10, ...
+        by_ad = {row[7]: row for row in results}
+        assert len(results) == 3, f"Expected 3 ads, got {len(results)} — the duplicate must not add rows"
+        assert len(by_ad) == 3
+
+        # 100.00 + 50.00 across two days, not doubled to 300.00 by the repeated campaign row.
+        summer_a = by_ad["700001"]
+        assert abs(float(summer_a[10]) - 150.00) < 0.01, f"spend must not be multiplied, got {summer_a[10]}"
+        assert int(summer_a[8]) == 1500, "impressions must not be multiplied"
+        assert int(summer_a[9]) == 15, "clicks must not be multiplied"
+
+        # Both parents still resolve through their collapsed subqueries.
+        assert summer_a[1] == "Summer Sale Campaign", f"campaign name from the parent join, got {summer_a[1]!r}"
+        assert summer_a[4] == "Summer - Broad", f"ad group name from the parent join, got {summer_a[4]!r}"
+        assert summer_a[6] == "Summer Ad A"
+
+        assert abs(sum(float(row[10] or 0) for row in results) - 250.00) < 0.01
+        assert sum(int(row[8] or 0) for row in results) == 2500
 
     def test_bing_ads_ad_group_grain_with_real_data(self):
         """The campaign-grain end-to-end above has an AD_GROUP twin, because the ad-group report
