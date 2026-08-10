@@ -208,13 +208,13 @@ def test_retryable_sync_errors_are_not_captured_during_validation(raw_error):
     # exhausting its budget and re-raising. The sync path treats them as benign via
     # `get_retryable_errors`; validation must not report them as unexpected bugs either.
     with (
-        mock.patch.object(PlanetScaleSource, "is_database_host_valid", return_value=(True, None)),
-        mock.patch.object(PlanetScaleSource, "get_schemas", side_effect=Exception(raw_error)),
+        mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(True, None)),
+        mock.patch.object(PlanetScaleMySQLSource, "get_schemas", side_effect=Exception(raw_error)),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.source.capture_exception"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source.capture_exception"
         ) as capture,
     ):
-        success, error = PlanetScaleSource().validate_credentials(_config(), team_id=1)
+        success, error = PlanetScaleMySQLSource().validate_credentials(_config(), team_id=1)
 
     assert success is False
     assert error == (
