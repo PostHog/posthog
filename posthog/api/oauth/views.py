@@ -43,6 +43,7 @@ from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
+    enqueue_cimd_refresh_if_stale,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
@@ -396,6 +397,12 @@ class OAuthValidator(OAuth2Validator):
         app = self._load_application(client_id, request)
         if app is None or not app.uses_private_key_jwt_auth:
             return False
+
+        if app.is_cimd_client and app.cimd_metadata_url:
+            # Token and refresh exchanges never pass through validate_client_id, which is
+            # where a CIMD document is normally re-read, so a client living on refresh
+            # grants alone would otherwise keep a stale auth method or key source forever.
+            enqueue_cimd_refresh_if_stale(app.cimd_metadata_url)
 
         try:
             verify_client_assertion(

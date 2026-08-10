@@ -673,9 +673,8 @@ class TestOAuthAPI(APIBaseTest):
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_cimd_client_completes_token_exchange(self):
-        # Regression: a CIMD client registered with private_key_jwt is confidential but holds
-        # no secret, so before the assertion path existed it was rejected with invalid_client
-        # and could never finish an install.
+        # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
+        # paths can never authenticate it and only the assertion path can finish an install.
         app, grant, private_key = self._create_private_key_jwt_app_and_grant()
         now = int(timezone.now().timestamp())
         assertion = jwt.encode(
@@ -694,9 +693,12 @@ class TestOAuthAPI(APIBaseTest):
         jwks = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key()))
         jwks.update({"kid": "partner-key-1", "use": "sig", "alg": "RS256"})
 
-        with patch(
-            "posthog.api.oauth.client_assertion.fetch_client_json_document",
-            return_value=({"keys": [jwks]}, None),
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=({"keys": [jwks]}, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale") as refresh,
         ):
             response = self.post(
                 "/oauth/token/",
@@ -713,6 +715,9 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertIn("access_token", response.json())
+        # Token exchanges are the only traffic a refresh-grant-only client sends, so the
+        # assertion path has to be what keeps its CIMD registration fresh.
+        refresh.assert_called_once_with(app.cimd_metadata_url)
 
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_cimd_client_rejected_without_assertion(self):
