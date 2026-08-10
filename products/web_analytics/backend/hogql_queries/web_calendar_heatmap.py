@@ -1,5 +1,5 @@
 import time
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Optional
 
 import structlog
@@ -21,6 +21,7 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
+from posthog.models import EventDefinition
 
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
@@ -84,7 +85,13 @@ def heatmap_precompute_servable(query: TrendsQuery) -> bool:
         return False
     if series.math != "dau":
         return False
+    if series.fixedProperties:
+        return False
     if query.conversionGoal is not None:
+        return False
+    if query.aggregation_group_type_index is not None:
+        return False
+    if query.samplingFactor is not None:
         return False
     chf = getattr(query, "calendarHeatmapFilter", None)
     if chf is None or not chf.bucketBySessionStart:
@@ -94,7 +101,19 @@ def heatmap_precompute_servable(query: TrendsQuery) -> bool:
     return True
 
 
-def _assemble_structured_result(rows: list) -> EventsHeatMapStructuredResult:
+def _hour_aligned_bounds(start_utc: datetime, end_utc: datetime) -> bool:
+    """The read filters whole hourly buckets, so a bound inside an hour would
+    silently include or drop up to an hour of sessions vs the live path's exact
+    timestamp filter. The end bound may also be an inclusive hour-end
+    (…:59:59.xxxxxx), which covers its final bucket exactly."""
+    if start_utc.minute or start_utc.second or start_utc.microsecond:
+        return False
+    if end_utc.minute == 59 and end_utc.second == 59:
+        return True
+    return end_utc.minute == 0 and end_utc.second == 0 and end_utc.microsecond == 0
+
+
+def _assemble_structured_result(rows: list[tuple[int, int, int, int, int]]) -> EventsHeatMapStructuredResult:
     data: list[EventsHeatMapDataResult] = []
     row_aggs: list[EventsHeatMapRowAggregationResult] = []
     col_aggs: list[EventsHeatMapColumnAggregationResult] = []
@@ -128,10 +147,27 @@ def execute_lazy_precomputed_heatmap(
         if not is_trends_precompute_enabled_for_team(team):
             return None
 
-        props = list(runner.query.properties or [])
+        # The buckets store person-id uniq states, which cannot represent
+        # distinct-id aggregation, so keep these teams on the live path.
+        if team.aggregate_users_by_distinct_id:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="distinct_id_aggregation").inc()
+            return None
+
         series = runner.query.series[0]
-        if isinstance(series, EventsNode) and series.properties:
+        assert isinstance(series, EventsNode)  # guaranteed by heatmap_precompute_servable
+        props = list(runner.query.properties or [])
+        if series.properties:
             props.extend(series.properties)
+
+        # The buckets aggregate $pageview and $screen into one uniq state with
+        # no event dimension, while the live path filters exactly to
+        # series.event. Serving is only faithful when the team tracks just the
+        # requested event, so fall back if the other one has ever been seen.
+        other_event = "$screen" if series.event == "$pageview" else "$pageview"
+        if EventDefinition.objects.filter(team=team, name=other_event).exists():
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="mixed_event_types").inc()
+            return None
+
         inner_query = build_inner_overview_query(runner.query, props)
         inner_runner = WebOverviewQueryRunner(query=inner_query, team=team, modifiers=runner.modifiers)
 
@@ -143,6 +179,12 @@ def execute_lazy_precomputed_heatmap(
         assert date_from is not None and date_to is not None
         start_utc = date_from.astimezone(UTC)
         end_utc = date_to.astimezone(UTC)
+
+        # Covers explicit sub-hour date bounds and timezones with fractional
+        # UTC offsets, both of which put a bound inside a bucket.
+        if not _hour_aligned_bounds(start_utc, end_utc):
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="sub_hour_range").inc()
+            return None
 
         time_range_start = floor_utc_day(start_utc)
         time_range_end = ceil_utc_day(end_utc)

@@ -1,14 +1,28 @@
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.schema import CalendarHeatmapFilter, ChartDisplayType, DateRange, EventsNode, TrendsFilter, TrendsQuery
+from parameterized import parameterized
+
+from posthog.schema import (
+    CalendarHeatmapFilter,
+    ChartDisplayType,
+    DateRange,
+    EventsHeatMapStructuredResult,
+    EventsNode,
+    TrendsFilter,
+    TrendsQuery,
+)
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models import EventDefinition
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -22,11 +36,13 @@ class TestWebCalendarHeatmapLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
         sync_execute("SYSTEM STOP TTL MERGES sharded_web_overview_preaggregated")
 
-    def _enable(self):
-        return patch(
+    @contextmanager
+    def _enable(self) -> Iterator[None]:
+        with patch(
             "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
             return_value=True,
-        )
+        ):
+            yield
 
     def _seed(self) -> None:
         # Two sessions on different weekdays/hours plus a second visitor sharing
@@ -69,7 +85,9 @@ class TestWebCalendarHeatmapLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     @staticmethod
-    def _heatmap_as_dicts(structured) -> tuple[set, set, set, int]:
+    def _heatmap_as_dicts(
+        structured: EventsHeatMapStructuredResult,
+    ) -> tuple[set[tuple[int, int, int]], set[tuple[int, int]], set[tuple[int, int]], int]:
         cells = {(d.row, d.column, d.value) for d in structured.data}
         rows = {(r.row, r.value) for r in structured.rowAggregations}
         cols = {(c.column, c.value) for c in structured.columnAggregations}
@@ -99,6 +117,33 @@ class TestWebCalendarHeatmapLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         query = self._build_query(unique_tab=False)
         with self._enable():
+            response = WebCalendarHeatmapTrendsQueryRunner(team=self.team, query=query).calculate()
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+        assert response.results[0]["count"] > 0
+
+    @parameterized.expand(
+        [
+            ("distinct_id_aggregation",),
+            ("mixed_event_types",),
+            ("sub_hour_range",),
+        ]
+    )
+    def test_falls_back_when_buckets_cannot_reproduce_live_semantics(self, case: str) -> None:
+        with ExitStack() as stack:
+            stack.enter_context(freeze_time("2024-01-15T12:00:00Z"))
+            self._seed()
+            query = self._build_query()
+            if case == "distinct_id_aggregation":
+                stack.enter_context(
+                    patch.object(type(self.team), "aggregate_users_by_distinct_id", property(lambda self: True))
+                )
+            elif case == "mixed_event_types":
+                EventDefinition.objects.create(team=self.team, name="$screen")
+            else:
+                query.dateRange = DateRange(
+                    date_from="2024-01-02T10:15:00", date_to="2024-01-02T12:45:00", explicitDate=True
+                )
+            stack.enter_context(self._enable())
             response = WebCalendarHeatmapTrendsQueryRunner(team=self.team, query=query).calculate()
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
         assert response.results[0]["count"] > 0

@@ -1,4 +1,12 @@
-from posthog.schema import CalendarHeatmapQuery, ResolvedDateRangeResponse, TrendsQueryResponse
+from typing import Optional
+
+from posthog.schema import (
+    CalendarHeatmapQuery,
+    EventsHeatMapStructuredResult,
+    QueryTiming,
+    ResolvedDateRangeResponse,
+    TrendsQueryResponse,
+)
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
@@ -44,7 +52,13 @@ class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
             hogql=calendar_response.hogql,
         )
 
-    def _wrap_calendar_results(self, results, *, timings=None, hogql=None) -> TrendsQueryResponse:
+    def _wrap_calendar_results(
+        self,
+        results: EventsHeatMapStructuredResult,
+        *,
+        timings: Optional[list[QueryTiming]] = None,
+        hogql: Optional[str] = None,
+    ) -> TrendsQueryResponse:
         """Wrap an EventsHeatMapStructuredResult in the TrendsQueryResponse shape
         the frontend's heatmap visualization consumes."""
         return TrendsQueryResponse(

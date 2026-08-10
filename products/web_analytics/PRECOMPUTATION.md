@@ -289,6 +289,8 @@ Rollout gates, in order:
 
 Accepted semantic differences vs vanilla trends (the tiles align with the overview tile instead): session-start-hour attribution, HLL uniques, `$pageview + $screen` counted together, sessionless events excluded. The per-query "Allow precompute" opt-out does not reach trend tiles (TrendsQuery deliberately carries no web-analytics fields); the flag is the kill switch.
 
+The Active Hours path is stricter than the trend tiles: it falls back to the live heatmap for teams that track both `$pageview` and `$screen` (the buckets carry no event dimension, and the live heatmap filters exactly to the requested event), for teams aggregating by distinct ID, and for date bounds that are not hour-aligned in UTC (explicit sub-hour ranges, fractional-offset timezones).
+
 ## Related code
 
 - `products/web_analytics/backend/hogql_queries/web_overview.py` — runner
