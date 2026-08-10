@@ -70,6 +70,9 @@ async fn it_routes_dlq_redirected_events_to_the_dlq_topic() -> Result<()> {
     config.kafka.kafka_dlq_topic = dlq_topic.topic_name().to_string();
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
+    // A failed first load (tight Redis timeout on a busy runner) retries on
+    // the next tick; keep that tick close so the loaded-state wait recovers.
+    config.event_restrictions_refresh_interval_secs = 1;
     let server = ServerHandle::for_config(config).await;
     server.wait_for_restrictions_loaded().await;
 
@@ -131,6 +134,9 @@ async fn it_routes_custom_redirected_events_to_the_admin_topic() -> Result<()> {
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
+    // A failed first load (tight Redis timeout on a busy runner) retries on
+    // the next tick; keep that tick close so the loaded-state wait recovers.
+    config.event_restrictions_refresh_interval_secs = 1;
     let server = ServerHandle::for_config(config).await;
     server.wait_for_restrictions_loaded().await;
 
