@@ -52,6 +52,10 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TRANSIENT_OBJECT_STORE_ERRORS,
+    TransientObjectStoreError,
+)
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping
@@ -943,6 +947,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 "Reading the files from your storage bucket took too long and the query was cancelled. "
                 "This is usually temporary - try again, or narrow the URL pattern if the dataset is very large."
             )
+
+        # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
+        # blips as delta-rs (see TRANSIENT_OBJECT_STORE_ERRORS), just wrapped in a ClickHouse
+        # exception instead of an OSError/DeltaError. Recognize it here too, before the generic
+        # bucket-misconfiguration fallback below, so it's classified as retryable instead of
+        # blamed on the customer's credentials or URL pattern.
+        if any(needle in raw_message for needle in TRANSIENT_OBJECT_STORE_ERRORS):
+            raise TransientObjectStoreError(raw_message)
 
         for key, value in ExtractErrors.items():
             if key in raw_message:
