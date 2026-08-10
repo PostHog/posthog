@@ -121,6 +121,7 @@ export type SettingId =
     | 'correlation-analysis'
     | 'csp-reporting'
     | 'customer-analytics-accounts'
+    | 'customer-analytics-calendar-sync'
     | 'customer-analytics-dashboard-events'
     | 'customer-analytics-event-stream'
     | 'customer-analytics-group-properties'

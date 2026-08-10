@@ -110,6 +110,12 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             errors[f"403 Client Error: Forbidden for url: {host}/reports"] = (
                 "Checkout.com denied access to reports. Please check that your access key has the reports scope."
             )
+            # Unlike disputes, a freshly-minted token still gets 401 (not 403) from the
+            # reports endpoint when the access key lacks the reports scope, so a mid-sync
+            # re-mint (which handles a genuinely expired token elsewhere) never resolves it.
+            errors[f"401 Client Error: Unauthorized for url: {host}/reports"] = (
+                "Checkout.com denied access to reports. Please check that your access key has the reports scope."
+            )
             errors[f"403 Client Error: Forbidden for url: {host}/payments/search"] = (
                 "Checkout.com denied access to payments search. Please check that your access key has the payments scope."
             )
@@ -123,6 +129,18 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
                 "Checkout.com denied access to instruments. Please check that your access key has the vault scope."
             )
         return errors
+
+    def get_retryable_errors(self) -> set[str]:
+        # `/payments/search` has no internal retry wrapper — the shared session's retry adapter only
+        # covers GET/HEAD/OPTIONS, since POSTs aren't safe to blindly retry in general — but a search
+        # request has no side effects, so a 503 here is a transient upstream blip, not a bug. Temporal
+        # retries the whole activity, so this stays out of tracked exception noise. Matched on the full
+        # status+reason phrase (not just "for url: .../payments/search") so a 4xx on the same endpoint —
+        # which would be a real bug, e.g. a malformed request body — is never swallowed the same way.
+        return {
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
+            "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

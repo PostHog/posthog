@@ -170,6 +170,97 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('html-only emails', () => {
+        it('loads a design wrapping the html so the canvas shows the email instead of starting blank', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: null, html: '<p>raw</p>' } })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledTimes(1)
+            const design = loadDesign.mock.calls[0][0]
+            expect(design.body.rows[0].columns[0].contents[0]).toMatchObject({
+                type: 'html',
+                values: { html: '<p>raw</p>' },
+            })
+        })
+
+        it('does not load anything when there is neither design nor html', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: null, html: '' } }))
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('modal save', () => {
+        let onChange: jest.Mock
+        let editorListeners: Record<string, () => void>
+        let editorDesign: Record<string, any>
+
+        const DESIGN_NORMALIZED = { body: { id: 'normalized', rows: [{ id: 'r1' }] } }
+        const DESIGN_EDITED = { body: { id: 'edited', rows: [{ id: 'r2' }] } }
+
+        const fakeEditorRef = (): EditorRef =>
+            ({
+                editor: {
+                    loadDesign: jest.fn(),
+                    addEventListener: (event: string, callback: () => void) => {
+                        editorListeners[event] = callback
+                    },
+                    exportHtml: (callback: (data: any) => void) =>
+                        callback({ html: '<p>edited</p>', design: editorDesign }),
+                    exportPlainText: (callback: (data: any) => void) => callback({ text: 'edited' }),
+                },
+            }) as unknown as EditorRef
+
+        beforeEach(async () => {
+            onChange = jest.fn()
+            editorListeners = {}
+            editorDesign = DESIGN_NORMALIZED
+            logic = emailTemplaterLogic(
+                makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: null, html: '<p>raw</p>' }, onChange })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef(fakeEditorRef())
+            logic.actions.onEmailEditorReady()
+            // The load echo rebaselines to the editor's normalized export
+            editorListeners['design:loaded']?.()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('a save without canvas edits keeps the stored html instead of the editor re-render', async () => {
+            logic.actions.submitEmailTemplate()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ html: '<p>raw</p>' })
+        })
+
+        it('a save after a canvas edit persists the editor export', async () => {
+            editorDesign = DESIGN_EDITED
+            logic.actions.submitEmailTemplate()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({
+                html: '<p>edited</p>',
+                text: 'edited',
+                design: DESIGN_EDITED,
+            })
+        })
+    })
+
     describe('inline layout live propagation', () => {
         let onChange: jest.Mock
         let loadDesign: jest.Mock

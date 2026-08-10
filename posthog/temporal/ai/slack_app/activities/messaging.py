@@ -113,12 +113,26 @@ def _post_connect_personal_github_prompt(
     settings_url: str,
     user_id: int,
     team_id: int,
+    reconnect: bool = False,
 ) -> None:
-    """Post the single-button "Connect GitHub" prompt for a task held on a missing personal GitHub install."""
-    text = (
-        "I can't start this task yet — you haven't connected your personal GitHub. "
-        "Connect it so I can open the pull request as you, then mention me again."
-    )
+    """Post the single-button prompt for a task held on an unusable personal GitHub install.
+
+    ``reconnect`` picks the wording: a stale install (expired credentials) gets reconnect
+    copy, a missing one gets first-time-setup copy. Both send the user to the same settings
+    page, so the reconnect copy still reads correctly if the stale row was already discarded.
+    """
+    if reconnect:
+        text = (
+            "I can't start this task. Your personal GitHub connection has expired, so I can't open "
+            "the pull request as you. Reconnect it, then mention me again."
+        )
+        button_text = "Reconnect GitHub"
+    else:
+        text = (
+            "I can't start this task yet. You haven't connected your personal GitHub, so I can't open "
+            "the pull request as you. Connect it, then mention me again."
+        )
+        button_text = "Connect GitHub"
     slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
@@ -130,7 +144,7 @@ def _post_connect_personal_github_prompt(
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Connect GitHub", "emoji": True},
+                        "text": {"type": "plain_text", "text": button_text, "emoji": True},
                         "url": settings_url,
                         "style": "primary",
                     }
@@ -144,6 +158,7 @@ def _post_connect_personal_github_prompt(
         team_id=team_id,
         channel=channel,
         thread_ts=thread_ts,
+        reconnect=reconnect,
     )
 
 
@@ -156,11 +171,16 @@ def block_posthog_code_task_if_no_personal_github_activity(
     user_id: int,
     allow_bot_prs: bool = False,
 ) -> bool:
-    """Gate a repo-bound coding-agent task on the mentioner having a personal GitHub.
+    """Gate a repo-bound coding-agent task on the mentioner having a usable personal GitHub.
 
-    Returns True (and posts an in-thread Slack block with a "Connect GitHub" button)
-    when the user has no `UserIntegration` of kind=github; the caller must then skip
-    `create_posthog_code_task_for_repo_activity`. Returns False to let the task proceed.
+    Returns True (and posts an in-thread Slack block with a Connect/Reconnect GitHub button)
+    when the user has no `UserIntegration` of kind=github or has one whose credentials can't
+    mint a token; the caller must then skip `create_posthog_code_task_for_repo_activity`.
+    Returns False to let the task proceed.
+
+    Checking usability rather than mere existence keeps a task with an expired install from
+    clearing this gate and then failing mid-run at the credential path. A stale install gets
+    reconnect wording; a missing one gets first-time-setup wording.
 
     The team-level GitHub App can still author commits, but PRs would land under the
     PostHog app identity instead of the user's. Rather than degrading silently, hold
@@ -171,13 +191,12 @@ def block_posthog_code_task_if_no_personal_github_activity(
     from posthog.models.user_integration import UserIntegration
 
     from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
+    from products.tasks.backend.facade import api as tasks_facade
 
     inputs = coerce_mention_workflow_inputs(inputs)
-    has_personal_github = UserIntegration.objects.filter(
-        user_id=user_id,
-        kind=UserIntegration.IntegrationKind.GITHUB,
-    ).exists()
-    if has_personal_github:
+    # Usability, not existence: a row with expired credentials would clear an existence
+    # check here and then fail mid-run when the credential path can't mint a token.
+    if tasks_facade.user_has_usable_personal_github(user_id):
         return False
 
     integration = Integration.objects.select_related("team", "team__organization").get(
@@ -192,6 +211,11 @@ def block_posthog_code_task_if_no_personal_github_activity(
         if team_has_github and is_slack_app_bot_prs_enabled(integration.team):
             return False
 
+    # A stale row (present but unusable) gets reconnect wording; a missing one gets setup wording.
+    has_stale_github = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+    ).exists()
     slack = SlackIntegration(integration)
     settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
     _post_connect_personal_github_prompt(
@@ -201,6 +225,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
         settings_url=settings_url,
         user_id=user_id,
         team_id=integration.team_id,
+        reconnect=has_stale_github,
     )
     return True
 
@@ -228,10 +253,15 @@ def resolve_posthog_code_authorship_activity(
     if tasks_facade.user_can_author_repository(user_id, repository):
         return "proceed"
 
-    has_personal_github = UserIntegration.objects.filter(
+    # Three states remain once we can't author: usable credentials without access to this
+    # repo, a stale row whose credentials have expired, or no personal row at all. They need
+    # different wording — the stale case must not read as a repo-access problem.
+    has_usable_personal_github = tasks_facade.user_has_usable_personal_github(user_id)
+    has_personal_github_row = UserIntegration.objects.filter(
         user_id=user_id,
         kind=UserIntegration.IntegrationKind.GITHUB,
     ).exists()
+    github_stale = has_personal_github_row and not has_usable_personal_github
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",
@@ -243,7 +273,12 @@ def resolve_posthog_code_authorship_activity(
     team_has_github = Integration.objects.filter(team=team, kind=Integration.IntegrationKind.GITHUB).exists()
 
     if is_slack_app_bot_prs_enabled(team) and team_has_github:
-        if has_personal_github:
+        if github_stale:
+            text = (
+                "Your personal GitHub connection has expired, so the PR will be authored by the "
+                "PostHog bot.\nTo change this, reconnect your personal integration."
+            )
+        elif has_usable_personal_github:
             text = (
                 f"Your personal GitHub can't author PRs in `{repository}`, so the PR will be authored by the "
                 "PostHog bot.\nTo change this, update your personal integration."
@@ -294,12 +329,12 @@ def resolve_posthog_code_authorship_activity(
         )
         return "awaiting_confirmation"
 
-    if has_personal_github:
+    if has_usable_personal_github:
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
             text=(
-                f"I can't start this task yet — your personal GitHub can't author PRs in `{repository}`. "
+                f"I can't start this task yet. Your personal GitHub can't author PRs in `{repository}`. "
                 "Update your personal integration, then mention me again."
             ),
         )
@@ -319,6 +354,7 @@ def resolve_posthog_code_authorship_activity(
         settings_url=settings_url,
         user_id=user_id,
         team_id=integration.team_id,
+        reconnect=github_stale,
     )
     return "blocked"
 

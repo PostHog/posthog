@@ -68,6 +68,10 @@ class TestCheckoutComSource:
             "403 Client Error: Forbidden for url: https://api.checkout.com/disputes?limit=250",
             "403 Client Error: Forbidden for url: https://api.checkout.com/reports?limit=100",
             "403 Client Error: Forbidden for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
+            # A freshly-minted token still gets 401 (not 403) from reports when the access
+            # key lacks the reports scope, so a mid-sync re-mint never resolves it.
+            "401 Client Error: Unauthorized for url: https://api.checkout.com/reports?limit=100",
+            "401 Client Error: Unauthorized for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -89,6 +93,32 @@ class TestCheckoutComSource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
+            "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+        ],
+    )
+    def test_retryable_errors_match_payments_search_503(self, observed_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            # A 5xx from a different (potentially non-idempotent) endpoint must stay untouched.
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/pay_1/actions",
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/reports",
+            # A 4xx on the search endpoint itself is a real bug (e.g. a malformed request), not a
+            # transient blip, and must not be classified as retryable.
+            "400 Client Error: Bad Request for url: https://api.checkout.com/payments/search",
+        ],
+    )
+    def test_retryable_errors_does_not_match_other_endpoints(self, other_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert not any(key in other_error for key in retryable_errors)
 
     @mock.patch(DISCOVER_PATCH)
     def test_get_schemas_static_catalog(self, mock_discover):

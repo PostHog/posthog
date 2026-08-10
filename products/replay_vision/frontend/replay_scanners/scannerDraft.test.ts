@@ -8,6 +8,11 @@ describe('scannerDraft', () => {
         localStorage.clear()
     })
 
+    it('returns the timestamp it stored, so callers and storage agree', () => {
+        const savedAt = writeScannerDraft(1, newScanner(null))
+        expect(readScannerDraft(1)?.savedAt).toBe(savedAt)
+    })
+
     it.each([
         ['returns the draft for the same team', 1, (draft: any) => draft, true],
         ['rejects a draft from another team', 2, (draft: any) => draft, false],
@@ -25,6 +30,6 @@ describe('scannerDraft', () => {
         const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
         const tampered = tamper(stored)
         localStorage.setItem(STORAGE_KEY, typeof tampered === 'string' ? tampered : JSON.stringify(tampered))
-        expect(readScannerDraft(readTeamId)?.name ?? null).toBe(expectRestored ? 'Drafted scanner' : null)
+        expect(readScannerDraft(readTeamId)?.scanner.name ?? null).toBe(expectRestored ? 'Drafted scanner' : null)
     })
 })
