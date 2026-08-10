@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from unittest.mock import MagicMock, call, patch
 
@@ -22,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.r
     REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
     RedshiftColumn,
     RedshiftImplementation,
+    SafeDateLoader,
     _build_query,
     _explain_query,
     _fetch_arrow_batches,
@@ -261,6 +264,39 @@ class TestRedshiftColumnToArrowField:
         assert "UTC" in str(field.type)
 
 
+class TestSafeDateLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeDateLoader(oid=1082)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"2024-01-15", date(2024, 1, 15)),
+            (b"0001-01-01", date(1, 1, 1)),
+            (b"9999-12-31", date(9999, 12, 31)),
+            # Reproduces the reported incident: psycopg's default `DateLoader` raises
+            # `DataError: can't parse date '0000-01-01': year 0 is out of range`, aborting the sync.
+            (b"0000-01-01", date.min),
+            (b"10000-01-01", date.max),
+            (b"infinity", date.max),
+            (b"-infinity", date.min),
+            (b"-0001-01-01", date.min),
+            (b"0044-03-15 BC", date.min),
+            (None, None),
+        ],
+    )
+    def test_load_dates(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+    @pytest.mark.parametrize("input_data", [b"04/01/2022", b"not-a-date", b"20220401"])
+    def test_unparseable_dates_raise_instead_of_clamping(self, loader, input_data):
+        # A silent clamp to date.max corrupts the whole column with a real-looking date;
+        # an unparseable value must surface as a loud sync failure instead.
+        with pytest.raises(ValueError):
+            loader.load(input_data)
+
+
 # ---------------------------------------------------------------------------
 # Per-cursor metadata queries — exercise impl methods directly
 # ---------------------------------------------------------------------------
@@ -375,6 +411,23 @@ class TestGetRowsToSync:
         # noise).
         cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
             'permission denied for materialized view base relation "Payment_Actions"'
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
+
+    def test_remote_request_timeout_is_not_reported(self, impl, cursor, logger):
+        # A `Remote request timeout` (code 29150) is Redshift's leader node losing internal RPC
+        # contact with a compute node mid-query — a transient cluster-side hiccup, the same
+        # non-actionable class as a WLM/QMR abort. Row-count estimation is best-effort (the caller
+        # defaults to 0), so skip gracefully without reporting the expected error to error tracking.
+        cursor.execute.side_effect = psycopg.errors.InternalError_(
+            "Remote request timeout\nDETAIL:  \n  -----------------------------------------------\n"
+            "  error:  Remote request timeout\n  code:      29150\n  context:   \n  query:     0\n"
+            "  location:  redcat_rpc_client.cpp:3197\n  process:   padbmaster [pid=1074384894]\n"
+            "  -----------------------------------------------"
         )
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
@@ -1291,6 +1344,25 @@ class TestConnect:
         assert kwargs["keepalives_interval"] == 10
         assert kwargs["keepalives_count"] == 3
         assert kwargs["tcp_user_timeout"] == 60000
+
+    def test_connect_registers_safe_date_loader(self, mocker):
+        # Wiring guard: SafeDateLoader only protects a sync if it's actually registered on the
+        # connection every `connect()` call produces.
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.open_ssh_tunnel",
+        ).return_value.__enter__.return_value = ("localhost", 5439)
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
+            return_value=mock_conn,
+        )
+
+        impl = RedshiftImplementation()
+        with impl.connect(_make_config()):
+            pass
+
+        mock_conn.adapters.register_loader.assert_any_call("date", SafeDateLoader)
 
 
 class TestGetConnectionMetadata:

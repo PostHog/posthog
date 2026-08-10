@@ -508,6 +508,18 @@ export const ScannerConfiguration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration` },
 }
 
+// Test arm of the model tier-naming experiment: models labeled Basic/Pro/Ultra instead of provider
+// names. A per-story featureFlags replaces the meta's, so REPLAY_VISION must be re-listed.
+export const ScannerConfigurationTierNames: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration`,
+        featureFlags: {
+            [FEATURE_FLAGS.REPLAY_VISION]: true,
+            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test',
+        },
+    },
+}
+
 // Renders the pending recommendation's diff and change cards plus the rating list.
 export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
@@ -526,6 +538,16 @@ export const ScannerTemplates: StoryObj = {
 
 export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
+}
+
+export const ScannerEditorConfigureTierNames: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
+        featureFlags: {
+            [FEATURE_FLAGS.REPLAY_VISION]: true,
+            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test',
+        },
+    },
 }
 
 export const ScannerEditorTriggers: StoryObj = {
