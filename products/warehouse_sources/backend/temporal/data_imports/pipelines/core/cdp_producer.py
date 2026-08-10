@@ -35,6 +35,7 @@ class CDPProducer:
     logger: FilteringBoundLogger
     _should_run_cache: bool | None
     _table_name_cache: str | None
+    _fs_cache: pa_fs.S3FileSystem | None
 
     def __init__(self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger) -> None:
         self.team_id = team_id
@@ -43,8 +44,16 @@ class CDPProducer:
         self.logger = logger
         self._should_run_cache = None
         self._table_name_cache = None
+        self._fs_cache = None
 
     def _get_fs(self) -> pa_fs.S3FileSystem:
+        # Cached per instance: stage_chunk() calls this once per chunk, and a producer lives for
+        # a whole sync (potentially thousands of chunks). A fresh S3FileSystem per call opens its
+        # own AWS SDK client/connections that outlive the call, exhausting the process' file
+        # descriptor limit over a long sync.
+        if self._fs_cache is not None:
+            return self._fs_cache
+
         if settings.USE_LOCAL_SETUP:
             ensure_bucket_exists(
                 f"s3://{self._get_path_prefix()}",
@@ -53,13 +62,15 @@ class CDPProducer:
                 settings.OBJECT_STORAGE_ENDPOINT,
             )
 
-            return pa_fs.S3FileSystem(
+            self._fs_cache = pa_fs.S3FileSystem(
                 access_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
                 secret_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
             )
+        else:
+            self._fs_cache = pa_fs.S3FileSystem()
 
-        return pa_fs.S3FileSystem()
+        return self._fs_cache
 
     def _get_path_prefix(self) -> str:
         return f"{settings.DATAWAREHOUSE_BUCKET}/cdp_producer/{self.team_id}/{self.schema_id}/{self.job_id}"
