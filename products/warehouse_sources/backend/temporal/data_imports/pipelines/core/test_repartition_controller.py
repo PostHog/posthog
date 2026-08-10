@@ -412,6 +412,10 @@ class TestCoarsenTrigger:
         [
             # Any memory-attributed OOM means bigger partitions are the wrong direction for this table.
             "recent_oom",
+            # The gate reads the RAW signal: an occurrence the classification rules would explain
+            # away (here: fresh extract-phase evidence, excluded from the split trigger) is still
+            # death evidence, and exclusion must never enable a coarsen it would have blocked.
+            "rule_excluded_oom",
             # A layout that was just rewritten hasn't had a chance to prove itself; undoing it within
             # the day is how the two directions would start handing the table back and forth.
             "fresh_layout",
@@ -427,6 +431,14 @@ class TestCoarsenTrigger:
         if case == "recent_oom":
             ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
                 team_id=schema.team_id, schema=schema, run_id="run-1"
+            )
+        elif case == "rule_excluded_oom":
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+                team_id=schema.team_id,
+                schema=schema,
+                run_id="run-1",
+                self_phase="extract",
+                self_report_age_at_death_seconds=1.0,
             )
 
         with tempfile.TemporaryDirectory() as d:
