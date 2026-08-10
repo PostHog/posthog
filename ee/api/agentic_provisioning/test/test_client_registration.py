@@ -148,6 +148,22 @@ class TestClientRegistration(ProvisioningTestBase):
         assert checks["jwks"]["ok"] is True
         assert KID in checks["jwks"]["detail"]
 
+    def test_brand_new_partner_is_confidential_on_its_first_registration(self):
+        # No pre-existing row: this is the client_id's first ever contact with PostHog, so the
+        # promotion has to happen inline with _create_cimd_application, not wait for the next
+        # hourly refresh to notice is_provisioning_partner has since flipped.
+        assert not OAuthApplication.objects.filter(cimd_metadata_url=CIMD_URL).exists()
+
+        res = self._register({"client_id": CIMD_URL})
+
+        assert res.status_code == 200, res.json()
+        body = res.json()
+        assert body["registered"] is True
+        assert body["token_endpoint_auth_method"] == "private_key_jwt"
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        assert app.client_type == OAuthApplication.CLIENT_CONFIDENTIAL
+        assert app.is_provisioning_partner
+
     def test_partner_registered_by_an_admin_can_use_github_grants(self):
         self._make_partner(_provisioning_config=provisioning_config(can_use_github_grants=True))
 

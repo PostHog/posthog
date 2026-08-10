@@ -124,7 +124,10 @@ class ClientRegistrationView(ProvisioningAPIView):
         existing = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
         app: OAuthApplication | None
         try:
-            app = fetch_and_upsert_cimd_application(client_id)
+            # This endpoint is the explicit opt-in to becoming a provisioning partner (see
+            # apply_provisioning_defaults below), so a declared private_key_jwt is honored on
+            # this very call instead of waiting for the next hourly refresh to notice.
+            app = fetch_and_upsert_cimd_application(client_id, allow_confidential=True)
             if app is None:
                 raise CIMDFetchError("Registration is already in progress, retry shortly")
         except (CIMDFetchError, CIMDValidationError) as exc:
