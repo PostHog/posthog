@@ -793,6 +793,7 @@ def _get_table_schemas(
             ("ip", "VARCHAR(200)"),
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ("person_properties", properties_type),
         ]
 
     else:
