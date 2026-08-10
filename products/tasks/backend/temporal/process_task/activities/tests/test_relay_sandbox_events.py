@@ -430,7 +430,7 @@ class TestRelaySandboxEventsErrorHandling:
             monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
             monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
 
-            await _relay_loop(
+            sandbox_gone = await _relay_loop(
                 events_url="https://sandbox.example/events",
                 headers={"Authorization": "Bearer token"},
                 params={},
@@ -440,6 +440,7 @@ class TestRelaySandboxEventsErrorHandling:
             )
 
         assert connect_attempts == 2
+        assert sandbox_gone is False
         sleep_mock.assert_awaited_once_with(2)
         redis_stream.write_event.assert_awaited_once()
         redis_stream.mark_complete.assert_awaited_once()
@@ -478,7 +479,7 @@ class TestRelaySandboxEventsErrorHandling:
         monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
         monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
 
-        await _relay_loop(
+        sandbox_gone = await _relay_loop(
             events_url="https://sandbox.example/events",
             headers={"Authorization": "Bearer token"},
             params={},
@@ -488,6 +489,7 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         redis_stream.write_event.assert_awaited_once_with(terminal_event)
+        assert sandbox_gone is False
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
@@ -664,7 +666,7 @@ class TestRelaySandboxEventsErrorHandling:
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
         monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
 
-        await _relay_loop(
+        sandbox_gone = await _relay_loop(
             events_url="https://sandbox.example/events",
             headers={"Authorization": "Bearer token"},
             params={},
@@ -674,6 +676,7 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         assert connect_attempts == 1
+        assert sandbox_gone is True
         sleep_mock.assert_not_awaited()
         redis_stream.write_event.assert_not_awaited()
         redis_stream.mark_complete.assert_awaited_once()
@@ -825,7 +828,9 @@ class TestRelaySandboxEventsWorkflowOptions:
             _branch="feature-branch",
         )
         execute_activity_mock = AsyncMock()
+        execute_activity_mock.return_value = True
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", MagicMock())
 
         await workflow._relay_sandbox_events(
             "https://sandbox.example",
@@ -837,6 +842,7 @@ class TestRelaySandboxEventsWorkflowOptions:
         args, kwargs = execute_activity_mock.await_args
         assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
+        assert workflow._sandbox_gone is True
 
 
 def _agent_chunk_event(text: str) -> dict:
