@@ -514,6 +514,43 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         assert ch_results[1][4] == 1  # Jan 2: user2
         assert ch_results[2][4] == 1  # Jan 3: user3
 
+    def test_a_job_deleted_mid_insert_is_not_resurrected_by_the_success_path(self):
+        query_info = QueryInfo(
+            query=self._make_computation_query(), table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        def delete_the_job_mid_insert(team, job):
+            PreaggregationJob.objects.filter(id=job.id).delete()
+
+        LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=delete_the_job_mid_insert,
+        )
+
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 0
+
+    def test_a_job_deleted_mid_insert_is_not_resurrected_by_the_failure_path(self):
+        query_info = QueryInfo(
+            query=self._make_computation_query(), table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        def delete_the_job_then_fail(team, job):
+            PreaggregationJob.objects.filter(id=job.id).delete()
+            raise ValueError("insert blew up after the row was gone")
+
+        LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=delete_the_job_then_fail,
+        )
+
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 0
+
     def test_reuses_existing_job(self):
         self._create_pageview_events()
 

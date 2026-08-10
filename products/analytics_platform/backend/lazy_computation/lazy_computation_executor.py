@@ -1101,7 +1101,7 @@ class LazyComputationExecutor:
                                 )
                                 if empty_expires_at is not None:
                                     new_job.expires_at = min(new_job.expires_at, empty_expires_at)
-                            new_job.save()
+                            self._finalize_job(new_job, ["status", "computed_at", "expires_at"])
                             publish_job_completion(new_job.id, "ready")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
                                 outcome="ready_empty" if wrote_nothing else "ready",
@@ -1125,7 +1125,7 @@ class LazyComputationExecutor:
                             memory_exceeded = memory_exceeded or is_memory_limit_error(e)
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
-                            new_job.save()
+                            self._finalize_job(new_job, ["status", "error"])
                             publish_job_completion(new_job.id, "failed")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
                                 outcome="failed", table=str(query_info.table)
@@ -1226,6 +1226,20 @@ class LazyComputationExecutor:
         result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
         _log_execution("success", result)
         return result
+
+    def _finalize_job(self, job: PreaggregationJob, fields: list[str]) -> bool:
+        """Move a job this executor owns out of PENDING, without recreating it if it's gone.
+
+        `job.save()` UPDATEs and then falls back to an INSERT when the UPDATE matches no rows, so a
+        job whose row was deleted mid-insert comes back — as READY, carrying its pre-deletion
+        expiry. A filtered UPDATE writes only if the row is still there and still PENDING, which is
+        the same guard `_try_mark_stale_job_as_failed` already uses. Returns whether it wrote.
+        """
+        updated = PreaggregationJob.objects.filter(
+            id=job.id,
+            status=PreaggregationJob.Status.PENDING,
+        ).update(**{field: getattr(job, field) for field in fields})
+        return updated > 0
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
