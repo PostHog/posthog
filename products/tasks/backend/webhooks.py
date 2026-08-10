@@ -208,9 +208,8 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # Only a run that claimed nothing at all counts this url as its own. A run that already
         # claims another PR keeps the equality rule below: a same-branch webhook for a
         # different PR must not speak for the PR this run does claim.
-        if not claimed_pr_urls and pr_url in read_pr_urls(
-            task_run.output if isinstance(task_run.output, dict) else {}
-        ):
+        backfilled_output = task_run.output if isinstance(task_run.output, dict) else {}
+        if not claimed_pr_urls and pr_url in read_pr_urls(backfilled_output):
             claimed_pr_urls = [pr_url]
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
