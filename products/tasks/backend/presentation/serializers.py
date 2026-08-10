@@ -55,6 +55,7 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactAdapter,
     TaskArtifactStatus,
     TaskArtifactType,
+    get_model_access_error,
     get_reasoning_effort_error,
 )
 
@@ -85,6 +86,14 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
         for_control=True,
     )
     return task_runtime == tasks_facade.TaskRuntime.PI
+
+
+def request_distinct_id(context: dict[str, Any]) -> str | None:
+    """The acting user's distinct id, for flag evaluation. `None` when there isn't one."""
+    user = getattr(context.get("request"), "user", None)
+    if user is None or not user.is_authenticated or not user.distinct_id:
+        return None
+    return str(user.distinct_id)
 
 
 def _capture_rejected_reasoning_effort(
@@ -734,6 +743,12 @@ class TaskWriteSerializer(serializers.Serializer):
                 )
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
+
+        # Write-only and never persisted, but it selects which warm Run gets activated, so a
+        # gated model here still runs one. Reject rather than silently cold-creating instead.
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
 
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
@@ -2414,6 +2429,10 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
                 error=reasoning_effort_error,
             )
 
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+
         if errors:
             raise serializers.ValidationError(errors)
 
@@ -2611,6 +2630,10 @@ class TaskRunBootstrapCreateRequestSerializer(
                 error=reasoning_effort_error,
             )
 
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+
         if errors:
             raise serializers.ValidationError(errors)
 
@@ -2709,6 +2732,11 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Repository and GitHub integration must either both be provided or both be omitted."
             )
+
+        # Warming starts the agent on this model, so it bills like a run and gates like one.
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
         return attrs
 
 
