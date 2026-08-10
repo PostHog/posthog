@@ -109,7 +109,7 @@ function getTtl(invocation: CyclotronJobInvocation, maskingConfig: HogFunctionMa
 export class HogMaskerService {
     constructor(
         private redis: RedisV2,
-        private redisMirror: RedisV2 | null = null
+        private redisMirror: RedisV2
     ) {}
 
     public async filterByMasking<T extends CyclotronJobInvocation>(
@@ -173,7 +173,7 @@ export class HogMaskerService {
         const result = await mirrorCompare(
             'hog-masker.filterByMasking',
             () => this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline),
-            () => this.redisMirror?.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline),
+            () => this.redisMirror.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline),
             (primary, mirror) =>
                 maskContexts.every(
                     (masker, index) =>

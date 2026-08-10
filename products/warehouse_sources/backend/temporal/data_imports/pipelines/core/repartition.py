@@ -22,7 +22,7 @@ import asyncio
 import dataclasses
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    NULL_NUMERICAL_PARTITION,
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
@@ -397,11 +398,237 @@ def select_repartition_target(
     return RepartitionTarget(partition_keys=keys, trigger_reason="", partition_mode=None), "selected"
 
 
+# Coarsening (the reverse direction) rebuilds an over-fragmented table into fewer, larger partitions.
+# It aims at half the budget, not the budget itself: landing at the budget would sit one growth spurt
+# away from the finer trigger, and the gap between the two targets is what stops the controller
+# oscillating. The minimum reduction keeps a rewrite from being spent on a marginal gain.
+COARSEN_MIN_REDUCTION_FACTOR = 4
+
+# Partition-key formats, by mode, for parsing a measured key back into the value that produced it.
+_DATETIME_KEY_FORMATS: dict[PartitionFormat, str] = {
+    "hour": "%Y-%m-%dT%H",
+    "day": "%Y-%m-%d",
+    "week": "%G-w%V",
+    "month": "%Y-%m",
+}
+
+# Coarser tiers each partition can merge into, coarsest first. Every tier here contains the finer one
+# whole, so a row's new bucket follows from its old key, except week into month: ISO weeks straddle
+# month boundaries, and how a week's bytes divide between two months is not recoverable from the key.
+# That one is sized by upper bound instead (see `_simulate_datetime_coarsening`) rather than left
+# unreachable, because the finer path's first step is month into week, so without it a table this
+# controller wrongly split could never be merged back.
+_COARSER_DATETIME_TIERS: dict[PartitionFormat, tuple[PartitionFormat, ...]] = {
+    "hour": ("month", "week", "day"),
+    "day": ("month", "week"),
+    "week": ("month",),
+    "month": (),
+}
+
+
+def _parse_datetime_partition_key(key: str, partition_format: PartitionFormat) -> datetime | None:
+    if partition_format == "week":
+        # %G/%V need a weekday to resolve to a date, so anchor on the week's Monday.
+        return _strptime_or_none(f"{key}-1", "%G-w%V-%u")
+    return _strptime_or_none(key, _DATETIME_KEY_FORMATS[partition_format])
+
+
+def _strptime_or_none(value: str, fmt: str) -> datetime | None:
+    try:
+        return datetime.strptime(value, fmt)
+    except ValueError:
+        return None
+
+
+def _merged_keys(parsed: datetime, current_format: PartitionFormat, new_format: PartitionFormat) -> list[str]:
+    """The coarser bucket(s) a partition's bytes can land in.
+
+    One bucket for every containing tier. Week into month is the exception: the week starting `parsed`
+    runs to the following Sunday, so it can fall in two months, and the key does not say how its bytes
+    divide. Both months are returned and each is charged the week's full size, which over-states rather
+    than under-states every bucket it touches. A layout that fits under that bound fits in reality.
+    """
+    if current_format == "week" and new_format == "month":
+        monday_month = parsed.strftime(_DATETIME_KEY_FORMATS["month"])
+        sunday_month = (parsed + timedelta(days=6)).strftime(_DATETIME_KEY_FORMATS["month"])
+        return [monday_month] if monday_month == sunday_month else [monday_month, sunday_month]
+    return [parsed.strftime(_DATETIME_KEY_FORMATS[new_format])]
+
+
+def _simulate_datetime_coarsening(
+    partition_bytes: dict[str | None, int],
+    current_format: PartitionFormat,
+    new_format: PartitionFormat,
+) -> dict[str | None, int] | None:
+    """Bytes per partition after re-bucketing measured partitions into `new_format`.
+
+    Computed from the keys rather than estimated: partition keys carry the date they were built from,
+    so every transition is exact except week into month, which is an upper bound (see `_merged_keys`).
+    Both are safe to size a rewrite against, since neither can under-state a resulting partition.
+
+    None when any key doesn't parse, because a table carrying the unknown-date sentinel or non-date
+    keys must not be coarsened on a guess.
+    """
+    merged: dict[str | None, int] = defaultdict(int)
+    for key, size in partition_bytes.items():
+        if key is None:
+            return None
+        parsed = _parse_datetime_partition_key(key, current_format)
+        if parsed is None:
+            return None
+        for merged_key in _merged_keys(parsed, current_format, new_format):
+            merged[merged_key] += size
+    return dict(merged)
+
+
+def _simulate_modulo_coarsening(partition_bytes: dict[str | None, int], new_count: int) -> dict[str | None, int] | None:
+    """Bytes per bucket after reducing an md5 scheme to `new_count` buckets.
+
+    Exact only because `new_count` divides the current count: a row in bucket `h % N` lands in
+    `(h % N) % M` when M divides N, so buckets merge cleanly instead of redistributing.
+    """
+    merged: dict[str | None, int] = defaultdict(int)
+    for key, size in partition_bytes.items():
+        if key is None or not key.isdigit():
+            return None
+        merged[str(int(key) % new_count)] += size
+    return dict(merged)
+
+
+def _simulate_numerical_coarsening(
+    partition_bytes: dict[str | None, int], multiplier: int
+) -> dict[str | None, int] | None:
+    """Bytes per bucket after growing a numerical partition size by `multiplier`.
+
+    Buckets are `value // size`, so a size of `size * k` merges exactly `k` adjacent buckets. The null
+    bucket holds rows with no usable key and stays as it is.
+    """
+    merged: dict[str | None, int] = defaultdict(int)
+    for key, size in partition_bytes.items():
+        if key is None:
+            return None
+        if key == NULL_NUMERICAL_PARTITION:
+            merged[key] += size
+            continue
+        try:
+            bucket = int(key)
+        except ValueError:
+            return None
+        merged[str(bucket // multiplier)] += size
+    return dict(merged)
+
+
+def select_coarsen_target(
+    schema: ExternalDataSchema,
+    partition_bytes: dict[str | None, int],
+    target_partition_bytes: int,
+) -> tuple[RepartitionTarget | None, str]:
+    """Pick the coarsest partition scheme whose largest partition still fits `target_partition_bytes`.
+
+    The mirror of `select_repartition_target`, for tables left over-fragmented, most of them by the
+    finer path itself reacting to failures that were never about partition size. Fragmentation is not
+    free: every partition is its own merge commit, so a table split into thousands of tiny pieces syncs
+    slowly enough to cause the very timeouts that shrank it.
+
+    Every candidate layout is simulated from the measured partitions rather than estimated, so a rewrite
+    only happens when the result is known. Returns (target, reason); reasons mirror the finer path's.
+    """
+    if not partition_bytes:
+        return None, "no_partitions"
+
+    keys = schema.partitioning_keys or schema.primary_key_columns or []
+    if not keys:
+        # The rewrite recomputes every row's key, which needs a column to compute it from.
+        return None, "unpartitionable_no_keys"
+    mode = schema.partition_mode
+    current_count = len(partition_bytes)
+
+    def acceptable(simulated: dict[str | None, int] | None) -> bool:
+        return (
+            simulated is not None
+            and max(simulated.values()) <= target_partition_bytes
+            and len(simulated) * COARSEN_MIN_REDUCTION_FACTOR <= current_count
+        )
+
+    if mode == "datetime":
+        current_format: PartitionFormat = schema.partition_format or "month"
+        candidate_formats = _COARSER_DATETIME_TIERS.get(current_format)
+        if candidate_formats is None:
+            return None, "datetime_unknown_format"
+        if not candidate_formats:
+            return None, "datetime_at_coarsest_tier"
+        # Coarsest tier first: fewer, larger partitions is the goal, and the size ceiling is what stops it.
+        for new_format in candidate_formats:
+            if acceptable(_simulate_datetime_coarsening(partition_bytes, current_format, new_format)):
+                return RepartitionTarget(
+                    partition_keys=keys,
+                    trigger_reason="",
+                    partition_mode="datetime",
+                    partition_format=new_format,
+                ), "selected"
+        return None, "no_coarser_layout_fits"
+
+    if mode == "md5":
+        count = schema.partition_count
+        if not count:
+            # The measured bucket count is no substitute: sparse data can leave buckets empty, and a
+            # divisor of the measured count need not divide the true modulo, which is the whole basis
+            # of the simulation's exactness ((h % N) % M == h % M only when M divides N).
+            return None, "md5_no_count"
+        # Every divisor of the current count is a candidate, because only a divisor merges buckets
+        # cleanly (a row in bucket h % N lands in (h % N) % M exactly when M divides N), which is what
+        # makes the simulation exact rather than an assumption about how md5 redistributes rows. The
+        # finer path produces arbitrary counts, so halving alone would strand any non-power-of-two.
+        divisors: set[int] = set()
+        for low in range(1, math.isqrt(count) + 1):
+            if count % low == 0:
+                divisors.add(low)
+                divisors.add(count // low)
+        divisors.discard(count)
+        for new_count in sorted(divisors):  # ascending, so the coarsest layout that fits wins
+            if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count)):
+                return RepartitionTarget(
+                    partition_keys=keys,
+                    trigger_reason="",
+                    partition_mode="md5",
+                    partition_count=new_count,
+                ), "selected"
+        return None, "no_coarser_layout_fits"
+
+    if mode == "numerical":
+        current_size = schema.partition_size
+        if not current_size:
+            return None, "numerical_no_size"
+        multiplier = 2 ** math.floor(math.log2(max(current_count, 1))) if current_count > 1 else 1
+        while multiplier >= 2:
+            if acceptable(_simulate_numerical_coarsening(partition_bytes, multiplier)):
+                return RepartitionTarget(
+                    partition_keys=keys,
+                    trigger_reason="",
+                    partition_mode="numerical",
+                    partition_size=current_size * multiplier,
+                ), "selected"
+            multiplier //= 2
+        return None, "no_coarser_layout_fits"
+
+    return None, "unsupported_mode"
+
+
 def _read_next_batch(reader: pa.RecordBatchReader) -> pa.RecordBatch | None:
     try:
         return reader.read_next_batch()
     except StopIteration:
         return None
+
+
+def _format_scheme(target: RepartitionTarget) -> str:
+    """`datetime/month`, `md5/64`, `numerical/1000000` — the scheme in one readable token."""
+    knob = target.partition_format or target.partition_count or target.partition_size
+    return f"{target.partition_mode or 'auto'}/{knob}" if knob else (target.partition_mode or "auto")
+
+
+def _format_fields(fields: dict[str, Any]) -> str:
+    return " ".join(f"{key}={value}" for key, value in fields.items() if value is not None)
 
 
 async def _rewrite_into_temp(
@@ -415,6 +642,7 @@ async def _rewrite_into_temp(
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
     claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
     deadline: float | None = None,
+    total_rows: int | None = None,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a fresh temp table under the new partition scheme.
 
@@ -426,7 +654,18 @@ async def _rewrite_into_temp(
 
     `deadline` is a `time.monotonic()` value past which the rewrite gives up with
     `RepartitionBudgetExceededError` rather than run until Temporal kills it. None runs unbounded.
+
+    `total_rows` is the source row count, used only to report progress as a percentage and an ETA.
     """
+    await logger.ainfo(
+        f"repartition: rewrite starting target_scheme={_format_scheme(target)} total_rows={total_rows} "
+        f"batch_size={batch_size} temp_uri={temp_uri}",
+        target_scheme=_format_scheme(target),
+        total_rows=total_rows,
+        batch_size=batch_size,
+        temp_uri=temp_uri,
+    )
+
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
     live_schema = await asyncio.to_thread(old_delta.schema)
@@ -438,11 +677,31 @@ async def _rewrite_into_temp(
     buffered_rows = 0
     buffered_bytes = 0
 
-    async def flush() -> int:
-        """Write the buffered batches as one Delta commit and return the rows written."""
-        nonlocal buffered, buffered_rows, buffered_bytes
+    started_at = time.monotonic()
+    commits = 0
+
+    def progress() -> dict[str, Any]:
+        """Structured rewrite progress. One of these per commit is the whole story of a rewrite."""
+        elapsed = max(time.monotonic() - started_at, 1e-6)
+        rate = rows_written / elapsed
+        fields: dict[str, Any] = {
+            "rows_written": rows_written,
+            "commits": commits,
+            "elapsed_seconds": round(elapsed),
+            "rows_per_second": round(rate),
+        }
+        if total_rows:
+            fields["total_rows"] = total_rows
+            fields["percent_complete"] = round(100 * rows_written / total_rows, 1)
+            # Only meaningful once a commit has landed; before that there is no rate to project from.
+            fields["eta_seconds"] = round(max(total_rows - rows_written, 0) / rate) if rate else None
+        return fields
+
+    async def flush() -> None:
+        """Write the buffered batches as one Delta commit, then report progress."""
+        nonlocal buffered, buffered_rows, buffered_bytes, rows_written, commits
         if not buffered:
-            return 0
+            return
         # Every buffered table was already aligned to `live_schema`, so they concat without promotion.
         combined = buffered[0] if len(buffered) == 1 else pa.concat_tables(buffered)
         buffered = []
@@ -457,7 +716,10 @@ async def _rewrite_into_temp(
             schema_mode="merge",
             storage_options=storage_options,
         )
-        return combined.num_rows
+        rows_written += combined.num_rows
+        commits += 1
+        fields = progress()
+        await logger.ainfo(f"repartition: rewrite progress {_format_fields(fields)}", **fields)
 
     last_claim_check: float | None = None
 
@@ -531,16 +793,22 @@ async def _rewrite_into_temp(
             buffered_rows + partitioned_table.num_rows > batch_size
             or buffered_bytes + table_bytes > REWRITE_BUFFER_MAX_BYTES
         ):
-            rows_written += await flush()
+            await flush()
         buffered.append(partitioned_table)
         buffered_rows += partitioned_table.num_rows
         buffered_bytes += table_bytes
 
-    rows_written += await flush()
+    await flush()
 
     if resolved is None:
         # Empty source table — nothing to rewrite.
         resolved = target
+    fields = progress()
+    await logger.ainfo(
+        f"repartition: rewrite complete scheme={_format_scheme(resolved)} {_format_fields(fields)}",
+        scheme=_format_scheme(resolved),
+        **fields,
+    )
     return rows_written, resolved
 
 
@@ -667,6 +935,7 @@ async def repartition_table_in_place(
                 logger=logger,
                 ensure_claim=ensure_claim,
                 deadline=deadline,
+                total_rows=old_row_count,
             )
         except (RepartitionSupersededError, RepartitionUnpartitionableError, RepartitionBudgetExceededError):
             raise

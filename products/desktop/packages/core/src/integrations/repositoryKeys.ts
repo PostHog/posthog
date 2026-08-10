@@ -11,6 +11,17 @@ export const integrationKeys = {
       search,
       limit,
     ] as const,
+  repositoryPickerPages: (
+    integrationIds: ReadonlyArray<number>,
+    search?: string,
+  ) =>
+    [
+      ...integrationKeys.all,
+      "repository-picker",
+      "pages",
+      integrationIds,
+      search,
+    ] as const,
   branches: (integrationId?: number, repo?: string | null, search?: string) =>
     [...integrationKeys.all, "branches", integrationId, repo, search] as const,
 };
@@ -31,6 +42,17 @@ export const userGithubIntegrationKeys = {
       installationId,
       search,
       limit,
+    ] as const,
+  repositoryPickerPages: (
+    installationIds: ReadonlyArray<string>,
+    search?: string,
+  ) =>
+    [
+      ...userGithubIntegrationKeys.all,
+      "repository-picker",
+      "pages",
+      installationIds,
+      search,
     ] as const,
   branches: (installationId?: string, repo?: string | null, search?: string) =>
     [

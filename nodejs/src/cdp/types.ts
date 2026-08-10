@@ -254,6 +254,15 @@ export type MinimalAppMetric = {
         | 'exited_workflow_changed'
         | 'redirected_workflow_changed'
     count: number
+    // Key parts for the mirrored version-scoped row: the flow and the `version` of the HogFlow row that
+    // actually executed the step. Not columns on `app_metrics2` — the monitoring service consumes these
+    // to key a row under the `hog_flow_version` app source, and never forwards them to Kafka. Absent
+    // means this metric only lands in the version-agnostic series.
+    //
+    // `id` is carried rather than reusing `app_source_id` because that field is substituted with
+    // `parentRunId` for batch-triggered runs, so per-run views group by the run. A per-version rollup
+    // has to key on the flow itself, or a broadcast's metrics never aggregate across its runs.
+    app_source_version?: { id: string; version: number }
 }
 
 export type AppMetricType = MinimalAppMetric & {
@@ -348,16 +357,24 @@ export type HogFlowInvocationContext = {
     // group key, not a person distinct_id. The worker must trust this over the live trigger config,
     // which can be edited to a person audience while these children are still queued.
     accountAudience?: boolean
-    // Set by the subscription matcher when a person merge repointed this job's distinct_id and re-keyed
-    // personId onto the survivor. Tells the worker to resolve the person by personId, not the distinct_id
-    // (whose ~1min PersonsManager cache entry still points at the pre-merge person) — otherwise a
-    // merge-woken step reads stale person props (e.g. an email step gets no recipient and drops the send).
+    // Set by the subscription matcher when it wrote this job's personId anchor: either a merge repointed
+    // the distinct_id onto a survivor, or the distinct_id acquired its first person. Tells the worker to
+    // resolve the person by personId, not the distinct_id (whose ~1min PersonsManager cache entry still
+    // points at the pre-merge person, or at no person at all) — otherwise the woken step reads stale
+    // person props (e.g. an email step gets no recipient and drops the send).
     personIdRepointed?: boolean
     // High-water mark of the repoint version last applied to this job's personId. Repoints aren't
     // Kafka-keyed, so a delayed lower-version move can arrive in a later batch than a higher one already
     // applied; the matcher rejects any repoint whose version isn't strictly greater, so an out-of-order
     // older move can't rewind the wait onto an obsolete person.
     personIdRepointVersion?: number
+    // Version this run's conversions attribute to: the one that sent the last message, or the one
+    // the run started under if it hasn't sent yet. Never the currently published version — a
+    // conversion arriving after a republish belongs to the version whose message the person
+    // actually received, not whatever happens to be live when they convert.
+    // Absent on runs parked before this was introduced — those attribute to no version at all
+    // rather than to a wrong one.
+    flowVersion?: number
     actionStepCount: number
     currentAction?: {
         id: string

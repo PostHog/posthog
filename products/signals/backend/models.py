@@ -6,7 +6,7 @@ from typing import Any, cast
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -1081,6 +1081,104 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalReportAction(TeamScopedRootMixin, UUIDModel):
+    """One row per (report, user, action type): a person's lightweight interaction with a report.
+
+    Heavier work on a report already leaves person-attributed `SignalReportArtefact` rows (notes,
+    dismissals, commits); this table records the interactions too light to be artefacts — opening
+    a report, rating it with the thumbs — which otherwise exist only as client-side analytics
+    events the backend can never read. The scout inactivity sweep
+    (`scout_harness/inactivity.py`) reads both feeds when judging whether a scout's output is
+    consumed, and the rows are a durable per-person consumption record future ranking/learning
+    can build on.
+
+    Upsert semantics, not a log: one row per (report, user, type), with `count` and `last_at`
+    advancing on repeats. The high-volume raw stream (every open, dwell time, rank) stays in
+    analytics events; this row is the queryable server-side fact that the interaction happened,
+    kept one-row-per-person so it can sit on the sweep's hot path.
+    """
+
+    class ActionType(models.TextChoices):
+        # A person opened the report's detail view in the inbox UI.
+        VIEW = "view"
+        # The thumbs rating at the end of the report body ("Was this report useful?").
+        FEEDBACK = "feedback"
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents (app-level enforcement only).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="actions")
+    # CASCADE, unlike the artefact log's SET_NULL: a row here is evidence that a specific person
+    # interacted, so with the person gone it proves nothing and can go with them.
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    type = models.CharField(max_length=20, choices=ActionType)
+    # Latest-wins detail about the interaction (e.g. the feedback row keeps the most recent
+    # sentiment). Never required by readers — the row's existence is the fact that matters.
+    metadata = models.JSONField(default=dict, blank=True)
+    # Coarse repeat signal, not an exact ledger: bundled rating+note submissions and reordered
+    # fire-and-forget requests can move it by one either way. Readers get "roughly how often",
+    # never billing-grade counts.
+    count = models.PositiveIntegerField(default=1)
+    first_at = models.DateTimeField(auto_now_add=True)
+    last_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Signal report action"
+        verbose_name_plural = "Signal report actions"
+        default_manager_name = "all_teams"
+        constraints = [
+            # Also the only index: the sweep's "which of these reports did a person touch since
+            # <ts>?" resolves as per-report probes on this, and keeping `last_at` out of any index
+            # leaves the hot repeat-view UPDATE eligible for HOT.
+            models.UniqueConstraint(fields=["report", "user", "type"], name="signals_report_action_identity"),
+        ]
+
+    @classmethod
+    def record(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        user_id: int,
+        action_type: "SignalReportAction.ActionType",
+        metadata: dict[str, Any] | None = None,
+        bump_count: bool = True,
+    ) -> None:
+        """Upsert one interaction: bump the existing row or create it.
+
+        Update-then-create rather than get_or_create so the common case (a repeat view) is one
+        UPDATE; the create's unique-constraint race falls back to the update path.
+
+        ``bump_count=False`` refreshes an existing row (metadata, ``last_at``) without counting
+        it as a new interaction — for follow-up requests that amend one the row already counted,
+        like the note trailing a thumbs rating. A create still starts at 1.
+        """
+        now = timezone.now()
+        updates: dict[str, Any] = {"last_at": now}
+        if bump_count:
+            updates["count"] = models.F("count") + 1
+        if metadata is not None:
+            updates["metadata"] = metadata
+        row = cls.objects.for_team(team_id).filter(report_id=report_id, user_id=user_id, type=action_type)
+        if row.update(**updates):
+            return
+        try:
+            with transaction.atomic():
+                cls.objects.for_team(team_id).create(
+                    team_id=team_id,
+                    report_id=report_id,
+                    user_id=user_id,
+                    type=action_type,
+                    metadata=metadata or {},
+                    last_at=now,
+                )
+        except IntegrityError:
+            row.update(**updates)
+
+
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
 # Core tables backing the Signals scout:
@@ -1160,6 +1258,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # How long a scout is treated as provisional after creation or a human re-enable, during
     # which system writers should leave it alone (`in_cold_start_grace`).
     COLD_START_GRACE = timedelta(days=14)
+
+    # Bounds on `tags`. Tags are a grouping aid over a fleet an org can only grow so far, not a
+    # taxonomy — the caps keep the column small and the fleet filter's option list scannable.
+    MAX_TAGS = 10
+    MAX_TAG_LENGTH = 50
 
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
@@ -1264,11 +1367,42 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default=NetworkAccess.TRUSTED,
         db_default=NetworkAccess.TRUSTED,
     )
+    # Optional agent-model pin for this scout's runs, e.g. `claude-opus-4-5`. Null keeps the
+    # normal resolution chain (the `scouts-model-selection` experiment gate, then the pipeline
+    # runtime pin, then the agent-server default). Honored at dispatch only while the
+    # `scouts-model-config` flag is on for the team, so a stored value is inert outside the
+    # dogfood — the flag is the kill switch, which is why the value itself is not cleared when
+    # the flag goes off. Free-form rather than a choices list: the model catalog changes
+    # without deploys, and `model_selection` already treats an unroutable id defensively.
+    model = models.CharField(max_length=200, null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
     # config columns. A Slack destination is active only when both its integration and channel
     # are present; the UI may persist the integration first while the user chooses a channel.
     output_destinations = models.JSONField(default=dict, db_default={})
+    # Free-form labels for grouping the fleet ("revenue", "on-call", "experimental"). Normalized
+    # to lowercase and deduped at the API boundary, so a tag means the same thing whoever typed
+    # it. No GIN index: every read is already scoped to one team, and a team holds at most a
+    # couple of dozen scouts, so `tags && ARRAY[...]` runs over a handful of rows.
+    # `null=True` only so the AddField could land without a NOT NULL rewrite — the migration
+    # backfilled existing rows with `{}` and every write path sends a list, so NULL carries no
+    # meaning. Read through `tag_list` rather than this column so that stays an implementation
+    # detail instead of leaking a nullable `tags` into the API and its generated clients.
+    tags = ArrayField(
+        models.CharField(max_length=MAX_TAG_LENGTH),
+        default=list,
+        null=True,
+        blank=True,
+    )
+    # Optional JSON Schema (draft 2020-12, object-rooted) describing one structured record this
+    # scout produces via `scout-record-output`. Null = the channel is off: the record endpoint
+    # fails closed and the run prompt renders no structured-output section. Records land solely
+    # as `$scout_structured_output` events in the project, so the channel also requires `emit`
+    # (a dry-run scout has nowhere to record to). Serializer-validated (must compile as a
+    # schema, bounded size) — this field is only written through the config API. The schema
+    # describes ONE record; cardinality is the scout's call (one record per run, one per judged
+    # entity, ...), so no separate mode enum is stored.
+    structured_output_schema = models.JSONField(null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1488,6 +1622,18 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         if self.status == self.Status.ACTIVE and self.status_changed_at is not None:
             anchor = max(anchor, self.status_changed_at)
         return timezone.now() < anchor + self.COLD_START_GRACE
+
+    @property
+    def tag_list(self) -> list[str]:
+        """`tags` with the nullable column's NULL folded away, for readers.
+
+        The API serializes this rather than the column so `tags` is a plain non-null list
+        everywhere downstream. Serializing the column directly would surface `null` in the
+        OpenAPI schema and, through the generated clients, force every consumer to tell "no
+        tags" apart from "not set" — a distinction the column does not actually carry, since
+        the AddField backfilled existing rows and every write path sends a list.
+        """
+        return self.tags or []
 
     def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed

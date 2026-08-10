@@ -13,6 +13,7 @@ from django.test import TestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 
+from posthog.storage.hypercache_verifier import TeamBatchFetchError
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flags_cache_task,
@@ -54,6 +55,20 @@ class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
         verification failure, it is not captured as an error or re-raised, and the
         task's success metric reflects a clean finish."""
         mock_run_verification.side_effect = SoftTimeLimitExceeded()
+
+        # Should not raise
+        verify_and_fix_flags_cache_task()
+
+        mock_capture.assert_not_called()
+        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flags_cache_task_success")
+        assert success == 1
+
+    @patch("posthog.tasks.hypercache_verification.capture_exception")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_team_batch_fetch_error_winds_down_without_capturing(
+        self, mock_run_verification: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_run_verification.side_effect = TeamBatchFetchError("db unreachable")
 
         # Should not raise
         verify_and_fix_flags_cache_task()
@@ -183,6 +198,20 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
         verification failure, it is not captured as an error or re-raised, and the
         task's success metric reflects a clean finish."""
         mock_run_verification.side_effect = SoftTimeLimitExceeded()
+
+        # Should not raise
+        verify_and_fix_flag_definitions_cache_task()
+
+        mock_capture.assert_not_called()
+        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flag_definitions_cache_task_success")
+        assert success == 1
+
+    @patch("posthog.tasks.hypercache_verification.capture_exception")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_team_batch_fetch_error_winds_down_without_capturing(
+        self, mock_run_verification: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_run_verification.side_effect = TeamBatchFetchError("db unreachable")
 
         # Should not raise
         verify_and_fix_flag_definitions_cache_task()

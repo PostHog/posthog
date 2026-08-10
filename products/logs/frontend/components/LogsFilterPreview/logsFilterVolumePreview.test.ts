@@ -1,4 +1,17 @@
-import { LogsFilterPreviewPoint, buildSparklineSeries, formatBytes } from './logsFilterVolumePreview'
+import fs from 'fs'
+import path from 'path'
+
+import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
+
+import {
+    LogsFilterPreviewPoint,
+    TOP_SERVICES_LIMIT,
+    buildSparklineSeries,
+    formatBytes,
+} from './logsFilterVolumePreview'
+
+const readSource = (relativePath: string): string =>
+    fs.readFileSync(path.join(__dirname, '../../../..', relativePath), 'utf-8')
 
 const point = (time: string, service: string, count: number, bytes?: number): LogsFilterPreviewPoint => ({
     time,
@@ -9,6 +22,25 @@ const point = (time: string, service: string, count: number, bytes?: number): Lo
 
 const T1 = '2026-08-04T11:00:00Z'
 const T2 = '2026-08-04T11:30:00Z'
+
+describe('constants shared with the backend', () => {
+    it('agrees with the backend on how many breakdown values survive the rollup', () => {
+        // The header text promises "top N" and the backend decides N, so drift would make the UI lie.
+        const runner = readSource('logs/backend/sparkline_query_runner.py')
+        const match = runner.match(/^SPARKLINE_TOP_BREAKDOWN_VALUES = (\d+)$/m)
+        expect(match).not.toBeNull()
+        expect(Number(match![1])).toEqual(TOP_SERVICES_LIMIT)
+    })
+
+    it('uses the same collapsed-bucket sentinel the backend emits', () => {
+        // A mismatch would leave the sentinel unrecognised and drawn as a service literally named
+        // "$$_posthog_breakdown_other_$$".
+        const breakdowns = readSource('../posthog/hogql_queries/insights/utils/breakdowns.py')
+        const match = breakdowns.match(/^BREAKDOWN_OTHER_STRING_LABEL = "(.+)"$/m)
+        expect(match).not.toBeNull()
+        expect(match![1]).toEqual(OTHER_BREAKDOWN_VALUE)
+    })
+})
 
 describe('buildSparklineSeries', () => {
     it('stacks one series per service in bucket order', () => {
@@ -25,16 +57,32 @@ describe('buildSparklineSeries', () => {
         expect(data.firstBucketTime).toEqual(T1)
     })
 
-    it('rolls the long tail past the top 10 into one Others series, preserving the total', () => {
+    it('keeps every returned series rather than slicing — the backend already folded the tail', () => {
+        // Slicing here again would take the backend's collapsed row and re-collapse it, labelling an
+        // aggregate of many services as though it were one more service.
         const points = Array.from({ length: 13 }, (_, i) => point(T1, `svc-${i}`, 13 - i))
         const data = buildSparklineSeries(points, 'count')
 
-        expect(data.series).toHaveLength(11)
-        expect(data.series[10].name).toEqual('Others (3 services)')
-        // svc-10..svc-12 rank last, contributing 3 + 2 + 1.
-        expect(data.series[10].values).toEqual([6])
-        expect(data.truncatedServiceCount).toEqual(3)
+        expect(data.series).toHaveLength(13)
+        expect(data.series.map((s) => s.name)).toEqual(Array.from({ length: 13 }, (_, i) => `svc-${i}`))
         expect(data.series.reduce((sum, s) => sum + s.values[0], 0)).toEqual(data.total)
+    })
+
+    it('labels the collapsed bucket and pins it last even when it outweighs every service', () => {
+        const points = [
+            point(T1, 'api', 5),
+            point(T2, 'api', 5),
+            point(T1, OTHER_BREAKDOWN_VALUE, 900),
+            point(T2, OTHER_BREAKDOWN_VALUE, 900),
+        ]
+
+        const data = buildSparklineSeries(points, 'count')
+
+        expect(data.series.map((s) => s.name)).toEqual(['api', OTHER_BREAKDOWN_LABEL])
+        expect(data.series[1]).toEqual(
+            expect.objectContaining({ name: OTHER_BREAKDOWN_LABEL, color: 'muted', values: [900, 900] })
+        )
+        expect(data.total).toEqual(1810)
     })
 
     it('reads bytes_uncompressed for the bytes metric and treats a missing value as zero', () => {

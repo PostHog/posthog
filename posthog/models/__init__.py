@@ -11,7 +11,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .column_configuration import ColumnConfiguration
-from .comment import Comment
+from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
 from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
@@ -37,6 +37,7 @@ from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .health_issue import HealthIssue
 from .identity_provider_config import IdentityProviderConfig
+from .linked_identity_provider_config import LinkedIdentityProviderConfig  # noqa: F401
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .integration_repository_cache import IntegrationRepositoryCacheEntry
@@ -184,6 +185,7 @@ __all__ = [
     "WebAnalyticsFilterPreset",
     "ScheduledChange",
     "Comment",
+    "CommentSlackThread",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",

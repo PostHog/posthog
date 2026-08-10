@@ -345,6 +345,7 @@ export function getMarkdownNotebookNodeTitle(
     if (
         nodeType === NotebookNodeType.Python ||
         nodeType === NotebookNodeType.PythonV2 ||
+        nodeType === NotebookNodeType.SQLV2 ||
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {

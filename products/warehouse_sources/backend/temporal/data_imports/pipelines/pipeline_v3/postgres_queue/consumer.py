@@ -12,6 +12,7 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from django.db import close_old_connections
 
@@ -87,6 +88,9 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # the schema or job row was deleted mid-sync — no retry can bring it back
     "ExternalDataSchema matching query does not exist",
     "ExternalDataJob matching query does not exist",
+    # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
+    # refusing writes — every retry hits the same full disk until an operator frees space
+    "XMinioStorageFull",
 )
 
 # Subset of the non-retryable errors that are expected upstream/customer conditions rather than
@@ -315,6 +319,20 @@ class DeltaBatchConsumerAdapter:
         # Piggyback the reconcile cadence for the queue-freshness gauge: same
         # connection, same periodicity, and isolated so it can't break the sweep.
         await self._observe_queue_freshness(conn)
+
+        # Single-flight everything below fleet-wide: the sweeps reconcile global
+        # queue state, so N pods running them do N times the work of one for zero
+        # extra correctness — and their cost scales with the failure backlog,
+        # which is exactly when concurrent copies on every pod can saturate the
+        # queue DB and starve the claim path (the 2026-08-09 loader stall: 36
+        # concurrent sweep queries, claim polls timing out fleet-wide). The
+        # freshness probe above deliberately stays outside the slot: every pod
+        # must keep its own gauge current, or max() across the fleet pins stale
+        # values. The token is throwaway — the slot is never verified or
+        # released, it just expires into the next pod's hands.
+        if not await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token=str(uuid4())):
+            logger.debug("reconcile_sweep_slot_held_elsewhere")
+            return
 
         refs = await BatchQueue.get_failed_runs(
             conn,
