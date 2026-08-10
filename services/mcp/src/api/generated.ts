@@ -4658,8 +4658,12 @@ export namespace Schemas {
     }
 
     export interface HogQLFilters {
+      /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
+      breakdownFilter?: BreakdownFilter | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
+      interval?: IntervalType | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
@@ -5787,6 +5791,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       MetaAds: 'meta-ads',
+      Instagram: 'instagram',
       Clickup: 'clickup',
       RedditAds: 'reddit-ads',
       Databricks: 'databricks',
@@ -10317,6 +10322,47 @@ export namespace Schemas {
     export const AzureBlobDestinationRequestTypeEnum = {
       AzureBlob: 'AzureBlob',
     } as const;
+
+    export interface BackfillEstimateResponse {
+      /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
+      total_sessions: number;
+      /** Cost ceiling in credits (1 credit = $0.01): total_sessions x credits_per_observation. Actual spend lands under it: sessions already tried, expired recordings, and failures are not billed. */
+      total_credits: number;
+      /** Per-observation credit price at the scanner's current model. */
+      credits_per_observation: number;
+      /**
+         * Credits left in the org's monthly quota; null when the org is uncapped.
+         * @nullable
+         */
+      credits_remaining: number | null;
+      /** The window lower bound the estimate covered. */
+      window_start: string;
+      /** The window upper bound after clamping to now. */
+      window_end: string;
+    }
+
+    /**
+     * * `running` - Running
+     * * `paused_quota` - Paused (quota)
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     */
+    export type BackfillStatusEnum = typeof BackfillStatusEnum[keyof typeof BackfillStatusEnum];
+
+
+    export const BackfillStatusEnum = {
+      Running: 'running',
+      PausedQuota: 'paused_quota',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface BackfillWindow {
+      /** Inclusive lower bound of the historical window to scan. */
+      window_start: string;
+      /** Exclusive upper bound of the window; clamped server-side to now. */
+      window_end: string;
+    }
 
     /**
      * * `AED` - AED
@@ -15732,6 +15778,145 @@ export namespace Schemas {
       readonly truncated: boolean;
     }
 
+    /**
+     * Arbitrary key-value metadata carried from the skill's frontmatter.
+     */
+    export type CommunitySkillMetadata = { [key: string]: unknown };
+
+    /**
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     */
+    export type TrustTierEnum = typeof TrustTierEnum[keyof typeof TrustTierEnum];
+
+
+    export const TrustTierEnum = {
+      Official: 'official',
+      Verified: 'verified',
+      Community: 'community',
+    } as const;
+
+    export interface CommunitySkillFileManifest {
+      /** @maxLength 500 */
+      path: string;
+      /** @maxLength 100 */
+      content_type?: string;
+    }
+
+    export interface CommunitySkill {
+      readonly id: string;
+      /** Stable identifier matching the skill's directory in the community-skills repo. */
+      readonly slug: string;
+      /** Display name of the skill. */
+      readonly name: string;
+      /** What the skill does and when to use it. */
+      readonly description: string;
+      /** The SKILL.md instruction content (markdown). */
+      readonly body: string;
+      /** License name or reference. */
+      readonly license: string;
+      /** Environment requirements declared by the skill. */
+      readonly compatibility: string;
+      /** Tools the skill declares it may use. Surface these to the user before install. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+      metadata?: CommunitySkillMetadata;
+      /** Free-form tags used for filtering and discovery. */
+      tags?: string[];
+      /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+       *
+       * * `official` - Official
+       * * `verified` - Verified
+       * * `community` - Community */
+      trust_tier: TrustTierEnum;
+      /** GitHub handle (or name) of the contributor who published the skill. */
+      readonly author_handle: string;
+      /** Link to the skill's source directory on GitHub. */
+      readonly github_url: string;
+      /** Bundled files manifest — path and content_type only. File contents are copied in on install. */
+      readonly files: readonly CommunitySkillFileManifest[];
+      /** Number of times this skill has been installed into a team. */
+      readonly install_count: number;
+      /** Total number of upvotes this skill has received. */
+      readonly vote_count: number;
+      /** Whether the requesting user has upvoted this skill. */
+      readonly has_voted: boolean;
+      /**
+         * When the skill was first published to the community repo.
+         * @nullable
+         */
+      readonly published_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface CommunitySkillInstall {
+      /**
+         * Name for the installed skill in your team. Defaults to the community skill's slug.
+         * @maxLength 64
+         */
+      new_name?: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata carried from the skill's frontmatter.
+     */
+    export type CommunitySkillListMetadata = { [key: string]: unknown };
+
+    /**
+     * List serializer that omits body and file manifest — progressive disclosure.
+     */
+    export interface CommunitySkillList {
+      readonly id: string;
+      /** Stable identifier matching the skill's directory in the community-skills repo. */
+      readonly slug: string;
+      /** Display name of the skill. */
+      readonly name: string;
+      /** What the skill does and when to use it. */
+      readonly description: string;
+      /** License name or reference. */
+      readonly license: string;
+      /** Environment requirements declared by the skill. */
+      readonly compatibility: string;
+      /** Tools the skill declares it may use. Surface these to the user before install. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+      metadata?: CommunitySkillListMetadata;
+      /** Free-form tags used for filtering and discovery. */
+      tags?: string[];
+      /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+       *
+       * * `official` - Official
+       * * `verified` - Verified
+       * * `community` - Community */
+      trust_tier: TrustTierEnum;
+      /** GitHub handle (or name) of the contributor who published the skill. */
+      readonly author_handle: string;
+      /** Link to the skill's source directory on GitHub. */
+      readonly github_url: string;
+      /** Number of times this skill has been installed into a team. */
+      readonly install_count: number;
+      /** Total number of upvotes this skill has received. */
+      readonly vote_count: number;
+      /** Whether the requesting user has upvoted this skill. */
+      readonly has_voted: boolean;
+      /**
+         * When the skill was first published to the community repo.
+         * @nullable
+         */
+      readonly published_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface CommunitySkillVoteResponse {
+      /** Total upvotes after applying the toggle. */
+      vote_count: number;
+      /** Whether the requesting user is now an upvoter. */
+      has_voted: boolean;
+    }
+
     export interface CompareItem {
       label: string;
       value: string;
@@ -19137,6 +19322,7 @@ export namespace Schemas {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -20098,6 +20284,7 @@ export namespace Schemas {
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
      * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20424,6 +20611,7 @@ export namespace Schemas {
       FloatApp: 'FloatApp',
       Flowlu: 'Flowlu',
       Formbricks: 'Formbricks',
+      Framer: 'Framer',
       FreeAgent: 'FreeAgent',
       Freightview: 'Freightview',
       Freshcaller: 'Freshcaller',
@@ -21385,6 +21573,7 @@ export namespace Schemas {
       Wix: 'Wix',
       Sevalla: 'Sevalla',
       Motion: 'Motion',
+      ImpactPartner: 'ImpactPartner',
     } as const;
 
     /**
@@ -21725,6 +21914,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -22685,7 +22875,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -23714,6 +23905,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -24674,7 +24866,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -27672,6 +27865,8 @@ export namespace Schemas {
       estimated_credits_per_month: number;
       /** Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
       other_enabled_scanners_monthly_credits: number;
+      /** Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own segment instead of adding it to a per-month total. */
+      active_backfill_credits: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
     }
@@ -31399,6 +31594,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -32359,7 +32555,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -32718,6 +32915,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -33678,7 +33876,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -35112,13 +35311,18 @@ export namespace Schemas {
          * @nullable
          */
       account_type: string | null;
-      /** A project in the organization that already has this installation linked. */
-      source_team_id: number;
+      /**
+         * A project in the organization that already has this installation linked. Null when the installation isn't linked to any project yet — it was found via the user's personal GitHub link and can be adopted by linking it here.
+         * @nullable
+         */
+      source_team_id: number | null;
     }
 
     export interface GitHubAvailableInstallationsResponse {
-      /** Distinct GitHub installations in the organization available to link to this project. */
+      /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
       installations: GitHubAvailableInstallation[];
+      /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
+      personal_github_connected: boolean;
     }
 
     export interface GitHubBranchesResponse {
@@ -39826,6 +40030,7 @@ export namespace Schemas {
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -39876,6 +40081,7 @@ export namespace Schemas {
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
+      Instagram: 'instagram',
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
@@ -39926,6 +40132,7 @@ export namespace Schemas {
        * * `google-search-console` - Google Search Console
        * * `google-sheets` - Google Sheets
        * * `hubspot` - Hubspot
+       * * `instagram` - Instagram
        * * `intercom` - Intercom
        * * `jira` - Jira
        * * `linear` - Linear
@@ -40615,6 +40822,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40695,6 +40907,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40822,6 +41039,11 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -40910,6 +41132,8 @@ export namespace Schemas {
     export interface LLMSkillVersionSummary {
       readonly id: string;
       readonly version: number;
+      /** @nullable */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly is_latest: boolean;
@@ -45177,6 +45401,7 @@ export namespace Schemas {
      * * `schedule` - Schedule
      * * `on_demand` - On demand
      * * `retry` - Retry
+     * * `backfill` - Backfill
      */
     export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
 
@@ -45185,6 +45410,7 @@ export namespace Schemas {
       Schedule: 'schedule',
       OnDemand: 'on_demand',
       Retry: 'retry',
+      Backfill: 'backfill',
     } as const;
 
     /**
@@ -46256,6 +46482,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Comment[];
+    }
+
+    export interface PaginatedCommunitySkillListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CommunitySkillList[];
     }
 
     export interface PaginatedConversationMinimalList {
@@ -47880,14 +48115,20 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.
+      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
        *
        * * `schedule` - Schedule
        * * `on_demand` - On demand
-       * * `retry` - Retry */
+       * * `retry` - Retry
+       * * `backfill` - Backfill */
       readonly triggered_by: ObservationTriggerEnum;
       /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
+      /**
+         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+         * @nullable
+         */
+      readonly backfill_id: string | null;
       /**
          * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
          * @nullable
@@ -47924,6 +48165,46 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ReplayObservation[];
+    }
+
+    export interface ReplayScannerBackfill {
+      readonly id: string;
+      readonly status: BackfillStatusEnum;
+      /** Inclusive lower bound of the historical window to scan. */
+      readonly window_start: string;
+      /** Exclusive upper bound of the window; clamped to now at creation. */
+      readonly window_end: string;
+      /** Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation. */
+      readonly total_count: number;
+      readonly dispatched_count: number;
+      /** Candidates the walk stepped over because this scanner had already tried them. Counted at creation but never dispatched, so progress and remaining spend both have to account for them. */
+      readonly skipped_count: number;
+      /** Per-observation credit price frozen at creation from the snapshot model. */
+      readonly credits_per_observation: number;
+      /** Observations from this backfill that succeeded. */
+      readonly succeeded_count: number;
+      /** Observations from this backfill that failed. */
+      readonly failed_count: number;
+      /** Sessions that turned out ineligible (too short, expired recording, ...). */
+      readonly ineligible_count: number;
+      /** Observations from this backfill still pending or running. */
+      readonly in_flight_count: number;
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      /**
+         * When the backfill reached a terminal status (completed or cancelled).
+         * @nullable
+         */
+      readonly finished_at: string | null;
+    }
+
+    export interface PaginatedReplayScannerBackfillList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReplayScannerBackfill[];
     }
 
     /**
@@ -50351,6 +50632,13 @@ export namespace Schemas {
       completed_at?: string | null;
     }
 
+    export interface SlackThreadReferenceDTO {
+      url: string;
+      channel: string;
+      /** @nullable */
+      created_at?: string | null;
+    }
+
     /**
      * @nullable
      */
@@ -50403,6 +50691,7 @@ export namespace Schemas {
       ci_prompt: string | null;
       /** @nullable */
       channel?: string | null;
+      readonly slack_thread_references: readonly SlackThreadReferenceDTO[];
     }
 
     export interface PaginatedTaskDetailDTOList {
@@ -55239,6 +55528,11 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+      /**
+         * Optional note describing what changed in this version. Shown in the version history.
+         * @maxLength 400
+         */
+      version_description?: string;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
@@ -59988,6 +60282,10 @@ export namespace Schemas {
       event_count: number;
       /** Total cost in USD on this day for the scoped product. */
       cost_usd: number;
+      /** Sum of `$ai_input_tokens` on this day for the scoped product. */
+      input_tokens: number;
+      /** Sum of `$ai_output_tokens` on this day for the scoped product. */
+      output_tokens: number;
     }
 
     export interface _DayBreakdown {
@@ -59995,6 +60293,24 @@ export namespace Schemas {
       items: _DayBreakdownRow[];
       /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
       truncated: boolean;
+    }
+
+    export interface _DayModelBreakdownRow {
+      /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+      day: string;
+      /**
+         * Model name for one of the highest-cost models in the selected window. Null is the aggregate of all remaining models, including events without a model.
+         * @nullable
+         */
+      model: string | null;
+      /** Total cost in USD for this model on this day. */
+      cost_usd: number;
+      /** Sum of `$ai_input_tokens` for this model on this day. */
+      input_tokens: number;
+      /** Sum of `$ai_output_tokens` for this model on this day. */
+      output_tokens: number;
+      /** Number of $ai_generation + $ai_embedding events for this model on this day. */
+      generation_count: number;
     }
 
     export interface _BucketBreakdownRow {
@@ -60069,6 +60385,8 @@ export namespace Schemas {
       by_model: _ModelBreakdown;
       /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
       by_day: _DayBreakdown;
+      /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus a null-model row for the remaining models. */
+      by_day_model: _DayModelBreakdownRow[];
       /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
       by_bucket?: _BucketBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
@@ -68977,6 +69295,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -69937,7 +70256,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -70306,6 +70626,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -71266,7 +71587,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -71625,6 +71947,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -72585,7 +72908,8 @@ export namespace Schemas {
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
-       * * `Motion` - Motion */
+       * * `Motion` - Motion
+       * * `ImpactPartner` - ImpactPartner */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -76555,8 +76879,12 @@ export namespace Schemas {
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
-      /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      /** `scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate. */
       readonly projected_monthly_credits: number;
+      /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
+      readonly scanners_monthly_credits: number;
+      /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
+      readonly backfills_committed_credits: number;
       /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
       readonly free_monthly_credits: number;
     }
@@ -79680,6 +80008,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -79775,6 +80104,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
       Dashboard: 'Dashboard',
@@ -79856,6 +80186,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -79939,6 +80270,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
       Dashboard: 'Dashboard',
@@ -80518,6 +80850,59 @@ export namespace Schemas {
       Any: 'any',
       Comment: 'comment',
       Task: 'task',
+    } as const;
+
+    export type CommunitySkillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort key. Defaults to most-installed first.
+     *
+     * * `-created_at` - -created_at
+     * * `-install_count` - -install_count
+     * * `-name` - -name
+     * * `-published_at` - -published_at
+     * * `-vote_count` - -vote_count
+     * * `created_at` - created_at
+     * * `install_count` - install_count
+     * * `name` - name
+     * * `published_at` - published_at
+     * * `vote_count` - vote_count
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Substring filter on skill names and descriptions; also matches a tag exactly (case-insensitive).
+     */
+    search?: string;
+    /**
+     * Return only skills carrying this exact tag (case-insensitive).
+     */
+    tag?: string;
+    /**
+     * Filter to a single moderation tier.
+     *
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     * @minLength 1
+     */
+    trust_tier?: CommunitySkillsListTrustTier;
+    };
+
+    export type CommunitySkillsListTrustTier = typeof CommunitySkillsListTrustTier[keyof typeof CommunitySkillsListTrustTier];
+
+
+    export const CommunitySkillsListTrustTier = {
+      Official: 'official',
+      Verified: 'verified',
+      Community: 'community',
     } as const;
 
     export type ConversationsListParams = {
@@ -84520,6 +84905,7 @@ export namespace Schemas {
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -84581,6 +84967,7 @@ export namespace Schemas {
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
+      Instagram: 'instagram',
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
@@ -87944,6 +88331,10 @@ export namespace Schemas {
 
     export type VisionObservationsRetrieveParams = {
     /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
+    /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string;
@@ -87976,7 +88367,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -88049,7 +88440,22 @@ export namespace Schemas {
     window_days?: number;
     };
 
+    export type VisionScannersBackfillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type VisionScannersObservationsListParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -88091,7 +88497,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -88101,6 +88507,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -88134,7 +88544,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -88144,6 +88554,10 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -88177,7 +88591,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**

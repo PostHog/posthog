@@ -421,6 +421,8 @@ async def _run_steps(
             step=step,
             convo=convo,
             cache_name=cache_name,
+            video_part=video_part,
+            preamble_text=preamble_text,
             dispatch=dispatch,
             team_id=team_id,
             metric_labels=metric_labels,
@@ -458,6 +460,8 @@ async def _run_step(
     step: MissionStep,
     convo: list[Any],
     cache_name: str | None,
+    video_part: types.Part,
+    preamble_text: str,
     dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
@@ -469,6 +473,9 @@ async def _run_step(
     """
     config = _step_config(step, cache_name)
     forced_config = _step_config(step, cache_name, allow_tools=False)
+    # The forced final turn runs inline (it can't reuse the cache, which pins the tool on). When the run is cached,
+    # `convo` omits the video + preamble prefix — those live in the cache — so re-supply them inline for that turn.
+    forced_prefix = [video_part, types.Part(text=preamble_text)] if cache_name else []
 
     async def _generate(c: list[Any], cfg: types.GenerateContentConfig = config) -> Any:
         return await client.models.generate_content(
@@ -498,7 +505,10 @@ async def _run_step(
                 )
                 started = time.monotonic()
                 response = await _force_final_answer(
-                    generate=lambda c: _generate(c, forced_config), convo=convo, exhausted=response, dispatch=dispatch
+                    generate=lambda c: _generate(forced_prefix + c, forced_config),
+                    convo=convo,
+                    exhausted=response,
+                    dispatch=dispatch,
                 )
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
@@ -585,20 +595,22 @@ async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any
 def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool = True) -> types.GenerateContentConfig:
     """Generation config for one step: its JSON schema, plus the events tool (from the cache when cached).
 
-    `allow_tools=False` is the forced final turn after the tool budget runs out — the model must answer from what it
-    has, so calling is suppressed: omit the tool inline, or disable function-calling on the cached tool.
+    Normal turns offer the tool — from the cache when the video is cached (the tool lives there alongside it), or
+    inline otherwise. The forced final turn (`allow_tools=False`, after the tool budget runs out) must answer from
+    what it has, so no tool is offered. It never references the cache: Gemini rejects a `GenerateContent` request
+    that sets `tools`, `tool_config`, or `system_instruction` alongside `cached_content`, so there's no way to
+    disable the cached tool per-request. That turn always runs inline with the tool simply absent — the caller
+    re-supplies the video + preamble inline for it (see `forced_prefix` in `_run_step`).
     """
     kwargs: dict[str, Any] = {
         "response_mime_type": "application/json",
         "response_json_schema": step.response_model.model_json_schema(),
     }
+    if not allow_tools:
+        return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now
     if cache_name:
         kwargs["cached_content"] = cache_name  # video, preamble, and the tool all live in the cache
-        if not allow_tools:
-            kwargs["tool_config"] = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.NONE)
-            )
-    elif allow_tools:
+    else:
         kwargs["tools"] = [events_tool()]
     return types.GenerateContentConfig(**kwargs)
 
