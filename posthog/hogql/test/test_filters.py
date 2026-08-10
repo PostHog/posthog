@@ -6,6 +6,8 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
     CohortPropertyFilter,
     DateRange,
     ElementPropertyFilter,
@@ -14,6 +16,7 @@ from posthog.schema import (
     GroupPropertyFilter,
     HogQLFilters,
     HogQLPropertyFilter,
+    IntervalType,
     PersonPropertyFilter,
     RecordingPropertyFilter,
 )
@@ -506,11 +509,11 @@ class TestFilters(BaseTest):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
     def test_raises_for_unsupported_filters_placeholder(self):
-        select = self._parse_select("SELECT dateTrunc({filters.interval}, timestamp) FROM events WHERE {filters}")
+        select = self._parse_select("SELECT dateTrunc({filters.granularity}, timestamp) FROM events WHERE {filters}")
 
         with self.assertRaisesMessage(
             QueryError,
-            "Unsupported filters placeholder `{filters.interval}`",
+            "Unsupported filters placeholder `{filters.granularity}`",
         ):
             replace_filters(select, HogQLFilters(), self.team)
 
@@ -699,3 +702,157 @@ class TestFilters(BaseTest):
             "The test account filter on 'email' has no binding in {filters(...)}",
         ):
             replace_filters(select, HogQLFilters(filterTestAccounts=True), self.team)
+
+    @parameterized.expand(
+        [
+            ("bare_defaults_to_day", "{filters.interval}", HogQLFilters(), "day"),
+            ("bare_uses_dashboard_interval", "{filters.interval}", HogQLFilters(interval=IntervalType.WEEK), "week"),
+            ("call_argument_is_the_author_default", "{filters.interval('week')}", None, "week"),
+            (
+                "dashboard_interval_beats_author_default",
+                "{filters.interval('week')}",
+                HogQLFilters(interval=IntervalType.MONTH),
+                "month",
+            ),
+        ]
+    )
+    def test_interval_placeholder(self, _name, placeholder, filters, expected_unit):
+        select = replace_filters(
+            self._parse_select("SELECT dateTrunc(" + placeholder + ", timestamp) FROM events"),
+            filters,
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT dateTrunc('{expected_unit}', timestamp) FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    @parameterized.expand(
+        [
+            ("two_arguments", "{filters.interval('day', 'week')}", "takes at most one argument"),
+            ("non_constant_default", "{filters.interval(timestamp)}", "must be a constant string"),
+            ("unknown_unit", "{filters.interval('fortnight')}", "must be a constant string"),
+        ]
+    )
+    def test_interval_placeholder_usage_errors(self, _name, placeholder, expected_message):
+        select = self._parse_select(f"SELECT dateTrunc({placeholder}, timestamp) FROM events")
+        with self.assertRaisesMessage(QueryError, expected_message):
+            replace_filters(select, HogQLFilters(), self.team)
+
+    @parameterized.expand(
+        [
+            ("single_breakdown", BreakdownFilter(breakdown="plan", breakdown_type="event")),
+            ("single_entry_breakdowns_list", BreakdownFilter(breakdowns=[Breakdown(property="plan", type="event")])),
+        ]
+    )
+    def test_breakdown_placeholder_binds_the_selected_key(self, _name, breakdown_filter):
+        select = replace_filters(
+            self._parse_select(
+                "SELECT {filters.breakdown(properties.plan AS 'plan', properties.region AS 'region')} AS breakdown, "
+                "count() FROM persons GROUP BY breakdown"
+            ),
+            HogQLFilters(breakdownFilter=breakdown_filter),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT properties.plan AS breakdown, count() FROM persons "
+            f"GROUP BY breakdown LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_breakdown_placeholder_without_breakdown_yields_single_group(self):
+        for filters in [None, HogQLFilters()]:
+            select = replace_filters(
+                self._parse_select(
+                    "SELECT {filters.breakdown(properties.plan AS 'plan')} AS breakdown, count() "
+                    "FROM persons GROUP BY breakdown"
+                ),
+                filters,
+                self.team,
+            )
+            self.assertEqual(
+                self._print_ast(select),
+                f"SELECT NULL AS breakdown, count() FROM persons GROUP BY breakdown LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+
+    def test_breakdown_placeholder_null_binding_opts_out(self):
+        select = replace_filters(
+            self._parse_select(
+                "SELECT {filters.breakdown(null AS 'plan')} AS breakdown, count() FROM persons GROUP BY breakdown"
+            ),
+            HogQLFilters(breakdownFilter=BreakdownFilter(breakdown="plan", breakdown_type="event")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT NULL AS breakdown, count() FROM persons GROUP BY breakdown LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_breakdown_placeholder_unbound_key_raises(self):
+        select = self._parse_select(
+            "SELECT {filters.breakdown(properties.region AS 'region')} AS breakdown, count() "
+            "FROM persons GROUP BY breakdown"
+        )
+        with self.assertRaisesMessage(
+            QueryError,
+            "The breakdown on 'plan' has no binding in {filters.breakdown(...)}",
+        ):
+            replace_filters(
+                select,
+                HogQLFilters(breakdownFilter=BreakdownFilter(breakdown="plan", breakdown_type="event")),
+                self.team,
+            )
+
+    @parameterized.expand(
+        [
+            (
+                "cohort_breakdown",
+                BreakdownFilter(breakdown=42, breakdown_type="cohort"),
+                "Cohort breakdowns can't be applied",
+            ),
+            (
+                "cohort_in_breakdowns_list",
+                BreakdownFilter(breakdowns=[Breakdown(property=42, type="cohort")]),
+                "Cohort breakdowns can't be applied",
+            ),
+            (
+                "histogram_binning",
+                BreakdownFilter(breakdown="plan", breakdown_type="event", breakdown_histogram_bin_count=10),
+                "Numeric binning isn't supported",
+            ),
+            (
+                "histogram_in_breakdowns_list",
+                BreakdownFilter(breakdowns=[Breakdown(property="plan", type="event", histogram_bin_count=10)]),
+                "Numeric binning isn't supported",
+            ),
+            (
+                "multiple_breakdowns",
+                BreakdownFilter(
+                    breakdowns=[Breakdown(property="plan", type="event"), Breakdown(property="region", type="event")]
+                ),
+                "supports a single breakdown",
+            ),
+        ]
+    )
+    def test_breakdown_placeholder_unsupported_shapes_raise(self, _name, breakdown_filter, expected_message):
+        select = self._parse_select(
+            "SELECT {filters.breakdown(properties.plan AS 'plan')} AS breakdown FROM persons GROUP BY breakdown"
+        )
+        with self.assertRaisesMessage(QueryError, expected_message):
+            replace_filters(select, HogQLFilters(breakdownFilter=breakdown_filter), self.team)
+
+    @parameterized.expand(
+        [
+            ("bare_chain", "{filters.breakdown}", "needs column bindings"),
+            (
+                "positional_argument",
+                "{filters.breakdown(properties.plan)}",
+                "must bind an expression to a breakdown key",
+            ),
+            ("unsupported_call", "{filters.dateRange(day AS timestamp)}", "Unsupported filters placeholder"),
+        ]
+    )
+    def test_breakdown_placeholder_usage_errors(self, _name, placeholder, expected_message):
+        select = self._parse_select(f"SELECT {placeholder} AS breakdown FROM persons")
+        with self.assertRaisesMessage(QueryError, expected_message):
+            replace_filters(select, HogQLFilters(), self.team)

@@ -5203,6 +5203,19 @@ def run_task(
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     is_pi_task = task.runtime == Task.Runtime.PI
 
+    if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        # The inbox "Create PR" button sends no branch, so without this the run would target the
+        # repository's GitHub default branch. Auto-start resolves the same setting when it builds
+        # its task. This sits before the warm-run reuse check below, so that a sandbox idling on
+        # the default branch is not reused for a run that needs the configured branch.
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            autostart_base_branch_for_repository,
+        )
+
+        branch = autostart_base_branch_for_repository(
+            team_id, task.repositories[0] if task.repositories else task.repository
+        )
+
     if not resume_from_run_id:
         warm_run = _idling_warm_run_for_task(task)
         if warm_run is not None and (branch or None) == (warm_run.branch or None):
