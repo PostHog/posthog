@@ -108,6 +108,7 @@ the row lists both.
 | bigquery                         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bill_com                         | HTTP                        | requests                                                        | ✅                          |
 | bing_ads                         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| bing_webmaster_tools             | HTTP                        | requests                                                        | ✅                          |
 | bitbucket                        | HTTP                        | requests                                                        | ✅                          |
 | bitrise                          | HTTP                        | requests                                                        | ✅                          |
 | bland_ai                         | HTTP                        | requests                                                        | ✅                          |
@@ -272,6 +273,7 @@ the row lists both.
 | flutterwave                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fly_io                           | HTTP                        | requests                                                        | ✅                          |
 | formbricks                       | HTTP                        | requests                                                        | ✅                          |
+| framer                           | WebSocket (devalue RPC)     | websockets (bespoke client)                                     | ⚠️ WebSocket                |
 | fred                             | HTTP                        | requests                                                        | ✅                          |
 | frill                            | HTTP                        | requests                                                        | ✅                          |
 | front                            | HTTP                        | requests                                                        | ✅                          |
@@ -337,6 +339,7 @@ the row lists both.
 | inflowinventory                  | HTTP                        | requests                                                        | ✅                          |
 | inngest                          | HTTP                        | requests                                                        | ✅                          |
 | insightly                        | HTTP                        | requests                                                        | ✅                          |
+| instagram                        | HTTP                        | requests                                                        | ✅                          |
 | instana                          | HTTP                        | requests                                                        | ✅                          |
 | instantly                        | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | instatus                         | HTTP                        | requests                                                        | ✅                          |
@@ -721,6 +724,10 @@ the row lists both.
 - **google_ads** is pure gRPC. Every `GoogleAdsClient.get_service(...)` call passes
   `interceptors=tracked_interceptors(host)` so its unary calls (`search`, `search_google_ads_fields`) are
   logged, metered, and eligible for sample capture.
+- **framer** talks a devalue-encoded RPC over a WebSocket (`wss://api.framer.com/channel/headless-plugin`) —
+  Framer's Server API has no REST surface, only the `framer-api` Node SDK's WebSocket protocol, which the
+  source reimplements with the `websockets` library. Neither the tracked HTTP transport nor the tracked gRPC
+  transport applies to a WebSocket, so outbound traffic from this source bypasses tracking today.
 
 ---
 
@@ -842,7 +849,6 @@ doesn't conflict with concurrent PRs.
 - bigeye
 - billit
 - billomat
-- bing_webmaster_tools
 - bitly
 - bitwarden
 - blackbaud_raisers_edge_nxt
@@ -1067,7 +1073,6 @@ doesn't conflict with concurrent PRs.
 - influxdb_cloud
 - infor_nexus
 - insightful
-- instagram
 - interzoid
 - inth
 - iyzico

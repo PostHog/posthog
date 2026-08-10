@@ -2487,6 +2487,7 @@ class ExternalDataSourceType(StrEnum):
     WIX = "Wix"
     SEVALLA = "Sevalla"
     MOTION = "Motion"
+    FRAMER = "Framer"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2873,6 +2874,7 @@ class IntegrationKind(StrEnum):
     GITHUB = "github"
     GITLAB = "gitlab"
     META_ADS = "meta-ads"
+    INSTAGRAM = "instagram"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"

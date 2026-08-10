@@ -1042,6 +1042,19 @@ class TestModalSandboxCommandEscaping:
             assert shlex.quote(mode) in command
 
 
+class TestModalSandboxResourceUsage:
+    def test_reads_cgroup_cpu_usage(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.return_value = "usage_usec 12345678\nuser_usec 10000000\n"
+
+        assert sandbox.read_cpu_usage_usec() == 12_345_678
+
+        sandbox._sandbox.filesystem.read_text.assert_called_once_with("/sys/fs/cgroup/cpu.stat")
+
+
 class TestModalSandboxAgentServerStartupHelpers:
     def _make_sandbox(self) -> Any:
         sandbox = ModalSandbox.__new__(ModalSandbox)

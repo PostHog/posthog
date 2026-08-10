@@ -35,6 +35,13 @@ REPORT_ROW_WARNING_THRESHOLD = 90_000
 # windows are paced instead of riding the 429 backoff.
 REPORT_REQUEST_INTERVAL_SECONDS = 6.0
 
+# Gladly serves production on gladly.com and the testing sandbox on gladly.qa. The
+# config field is typed as a Literal, but nothing validates Literal membership at
+# runtime, so the domain is checked against this tuple before it reaches a URL. An
+# unchecked value would send the Basic-auth credentials to an arbitrary host.
+ALLOWED_DOMAINS = ("gladly.com", "gladly.qa")
+DEFAULT_DOMAIN = "gladly.com"
+
 
 class GladlyRetryableError(Exception):
     pass
@@ -72,12 +79,19 @@ def _clean_organization(organization: str) -> str:
     return org
 
 
-def _host(organization: str) -> str:
-    return f"{_clean_organization(organization)}.gladly.com"
+def _clean_domain(domain: str) -> str:
+    value = domain.strip().lower()
+    if value not in ALLOWED_DOMAINS:
+        raise ValueError(f"Invalid Gladly domain. Choose one of: {', '.join(ALLOWED_DOMAINS)}.")
+    return value
 
 
-def _base_url(organization: str) -> str:
-    return f"https://{_host(organization)}/api/v1"
+def _host(organization: str, domain: str = DEFAULT_DOMAIN) -> str:
+    return f"{_clean_organization(organization)}.{_clean_domain(domain)}"
+
+
+def _base_url(organization: str, domain: str = DEFAULT_DOMAIN) -> str:
+    return f"https://{_host(organization, domain)}/api/v1"
 
 
 def _format_timestamp(value: Any) -> str:
@@ -145,7 +159,9 @@ def _report_start_date(
     return min(start, today)
 
 
-def validate_credentials(organization: str, agent_email: str, api_token: str) -> tuple[bool, str | None]:
+def validate_credentials(
+    organization: str, agent_email: str, api_token: str, domain: str = DEFAULT_DOMAIN
+) -> tuple[bool, str | None]:
     """Confirm the credentials are valid with a cheap agents probe.
 
     A wrong subdomain, an agent missing the API User permission, and a bad token each
@@ -154,8 +170,8 @@ def validate_credentials(organization: str, agent_email: str, api_token: str) ->
     unreachable host or a Gladly outage behind a credentials error.
     """
     try:
-        base_url = _base_url(organization)
-        host = _host(organization)
+        base_url = _base_url(organization, domain)
+        host = _host(organization, domain)
     except ValueError as e:
         return False, str(e)
 
@@ -192,10 +208,11 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    domain: str = DEFAULT_DOMAIN,
 ) -> Iterator[list[dict[str, Any]]]:
     config = GLADLY_ENDPOINTS[endpoint]
     session = _get_session(agent_email, api_token)
-    base_url = _base_url(organization)
+    base_url = _base_url(organization, domain)
 
     if config.report_metric_set is not None:
         yield from _report_rows(
@@ -402,6 +419,7 @@ def gladly_source(
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    domain: str = DEFAULT_DOMAIN,
 ) -> SourceResponse:
     config = GLADLY_ENDPOINTS[endpoint]
 
@@ -416,6 +434,7 @@ def gladly_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            domain=domain,
         ),
         primary_keys=[config.primary_key],
         partition_count=1,

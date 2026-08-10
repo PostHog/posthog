@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
     GladlyResumeConfig,
     GladlyRetryableError,
     _base_url,
+    _clean_domain,
     _clean_organization,
     _normalize_report_column,
     get_rows,
@@ -95,8 +96,34 @@ class TestCleanOrganization:
         with pytest.raises(ValueError):
             _clean_organization(value)
 
-    def test_base_url(self):
-        assert _base_url("myorg") == "https://myorg.gladly.com/api/v1"
+    @pytest.mark.parametrize(
+        "domain, expected",
+        [
+            (None, "https://myorg.gladly.com/api/v1"),
+            ("gladly.com", "https://myorg.gladly.com/api/v1"),
+            ("gladly.qa", "https://myorg.gladly.qa/api/v1"),
+        ],
+    )
+    def test_base_url(self, domain, expected):
+        assert (_base_url("myorg") if domain is None else _base_url("myorg", domain)) == expected
+
+
+class TestCleanDomain:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("gladly.com", "gladly.com"),
+            ("gladly.qa", "gladly.qa"),
+            ("  GLADLY.QA  ", "gladly.qa"),
+        ],
+    )
+    def test_allowed_domains(self, value, expected):
+        assert _clean_domain(value) == expected
+
+    @pytest.mark.parametrize("value", ["", "evil.com", "gladly.com.evil.com", "gladly.qa.evil.com", "gladly.dev"])
+    def test_domains_outside_the_allowlist_raise(self, value):
+        with pytest.raises(ValueError):
+            _clean_domain(value)
 
 
 class TestValidateCredentials:
@@ -141,6 +168,30 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert "Invalid Gladly organization" in (message or "")
+        mock_session.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "domain, expected_url",
+        [
+            ("gladly.com", "https://myorg.gladly.com/api/v1/agents"),
+            ("gladly.qa", "https://myorg.gladly.qa/api/v1/agents"),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_probe_targets_the_selected_domain(self, mock_session, domain, expected_url):
+        response = mock.MagicMock()
+        response.status_code = 200
+        mock_session.return_value.get.return_value = response
+
+        assert validate_credentials("myorg", "agent@x.com", "token", domain) == (True, None)
+        assert mock_session.return_value.get.call_args.args[0] == expected_url
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_domain_outside_the_allowlist_is_never_probed(self, mock_session):
+        is_valid, message = validate_credentials("myorg", "agent@x.com", "token", "evil.com")
+
+        assert is_valid is False
+        assert "Invalid Gladly domain" in (message or "")
         mock_session.assert_not_called()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -308,6 +359,11 @@ class TestNormalizeReportColumn:
             ("Transferred To Inbox Name", "transferred_to_inbox_name"),
             ("Final IVR Selection", "final_ivr_selection"),
             ("  Fulfilled by Contact ID ", "fulfilled_by_contact_id"),
+            ("Conversation ID", "conversation_id"),
+            ("Assigned Agent ID - Current", "assigned_agent_id_current"),
+            ("Created-to-First Closed Time", "created_to_first_closed_time"),
+            ("Billable Resolution (Y/N)", "billable_resolution_y_n"),
+            ("  Topics with Hierarchy ", "topics_with_hierarchy"),
         ],
     )
     def test_headers_become_stable_snake_case_columns(self, header, expected):
@@ -390,6 +446,84 @@ class TestGetReportRows:
         assert [call.args[0].last_report_window_end for call in manager.save_state.call_args_list] == [
             "2024-03-13",
             "2024-03-14",
+            "2024-03-15",
+        ]
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.REPORT_REQUEST_INTERVAL_SECONDS", 0)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_conversations_report_uses_weekly_windows_and_keeps_the_natural_key(self, mock_session):
+        header = (
+            "Created At,Conversation ID,Customer ID,Status,"
+            "Assigned Agent ID - Current,Inbox ID - Current,First Closed At,Last Closed At\n"
+        )
+        mock_session.return_value.post.side_effect = [
+            _csv_response(
+                header
+                + "2024-03-04T10:00:00.000Z,conv-1,cust-1,CLOSED,agent-1,inbox-1,"
+                + "2024-03-05T00:00:00.000Z,2024-03-05T00:00:00.000Z\n"
+            ),
+            _csv_response(header + '2024-03-11T10:00:00.000Z,conv-2,"cust, 2",OPEN,,inbox-1,,\n'),
+        ]
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "conversations",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-10T05:00:00.000Z",
+            )
+        )
+
+        # One window per the endpoint's 7-day report_window_days, oldest first,
+        # starting one full window behind the watermark date.
+        calls = mock_session.return_value.post.call_args_list
+        assert [call.kwargs["json"] for call in calls] == [
+            {
+                "metricSet": "ConversationExportReport",
+                "timezone": "UTC",
+                "startAt": "2024-03-03",
+                "endAt": "2024-03-09",
+            },
+            {
+                "metricSet": "ConversationExportReport",
+                "timezone": "UTC",
+                "startAt": "2024-03-10",
+                "endAt": "2024-03-15",
+            },
+        ]
+
+        # Conversations carry a natural key, so no _row_id is injected.
+        flat = [row for batch in batches for row in batch]
+        assert flat == [
+            {
+                "created_at": "2024-03-04T10:00:00.000Z",
+                "conversation_id": "conv-1",
+                "customer_id": "cust-1",
+                "status": "CLOSED",
+                "assigned_agent_id_current": "agent-1",
+                "inbox_id_current": "inbox-1",
+                "first_closed_at": "2024-03-05T00:00:00.000Z",
+                "last_closed_at": "2024-03-05T00:00:00.000Z",
+            },
+            {
+                "created_at": "2024-03-11T10:00:00.000Z",
+                "conversation_id": "conv-2",
+                "customer_id": "cust, 2",
+                "status": "OPEN",
+                "assigned_agent_id_current": None,
+                "inbox_id_current": "inbox-1",
+                "first_closed_at": None,
+                "last_closed_at": None,
+            },
+        ]
+        assert [call.args[0].last_report_window_end for call in manager.save_state.call_args_list] == [
+            "2024-03-09",
             "2024-03-15",
         ]
 
