@@ -20,10 +20,13 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
-from products.growth.backend.enrichment.core import enrich_organization
-from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
-from products.growth.backend.enrichment.snapshot import SignupEnrichmentSnapshot, capture_signup_enrichment_snapshot
-from products.growth.backend.models import OrganizationEnrichment
+from products.growth.backend.facade.enrichment import (
+    HarmonicEnrichmentProvider,
+    OrganizationEnrichment,
+    SignupEnrichmentSnapshot,
+    capture_signup_enrichment_snapshot,
+    enrich_organization,
+)
 
 LOGGER = get_logger(__name__)
 

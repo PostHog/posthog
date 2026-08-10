@@ -1,8 +1,8 @@
 """Enrichment provider interface and the Harmonic implementation.
 
-The interface keeps the enrichment core provider-agnostic; Harmonic is the first
-provider. AsyncHarmonicClient (ee/billing/salesforce_enrichment) is reused as-is —
-tach already allows products.growth to import ee.
+The interface keeps the enrichment core provider-agnostic; Harmonic is the first provider.
+AsyncHarmonicClient also backs ee's Salesforce enrichment dag, which imports it via the growth
+facade rather than growth importing it from ee.
 """
 
 import abc
@@ -10,9 +10,8 @@ import dataclasses
 from typing import Any, Optional
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
+from products.growth.backend.enrichment.harmonic import AsyncHarmonicClient
 from products.growth.backend.enrichment.transform import transform_harmonic_company
-
-from ee.billing.salesforce_enrichment.harmonic_client import AsyncHarmonicClient
 
 
 @dataclasses.dataclass

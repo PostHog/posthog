@@ -12,15 +12,16 @@ from simple_salesforce.format import format_soql
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 
-from .constants import (
-    DEFAULT_CHUNK_SIZE,
+from products.growth.backend.facade.enrichment import (
     HARMONIC_BATCH_SIZE,
-    METRIC_PERIODS,
-    PERSONAL_EMAIL_DOMAINS,
-    SALESFORCE_UPDATE_BATCH_SIZE,
-    YC_INVESTOR_NAME,
+    AsyncHarmonicClient,
+    _extract_primary_tag,
+    _is_yc_funded,
+    _safe_dict,
+    _safe_list,
 )
-from .harmonic_client import AsyncHarmonicClient
+
+from .constants import DEFAULT_CHUNK_SIZE, METRIC_PERIODS, PERSONAL_EMAIL_DOMAINS, SALESFORCE_UPDATE_BATCH_SIZE
 from .redis_cache import get_accounts_from_redis
 from .salesforce_client import get_salesforce_client
 
@@ -137,37 +138,6 @@ def _process_single_metric(metric_data: dict[str, Any]) -> dict[str, Any] | None
     return processed_metric
 
 
-def _is_yc_funded(investors: list | None) -> bool:
-    """Check if Y Combinator is among the company's investors.
-
-    Args:
-        investors: List of investor dicts with 'name' (Company) or 'fullName' (Person)
-
-    Returns:
-        True if Y Combinator is found in company investors (not person names)
-    """
-    if not investors:
-        return False
-
-    for investor in investors:
-        if isinstance(investor, dict):
-            # Only check company names, not person fullNames
-            name = investor.get("name", "")
-            if name and YC_INVESTOR_NAME in name.lower():
-                return True
-    return False
-
-
-def _safe_dict(value: Any) -> dict[str, Any]:
-    """Return value if it's a dict, otherwise return an empty dict."""
-    return value if isinstance(value, dict) else {}
-
-
-def _safe_list(value: Any) -> list[Any]:
-    """Return value if it's a list, otherwise return an empty list."""
-    return value if isinstance(value, list) else []
-
-
 def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | None:
     """Transform Harmonic API response into Salesforce field format.
 
@@ -207,37 +177,9 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
     }
 
 
-def _extract_first_tag(tag_list: list, type_filter: str | None = None) -> str | None:
-    """Extract first tag with non-empty displayValue, optionally filtered by type."""
-    for tag in tag_list:
-        if isinstance(tag, dict) and (not type_filter or tag.get("type") == type_filter):
-            if value := tag.get("displayValue"):
-                return value
-    return None
-
-
 def _get_historical_metric_value(metrics: dict[str, Any], metric_name: str, period: str) -> Any:
     """Extract a historical metric value for a given period."""
     return metrics.get(metric_name, {}).get("historical", {}).get(period, {}).get("value")
-
-
-def _extract_primary_tag(tags: list, tags_v2: list) -> str | None:
-    """Extract the primary tag from tags arrays.
-
-    Priority: isPrimaryTag=True in tags, then first valid tag in tags,
-    then MARKET_VERTICAL in tagsV2, then first valid tag in tagsV2.
-    """
-    if tags:
-        for tag in tags:
-            if isinstance(tag, dict) and tag.get("isPrimaryTag") and (value := tag.get("displayValue")):
-                return value
-        if first_tag := _extract_first_tag(tags):
-            return first_tag
-
-    if tags_v2:
-        return _extract_first_tag(tags_v2, "MARKET_VERTICAL") or _extract_first_tag(tags_v2)
-
-    return None
 
 
 def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any]) -> dict[str, Any] | None:

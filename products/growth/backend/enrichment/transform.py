@@ -1,15 +1,15 @@
 """Transform a Harmonic company response into the enrichment field registry.
 
 Tag/YC/safe-cast heuristics are shared with the Salesforce enrichment transforms in
-ee/billing/salesforce_enrichment/enrichment.py and imported from there rather than copied.
+ee/billing/salesforce_enrichment/enrichment.py, which imports them from
+products.growth.backend.enrichment.harmonic (via the growth facade) rather than duplicating them.
 """
 
 from typing import Any, Optional
 
 from products.growth.backend.enrichment.countries import country_name_to_iso_code
 from products.growth.backend.enrichment.fields import EnrichmentFields
-
-from ee.billing.salesforce_enrichment.enrichment import _extract_primary_tag, _is_yc_funded, _safe_dict, _safe_list
+from products.growth.backend.enrichment.harmonic import _extract_primary_tag, _is_yc_funded, _safe_dict, _safe_list
 
 
 def _latest_metric(traction: dict[str, Any], metric: str) -> Optional[int]:

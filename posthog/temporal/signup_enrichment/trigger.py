@@ -26,7 +26,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 from posthog.utils import GenericEmails, get_instance_region
 
-from products.growth.backend.enrichment.writer import record_signup_work_email
+from products.growth.backend.facade.enrichment import record_signup_work_email
 
 logger = structlog.get_logger(__name__)
 

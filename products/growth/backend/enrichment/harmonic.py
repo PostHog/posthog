@@ -1,3 +1,11 @@
+"""Harmonic API client, GraphQL query, and generic payload helpers.
+
+Shared by growth's real-time signup-enrichment provider (products/growth/backend/enrichment)
+and ee's Salesforce enrichment dag (ee/billing/salesforce_enrichment), which imports these via
+products.growth.backend.facade.enrichment.
+"""
+
+import typing
 import asyncio
 from typing import Any, Optional
 
@@ -7,12 +15,104 @@ import aiohttp
 
 from posthog.exceptions_capture import capture_exception
 
-from .constants import (
-    HARMONIC_BASE_URL,
-    HARMONIC_COMPANY_ENRICHMENT_QUERY,
-    HARMONIC_DOMAIN_VARIATIONS,
-    HARMONIC_REQUEST_TIMEOUT_SECONDS,
-)
+HARMONIC_BASE_URL: str = "https://api.harmonic.ai"
+YC_INVESTOR_NAME: str = "y combinator"
+HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s
+HARMONIC_REQUEST_TIMEOUT_SECONDS: int = 30
+HARMONIC_BATCH_SIZE: int = 100
+HARMONIC_DOMAIN_VARIATIONS: list[str] = ["", "www."]  # Try exact domain first, then with www prefix
+
+# Harmonic GraphQL query for company enrichment
+HARMONIC_COMPANY_ENRICHMENT_QUERY = """
+mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
+    enrichCompanyByIdentifiers(identifiers: $identifiers) {
+        companyFound
+        company {
+            name
+            companyType
+            website {
+                url
+                domain
+            }
+            headcount
+            description
+            location {
+                city
+                country
+                state
+            }
+            foundingDate {
+                date
+                granularity
+            }
+            funding {
+                fundingTotal
+                numFundingRounds
+                lastFundingAt
+                lastFundingType
+                lastFundingTotal
+                fundingStage
+                investors {
+                    ... on Company {
+                        name
+                    }
+                    ... on Person {
+                        fullName
+                    }
+                }
+            }
+            tractionMetrics {
+                webTraffic {
+                    latestMetricValue
+                    metrics {
+                        timestamp
+                        metricValue
+                    }
+                }
+                linkedinFollowerCount {
+                    latestMetricValue
+                    metrics {
+                        timestamp
+                        metricValue
+                    }
+                }
+                twitterFollowerCount {
+                    latestMetricValue
+                    metrics {
+                        timestamp
+                        metricValue
+                    }
+                }
+                headcount {
+                    latestMetricValue
+                    metrics {
+                        timestamp
+                        metricValue
+                    }
+                }
+                headcountEngineering {
+                    latestMetricValue
+                    metrics {
+                        timestamp
+                        metricValue
+                    }
+                }
+            }
+            tags {
+                type
+                displayValue
+                dateAdded
+                isPrimaryTag
+            }
+            tagsV2 {
+                type
+                displayValue
+                dateAdded
+            }
+        }
+    }
+}
+"""
 
 
 class AsyncHarmonicClient:
@@ -29,7 +129,7 @@ class AsyncHarmonicClient:
             data = await client.enrich_company_by_domain("posthog.com")
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.api_key = settings.HARMONIC_API_KEY
         if not self.api_key:
             raise ValueError("Missing Harmonic API key: HARMONIC_API_KEY")
@@ -37,14 +137,14 @@ class AsyncHarmonicClient:
         self.session: Optional[aiohttp.ClientSession] = None
         self._session_cm: Any = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> typing.Self:
         """Async context manager entry - create session."""
         timeout = aiohttp.ClientTimeout(total=HARMONIC_REQUEST_TIMEOUT_SECONDS)
         self._session_cm = aiohttp.ClientSession(trust_env=True, timeout=timeout)
         self.session = await self._session_cm.__aenter__()
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args) -> None:
         """Async context manager exit - close session."""
         if self._session_cm:
             await self._session_cm.__aexit__(*args)
@@ -164,3 +264,62 @@ class AsyncHarmonicClient:
                 capture_exception(result)
 
         return [None if isinstance(result, BaseException) else result for result in results]
+
+
+def _is_yc_funded(investors: list | None) -> bool:
+    """Check if Y Combinator is among the company's investors.
+
+    Args:
+        investors: List of investor dicts with 'name' (Company) or 'fullName' (Person)
+
+    Returns:
+        True if Y Combinator is found in company investors (not person names)
+    """
+    if not investors:
+        return False
+
+    for investor in investors:
+        if isinstance(investor, dict):
+            # Only check company names, not person fullNames
+            name = investor.get("name", "")
+            if name and YC_INVESTOR_NAME in name.lower():
+                return True
+    return False
+
+
+def _safe_dict(value: Any) -> dict[str, Any]:
+    """Return value if it's a dict, otherwise return an empty dict."""
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_list(value: Any) -> list[Any]:
+    """Return value if it's a list, otherwise return an empty list."""
+    return value if isinstance(value, list) else []
+
+
+def _extract_first_tag(tag_list: list, type_filter: str | None = None) -> str | None:
+    """Extract first tag with non-empty displayValue, optionally filtered by type."""
+    for tag in tag_list:
+        if isinstance(tag, dict) and (not type_filter or tag.get("type") == type_filter):
+            if value := tag.get("displayValue"):
+                return value
+    return None
+
+
+def _extract_primary_tag(tags: list, tags_v2: list) -> str | None:
+    """Extract the primary tag from tags arrays.
+
+    Priority: isPrimaryTag=True in tags, then first valid tag in tags,
+    then MARKET_VERTICAL in tagsV2, then first valid tag in tagsV2.
+    """
+    if tags:
+        for tag in tags:
+            if isinstance(tag, dict) and tag.get("isPrimaryTag") and (value := tag.get("displayValue")):
+                return value
+        if first_tag := _extract_first_tag(tags):
+            return first_tag
+
+    if tags_v2:
+        return _extract_first_tag(tags_v2, "MARKET_VERTICAL") or _extract_first_tag(tags_v2)
+
+    return None

@@ -55,6 +55,7 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.ai_observability",
+    "products.growth",
     "products.mcp_store",
     "products.notebooks",
     "products.posthog_ai",

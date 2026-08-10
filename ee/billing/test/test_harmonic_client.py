@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 
-from ee.billing.salesforce_enrichment.harmonic_client import AsyncHarmonicClient
+from products.growth.backend.facade.enrichment import AsyncHarmonicClient
 
 
 def _response(*, json_data=None, raise_status=None):
@@ -39,7 +39,7 @@ def _http_500():
 
 
 @pytest.mark.asyncio
-@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+@patch("products.growth.backend.enrichment.harmonic.asyncio.sleep", new=AsyncMock())
 async def test_strict_returns_none_when_not_found():
     # Both domain variations return a clean companyFound=false.
     client = _client_with_responses(_not_found(), _not_found())
@@ -47,7 +47,7 @@ async def test_strict_returns_none_when_not_found():
 
 
 @pytest.mark.asyncio
-@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+@patch("products.growth.backend.enrichment.harmonic.asyncio.sleep", new=AsyncMock())
 async def test_strict_reraises_on_http_error():
     client = _client_with_responses(_http_500(), _http_500())
     with pytest.raises(aiohttp.ClientResponseError):
@@ -55,7 +55,7 @@ async def test_strict_reraises_on_http_error():
 
 
 @pytest.mark.asyncio
-@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+@patch("products.growth.backend.enrichment.harmonic.asyncio.sleep", new=AsyncMock())
 async def test_strict_falls_back_to_second_variation_after_error():
     # First variation errors, second returns a company: the successful variation wins.
     client = _client_with_responses(_http_500(), _found({"name": "PostHog"}))

@@ -13,7 +13,7 @@ from posthog.temporal.signup_enrichment.workflow import (
     enrich_signup_organization_activity,
 )
 
-from products.growth.backend.enrichment.fields import EnrichmentFields
+from products.growth.backend.facade.enrichment import EnrichmentFields
 
 pytestmark = pytest.mark.asyncio
 
