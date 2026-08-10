@@ -1,7 +1,10 @@
 from posthog.test.base import APIBaseTest
 
+from django.contrib.admin.sites import AdminSite
+
 from parameterized import parameterized
 
+from posthog.admin.admins.organization_admin import OrganizationAdmin
 from posthog.admin.ai_training_opt_in_history import MAX_ENTRIES_SHOWN, get_ai_training_opt_in_history
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
@@ -159,6 +162,42 @@ class TestAITrainingOptInHistory(APIBaseTest):
 
         self.assertTrue(history.truncated)
         self.assertEqual(len(history.changes), MAX_ENTRIES_SHOWN)
+
+    def test_impersonated_change_names_the_customer_and_says_the_staff_member_is_unrecorded(self) -> None:
+        self._set_opt_in_without_logging(False)
+        entry = self._log_opt_in_change(user=self.user, before=True, after=False, is_system=False)
+        ActivityLog.objects.filter(pk=entry.pk).update(was_impersonated=True)
+
+        history = get_ai_training_opt_in_history(self.organization)
+
+        self.assertEqual(history.changes[0].origin, "manual (staff impersonation)")
+        self.assertIn(self.user.email, history.changes[0].actor)
+        self.assertIn("not recorded", history.changes[0].actor)
+
+    def test_row_predating_the_is_system_column_falls_back_to_the_user_column(self) -> None:
+        self._set_opt_in_without_logging(False)
+        entry = self._log_opt_in_change(user=None, before=True, after=False, is_system=False)
+        ActivityLog.objects.filter(pk=entry.pk).update(is_system=None)
+
+        history = get_ai_training_opt_in_history(self.organization)
+
+        self.assertEqual(history.changes[0].origin, "automatic")
+        self.assertEqual(history.changes[0].actor, "system")
+
+    def test_admin_panel_renders_the_headline_and_the_change_rows(self) -> None:
+        self._set_opt_in_without_logging(False)
+        self._patch_organization({"is_ai_training_opted_in": True})
+
+        html = OrganizationAdmin(Organization, AdminSite()).ai_training_opt_in_history_display(self.organization)
+
+        self.assertIn("Currently opted in", html)
+        self.assertIn("opted out → opted in", html)
+        self.assertIn(self.user.email, html)
+
+    def test_admin_panel_is_blank_on_the_add_form(self) -> None:
+        html = OrganizationAdmin(Organization, AdminSite()).ai_training_opt_in_history_display(Organization())
+
+        self.assertEqual(html, "-")
 
     def test_changes_to_other_organization_fields_are_excluded(self) -> None:
         self._patch_organization({"name": "Renamed org"})
