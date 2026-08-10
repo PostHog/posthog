@@ -19,14 +19,6 @@ AI_TRAINING_OPT_IN_FIELD = "is_ai_training_opted_in"
 # rows. The admin page only needs enough to tell the story; anything beyond this is flagged.
 MAX_ENTRIES_SHOWN = 50
 
-RAW_STATUS_FIELDS = (
-    "is_ai_training_opted_in",
-    "is_ai_training_locked",
-    "is_ai_training_cta_shown",
-    "is_ai_data_processing_approved",
-    "is_hipaa",
-)
-
 
 @dataclass(frozen=True)
 class OptInChange:
@@ -56,7 +48,6 @@ class OptInHistory:
     headline: str
     lines: list[str]
     changes: list[OptInChange]
-    raw_status: list[tuple[str, Any]]
     truncated: bool = False
     error: Optional[str] = None
 
@@ -189,25 +180,10 @@ def _build_summary(current: Optional[bool], changes: list[OptInChange], truncate
 
 
 def get_ai_training_opt_in_history(organization: Organization) -> OptInHistory:
-    raw_status: list[tuple[str, Any]] = [(name, getattr(organization, name, None)) for name in RAW_STATUS_FIELDS]
-    raw_status.append(("created_at", _timestamp(organization.created_at)))
-
     try:
         changes, truncated = _fetch_changes(organization)
     except Exception as e:
-        return OptInHistory(
-            headline="Could not load history",
-            lines=[],
-            changes=[],
-            raw_status=raw_status,
-            error=str(e),
-        )
+        return OptInHistory(headline="Could not load history", lines=[], changes=[], error=str(e))
 
     headline, lines = _build_summary(organization.is_ai_training_opted_in, changes, truncated)
-    return OptInHistory(
-        headline=headline,
-        lines=lines,
-        changes=changes,
-        raw_status=raw_status,
-        truncated=truncated,
-    )
+    return OptInHistory(headline=headline, lines=lines, changes=changes, truncated=truncated)

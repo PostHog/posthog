@@ -12,18 +12,6 @@
     </ul>
 </div>
 
-<h4 style="margin: 12px 0 4px;">Current status</h4>
-<table style="border-collapse: collapse; width: 100%;">
-    <tbody>
-        {% for name, value in history.raw_status %}
-        <tr style="border-top: 1px solid;">
-            <td style="padding: 6px;"><code>{{ name }}</code></td>
-            <td style="padding: 6px;">{{ value }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-
 <h4 style="margin: 16px 0 4px;">Recorded changes</h4>
 {% if history.truncated %}
 <p>Showing the oldest {{ history.changes|length }} changes only. There are more in the activity log.</p>
