@@ -502,6 +502,33 @@ class TestAuthService:
                 None,
                 id="role_grant_inert_without_rbac_feature",
             ),
+            pytest.param(
+                [
+                    {"access_level": "member", "organization_member_id": None, "role_id": None},
+                    {"access_level": "none", "organization_member_id": "mem-1", "role_id": None},
+                ],
+                None,
+                ['{"key": "access_control"}'],
+                None,
+                id="explicit_member_denial_overrides_open_default",
+            ),
+            pytest.param(
+                [{"access_level": "none", "organization_member_id": "mem-1", "role_id": None}],
+                None,
+                ['{"key": "access_control"}'],
+                None,
+                id="explicit_member_denial_without_default",
+            ),
+            pytest.param(
+                [
+                    {"access_level": "none", "organization_member_id": "mem-1", "role_id": None},
+                    {"access_level": "member", "organization_member_id": None, "role_id": "role-1"},
+                ],
+                [{"role_id": "role-1"}],
+                ['{"key": "access_control"}', '{"key": "role_based_access"}'],
+                789,
+                id="role_grant_outranks_member_denial",
+            ),
         ],
     )
     async def test_oauth_project_scope_applies_project_access_control(

@@ -173,13 +173,16 @@ class AuthService:
         Scope ceilings follow APIScopePermission.check_team_and_org_permissions:
         scoped_teams and scoped_organizations are independent ceilings, each
         enforced whenever non-empty. Project access follows
-        UserAccessControl.access_level_for_object for resource="project": org
+        UserAccessControl.get_user_access_level for resource="project": org
         admins bypass, rows apply only when the organization has the
-        access_control feature, no rows means the open project default, and the
-        effective level is the highest of the default, member, and role rows.
-        Role rows count only when the organization also has the
-        role_based_access feature and the user holds the role in the project's
-        organization (UserAccessControl._user_role_ids).
+        access_control feature, and no rows means the open project default.
+        Rows resolve most-specific-first (_object_access_level_from_rows):
+        explicit member and role rows for this user take the highest level
+        among themselves and the default row is consulted only when no
+        explicit row names the user. Role rows count only when the
+        organization also has the role_based_access feature and the user
+        holds the role in the project's organization
+        (UserAccessControl._user_role_ids).
         """
         async with acquire_connection(pool) as conn:
             project = await conn.fetchrow(
@@ -214,28 +217,26 @@ class AuthService:
                 """
                 SELECT access_level, organization_member_id, role_id
                 FROM ee_accesscontrol
-                WHERE team_id = $1 AND resource = 'project'
+                WHERE team_id = $1 AND resource = 'project' AND resource_id = $2
                 """,
                 project_id,
+                str(project_id),
             )
             if not rows:
                 return True
 
-            default_level = "admin"
-            member_level: str | None = None
+            default_levels: list[str] = []
+            explicit_levels: list[str] = []
             role_grants: dict[str, str] = {}
             for row in rows:
                 if row["organization_member_id"] is None and row["role_id"] is None:
-                    default_level = row["access_level"]
+                    default_levels.append(row["access_level"])
                 elif row["organization_member_id"] is not None:
                     if str(row["organization_member_id"]) == str(project["membership_id"]):
-                        member_level = row["access_level"]
+                        explicit_levels.append(row["access_level"])
                 elif row["role_id"] is not None:
                     role_grants[str(row["role_id"])] = row["access_level"]
 
-            levels = [default_level]
-            if member_level is not None:
-                levels.append(member_level)
             if role_grants and "role_based_access" in features:
                 user_roles = await conn.fetch(
                     """
@@ -247,10 +248,13 @@ class AuthService:
                     user.user_id,
                     project["organization_id"],
                 )
-                levels.extend(
+                explicit_levels.extend(
                     role_grants[str(row["role_id"])] for row in user_roles if str(row["role_id"]) in role_grants
                 )
 
+            levels = explicit_levels or default_levels
+            if not levels:
+                return True
             return any(_PROJECT_ACCESS_LEVEL_RANK.get(level, 0) > 0 for level in levels)
 
 
