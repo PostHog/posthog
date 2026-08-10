@@ -1,5 +1,7 @@
 import pytest
 
+from parameterized import parameterized
+
 from products.tasks.backend.logic.services.network_policy import (
     NetworkPolicyValidationError,
     compile_network_policy,
@@ -8,34 +10,40 @@ from products.tasks.backend.logic.services.network_policy import (
 )
 
 
-@pytest.mark.parametrize(
-    "domain",
+@parameterized.expand(
     [
-        "",
-        "localhost",
-        "host.docker.internal",
-        "https://example.com",
-        "example.com/path",
-        "example.com:443",
-        "example.com.",
-        "127.0.0.1",
-        "2001:db8::1",
-        "example",
-        "*",
-        "api.*.example.com",
-        "-api.example.com",
-    ],
+        ("empty", ""),
+        ("localhost", "localhost"),
+        ("docker_host", "host.docker.internal"),
+        ("scheme", "https://example.com"),
+        ("path", "example.com/path"),
+        ("port", "example.com:443"),
+        ("rooted", "example.com."),
+        ("unicode_rooted", "example.com。"),
+        ("ipv4", "127.0.0.1"),
+        ("ipv6", "2001:db8::1"),
+        ("single_label", "example"),
+        ("wildcard_only", "*"),
+        ("misplaced_wildcard", "api.*.example.com"),
+        ("malformed_label", "-api.example.com"),
+    ]
 )
-def test_requested_domains_reject_values_modal_cannot_enforce(domain: str) -> None:
+def test_requested_domains_reject_values_modal_cannot_enforce(_name: str, domain: str) -> None:
     with pytest.raises(NetworkPolicyValidationError):
         normalize_requested_domains([domain])
 
 
-def test_requested_domains_are_canonicalized_without_changing_host_coverage() -> None:
-    assert normalize_requested_domains([" EXAMPLE.com ", "example.com", "täst.example"]) == (
-        "example.com",
-        "xn--tst-qla.example",
-    )
+@parameterized.expand(
+    [
+        ("case_whitespace_and_duplicates", [" EXAMPLE.com ", "example.com"], ("example.com",)),
+        ("idna_label", ["täst.example"], ("xn--tst-qla.example",)),
+        ("unicode_label_separator", ["example。com"], ("example.com",)),
+    ]
+)
+def test_requested_domains_are_canonicalized_without_changing_host_coverage(
+    _name: str, domains: list[str], expected: tuple[str, ...]
+) -> None:
+    assert normalize_requested_domains(domains) == expected
 
 
 def test_effective_policy_matches_external_host_coverage_across_layers() -> None:

@@ -78,7 +78,10 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
-from products.tasks.backend.logic.services.network_policy import normalize_requested_domains
+from products.tasks.backend.logic.services.network_policy import (
+    MAX_SANDBOX_ALLOWED_DOMAINS,
+    normalize_requested_domains,
+)
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -1483,7 +1486,7 @@ def upsert_internal_sandbox_env(
         "repositories": [],
     }
     if allowed_domains is not None:
-        defaults["allowed_domains"] = list(normalize_requested_domains(allowed_domains))
+        defaults["allowed_domains"] = normalize_sandbox_allowed_domains(allowed_domains)
         defaults["include_default_domains"] = include_default_domains
     try:
         env, _ = SandboxEnvironment.objects.update_or_create(
@@ -1584,6 +1587,8 @@ def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
 
 
 def normalize_sandbox_allowed_domains(allowed_domains: list[str]) -> list[str]:
+    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
+        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
     return list(normalize_requested_domains(allowed_domains))
 
 

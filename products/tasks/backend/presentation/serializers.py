@@ -3300,6 +3300,8 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=255),
         required=False,
         default=list,
+        max_length=tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS,
+        error_messages={"max_length": f"You can allow up to {tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS} domains."},
         help_text="Allowed domains for custom network access.",
     )
     include_default_domains = serializers.BooleanField(

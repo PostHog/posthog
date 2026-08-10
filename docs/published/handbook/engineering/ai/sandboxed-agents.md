@@ -353,7 +353,7 @@ Network access is configured per-team via `SandboxEnvironment`:
 Allowed-domain values contain a domain name only, such as `example.com` or `*.example.com`.
 Schemes, paths, ports, IP addresses, rooted names, local host aliases, and wildcards in other positions
 are rejected when an environment is created or updated. Values are normalized to lowercase IDNA names,
-and duplicates are removed.
+duplicates are removed, and each environment can contain up to 100 allowed domains.
 
 `None` is the internal representation for unrestricted access. A restricted empty list still includes
 the infrastructure domains required to run the sandbox. Modal and agentsh consume provider-specific
