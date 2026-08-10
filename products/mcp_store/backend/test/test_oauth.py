@@ -1430,10 +1430,17 @@ class TestRefreshInstallationToken(BaseTest):
         self.addCleanup(patcher.stop)
 
     @staticmethod
-    def _rejecting_post(status_code: int) -> MagicMock:
+    def _post_answering(status_code: int) -> MagicMock:
         response = MagicMock()
         response.status_code = status_code
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code}", response=response)
+        response.raise_for_status.side_effect = requests.HTTPError(str(status_code), response=response)
+        return response
+
+    @staticmethod
+    def _post_failing(error: Exception) -> MagicMock:
+        response = MagicMock()
+        response.status_code = 200
+        response.raise_for_status.side_effect = error
         return response
 
     @parameterized.expand([("bad_request", 400), ("unauthorized", 401), ("forbidden", 403)])
@@ -1442,7 +1449,7 @@ class TestRefreshInstallationToken(BaseTest):
         # agent run keeps mounting a server whose every call 401s.
         installation = self._make_installation()
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._rejecting_post(status_code)):
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._post_answering(status_code)):
             with self.assertRaises(TokenRefreshRejectedError):
                 refresh_installation_token(installation)
 
@@ -1450,21 +1457,29 @@ class TestRefreshInstallationToken(BaseTest):
         # EncryptedJSONField stringifies scalars, so every reader of the flag tests truthiness.
         assert installation.sensitive_configuration["needs_reauth"]
 
+    @parameterized.expand([("server_error", 500), ("bad_gateway", 502), ("gateway_timeout", 504)])
+    def test_provider_outage_leaves_the_connection_alone(self, _name: str, status_code: int) -> None:
+        # Reauth is manual work for the user, so a provider having a bad hour must not demand it.
+        installation = self._make_installation()
+
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._post_answering(status_code)):
+            with self.assertRaises(TokenRefreshError) as ctx:
+                refresh_installation_token(installation)
+
+        assert not isinstance(ctx.exception, TokenRefreshRejectedError)
+        installation.refresh_from_db()
+        assert "needs_reauth" not in installation.sensitive_configuration
+
     @parameterized.expand(
         [
-            ("server_error", requests.HTTPError("500", response=None)),
             ("connection_error", requests.ConnectionError("connection reset")),
             ("timeout", requests.Timeout("timed out")),
         ]
     )
-    def test_transient_failure_leaves_the_connection_alone(self, _name: str, error: Exception) -> None:
-        # Reauth is a manual step for the user, so a network blip must not demand one.
+    def test_network_failure_leaves_the_connection_alone(self, _name: str, error: Exception) -> None:
         installation = self._make_installation()
-        response = MagicMock()
-        response.status_code = 500
-        response.raise_for_status.side_effect = error
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=response):
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._post_failing(error)):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_installation_token(installation)
 
