@@ -268,7 +268,10 @@ export const GroupPageLoading: Story = {
 // pane leaves unpainted, or that a single border separates the two.
 export const GroupPageWithSelfDriving: Story = {
     name: 'Issue scene with self-driving',
-    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
     decorators: [
         mswDecorator({
             get: {
