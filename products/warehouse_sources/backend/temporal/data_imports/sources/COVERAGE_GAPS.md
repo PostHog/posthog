@@ -531,11 +531,11 @@ Nine hardcoded tables for what is fundamentally a schemaless CRM.
 
 ### Bing Ads (Microsoft Advertising) — needs confirmation
 
-Four tables: `campaigns` plus three performance reports.
+Five tables: `campaigns` plus four performance reports.
 No ad group, ad, or keyword entity tables at all, which is unusual relative to our other ad sources.
 
 - [ ] `ad_groups` and `ads` as entity tables. Today the ad group and ad performance reports reference IDs with nothing to join to.
-- [ ] `keywords` and `keyword_performance_report`.
+- [x] `keyword_performance_report` — daily performance by keyword. Still missing the `keywords` entity table, so `keyword_id` has nothing to join to.
 - [ ] `search_query_performance_report` — search terms, one of the main reasons to export Bing data.
 - [ ] `accounts` — currency and timezone.
 - [ ] `geographic_performance_report`, `user_location_performance_report`.
