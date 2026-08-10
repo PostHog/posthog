@@ -28,10 +28,14 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
+    CanvasCapabilityWideningSerializer,
     CanvasCreateSerializer,
+    CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
     CanvasRevertSerializer,
     CanvasSerializer,
+    CanvasSourceDraftResponseSerializer,
+    CanvasSourceDraftSerializer,
     CanvasSourceEditSerializer,
     CanvasSourceInvalidSerializer,
     CanvasSourcePublishResponseSerializer,
@@ -103,6 +107,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "destroy",
         "publish",
         "edit",
+        "draft",
+        "promote",
         "revert",
         "build_action",
     ]
@@ -464,6 +470,113 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "diagnostics": diagnostics,
             }
         )
+
+    @extend_schema(
+        operation_id="canvases_draft_create",
+        request=CanvasSourceDraftSerializer,
+        responses={
+            200: CanvasSourceDraftResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="The source project failed validation.",
+            ),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Stage a complete source project as a draft version and build it, without publishing.
+
+        The draft gets the same validation, versioning, and server-side build as
+        a publish, but the canvas's head and live build never move, so nothing
+        changes for viewers. Promote the version with `promote` to make it live.
+        The response reports how the draft's declared capabilities widen the
+        current head's, so growth in access can be reviewed before it ships.
+        No version guard applies: a draft conflicts with nothing.
+        """
+        canvas = self.get_object()
+        payload = CanvasSourceDraftSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        project = payload.validated_data["project"]
+        diagnostics = validate_source_project(project)
+        if has_errors(diagnostics):
+            return _invalid_response(diagnostics)
+        task_id = self._sandbox_task_id(request)
+        try:
+            version, build, widening = build_service.create_draft_version(
+                canvas,
+                project=project,
+                prompt=payload.validated_data.get("prompt"),
+                task_id=task_id,
+                created_by=self._request_user(),
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas source storage is temporarily unavailable; the draft was not saved."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        self._report_canvas_action(
+            "canvas draft created",
+            canvas,
+            version_id=str(version.id),
+            widens_capabilities=widening.widens,
+            is_sandbox_draft=task_id is not None,
+        )
+        return Response(
+            {
+                "version_id": str(version.id),
+                "build": CanvasBuildSerializer(build).data,
+                "diagnostics": diagnostics,
+                "capability_widening": CanvasCapabilityWideningSerializer(widening).data,
+            }
+        )
+
+    @extend_schema(
+        operation_id="canvases_promote_create",
+        request=CanvasPromoteSerializer,
+        responses={
+            200: CanvasBuildSerializer,
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id (a concurrent publish or a revert).",
+            ),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def promote(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Make a draft version the canvas's live head.
+
+        A draft whose build is ready goes live immediately, with no rebuild;
+        otherwise a fresh build is queued. Returns that build.
+        """
+        canvas = self.get_object()
+        payload = CanvasPromoteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            canvas, build = build_service.promote_draft_version(
+                canvas,
+                payload.validated_data["version_id"],
+                payload.validated_data["expected_current_version_id"],
+                user=self._request_user(),
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasVersionConflict as conflict:
+            return _conflict_response(conflict)
+        except build_service.CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        except CanvasSourceVersion.DoesNotExist:
+            return Response({"detail": "Draft version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+        self._report_canvas_action(
+            "canvas draft promoted",
+            canvas,
+            version_id=str(payload.validated_data["version_id"]),
+            build_reused=build.status == CanvasBuild.STATUS_READY,
+        )
+        return Response(CanvasBuildSerializer(build).data)
 
     @extend_schema(
         operation_id="canvases_revert_create",

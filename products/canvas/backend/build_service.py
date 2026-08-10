@@ -42,6 +42,7 @@ from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
 
+from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
@@ -552,6 +553,145 @@ def revert_to_version(
                 )
             ],
         ),
+    )
+    return canvas, build
+
+
+def create_draft_version(
+    canvas: Canvas,
+    *,
+    project: dict[str, Any],
+    prompt: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> tuple[CanvasSourceVersion, CanvasBuild, CapabilityWidening]:
+    """Stage a validated project as a draft version and build it, without moving the head.
+
+    A draft is a regular `CanvasSourceVersion` (same storage, history, and build
+    pipeline) that is not the canvas head, so `_finalize_ready` never advances the
+    live pointer to its build. Promote it with `promote_draft_version`. No version
+    guard applies: a draft conflicts with nothing because it publishes nothing.
+    Returns the widening of the draft's declared capabilities over the current
+    head's, so callers can surface manifest growth before anything ships. Raises
+    CanvasBuildCapacityExceeded or ObjectStorageError.
+    """
+    key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(canvas, has_expected_version=False, expected_version_id=None)
+        version = CanvasSourceVersion.objects.create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            draft=True,
+            parent_version_id=canvas.current_source_version_id,
+            source_hash=digest,
+            source_object_key=key,
+            source_size=size,
+            task_id=task_id,
+            prompt=prompt or None,
+            created_by=created_by,
+            capabilities=project.get("capabilities") or {},
+        )
+        build = _queue_build(version)
+
+    head_capabilities = (
+        CanvasSourceVersion.objects.for_team(canvas.team_id)
+        .filter(pk=version.parent_version_id)
+        .values_list("capabilities", flat=True)
+        .first()
+        if version.parent_version_id
+        else None
+    )
+    changes = None
+    if head_capabilities != version.capabilities:
+        changes = [
+            Change(
+                type="Canvas",
+                action="changed",
+                field="capabilities",
+                before=head_capabilities,
+                after=version.capabilities,
+            )
+        ]
+    _log_canvas_activity(
+        canvas,
+        user=created_by,
+        was_impersonated=was_impersonated,
+        activity="drafted",
+        detail=Detail(name=canvas.name, changes=changes),
+    )
+    return version, build, capability_widening(head_capabilities, version.capabilities)
+
+
+def promote_draft_version(
+    canvas: Canvas,
+    version_id: str | UUID,
+    expected_current_version_id: str | UUID | None,
+    *,
+    user: User | None = None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasBuild]:
+    """Make a draft version the canvas head, adopting its ready build when one survives.
+
+    A ready build whose artifacts have not been pruned by the retention sweep goes
+    live directly with no rebuild, which is why the capacity cap is only checked on
+    the rebuild path. The version guard is required, like revert: a successful
+    promote proves the caller saw the head it replaced. Raises
+    CanvasSourceVersion.DoesNotExist for a version that isn't one of this canvas's
+    drafts, CanvasVersionConflict, and CanvasBuildCapacityExceeded (rebuilds only).
+    """
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
+        current_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
+        expected = str(expected_current_version_id) if expected_current_version_id else None
+        if current_id != expected:
+            raise CanvasVersionConflict(current_id)
+        previous_head_capabilities = (
+            CanvasSourceVersion.objects.for_team(canvas.team_id)
+            .filter(pk=canvas.current_source_version_id)
+            .values_list("capabilities", flat=True)
+            .first()
+            if canvas.current_source_version_id
+            else None
+        )
+        version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
+            pk=version_id, canvas_id=canvas.id, draft=True
+        )
+        version.draft = False
+        version.save(update_fields=["draft"])
+        canvas.current_source_version = version
+        update_fields = ["current_source_version", "updated_at"]
+        build = (
+            version.builds.filter(status=CanvasBuild.STATUS_READY, artifact_object_prefix__isnull=False)
+            .order_by("-created_at")
+            .first()
+        )
+        if build is not None:
+            canvas.published_build = build
+            update_fields.append("published_build")
+        else:
+            _lock_team_build_capacity(canvas.team_id)
+            _assert_build_capacity(canvas.team_id)
+            build = _queue_build(version)
+        canvas.save(update_fields=update_fields)
+
+    changes = None
+    if previous_head_capabilities != version.capabilities:
+        changes = [
+            Change(
+                type="Canvas",
+                action="changed",
+                field="capabilities",
+                before=previous_head_capabilities,
+                after=version.capabilities,
+            )
+        ]
+    _log_canvas_activity(
+        canvas,
+        user=user,
+        was_impersonated=was_impersonated,
+        activity="published",
+        detail=Detail(name=canvas.name, changes=changes),
     )
     return canvas, build
 

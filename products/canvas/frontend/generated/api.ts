@@ -14,7 +14,10 @@ import type {
     CanvasBuildApi,
     CanvasBuildsResponseApi,
     CanvasCreateApi,
+    CanvasPromoteApi,
     CanvasRevertApi,
+    CanvasSourceDraftApi,
+    CanvasSourceDraftResponseApi,
     CanvasSourceEditApi,
     CanvasSourcePublishApi,
     CanvasSourcePublishResponseApi,
@@ -194,6 +197,34 @@ export const canvasesBuildActionCreate = async (
     })
 }
 
+export const getCanvasesDraftCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/draft/`
+}
+
+/**
+ * Stage a complete source project as a draft version and build it, without publishing.
+ *
+ * The draft gets the same validation, versioning, and server-side build as
+ * a publish, but the canvas's head and live build never move, so nothing
+ * changes for viewers. Promote the version with `promote` to make it live.
+ * The response reports how the draft's declared capabilities widen the
+ * current head's, so growth in access can be reviewed before it ships.
+ * No version guard applies: a draft conflicts with nothing.
+ */
+export const canvasesDraftCreate = async (
+    projectId: string,
+    id: string,
+    canvasSourceDraftApi: CanvasSourceDraftApi,
+    options?: RequestInit
+): Promise<CanvasSourceDraftResponseApi> => {
+    return apiMutator<CanvasSourceDraftResponseApi>(getCanvasesDraftCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasSourceDraftApi),
+    })
+}
+
 export const getCanvasesEditCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/edit/`
 }
@@ -218,6 +249,30 @@ export const canvasesEditCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasSourceEditApi),
+    })
+}
+
+export const getCanvasesPromoteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/promote/`
+}
+
+/**
+ * Make a draft version the canvas's live head.
+ *
+ * A draft whose build is ready goes live immediately, with no rebuild;
+ * otherwise a fresh build is queued. Returns that build.
+ */
+export const canvasesPromoteCreate = async (
+    projectId: string,
+    id: string,
+    canvasPromoteApi: CanvasPromoteApi,
+    options?: RequestInit
+): Promise<CanvasBuildApi> => {
+    return apiMutator<CanvasBuildApi>(getCanvasesPromoteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasPromoteApi),
     })
 }
 

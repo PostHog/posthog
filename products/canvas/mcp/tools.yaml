@@ -144,8 +144,14 @@ tools:
     canvases-destroy:
         operation: canvases_destroy
         enabled: false
+    canvases-draft-create:
+        operation: canvases_draft_create
+        enabled: false
     canvases-partial-update:
         operation: canvases_partial_update
+        enabled: false
+    canvases-promote-create:
+        operation: canvases_promote_create
         enabled: false
     canvases-retrieve:
         operation: canvases_retrieve

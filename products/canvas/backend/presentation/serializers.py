@@ -221,6 +221,9 @@ class CanvasVersionSerializer(serializers.Serializer):
     )
     prompt = serializers.CharField(allow_null=True, help_text="Short description recorded with the publish.")
     task_id = serializers.UUIDField(allow_null=True, help_text="Task that published the version, when one did.")
+    draft = serializers.BooleanField(
+        help_text="True for a staged draft version that has never been the canvas head; promote it to make it live."
+    )
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     created_at = serializers.DateTimeField(help_text="When the version was published.")
 
@@ -474,4 +477,67 @@ class CanvasRevertSerializer(serializers.Serializer):
     version_id = serializers.UUIDField(help_text="Id of the source version to make the head again.")
     expected_current_version_id = serializers.UUIDField(
         allow_null=True, help_text="Current source version observed before requesting the revert."
+    )
+
+
+class CanvasSourceDraftSerializer(serializers.Serializer):
+    """Payload for staging a complete source project as a draft build."""
+
+    project = CanvasSourceProjectSerializer(help_text="The complete source project to stage as a draft.")
+    prompt = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Short description of the change, stored on the draft's version history entry.",
+    )
+
+
+class CanvasCapabilityWideningSerializer(serializers.Serializer):
+    """How a draft's declared capabilities grow the current head's. A head that
+    predates the capabilities snapshot reports every declaration as an addition."""
+
+    widens = serializers.BooleanField(
+        help_text="True when the draft declares any capability the current head does not."
+    )
+    insights_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Insight short ids the draft newly declares access to.",
+    )
+    capture_events_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event names the draft newly declares it may capture.",
+    )
+    inline_queries_enabled = serializers.BooleanField(
+        help_text="True when the draft enables inline queries and the current head does not."
+    )
+    network_origins_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Network origins the draft newly declares it may reach.",
+    )
+
+
+class CanvasSourceDraftResponseSerializer(serializers.Serializer):
+    """Result of staging a draft build."""
+
+    version_id = serializers.CharField(help_text="Id of the draft source version this request created.")
+    build = CanvasBuildSerializer(help_text="The queued draft build; poll `builds` until it is terminal.")
+    diagnostics = CanvasDiagnosticSerializer(
+        many=True,
+        help_text="Advisory (warning-severity) diagnostics recorded for the drafted project.",
+    )
+    capability_widening = CanvasCapabilityWideningSerializer(
+        help_text="What the draft's declared capabilities grant beyond the current head's. Review before promoting."
+    )
+
+
+class CanvasPromoteSerializer(serializers.Serializer):
+    """Payload for promoting a draft version to the canvas's live head."""
+
+    version_id = serializers.UUIDField(help_text="Id of the draft source version to make live.")
+    expected_current_version_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "Current source version observed before requesting the promote (null when the canvas has never "
+            "been published). A moved head is rejected with 409 version_conflict."
+        ),
     )
