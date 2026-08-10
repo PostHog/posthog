@@ -197,8 +197,8 @@ export interface experimentSceneLogicMeta {
             } | null
         ) => ((state: any, props?: ExperimentLogicProps | undefined) => boolean) | undefined
         isExperimentLaunched: (arg: boolean | undefined) => boolean
-        availableTabs: (experiment: Experiment, featureFlags: any) => ExperimentTab[]
-        experimentLoaded: (experiment: Experiment, experimentId: ExperimentIdType) => boolean
+        availableTabs: (experiment: Experiment, featureFlags: FeatureFlagsSet) => ExperimentTab[]
+        experimentLoaded: (experiment: Experiment) => boolean
         breadcrumbs: (experiment: Experiment, experimentId: ExperimentIdType) => Breadcrumb[]
         sidePanelContext: (experimentId: ExperimentIdType) => SidePanelSceneContext | null
         projectTreeRef: (experimentId: ExperimentIdType) => ProjectTreeRef
