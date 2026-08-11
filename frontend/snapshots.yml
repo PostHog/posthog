@@ -2845,9 +2845,13 @@ snapshots:
     insights-trendsslopechart--with-legend--light:
         hash: v1.k794b7964.3937154d2e4552549004489d9c6e51b4dfc1d0c8dc9fa807068f76afad58c07a.8rKiYquuAFHDf5OYem57vBg6axGT4ooMwJSX_U4-UvE
     insights-variables--date-variable-input--dark:
-        hash: v1.k794b7964.9f55263cf42996613af3d9a4e643fd80f6cc106a45365d2dd4e271894850e217.v6mqgP6NMvMvOWrF2XuxcO5OS03GKEoGV9wMH6hRZ4o
+        hash: v1.k794b7964.fbfdd1ab9877182aad54b9e982528eefa2e6fcaa46dd3f456fb09008c8c75fd7.2UHdBAKQYuxX4igfiTSsjJsXkU4F-RYTg08z-HdCyks
     insights-variables--date-variable-input--light:
-        hash: v1.k794b7964.c1777f08d6a5dfa0dd5c18d3e4a0721c6f68e0b5e83850a01ffa549f5232fe0e.qTeNMD1AqBtCmBYDTSU2gjHY1kGCeXFPp0s7WhTrxgA
+        hash: v1.k794b7964.7d12e17009d1b61a69effad186e8ec6e543a4b35cf5a4dc28db076b947730a3b.6oJL6fvz-xFkp8cLiQhoN6_x5stTKMR3LFFv7Ag3nHw
+    insights-variables--date-variable-input-with-long-code-name--dark:
+        hash: v1.k794b7964.aa04b3084acd359081e1e092f8431bd4d48693f94ce0c2f36fc806113ce8a08f.eP9h3WgMVuGCUSzNkq4BxnskE8uW2GBLHNV_mb9Bz3c
+    insights-variables--date-variable-input-with-long-code-name--light:
+        hash: v1.k794b7964.f5568aae8786ef8ca0e998ac32fea8be5fddf4559ee00bf19cec72be78f10c0d.QxzRYYbgDUBH3s4E5FK1lQZdsJi1AMjjsZQKpfKPtYw
     insights-variables--relative-date-variable-input--dark:
         hash: v1.k794b7964.993cb47aaab3f9408430d0dcdda87e8eca9cb16c7681dcde25e58a4611f64828.c_7HSBE3vhm-UjRbxmi5mdL2bQKskYYJfcxIP1-a-Pw
     insights-variables--relative-date-variable-input--light:
@@ -4702,10 +4706,10 @@ snapshots:
         hash: v1.k794b7964.ea754a4783f7653247f127337c407a8cdd4a9c6bc3f1b908d8d00dd1a090b966.KQ3yKnRzi4l3ZeYVThZdmo4L6mAbxtNa2uQh7y-kGWA
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--tile-filters-read-only--light:
         hash: v1.k794b7964.b2ca2efc52a9ccf56953159c66d3c8766acd1d3a17379d5faec45a4715ae24a9.fK76p7ZVcgvFJNcKJ5Ixy3YnBm_BcBSFnoytLS2jZdU
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark:
-        hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light:
-        hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark
+    :   hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light
+    :   hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--dark:
         hash: v1.k794b7964.b1e0f5f542426e34dec73826f3135902a392c0c13dade4fec14037c615186b13.kbxxijyDI1SdvgdKwkRnIRLLgmsine5AYvOcD79DYsY
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--light:
