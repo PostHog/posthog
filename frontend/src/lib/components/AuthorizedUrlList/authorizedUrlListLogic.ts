@@ -67,38 +67,48 @@ export function hasWildcardInPort(input: unknown): boolean {
     return portWildcardRegex.test(input.trim())
 }
 
+/**
+ * Pasted URLs often carry zero-width characters (U+200B and friends) or surrounding whitespace
+ * that make an otherwise valid URL fail validation and, once saved, never match the authorized
+ * list. Strip them so validation and storage see the string the user can see.
+ */
+export const normalizeProposedUrl = (url: string): string =>
+    url.replace(/\u200B|\u200C|\u200D|\u2060|\uFEFF/g, '').trim()
+
 export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
     onlyAllowDomains: boolean = false,
     allowWildCards: boolean = true
 ): string | undefined => {
-    if (!isURL(proposedUrl)) {
+    const url = normalizeProposedUrl(proposedUrl)
+
+    if (!isURL(url)) {
         return 'Please enter a valid URL'
     }
 
-    if (hasWildcardInPort(proposedUrl)) {
+    if (hasWildcardInPort(url)) {
         return 'Wildcards are not allowed in the port position'
     }
 
-    if (onlyAllowDomains && !isDomain(sanitizePossibleWildCardedURL(proposedUrl))) {
+    if (onlyAllowDomains && !isDomain(sanitizePossibleWildCardedURL(url))) {
         return "Please enter a valid domain (URLs with a path aren't allowed)"
     }
 
-    const hasWildCard = proposedUrl.indexOf('*') > -1
+    const hasWildCard = url.indexOf('*') > -1
     if (hasWildCard && allowWildCards === false) {
         return 'Wildcards are not allowed'
     }
 
     if (
         hasWildCard &&
-        !/^https?:\/\/((\*\.)?localhost|localhost)(:\d+)?$/.test(proposedUrl) && // Allow http://*.localhost and localhost with ports
-        !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)
+        !/^https?:\/\/((\*\.)?localhost|localhost)(:\d+)?$/.test(url) && // Allow http://*.localhost and localhost with ports
+        !url.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)
     ) {
         return 'Wildcards can only be used for subdomains'
     }
 
-    if (currentUrls.indexOf(proposedUrl) > -1) {
+    if (currentUrls.indexOf(url) > -1) {
         return `This ${onlyAllowDomains ? 'domains' : 'URL'} already is registered`
     }
 
@@ -538,6 +548,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     forms(({ values, actions, props }) => ({
         proposedUrl: {
             defaults: { url: '' } as ProposeNewUrlFormType,
+            // Hold the error until the field is touched or submitted, so a half-typed URL does not flash red.
+            options: { showErrorsOnTouch: true },
             errors: ({ url }) => ({
                 // default to allowing wildcards because that was the original behavior
                 url: validateProposedUrl(
@@ -548,10 +560,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 ),
             }),
             submit: async ({ url }) => {
+                const normalizedUrl = normalizeProposedUrl(url)
                 if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
-                    actions.updateUrl(values.editUrlIndex, url)
+                    actions.updateUrl(values.editUrlIndex, normalizedUrl)
                 } else {
-                    actions.addUrl(url)
+                    actions.addUrl(normalizedUrl)
                 }
             },
         },

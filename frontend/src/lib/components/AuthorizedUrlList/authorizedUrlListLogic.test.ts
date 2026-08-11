@@ -196,6 +196,20 @@ describe('the authorized urls list logic', () => {
             })
         })
 
+        it.each([
+            ['a leading space', ' https://example.com'],
+            ['a trailing space', 'https://example.com '],
+            ['a zero-width character', 'https://example.com\u200B'],
+        ])('accepts a URL wrapped in %s', (_label, proposedUrl) => {
+            expect(validateProposedUrl(proposedUrl, [], false)).toEqual(undefined)
+        })
+
+        it('treats a padded copy of an authorized URL as already registered', () => {
+            expect(validateProposedUrl('https://example.com ', ['https://example.com'], false)).toBe(
+                'This URL already is registered'
+            )
+        })
+
         it('can refuse wildcards', () => {
             expect(validateProposedUrl('https://*.example.com', [], false, false)).toEqual('Wildcards are not allowed')
             expect(validateProposedUrl('https://*.example.com', [], false, true)).toEqual(undefined)

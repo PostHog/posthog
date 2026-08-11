@@ -154,7 +154,7 @@ export function isURL(input: any): boolean {
         return false
     }
     const regexp = /^(http|capacitor|https):\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
-    return !!input.trim().match(regexp)
+    return !!input.match(regexp)
 }
 
 export function isExternalLink(input: any): boolean {
