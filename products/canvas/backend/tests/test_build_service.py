@@ -87,6 +87,32 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         entry_key = f"{build.artifact_object_prefix}/index.html"
         assert self.storage.objects[entry_key] == b"<html></html>"
 
+    def test_draft_build_ready_does_not_advance_pointer(self):
+        published = self._publish()
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(published.id))
+        self.canvas.refresh_from_db()
+
+        _version, draft_build, _widening = build_service.create_draft_version(
+            self.canvas,
+            project=synthetic_source_project("export default function C() { return 2 }"),
+            prompt=None,
+            task_id=None,
+            created_by=None,
+        )
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html>2</html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(draft_build.id))
+
+        draft_build.refresh_from_db()
+        self.canvas.refresh_from_db()
+        assert draft_build.status == CanvasBuild.STATUS_READY
+        assert draft_build.artifact_object_prefix
+        assert self.canvas.published_build_id == published.id
+
     def test_stale_head_does_not_advance_pointer(self):
         build = self._publish()
         second = self._publish()  # supersedes the first build, moves the head
