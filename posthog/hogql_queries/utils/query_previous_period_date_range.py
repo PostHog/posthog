@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from posthog.schema import DateRange, IntervalType
@@ -29,10 +29,9 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
 
     def date_from_delta_mappings(self) -> dict[str, int] | None:
         if self._date_range and self._date_range.date_from == "all":
-            # "All time" resolves to the earliest event rather than a relative offset, so it is not
-            # subject to the "-7d is really 8 days" quirk that get_compare_period_dates corrects for.
-            # Reporting a 7-day mapping here triggers that correction anyway, which shifts the whole
-            # previous period one day later and makes it overlap the start of the current period.
+            # "All time" resolves to the earliest event rather than a relative offset, so there is no
+            # delta to report. Reporting a 7-day one triggers the "-7d is really 8 days" correction in
+            # get_compare_period_dates, which shifts the whole previous period a day later.
             return None
 
         if self._date_range and isinstance(self._date_range.date_from, str):
@@ -62,6 +61,17 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
     def dates(self) -> tuple[datetime, datetime]:
         current_period_date_from = super().date_from()
         current_period_date_to = super().date_to()
+
+        if self._date_range and self._date_range.date_from == "all":
+            # "All time" starts at the earliest event, whose time of day is arbitrary, while
+            # get_compare_period_dates ends the previous period at date_to's time of day. Those two
+            # land on the same calendar day here, so the generic path leaves the rest of the first
+            # day inside both periods. Size the previous period directly instead, ending it just
+            # before the first event.
+            previous_period_date_to = current_period_date_from - timedelta(microseconds=1)
+            return previous_period_date_to - (
+                current_period_date_to - current_period_date_from
+            ), previous_period_date_to
 
         previous_period_date_from, previous_period_date_to = get_compare_period_dates(
             current_period_date_from,
