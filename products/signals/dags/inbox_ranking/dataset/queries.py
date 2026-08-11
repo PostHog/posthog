@@ -116,7 +116,8 @@ FROM (
         'Inbox report opened',
         'Inbox report action',
         'Inbox report feedback',
-        'signal_report_status_changed'
+        'signal_report_status_changed',
+        'signals_pr_refund_created'
     )
       AND (event != 'Inbox report feedback' OR {FEEDBACK_SENTIMENTS_SQL})
       AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
@@ -371,6 +372,34 @@ WHERE event = 'Inbox report feedback'
 GROUP BY report_id
 """
 
+REFUNDS_COLUMNS = (
+    "refund_count",
+    "first_refunded_at",
+    "refund_reason",
+    "refund_billing_path",
+    "refund_credits",
+)
+# The refund action is the strongest explicit negative PR-quality label: a human reviewed the
+# implementation PR and asked for the charge back. It is deliberately its own stream because the
+# status stream cannot recover it: a refunded merged-PR report stays `resolved` (see the refund
+# guard in products/signals/backend/views.py), so `dismissal_reason='refunded'` misses those.
+# The endpoint mints one refund per report ever and repeat calls do not re-emit, so uniq over
+# refund_id keeps the count honest under at-least-once analytics delivery.
+REFUNDS_SQL = """
+SELECT
+    toString(properties.report_id) AS report_id,
+    uniq(toString(properties.refund_id)) AS refund_count,
+    min(timestamp) AS first_refunded_at,
+    nullIf(argMax(toString(properties.reason), timestamp), '') AS refund_reason,
+    nullIf(argMax(toString(properties.billing_path), timestamp), '') AS refund_billing_path,
+    argMax(toInt(properties.credits), timestamp) AS refund_credits
+FROM events
+WHERE event = 'signals_pr_refund_created'
+  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND toString(properties.report_id) != ''
+GROUP BY report_id
+"""
+
 LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("impressions", IMPRESSIONS_SQL, IMPRESSIONS_COLUMNS),
     ("opens", OPENS_SQL, OPENS_COLUMNS),
@@ -378,6 +407,7 @@ LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("feedback", FEEDBACK_SQL, FEEDBACK_COLUMNS),
     ("status_changes", STATUS_SQL, STATUS_COLUMNS),
     ("pr_events", PR_EVENTS_SQL, PR_COLUMNS),
+    ("refunds", REFUNDS_SQL, REFUNDS_COLUMNS),
 )
 
 # Every label column a report can have, with its no-events default. Streams overwrite their own
@@ -417,6 +447,11 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "pr_merged_count": 0,
     "first_pr_merged_at": None,
     "pr_closed_count": 0,
+    "refund_count": 0,
+    "first_refunded_at": None,
+    "refund_reason": None,
+    "refund_billing_path": None,
+    "refund_credits": None,
 }
 
 _TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.endswith("_at"))
