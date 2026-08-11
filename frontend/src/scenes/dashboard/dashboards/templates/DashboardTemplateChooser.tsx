@@ -32,6 +32,7 @@ export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Ele
         allMatchesInFeaturedSection,
         showOfficialSection,
         showBlankTile,
+        isLoading,
     } = useValues(chooser)
     const { templateTileClicked, blankTileClicked, setTemplateFilter } = useActions(chooser)
 
@@ -54,6 +55,7 @@ export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Ele
                                 index={index}
                                 size="large"
                                 showFavourite={template.is_featured}
+                                disabled={isLoading}
                                 data-attr="create-dashboard-from-template-featured"
                             />
                         ))}
@@ -77,6 +79,7 @@ export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Ele
                                 onClick={() => templateTileClicked(template, 'team_section')}
                                 index={index}
                                 showCover={false}
+                                disabled={isLoading}
                                 data-attr="create-dashboard-from-template-team"
                             />
                         ))}
@@ -102,6 +105,7 @@ export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Ele
                                 type="primary"
                                 icon={<IconPlus />}
                                 onClick={() => blankTileClicked('main_grid')}
+                                loading={isLoading}
                                 data-attr="create-dashboard-blank-inline-empty"
                             >
                                 Blank dashboard
@@ -142,6 +146,7 @@ export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Ele
                                     template={template}
                                     onClick={() => templateTileClicked(template, 'main_grid')}
                                     index={index}
+                                    disabled={isLoading}
                                     data-attr="create-dashboard-from-template"
                                 />
                             ))

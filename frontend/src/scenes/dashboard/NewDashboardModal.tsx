@@ -36,7 +36,7 @@ export function NewDashboardModal(): JSX.Element {
             }),
         [templateScope]
     )
-    const { isLoading: blankDashboardLoading } = useValues(createChooserLogic)
+    const { isLoading: isCreatingDashboard } = useValues(createChooserLogic)
     const { blankTileClicked } = useActions(createChooserLogic)
 
     const title = activeDashboardTemplate ? 'Choose your events' : 'Create a dashboard'
@@ -65,7 +65,7 @@ export function NewDashboardModal(): JSX.Element {
                     type="primary"
                     size="medium"
                     onClick={() => blankTileClicked('modal_toolbar')}
-                    disabled={blankDashboardLoading}
+                    disabled={isCreatingDashboard}
                     data-attr="create-dashboard-blank"
                     className="shrink-0 self-start sm:self-auto"
                 >
@@ -119,6 +119,7 @@ export function NewDashboardModal(): JSX.Element {
                             activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
                         }}
                         type="primary"
+                        loading={isCreatingDashboard}
                     >
                         Create
                     </LemonButton>

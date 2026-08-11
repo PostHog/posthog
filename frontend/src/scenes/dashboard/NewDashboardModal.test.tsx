@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -18,7 +18,12 @@ jest.mock('kea', () => ({
 }))
 
 jest.mock('@posthog/lemon-ui', () => ({
-    LemonButton: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+    // Mirror LemonButton's real behavior: `loading` and `disabledReason` both disable the button.
+    LemonButton: ({ children, loading, disabledReason, disabled, ...props }: any) => (
+        <button disabled={disabled || loading || !!disabledReason} {...props}>
+            {children}
+        </button>
+    ),
     LemonInput: ({ value, onChange, fullWidth: _fullWidth, ...props }: any) => (
         <input value={value} onChange={(event) => onChange?.(event.target.value)} {...props} />
     ),
@@ -109,12 +114,14 @@ const Z_INDEX_CLASS = 'z-[calc(var(--z-popover)-1)]'
 
 describe('NewDashboardModal', () => {
     let newDashboardValues: Record<string, unknown>
+    let chooserValues: Record<string, unknown>
 
     beforeEach(() => {
         jest.clearAllMocks()
         mockedUseValues.mockReset()
         mockedUseActions.mockReset()
 
+        chooserValues = { isLoading: false }
         newDashboardValues = {
             newDashboardModalVisible: true,
             activeDashboardTemplate: {
@@ -152,7 +159,7 @@ describe('NewDashboardModal', () => {
             }
 
             if (isMockChooserLogicRef(logic)) {
-                return { isLoading: false }
+                return chooserValues
             }
 
             if (isFeatureFlagLogicRef(logic)) {
@@ -206,6 +213,14 @@ describe('NewDashboardModal', () => {
         render(<NewDashboardModal />)
         expectDialogStacking()
         expect(document.querySelector('[data-attr="dashboard-template-variables"]')).toBeInTheDocument()
+    })
+
+    it('disables the footer Create button while a dashboard create is in flight', () => {
+        chooserValues = { isLoading: true }
+
+        render(<NewDashboardModal />)
+
+        expect(screen.getByText('Create').closest('button')).toBeDisabled()
     })
 
     it('still keeps pickers and portaled menus above the modal on the template picker step', () => {

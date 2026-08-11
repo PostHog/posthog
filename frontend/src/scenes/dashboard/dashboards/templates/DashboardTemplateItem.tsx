@@ -15,6 +15,9 @@ const templateItemButtonResetClass = 'appearance-none p-0 m-0 w-full cursor-poin
 const templateItemFocusClass =
     'outline-none focus-visible:ring-2 focus-visible:ring-primary-3000 focus-visible:ring-offset-2'
 
+/** Dim the tile and block hover/click while a create request is in flight, so rapid clicks can't submit twice. */
+const templateItemDisabledClass = 'disabled:opacity-60 disabled:cursor-not-allowed disabled:pointer-events-none'
+
 const noCoverRowHover =
     'hover:border-primary-3000-hover hover:shadow-md hover:-translate-y-px active:translate-y-0 active:shadow-sm'
 
@@ -36,6 +39,8 @@ export interface DashboardTemplateItemProps {
     showFavourite?: boolean
     /** When false, omit cover art (e.g. project templates with no `image_url`). */
     showCover?: boolean
+    /** Block the tile while a dashboard create request is in flight. */
+    disabled?: boolean
 }
 
 function TemplateItemBuildingGlyph({ size }: { size: 'sm' | 'lg' }): JSX.Element {
@@ -93,6 +98,7 @@ function noCoverButtonClass(isLarge: boolean): string {
         'group TemplateItem flex flex-row items-start rounded-md border border-border bg-bg-light text-left shadow-sm transition-all duration-200',
         noCoverRowHover,
         templateItemFocusClass,
+        templateItemDisabledClass,
         isLarge ? 'relative min-h-0 gap-4 p-4' : 'gap-3 p-3'
     )
 }
@@ -105,6 +111,7 @@ export function TemplateItem({
     size = 'default',
     showFavourite = false,
     showCover = true,
+    disabled = false,
 }: DashboardTemplateItemProps): JSX.Element {
     const titleId = useId()
     const isLarge = size === 'large'
@@ -124,6 +131,7 @@ export function TemplateItem({
                 type="button"
                 className={noCoverButtonClass(isLarge)}
                 onClick={onClick}
+                disabled={disabled}
                 data-attr={dataAttr}
                 aria-labelledby={titleId}
             >
@@ -154,9 +162,11 @@ export function TemplateItem({
                     'hover:border-primary-3000-hover hover:shadow-md hover:-translate-y-1',
                     'hover:ring-1 hover:ring-primary/25',
                     'active:translate-y-0 active:shadow-sm active:ring-0',
-                    templateItemFocusClass
+                    templateItemFocusClass,
+                    templateItemDisabledClass
                 )}
                 onClick={onClick}
+                disabled={disabled}
                 data-attr={dataAttr}
                 aria-labelledby={titleId}
             >
@@ -188,9 +198,11 @@ export function TemplateItem({
                 templateItemButtonResetClass,
                 'group border rounded TemplateItem flex flex-col transition-all relative',
                 'h-[210px]',
-                templateItemFocusClass
+                templateItemFocusClass,
+                templateItemDisabledClass
             )}
             onClick={onClick}
+            disabled={disabled}
             data-attr={dataAttr}
             aria-labelledby={titleId}
         >
