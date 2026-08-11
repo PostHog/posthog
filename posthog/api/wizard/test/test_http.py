@@ -1,9 +1,12 @@
 import json
 from datetime import timedelta
+from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
@@ -11,10 +14,17 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
+from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT, _detection_trigger_lock_key
 from posthog.cloud_utils import get_api_host
-from posthog.models import Organization, PersonalAPIKey, User
+from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.wizard.backend.facade import api as wizard_facade
+from products.wizard.backend.facade.contracts import UpsertWizardRepositoryDetectionInput
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 class SetupWizardTests(APIBaseTest):
@@ -545,6 +555,280 @@ class SetupWizardCloudRunTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         mock_create.assert_not_called()
+
+    DETECTION_URL = "/api/wizard/repository_detection"
+    DETECTION_BODY = {"project_id": None, "repository": "acme/app", "kind": "error-tracking-source-maps"}
+
+    def _detection_body(self, **overrides) -> dict:
+        body = {**self.DETECTION_BODY, "project_id": self.team.id}
+        body.update(overrides)
+        return body
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
+    def test_detection_returns_404_when_feature_not_configured(self):
+        response = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_creates_run_and_returns_ids(self, mock_create):
+        run_id = str(uuid4())
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id=run_id, status="queued"))
+
+        response = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"task_id": "task-uuid", "run_id": run_id, "status": "queued"}
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["repository"] == "acme/app"
+        assert kwargs["kind"] == "error-tracking-source-maps"
+        assert kwargs["user_id"] == self.user.id
+        assert kwargs["team"].id == self.team.id
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_trigger_lowercases_the_repository(self, mock_create):
+        # Task.save() lowercases the repository and the wizard posts its report under that
+        # name, so a mixed-case trigger must create the task and stamp the row lowercased.
+        run_id = str(uuid4())
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id=run_id, status="queued"))
+
+        response = self.client.post(self.DETECTION_URL, data=self._detection_body(repository="Acme/App"), format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_create.call_args.kwargs["repository"] == "acme/app"
+        [detection] = wizard_facade.list_wizard_repository_detections(self.team.id)
+        assert detection.repository == "acme/app"
+        assert detection.task_run_id == run_id
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_rejects_invalid_repository_format(self, mock_create):
+        response = self.client.post(
+            self.DETECTION_URL, data=self._detection_body(repository="not-a-repo"), format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_rejects_unknown_kind_without_consuming_the_daily_budget(self, mock_create):
+        # Validating the kind after reserving an attempt would burn the day's budget on rejects.
+        mock_create.return_value = MagicMock(
+            task_id="task-uuid", latest_run=MagicMock(id=str(uuid4()), status="queued")
+        )
+
+        rejected = self.client.post(self.DETECTION_URL, data=self._detection_body(kind="no-such-kind"), format="json")
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+
+        accepted = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
+    @patch("posthog.api.wizard.http.WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_attempt_cap_is_the_only_thing_bounding_sandbox_boots(self, mock_create):
+        # No DB-counted throttles on detection: this reservation alone bounds sandbox boots.
+        mock_create.return_value = MagicMock(
+            task_id="task-uuid", latest_run=MagicMock(id=str(uuid4()), status="queued")
+        )
+
+        first = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        second = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_create.call_count == 1
+
+    @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 1)
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_detection_does_not_consume_the_cloud_run_budget(self, mock_cloud_run, mock_detection, mock_run_times):
+        # A scan must not spend the budget that gets the user through onboarding.
+        mock_run_times.return_value = []
+        created = MagicMock(task_id="task-uuid", latest_run=MagicMock(id=str(uuid4()), status="queued"))
+        mock_detection.return_value = created
+        mock_cloud_run.return_value = created
+
+        detection = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert detection.status_code == status.HTTP_200_OK, detection.content
+
+        cloud_run = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+        assert cloud_run.status_code == status.HTTP_200_OK, cloud_run.content
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_rejects_project_without_access(self, mock_create):
+        # Guards the wiring of the shared project-visibility helper, not its logic.
+        other_org = Organization.objects.create(name="Other Detection Org")
+        other_user = User.objects.create_and_join(other_org, "other-detection@example.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_create.assert_not_called()
+
+    LIST_URL = "/api/wizard/repository_detections"
+    KIND = "error-tracking-source-maps"
+
+    @patch("posthog.api.wizard.http.WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP", 1)
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_rejects_concurrent_scan_without_consuming_the_daily_budget(self, mock_create):
+        live_run = self._detection_run(self.team)
+        wizard_facade.record_wizard_repository_detection_run(
+            team_id=self.team.id,
+            repository="acme/app",
+            kind=self.KIND,
+            task_run_id=str(live_run.id),
+            created_by_id=self.user.id,
+        )
+
+        rejected = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert rejected.status_code == status.HTTP_409_CONFLICT
+        mock_create.assert_not_called()
+
+        # A terminal run frees the (repository, kind) slot, and the 409 above must not have
+        # charged the cap of 1.
+        apps.get_model("tasks", "TaskRun").objects.filter(id=live_run.id).update(status="completed")
+        mock_create.return_value = MagicMock(
+            task_id="task-uuid", latest_run=MagicMock(id=str(uuid4()), status="queued")
+        )
+        accepted = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert accepted.status_code == status.HTTP_200_OK, accepted.content
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_rejects_trigger_while_another_holds_the_lock(self, mock_create):
+        # Guards the cache.add mutex that closes the both-pass-the-check race between two
+        # simultaneous triggers; happy-path release is covered by the sequential retriggers
+        # in the stamp test.
+        lock_key = _detection_trigger_lock_key(self.team.id, "acme/app", self.KIND)
+        assert cache.add(lock_key, "1", timeout=30)
+        try:
+            response = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        finally:
+            cache.delete(lock_key)
+        assert response.status_code == status.HTTP_409_CONFLICT
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_trigger_stamps_the_row_and_keeps_the_previous_report(self, mock_create):
+        run_1, run_2 = str(uuid4()), str(uuid4())
+        report = {"repo_type": "single", "projects": []}
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id=run_1, status="queued"))
+        first = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        # The wizard completes and posts its report onto the same (repository, kind) row.
+        with team_scope(self.team.id):
+            wizard_facade.upsert_wizard_repository_detection(
+                UpsertWizardRepositoryDetectionInput(
+                    team_id=self.team.id,
+                    repository="acme/app",
+                    kind=self.KIND,
+                    report=report,
+                    error=None,
+                    task_run_id=run_1,
+                )
+            )
+
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id=run_2, status="queued"))
+        retrigger = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+        assert retrigger.status_code == status.HTTP_200_OK, retrigger.content
+
+        # A rescan must repoint the row at the new run without wiping the last good report.
+        [detection] = wizard_facade.list_wizard_repository_detections(self.team.id)
+        assert detection.task_run_id == run_2
+        assert detection.report == report
+
+    @patch("posthog.api.wizard.http.wizard_facade.record_wizard_repository_detection_run")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_repository_detection_run")
+    def test_detection_stamp_failure_fails_the_request(self, mock_create, mock_record):
+        # A scan dispatched without its stamp is invisible to the live-run gate and its report
+        # can be mismatch-rejected, so a stamp failure must fail the request (rolling back the
+        # run), not be swallowed into a 200.
+        mock_create.return_value = MagicMock(
+            task_id="task-uuid", latest_run=MagicMock(id=str(uuid4()), status="queued")
+        )
+        mock_record.side_effect = RuntimeError("stamp write failed")
+
+        response = self.client.post(self.DETECTION_URL, data=self._detection_body(), format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+        mock_record.assert_called_once()
+
+    def test_list_detections_joins_live_run_status_within_the_team(self):
+        other_org = Organization.objects.create(name="Foreign Detection Org")
+        other_team = Team.objects.create(organization=other_org, name="Foreign team")
+        live_run = self._detection_run(self.team)
+        foreign_run = self._detection_run(other_team)
+
+        wizard_facade.record_wizard_repository_detection_run(
+            team_id=self.team.id,
+            repository="acme/live",
+            kind=self.KIND,
+            task_run_id=str(live_run.id),
+            created_by_id=self.user.id,
+        )
+        # A stamped id pointing at another team's run must not resolve to a status.
+        wizard_facade.record_wizard_repository_detection_run(
+            team_id=self.team.id,
+            repository="acme/foreign",
+            kind=self.KIND,
+            task_run_id=str(foreign_run.id),
+            created_by_id=self.user.id,
+        )
+        with team_scope(self.team.id):
+            wizard_facade.upsert_wizard_repository_detection(
+                UpsertWizardRepositoryDetectionInput(
+                    team_id=self.team.id,
+                    repository="acme/local",
+                    kind=self.KIND,
+                    report={"repo_type": "single", "projects": []},
+                    error=None,
+                    task_run_id=None,
+                )
+            )
+
+        # Query-serializer wiring guard: a missing project_id must 400, not 500 or leak.
+        assert self.client.get(self.LIST_URL).status_code == status.HTTP_400_BAD_REQUEST
+
+        response = self.client.get(self.LIST_URL, {"project_id": self.team.id})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = {row["repository"]: row for row in response.json()}
+        assert set(rows) == {"acme/live", "acme/foreign", "acme/local"}
+        assert rows["acme/live"]["task_run_status"] == "in_progress"
+        assert rows["acme/live"]["report"] is None
+        assert rows["acme/foreign"]["task_run_status"] is None
+        assert rows["acme/local"]["task_run_status"] is None
+        assert rows["acme/local"]["report"] == {"repo_type": "single", "projects": []}
+
+        filtered = self.client.get(self.LIST_URL, {"project_id": str(self.team.id), "kind": "no-such-kind"})
+        assert filtered.json() == []
+
+    def test_list_detections_rejects_project_without_access(self):
+        other_org = Organization.objects.create(name="Other Detection List Org")
+        other_user = User.objects.create_and_join(other_org, "other-detection-list@example.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.get(self.LIST_URL, {"project_id": self.team.id})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def _detection_run(self, team: Team) -> "TaskRun":
+        # apps.get_model keeps the tasks product's models out of this module's import graph
+        # (its public interface is the facade), mirroring posthog/tasks/test/test_kill_stale_queued_task_runs.py.
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=team,
+            created_by=self.user,
+            title="Repository detection",
+            description="Scan the repository",
+            origin_product="repo_detection",
+        )
+        return apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=team,
+            status="in_progress",
+            environment="cloud",
+        )
 
     @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 2)
     @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")

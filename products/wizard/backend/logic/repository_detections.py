@@ -1,0 +1,122 @@
+"""
+Business logic for repository detections.
+"""
+
+from typing import Any
+
+from django.db import transaction
+
+from products.wizard.backend.facade.contracts import (
+    UpsertWizardRepositoryDetectionInput,
+    WizardRepositoryDetectionDTO,
+    WizardRepositoryDetectionRunMismatchError,
+)
+from products.wizard.backend.models import WizardRepositoryDetection
+
+
+def upsert_wizard_repository_detection(
+    params: UpsertWizardRepositoryDetectionInput,
+) -> tuple[WizardRepositoryDetectionDTO, bool]:
+    """Upsert a detection row and return (dto, created).
+
+    Each push fully replaces `report` / `error` / `task_run_id`. Concurrent POSTs for a
+    brand-new key can race the unique constraint into a 500; the client's HTTP retry covers it.
+
+    A push carrying a `task_run_id` other than the row's currently stamped one is rejected:
+    it is either a stale scan replaying over a newer trigger, or a caller stamping an
+    unrelated run to jam the trigger's concurrency gate. Pushes without a `task_run_id`
+    (local wizard runs) always land, but never clear a stamped run: nulling it would open
+    the trigger's concurrency gate mid-scan and let the finishing scan bypass the check above.
+    """
+    with transaction.atomic():
+        # select_for_update so the run-mismatch check below reads the current stamp: an
+        # unlocked read can pass the check against an old stamp while a concurrent trigger
+        # stamps a newer run, and the update would then revert that newer stamp.
+        existing = (
+            WizardRepositoryDetection.objects.select_for_update()
+            .filter(team_id=params.team_id, repository=params.repository, kind=params.kind)
+            .first()
+        )
+        if (
+            existing is not None
+            and params.task_run_id is not None
+            and existing.task_run_id is not None
+            and str(existing.task_run_id) != params.task_run_id
+        ):
+            raise WizardRepositoryDetectionRunMismatchError(
+                "This detection's task_run_id does not match the run currently stamped on the row."
+            )
+        defaults: dict[str, Any] = {
+            "report": params.report,
+            "error": params.error,
+        }
+        if params.task_run_id is not None:
+            defaults["task_run_id"] = params.task_run_id
+        # created_by only in create_defaults so a later push for the same key can't reattribute it.
+        instance, created = WizardRepositoryDetection.objects.update_or_create(
+            team_id=params.team_id,
+            repository=params.repository,
+            kind=params.kind,
+            defaults=defaults,
+            create_defaults={**defaults, "created_by_id": params.created_by_id},
+        )
+    return _to_dto(instance), created
+
+
+def record_wizard_repository_detection_run(
+    *,
+    team_id: int,
+    repository: str,
+    kind: str,
+    task_run_id: str,
+    created_by_id: int | None,
+) -> WizardRepositoryDetectionDTO:
+    """Stamp a freshly triggered cloud scan onto the (repository, kind) row.
+
+    Only `task_run_id` changes, so the previous `report`/`error` stay readable while the scan
+    runs. A row created here has both `report` and `error` null: no scan has completed yet.
+
+    `for_team` because the trigger endpoint runs outside ambient team scope.
+    """
+    with transaction.atomic():
+        instance, _ = WizardRepositoryDetection.objects.for_team(team_id).update_or_create(
+            team_id=team_id,
+            repository=repository,
+            kind=kind,
+            defaults={"task_run_id": task_run_id},
+            create_defaults={"task_run_id": task_run_id, "created_by_id": created_by_id},
+        )
+    return _to_dto(instance)
+
+
+def get_wizard_repository_detection(team_id: int, repository: str, kind: str) -> WizardRepositoryDetectionDTO | None:
+    """The (repository, kind) row, or None. `for_team` because callers run outside ambient team scope."""
+    instance = WizardRepositoryDetection.objects.for_team(team_id).filter(repository=repository, kind=kind).first()
+    return _to_dto(instance) if instance is not None else None
+
+
+def list_wizard_repository_detections(
+    team_id: int, *, kind: str | None = None, limit: int = 200
+) -> list[WizardRepositoryDetectionDTO]:
+    """The team's detection rows, most recently updated first.
+
+    `for_team` because the listing endpoint runs outside ambient team scope.
+    """
+    queryset = WizardRepositoryDetection.objects.for_team(team_id)
+    if kind is not None:
+        queryset = queryset.filter(kind=kind)
+    return [_to_dto(instance) for instance in queryset.order_by("-updated_at")[:limit]]
+
+
+def _to_dto(instance: WizardRepositoryDetection) -> WizardRepositoryDetectionDTO:
+    return WizardRepositoryDetectionDTO(
+        id=str(instance.id),
+        team_id=instance.team_id,
+        repository=instance.repository,
+        kind=instance.kind,
+        report=instance.report,
+        error=instance.error,
+        task_run_id=str(instance.task_run_id) if instance.task_run_id else None,
+        created_at=instance.created_at,
+        updated_at=instance.updated_at,
+    )

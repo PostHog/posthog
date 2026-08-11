@@ -23,6 +23,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_QUERY_TIMEOUT,
 )
+from products.tasks.backend.temporal.wizard_repository_detection import WizardRepositoryDetectionInput
 
 
 @override_settings(DEBUG=False)
@@ -307,6 +308,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         run_source: str | None = None,
         prewarmed: bool = False,
         environment: str = TaskRun.Environment.CLOUD,
+        task: Task | None = None,
     ) -> TaskRun:
         state: dict = {}
         if pending_dispatch is not None:
@@ -316,7 +318,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         if prewarmed:
             state["prewarmed"] = True
         return TaskRun.objects.create(
-            task=self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state, environment=environment
+            task=task or self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state, environment=environment
         )
 
     def _run_reconcile(self, run: TaskRun, start_workflow: Mock) -> str:
@@ -515,6 +517,31 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         start_workflow.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+    def test_redispatches_detection_run_via_its_own_workflow(self) -> None:
+        # Recovering a detection run as process-task would boot a full agent (create_pr=True,
+        # "full" scopes) in place of an agentless scan.
+        detection_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Repository detection",
+            description="Scan the repository",
+            origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
+        )
+        run = self._orphaned_run(task=detection_task)
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "recovered")
+        assert start_workflow.await_args is not None
+        args = start_workflow.await_args.args
+        kwargs = start_workflow.await_args.kwargs
+        self.assertEqual(args[0], "wizard-repository-detection")
+        self.assertEqual(args[1], WizardRepositoryDetectionInput(run_id=str(run.id)))
+        self.assertEqual(kwargs["id"], f"wizard-repository-detection-{detection_task.id}-{run.id}")
+        run.refresh_from_db()
+        self.assertEqual(run.workflow_id, kwargs["id"])
 
     def test_skips_prewarmed_run(self) -> None:
         # Prewarmed runs are owned by the prewarmed reaper (it kills them); re-dispatching one would

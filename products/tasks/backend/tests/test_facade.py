@@ -784,6 +784,42 @@ class TestFacadeReadsAndMappers(TestCase):
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
 
+    @patch("products.tasks.backend.temporal.client.execute_wizard_repository_detection_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_detection_run_dispatches_the_detection_workflow(self, mock_process_task, mock_detection):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self.captureOnCommitCallbacks(execute=True):
+            created = facade.create_wizard_repository_detection_run(
+                team=self.team,
+                user_id=self.user.id,
+                repository="acme-co/web",
+                kind="error-tracking-source-maps",
+            )
+        # Never process-task: its agent would boot with no pending message and idle to timeout.
+        mock_process_task.assert_not_called()
+        run = TaskRun.objects.get(task_id=created.task_id)
+        mock_detection.assert_called_once_with(str(created.task_id), str(run.id), self.team.id)
+        # wizard_config carries the kind and makes provisioning inject the wizard token.
+        self.assertEqual(run.state.get("wizard_config"), {"kind": "error-tracking-source-maps"})
+        # No agent, no PR: seeding either would re-enter the integrate-flow machinery.
+        self.assertIsNone(run.state.get("pending_user_message"))
+        self.assertIsNone(run.state.get("wizard_head_branch"))
+        task = Task.objects.get(id=created.task_id)
+        # The origin keeps this run on its own workflow and off the cloud-run quota window.
+        self.assertEqual(task.origin_product, Task.OriginProduct.WIZARD_REPOSITORY_DETECTION)
+        # internal keeps the scan out of the user-facing task list.
+        self.assertTrue(task.internal)
+
+    def test_create_detection_run_rejects_unknown_kind(self):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self.assertRaises(ValueError):
+            facade.create_wizard_repository_detection_run(
+                team=self.team,
+                user_id=self.user.id,
+                repository="acme-co/web",
+                kind="no-such-kind",
+            )
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_wizard_cloud_run_pins_its_model(self, _mock_workflow):
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -912,6 +948,8 @@ class TestRecentWizardCloudRunTimes(TestCase):
             ("run_patched_to_local", {"environment": TaskRun.Environment.LOCAL}, 1),
             ("non_onboarding_task_with_marker", {"origin_product": Task.OriginProduct.USER_CREATED}, 1),
             ("run_without_wizard_config", {"state": {}}, 0),
+            # Detection scans stamp wizard_config too; origin alone keeps them off the cloud-run window.
+            ("detection_run", {"origin_product": Task.OriginProduct.WIZARD_REPOSITORY_DETECTION}, 0),
         ]
     )
     def test_counts_only_quota_consuming_runs(self, _name, run_kwargs, expected_count):

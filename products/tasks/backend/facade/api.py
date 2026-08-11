@@ -22,6 +22,7 @@ from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -48,6 +49,7 @@ from products.tasks.backend.constants import (
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
+    WIZARD_REPOSITORY_DETECTION_PROGRAMS,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
 )
@@ -581,6 +583,20 @@ def get_resume_snapshot_carry_state(run_state: dict[str, Any] | None) -> dict[st
     )
 
     return parse_run_state(run_state).resume_snapshot_carry_state()
+
+
+def task_run_statuses(team_id: int, run_ids: Collection[str | UUID]) -> dict[str, str]:
+    """Status of each of the team's runs among ``run_ids``, keyed by str(id).
+
+    Ids that don't exist for the team are simply absent, so a caller holding ids from
+    untrusted rows can't probe other teams' runs.
+    """
+    if not run_ids:
+        return {}
+    return {
+        str(run_id): status
+        for run_id, status in TaskRun.objects.filter(team_id=team_id, id__in=list(run_ids)).values_list("id", "status")
+    }
 
 
 def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.TaskRunDTO | None:
@@ -1122,6 +1138,61 @@ def create_wizard_cloud_run(
     )
 
 
+def supported_wizard_repository_detection_kinds() -> frozenset[str]:
+    """Detection kinds ``create_wizard_repository_detection_run`` accepts, exposed so callers
+    can reject an unknown kind before charging the user's quota for it."""
+    return frozenset(WIZARD_REPOSITORY_DETECTION_PROGRAMS)
+
+
+def create_wizard_repository_detection_run(
+    *,
+    team,
+    user_id: int,
+    repository: str,
+    kind: str,
+) -> contracts.CreatedTaskDTO:
+    """Create a task and start the wizard-repository-detection workflow for it.
+
+    ``kind`` selects the wizard detection program and is the key the wizard posts its report
+    under to the wizard product's repository-detections API, with its own scoped token, so
+    nothing flows back through this task except run status. ``wizard_config`` carries the kind
+    and is what makes provisioning inject that token. The server-set origin keeps these runs on
+    their own quota window and their own workflow; ``internal`` keeps them out of the task UI.
+    """
+    if kind not in WIZARD_REPOSITORY_DETECTION_PROGRAMS:
+        raise ValueError(f"Unknown detection kind: {kind}")
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        execute_wizard_repository_detection_workflow,
+    )
+
+    created = create_and_run_task(
+        team=team,
+        title=f"Repository detection: {kind}",
+        description=f"Scan the repository ({kind} detection).",
+        origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION,
+        user_id=user_id,
+        repository=repository,
+        create_pr=False,
+        mode="background",
+        start_workflow=False,
+        internal=True,
+        wizard_config={"kind": kind},
+    )
+    latest_run = created.latest_run
+    assert latest_run is not None  # create_and_run_task always creates the run row
+    # Commit-then-dispatch, same as Task.create_and_run: the workflow's first activity must
+    # find the TaskRun row already committed.
+    transaction.on_commit(
+        partial(
+            execute_wizard_repository_detection_workflow,
+            str(created.task_id),
+            str(latest_run.id),
+            created.team_id,
+        )
+    )
+    return created
+
+
 def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetime]:
     """Creation times of a user's recent wizard cloud runs that still count against their quota.
 
@@ -1131,10 +1202,12 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
     cache reservation, not here.
 
     The filter trusts only PATCH-immutable markers: ``created_by`` (set at creation) and the
-    protected ``wizard_config`` state key that only ``create_wizard_cloud_run`` stamps (see
-    ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields like the run's ``environment`` are
-    deliberately NOT filtered — a run PATCHed from cloud to local must keep consuming quota,
-    or flipping it would launder sandbox boots out of the limits.
+    protected ``wizard_config`` state key (see ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields
+    like the run's ``environment`` are deliberately NOT filtered — a run PATCHed from cloud to
+    local must keep consuming quota, or flipping it would launder sandbox boots out of the limits.
+
+    Detection runs stamp ``wizard_config`` too, so they are excluded by origin; their own
+    daily attempt reservation in the detection view bounds them instead.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
     wizard on projects in different teams. Returns only timestamps, no run data.
@@ -1146,6 +1219,7 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
             created_at__gte=since,
         )
         .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+        .exclude(task__origin_product=Task.OriginProduct.WIZARD_REPOSITORY_DETECTION)
         .order_by("created_at")
         .values_list("created_at", flat=True)
     )

@@ -23827,6 +23827,81 @@ export namespace Schemas {
     }
 
     /**
+     * One project the detection agent found in the repository.
+     */
+    export interface DetectedProject {
+      /**
+         * Repo-relative path of the project ('.' for the repository root).
+         * @maxLength 512
+         */
+      path: string;
+      /**
+         * Human-readable framework name the agent classified, e.g. 'Next.js'.
+         * @maxLength 100
+         */
+      framework: string;
+      /**
+         * Detection-kind-specific target the project matched (e.g. the source-map skill variant 'nextjs'), or null when the stack isn't supported.
+         * @maxLength 64
+         * @nullable
+         */
+      variant?: string | null;
+      /** Whether a PostHog SDK is already installed in this project. */
+      has_posthog: boolean;
+      /** Whether the detection kind can act on this project (supported variant + SDK present). */
+      instrumentable: boolean;
+      /**
+         * Why the project is not instrumentable, when it isn't. Human-readable.
+         * @maxLength 300
+         * @nullable
+         */
+      reason?: string | null;
+    }
+
+    /**
+     * Why a detection run failed. Populated instead of `report`.
+     */
+    export interface DetectionError {
+      /**
+         * Machine-readable failure category, e.g. 'no-manifests', 'agent-error'.
+         * @maxLength 100
+         * @nullable
+         */
+      type?: string | null;
+      /**
+         * Human-readable failure description.
+         * @maxLength 2000
+         */
+      message: string;
+    }
+
+    /**
+     * * `monorepo` - monorepo
+     * * `single` - single
+     */
+    export type RepoTypeEnum = typeof RepoTypeEnum[keyof typeof RepoTypeEnum];
+
+
+    export const RepoTypeEnum = {
+      Monorepo: 'monorepo',
+      Single: 'single',
+    } as const;
+
+    /**
+     * The structured result of one detection run. Typed rather than a free-form dict so the
+     * shape the app renders is enforced at the edge instead of trusted from the producer.
+     */
+    export interface DetectionReport {
+      /** Whether the repository is a multi-project workspace or a single project.
+       *
+       * * `monorepo` - monorepo
+       * * `single` - single */
+      repo_type: RepoTypeEnum;
+      /** Projects found in the repository, one entry per project manifest. */
+      projects: DetectedProject[];
+    }
+
+    /**
      * * `Desktop` - Desktop
      * * `Mobile` - Mobile
      * * `Tablet` - Tablet
@@ -46492,6 +46567,7 @@ export namespace Schemas {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
+     * * `repo_detection` - Wizard Repository Detection
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -46515,6 +46591,7 @@ export namespace Schemas {
       ImageBuilder: 'image_builder',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
+      RepoDetection: 'repo_detection',
     } as const;
 
     /**
@@ -59636,7 +59713,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `repo_detection` - Wizard Repository Detection */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -75172,7 +75250,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `repo_detection` - Wizard Repository Detection */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -76277,7 +76356,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `repo_detection` - Wizard Repository Detection */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -77059,6 +77139,31 @@ export namespace Schemas {
     }
 
     /**
+     * Input: validates the JSON a detection agent posts. team_id is derived from URL.
+     */
+    export interface UpsertWizardRepositoryDetectionRequest {
+      /** The detection result. Exactly one of `report` / `error` must be set. */
+      report?: DetectionReport | null;
+      /** Why the run failed. Exactly one of `report` / `error` must be set. */
+      error?: DetectionError | null;
+      /**
+         * TaskRun UUID of the cloud run producing this result. Omit for local runs. Must match the run currently stamped on the row when one is; a mismatch is rejected, and omitting it keeps the stamped run in place.
+         * @nullable
+         */
+      task_run_id?: string | null;
+      /**
+         * Repository the detection ran against, in 'org/repo' form. Together with `kind` this is the idempotency anchor — reposting the same pair replaces the existing row.
+         * @maxLength 255
+         */
+      repository: string;
+      /**
+         * Detection flavor, e.g. 'error-tracking-source-maps'.
+         * @maxLength 64
+         */
+      kind: string;
+    }
+
+    /**
      * Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific.
      * @nullable
      */
@@ -77828,6 +77933,29 @@ export namespace Schemas {
          * @nullable
          */
       started_at?: string | null;
+    }
+
+    /**
+     * Output: serialises a WizardRepositoryDetectionDTO returned by the facade.
+     */
+    export interface WizardRepositoryDetectionDTO {
+      /** The detection result, or null when the run failed (see `error`). */
+      report: DetectionReport | null;
+      /** Why the run failed, or null when it succeeded (see `report`). */
+      error: DetectionError | null;
+      id: string;
+      team_id: number;
+      /** Repository the detection ran against, in 'org/repo' form. */
+      repository: string;
+      /** Detection flavor, e.g. 'error-tracking-source-maps'. */
+      kind: string;
+      /**
+         * TaskRun UUID of the cloud run that produced this result, when it ran in the cloud.
+         * @nullable
+         */
+      task_run_id: string | null;
+      created_at: string;
+      updated_at: string;
     }
 
     export interface WorkflowHealthBucket {

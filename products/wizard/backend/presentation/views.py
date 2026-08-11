@@ -30,14 +30,19 @@ from posthog.sync import database_sync_to_async
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
+    UpsertWizardRepositoryDetectionInput,
+    UpsertWizardRepositoryDetectionRequest,
     UpsertWizardSessionInput,
     UpsertWizardSessionRequest,
+    WizardRepositoryDetectionRunMismatchError,
     WizardSessionDTO,
     WizardSessionOwnershipError,
 )
 from products.wizard.backend.facade.enums import RunPhase
 from products.wizard.backend.presentation.serializers import (
+    UpsertWizardRepositoryDetectionRequestSerializer,
     UpsertWizardSessionRequestSerializer,
+    WizardRepositoryDetectionSerializer,
     WizardSessionSerializer,
 )
 from products.wizard.backend.presentation.utils import pagination_window
@@ -364,6 +369,58 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Releases the request-thread DB connection (auth, team resolution) before
         # the long-lived stream begins — see sse_streaming_response.
         return sse_streaming_response(generator, endpoint="wizard_session")
+
+
+class WizardRepositoryDetectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Detection results a wizard agent posted for a team's repositories.
+
+    Rides the `wizard_session` scope: both are wizard-produced run data, and the
+    wizard's OAuth grant (interactive and cloud-run) already carries it.
+    """
+
+    scope_object = "wizard_session"
+    scope_object_write_actions = ["create"]
+    # POST-only for now: reads come back with the UI that presents detections.
+    http_method_names = ["post", "head", "options"]
+
+    @extend_schema(
+        description=(
+            "Upsert a repository detection. The `(repository, kind)` pair is the idempotency "
+            "anchor — reposting the same pair replaces the existing row. Returns 201 on "
+            "create, 200 on update. A push whose `task_run_id` differs from the run currently "
+            "stamped on the row is rejected with 409."
+        ),
+        request=UpsertWizardRepositoryDetectionRequestSerializer,
+        responses={
+            200: WizardRepositoryDetectionSerializer,
+            201: WizardRepositoryDetectionSerializer,
+            409: OpenApiResponse(description="task_run_id does not match the run currently stamped on the row."),
+        },
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = UpsertWizardRepositoryDetectionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        req: UpsertWizardRepositoryDetectionRequest = serializer.save()
+
+        user = getattr(request, "user", None)
+        created_by_id = user.id if user is not None and not user.is_anonymous else None
+
+        try:
+            dto, created = wizard_facade.upsert_wizard_repository_detection(
+                UpsertWizardRepositoryDetectionInput(
+                    team_id=self.team_id,
+                    repository=req.repository,
+                    kind=req.kind,
+                    report=req.report,
+                    error=req.error,
+                    task_run_id=req.task_run_id,
+                    created_by_id=created_by_id,
+                )
+            )
+        except WizardRepositoryDetectionRunMismatchError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(WizardRepositoryDetectionSerializer(dto).data, status=response_status)
 
 
 async def _wizard_session_event_stream(

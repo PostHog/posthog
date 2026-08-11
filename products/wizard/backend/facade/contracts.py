@@ -51,6 +51,10 @@ class WizardSessionOwnershipError(Exception):
     """Raised when an upsert would overwrite a session owned by a different user."""
 
 
+class WizardRepositoryDetectionRunMismatchError(Exception):
+    """Raised when a detection push carries a task_run_id other than the row's stamped run."""
+
+
 @dataclass(frozen=True)
 class UpsertWizardSessionRequest:
     """What the wizard CLI POSTs. team_id is derived from the URL, not the body."""
@@ -81,4 +85,40 @@ class UpsertWizardSessionInput:
     pending_input: dict[str, Any] | None
     handoff_text: str | None = None
     # Set on create only, never overwritten on later pushes for the same run.
+    created_by_id: int | None = None
+
+
+@dataclass(frozen=True)
+class WizardRepositoryDetectionDTO:
+    id: str
+    team_id: int
+    repository: str
+    kind: str
+    report: dict[str, Any] | None
+    error: dict[str, Any] | None
+    task_run_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class UpsertWizardRepositoryDetectionRequest:
+    """What a detection agent POSTs. team_id is derived from the URL, not the body."""
+
+    repository: str
+    kind: str
+    report: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
+    task_run_id: str | None = None
+
+
+@dataclass(frozen=True)
+class UpsertWizardRepositoryDetectionInput:
+    team_id: int
+    repository: str
+    kind: str
+    report: dict[str, Any] | None
+    error: dict[str, Any] | None
+    task_run_id: str | None
+    # Set on create only, never overwritten on later pushes for the same key.
     created_by_id: int | None = None

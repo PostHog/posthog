@@ -368,6 +368,116 @@ def execute_task_processing_workflow(
         )
 
 
+def _wizard_repository_detection_workflow_id(task_id: str, run_id: str) -> str:
+    return f"wizard-repository-detection-{task_id}-{run_id}"
+
+
+def execute_wizard_repository_detection_workflow(task_id: str, run_id: str, team_id: int) -> None:
+    """Start the wizard-repository-detection workflow synchronously. Fire-and-forget.
+
+    The detection sibling of ``execute_task_processing_workflow``: same terminalization
+    contract (a failed start must not orphan the run in QUEUED), none of the agent-run
+    plumbing (Slack context, prewarm, initial message).
+    """
+    from products.tasks.backend.temporal.wizard_repository_detection import (
+        WizardRepositoryDetectionInput,  # noqa: PLC0415 — avoid an import cycle via temporal/__init__
+    )
+
+    task_run_for_metrics: TaskRun | None = None
+    try:
+        task_run_for_metrics = _get_task_run_for_metrics(run_id)
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
+        Team.objects.get(id=team_id)
+        _capture_run_feature_flags(run_id)
+
+        workflow_id = _wizard_repository_detection_workflow_id(task_id, run_id)
+        # Persist before starting: without it `TaskRun.workflow_id` resolves to `task-processing-*`,
+        # so cancellation and team deletion would act on a workflow that does not exist.
+        _record_prefixed_workflow_id(run_id, workflow_id)
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "wizard-repository-detection",
+                WizardRepositoryDetectionInput(run_id=run_id),
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                # One attempt: the workflow terminalizes its own failures, so a workflow-level
+                # retry only fires when cleanup or a status update escapes the except/finally,
+                # and it would re-run the whole scan on a fresh sandbox while leaking the old
+                # one. A failed scan is re-triggerable from the app instead.
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+        logger.info("wizard_repository_detection_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
+
+    except Team.DoesNotExist as e:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
+        logger.exception(
+            "wizard_repository_detection_permission_validation_failed",
+            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
+        _terminalize_unstarted_task_run(
+            run_id,
+            f"Failed to start detection workflow: permission validation failed: {e}",
+        )
+    except Exception as e:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
+        logger.exception(
+            "wizard_repository_detection_workflow_start_failed",
+            extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
+        )
+        _terminalize_unstarted_task_run(
+            run_id,
+            f"Failed to start detection workflow: {e}",
+        )
+
+
+def _redispatch_wizard_repository_detection_run(task_run: TaskRun, run_id: str) -> str:
+    """Detection arm of ``redispatch_orphaned_task_run``, sharing its outcome contract
+    (``recovered`` / ``already_running`` / ``error``). Split out so the generic process-task
+    recovery path, which must never dispatch a detection run, stays untouched by it."""
+    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
+
+    from products.tasks.backend.temporal.wizard_repository_detection import (  # noqa: PLC0415 — avoid an import cycle via temporal/__init__
+        WizardRepositoryDetectionInput,
+    )
+
+    task_id = str(task_run.task_id)
+    workflow_id = _wizard_repository_detection_workflow_id(task_id, run_id)
+    _record_prefixed_workflow_id(run_id, workflow_id)
+    observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
+    _capture_run_feature_flags(run_id)
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "wizard-repository-detection",
+                WizardRepositoryDetectionInput(run_id=run_id),
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                # One attempt, for the reason on execute_wizard_repository_detection_workflow.
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run, outcome="blocked", reason="reconcile_already_running")
+        return "already_running"
+    except Exception as e:
+        observe_task_run_workflow_start(task_run, outcome="failed", reason="reconcile_error")
+        logger.warning(
+            "task_run_reconcile_dispatch_failed",
+            extra={"run_id": run_id, "task_id": task_id, "error": str(e)},
+        )
+        return "error"
+
+    observe_task_run_workflow_start(task_run, outcome="started", reason="reconcile")
+    logger.info("task_run_reconcile_dispatch_started", extra={"run_id": run_id, "task_id": task_id})
+    return "recovered"
+
+
 def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
     """Best-effort scope posture for the reconciler when ``pending_dispatch`` didn't carry
     ``posthog_mcp_scopes`` (pre-reconciler rows, or the bootstrap/start path). Mirrors
@@ -437,6 +547,11 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         return "skipped_prewarmed"
 
     task = task_run.task
+    # Detection runs are driven by their own workflow; the generic path below would recover
+    # one as a full process-task agent run.
+    if task.origin_product == Task.OriginProduct.WIZARD_REPOSITORY_DETECTION:
+        return _redispatch_wizard_repository_detection_run(task_run, run_id)
+
     task_id = str(task.id)
     # create_and_run persists these on the row; the bootstrap/start path does not, so fall back to
     # deriving mcp scopes from run_source exactly as _trigger_task_processing_workflow does.

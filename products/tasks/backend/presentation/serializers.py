@@ -682,6 +682,8 @@ class TaskWriteSerializer(serializers.Serializer):
             # forged origin would be free model access. Only create_wizard_cloud_run sets it,
             # behind its own rate limits and daily cap.
             tasks_facade.TaskOriginProduct.ONBOARDING,
+            # Server-set only: created by create_wizard_repository_detection_run behind its own daily cap.
+            tasks_facade.TaskOriginProduct.WIZARD_REPOSITORY_DETECTION,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")

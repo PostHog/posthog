@@ -7,10 +7,11 @@ from typing import NoReturn, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.utils.crypto import get_random_string
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from google.genai.types import GenerateContentConfig, Schema
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -20,13 +21,14 @@ from openai.types.chat import (
 from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter
-from rest_framework import exceptions, response, serializers, viewsets
+from rest_framework import exceptions, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
@@ -43,6 +45,7 @@ from posthog.rate_limit import (
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.wizard.backend.facade import api as wizard_facade
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
@@ -60,6 +63,29 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 # parallel requests; this cache.incr cannot, so it is the hard bound a start-cancel or crash
 # loop lands on. Only requests that reach creation consume it.
 WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
+
+# The only limit on detection scans, on its own counter: every attempt counts regardless of
+# outcome, and a user scanning several repositories must not exhaust their onboarding budget.
+WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP = 30
+
+# A run in one of these states still occupies its (repository, kind) scan slot; a failed,
+# cancelled, or completed run frees it.
+_LIVE_TASK_RUN_STATUSES = (
+    tasks_facade.TaskRunStatus.NOT_STARTED,
+    tasks_facade.TaskRunStatus.QUEUED,
+    tasks_facade.TaskRunStatus.IN_PROGRESS,
+)
+
+# Backstop for a trigger that crashes between taking its lock and the finally that releases it;
+# comfortably above a trigger request's worst-case latency.
+WIZARD_REPOSITORY_DETECTION_TRIGGER_LOCK_SECONDS = 30
+
+ERROR_DETECTION_SCAN_ALREADY_RUNNING = "A scan for this repository is already running. Wait for it to finish."
+
+
+def _detection_trigger_lock_key(team_id: int, repository: str, kind: str) -> str:
+    return f"wizard_repository_detection_trigger_lock:{team_id}:{repository}:{kind}"
+
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
@@ -137,6 +163,94 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
     )
     run_id = serializers.CharField(help_text="ID of the task's run.")
     status = serializers.CharField(help_text="Initial status of the run (e.g. 'queued').")
+
+
+class SetupWizardRepositoryDetectionResponseSerializer(serializers.Serializer):
+    task_id = serializers.CharField(
+        help_text=(
+            "ID of the created detection task. No pull request is opened; poll GET "
+            "/api/wizard/repository_detections for the scan's status and report."
+        )
+    )
+    run_id = serializers.CharField(help_text="ID of the task's run.")
+    status = serializers.CharField(help_text="Initial status of the run (e.g. 'queued').")
+
+
+class SetupWizardRepositoryDetectionSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        help_text="ID of the PostHog project the detection result belongs to. The authenticated user must have access to it."
+    )
+    repository = serializers.CharField(
+        help_text=(
+            "GitHub repository to scan, as 'owner/repo' (e.g. 'posthog/posthog-js'). The team "
+            "must have a connected GitHub integration with access to it."
+        )
+    )
+    # CharField, not ChoiceField: the supported set lives in the tasks facade, and a ChoiceField
+    # here would mint a collision-prone KindEnum in the OpenAPI schema.
+    kind = serializers.CharField(
+        max_length=64,
+        help_text="Detection flavor to run, e.g. 'error-tracking-source-maps'. Unsupported kinds are rejected.",
+    )
+
+    def validate_kind(self, value: str) -> str:
+        # Rejected here so an unknown kind never charges the daily attempt budget.
+        if value not in tasks_facade.supported_wizard_repository_detection_kinds():
+            raise serializers.ValidationError(f"Unknown detection kind: {value}")
+        return value
+
+    def validate_repository(self, value: str) -> str:
+        # Lowercased so the trigger lock, the stamped detection row, and the report the wizard
+        # posts back (keyed by Task.repository, which Task.save() lowercases) all share one key;
+        # a mixed-case trigger would stamp a row the report never lands on.
+        repository = value.strip().lower()
+        parts = repository.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise serializers.ValidationError("Repository must be in 'owner/repo' format.")
+        return repository
+
+
+class SetupWizardRepositoryDetectionStatusSerializer(serializers.Serializer):
+    """Output: one detection row joined with the live status of the run producing it."""
+
+    repository = serializers.CharField(help_text="Repository the detection is for, in 'owner/repo' form.")
+    kind = serializers.CharField(help_text="Detection flavor, e.g. 'error-tracking-source-maps'.")
+    task_run_id = serializers.CharField(
+        allow_null=True,
+        help_text="TaskRun UUID of the latest cloud scan triggered for this row. Null for rows produced by local wizard runs.",
+    )
+    # CharField, not ChoiceField: the values are TaskRun statuses owned by the tasks product,
+    # and a ChoiceField here would mint a collision-prone StatusEnum in the OpenAPI schema.
+    task_run_status = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Live status of that run: 'queued' or 'in_progress' mean a scan is running now; "
+            "'completed', 'failed', 'cancelled' are terminal. Null when no cloud run is tracked "
+            "or its run row no longer exists."
+        ),
+    )
+    report = serializers.JSONField(
+        allow_null=True,
+        help_text=(
+            "Latest completed detection report ({repo_type, projects[]}). Null while the first "
+            "scan is still running, or when the last completed scan failed (see `error`)."
+        ),
+    )
+    error = serializers.JSONField(
+        allow_null=True,
+        help_text="{type, message} describing the last failed scan. Null when the last scan succeeded.",
+    )
+    updated_at = serializers.DateTimeField(help_text="When this row last changed (trigger or completion).")
+
+
+class SetupWizardRepositoryDetectionListQuerySerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        help_text="ID of the PostHog project whose detections to list. The authenticated user must have access to it."
+    )
+    kind = serializers.CharField(
+        required=False,
+        help_text="Filter to a single detection flavor, e.g. 'error-tracking-source-maps'.",
+    )
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
@@ -496,6 +610,32 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if count > WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP:
             raise exceptions.Throttled(detail="You've reached today's limit for cloud setup runs. Try again tomorrow.")
 
+    @staticmethod
+    def _reserve_wizard_repository_detection_attempt(user_id: int) -> None:
+        """Detection counterpart of ``_reserve_cloud_run_attempt``, on its own counter and cap."""
+        window = int(time.time()) // 86400
+        key = f"wizard_repository_detection_attempts:{user_id}:{window}"
+        cache.add(key, 0, timeout=86400)
+        try:
+            count = cache.incr(key)
+        except ValueError:
+            # The key expired between add and incr; this request is the window's first.
+            count = 1
+        if count > WIZARD_REPOSITORY_DETECTION_DAILY_ATTEMPT_CAP:
+            raise exceptions.Throttled(detail="You've reached today's limit for repository scans. Try again tomorrow.")
+
+    @staticmethod
+    def _resolve_visible_project(request: Request, project_id: int) -> Project:
+        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
+        try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
+        if project.id not in visible_project_ids:
+            raise exceptions.PermissionDenied("You don't have access to this project.")
+        return project
+
     def _cloud_run(self, request: Request) -> Response:
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
             raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
@@ -506,14 +646,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
 
-        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
-        try:
-            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
-            project = Project.objects.get(id=project_id)
-        except Project.DoesNotExist:
-            raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
-        if project.id not in visible_project_ids:
-            raise exceptions.PermissionDenied("You don't have access to this project.")
+        project = self._resolve_visible_project(request, project_id)
 
         self._reserve_cloud_run_attempt(cast(User, request.user).id)
 
@@ -535,4 +668,142 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "run_id": str(latest_run.id) if latest_run else "",
                 "status": latest_run.status if latest_run else "queued",
             }
+        )
+
+    @extend_schema(
+        request=SetupWizardRepositoryDetectionSerializer,
+        responses={
+            200: SetupWizardRepositoryDetectionResponseSerializer,
+            409: OpenApiResponse(description="A scan for this repository and kind is already running."),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="repository_detection",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+    )
+    def repository_detection(self, request: Request) -> Response:
+        """Run a repository detection scan of the given kind, in the cloud.
+
+        Provisions a task-run sandbox that clones the repository and runs the wizard detection
+        program the kind selects. The wizard posts the resulting report to the wizard product's
+        repository-detections API under the same kind; the app reads it from there later. No
+        agent runs and no pull request is opened. Bounded by a daily per-user attempt cap,
+        separate from the cloud wizard run's budget. One scan per (repository, kind) at a
+        time: a trigger while the previous scan is still running returns 409.
+        """
+        if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
+            raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
+
+        serializer = SetupWizardRepositoryDetectionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        project = self._resolve_visible_project(request, serializer.validated_data["project_id"])
+        team_id = project.passthrough_team.pk
+        repository = serializer.validated_data["repository"]
+        kind = serializer.validated_data["kind"]
+
+        # cache.add is atomic, so the first of two simultaneous triggers wins the key and the
+        # loser 409s instead of both passing the live-run check below and double-booting sandboxes.
+        lock_key = _detection_trigger_lock_key(team_id, repository, kind)
+        if not cache.add(lock_key, "1", timeout=WIZARD_REPOSITORY_DETECTION_TRIGGER_LOCK_SECONDS):
+            return Response({"detail": ERROR_DETECTION_SCAN_ALREADY_RUNNING}, status=status.HTTP_409_CONFLICT)
+        try:
+            # One scan per (repository, kind) at a time: overlapping scans race their completion
+            # posts, so the older scan could overwrite the newer stamp with stale results. Checked
+            # before the attempt reservation so a rejected trigger never charges the daily budget.
+            existing = wizard_facade.get_wizard_repository_detection(team_id, repository, kind)
+            if existing is not None and existing.task_run_id is not None:
+                run_status = tasks_facade.task_run_statuses(team_id, [existing.task_run_id]).get(existing.task_run_id)
+                if run_status in _LIVE_TASK_RUN_STATUSES:
+                    return Response(
+                        {"detail": ERROR_DETECTION_SCAN_ALREADY_RUNNING},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+            self._reserve_wizard_repository_detection_attempt(cast(User, request.user).id)
+
+            try:
+                # One transaction so the run and its stamp commit together, and so the workflow
+                # dispatch (an on_commit hook the facade registers) fires only after both. A
+                # scan dispatched without a committed stamp is invisible to the live-run gate
+                # above, and its report post is mismatch-rejected whenever an older run is
+                # still stamped on the row. A stamp failure therefore rolls the run back and
+                # fails the request instead of launching an untracked scan.
+                with transaction.atomic():
+                    result = tasks_facade.create_wizard_repository_detection_run(
+                        team=project.passthrough_team,
+                        user_id=cast(User, request.user).id,
+                        repository=repository,
+                        kind=kind,
+                    )
+                    latest_run = result.latest_run
+                    if latest_run is not None:
+                        wizard_facade.record_wizard_repository_detection_run(
+                            team_id=team_id,
+                            repository=repository,
+                            kind=kind,
+                            task_run_id=str(latest_run.id),
+                            created_by_id=cast(User, request.user).id,
+                        )
+            except ValueError as e:
+                # e.g. unknown kind, or no GitHub integration with access to the repository.
+                raise exceptions.ValidationError(str(e))
+
+            return Response(
+                {
+                    "task_id": str(result.task_id),
+                    "run_id": str(latest_run.id) if latest_run else "",
+                    "status": latest_run.status if latest_run else "queued",
+                }
+            )
+        finally:
+            cache.delete(lock_key)
+
+    @validated_request(
+        query_serializer=SetupWizardRepositoryDetectionListQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SetupWizardRepositoryDetectionStatusSerializer(many=True),
+                description="The project's detection rows with live run statuses.",
+            )
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="repository_detections",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+    )
+    def repository_detections(self, request: Request) -> Response:
+        """List the project's repository detections with the live status of their runs.
+
+        One row per (repository, kind), most recently updated first, up to 200 rows. Each row
+        carries the last completed report or error plus `task_run_status` of the latest cloud
+        scan, so the app can show both the previous result and whether a rescan is running.
+        Rows also exist for scans the wizard ran locally; those carry no run to track.
+        """
+        query = request.validated_query_data
+        project = self._resolve_visible_project(request, query["project_id"])
+        team_id = project.passthrough_team.pk
+
+        detections = wizard_facade.list_wizard_repository_detections(team_id, kind=query.get("kind") or None)
+        statuses = tasks_facade.task_run_statuses(
+            team_id, [detection.task_run_id for detection in detections if detection.task_run_id]
+        )
+        return Response(
+            [
+                {
+                    "repository": detection.repository,
+                    "kind": detection.kind,
+                    "task_run_id": detection.task_run_id,
+                    "task_run_status": statuses.get(detection.task_run_id) if detection.task_run_id else None,
+                    "report": detection.report,
+                    "error": detection.error,
+                    "updated_at": detection.updated_at,
+                }
+                for detection in detections
+            ]
         )

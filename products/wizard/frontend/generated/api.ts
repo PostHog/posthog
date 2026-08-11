@@ -10,12 +10,34 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedWizardSessionDTOListApi,
+    UpsertWizardRepositoryDetectionRequestApi,
     UpsertWizardSessionRequestApi,
+    WizardRepositoryDetectionDTOApi,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
     WizardSessionsStreamRetrieveParams,
 } from './api.schemas'
+
+export const getWizardRepositoryDetectionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/repository_detections/`
+}
+
+/**
+ * Upsert a repository detection. The `(repository, kind)` pair is the idempotency anchor — reposting the same pair replaces the existing row. Returns 201 on create, 200 on update. A push whose `task_run_id` differs from the run currently stamped on the row is rejected with 409.
+ */
+export const wizardRepositoryDetectionsCreate = async (
+    projectId: string,
+    upsertWizardRepositoryDetectionRequestApi: UpsertWizardRepositoryDetectionRequestApi,
+    options?: RequestInit
+): Promise<WizardRepositoryDetectionDTOApi> => {
+    return apiMutator<WizardRepositoryDetectionDTOApi>(getWizardRepositoryDetectionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(upsertWizardRepositoryDetectionRequestApi),
+    })
+}
 
 export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessionsListParams) => {
     const normalizedParams = new URLSearchParams()

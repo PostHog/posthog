@@ -13,13 +13,56 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from products.wizard.backend import metrics
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
-from products.wizard.backend.logic import pubsub, sessions
+from products.wizard.backend.facade.contracts import (
+    UpsertWizardRepositoryDetectionInput,
+    UpsertWizardSessionInput,
+    WizardRepositoryDetectionDTO,
+    WizardSessionDTO,
+)
+from products.wizard.backend.logic import pubsub, repository_detections, sessions
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
     """Returns `(dto, created)` so callers can pick 201 vs 200."""
     return sessions.upsert_session(params)
+
+
+def upsert_wizard_repository_detection(
+    params: UpsertWizardRepositoryDetectionInput,
+) -> tuple[WizardRepositoryDetectionDTO, bool]:
+    """Returns `(dto, created)` so callers can pick 201 vs 200."""
+    return repository_detections.upsert_wizard_repository_detection(params)
+
+
+def record_wizard_repository_detection_run(
+    *,
+    team_id: int,
+    repository: str,
+    kind: str,
+    task_run_id: str,
+    created_by_id: int | None = None,
+) -> WizardRepositoryDetectionDTO:
+    """Stamp a triggered cloud scan's run id onto the (repository, kind) row, keeping any
+    previous report/error readable while the scan runs."""
+    return repository_detections.record_wizard_repository_detection_run(
+        team_id=team_id,
+        repository=repository,
+        kind=kind,
+        task_run_id=task_run_id,
+        created_by_id=created_by_id,
+    )
+
+
+def get_wizard_repository_detection(team_id: int, repository: str, kind: str) -> WizardRepositoryDetectionDTO | None:
+    """The (repository, kind) detection row, or None."""
+    return repository_detections.get_wizard_repository_detection(team_id, repository, kind)
+
+
+def list_wizard_repository_detections(
+    team_id: int, *, kind: str | None = None, limit: int = 200
+) -> list[WizardRepositoryDetectionDTO]:
+    """The team's detection rows, most recently updated first."""
+    return repository_detections.list_wizard_repository_detections(team_id, kind=kind, limit=limit)
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:
