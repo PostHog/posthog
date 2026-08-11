@@ -1125,7 +1125,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             record_dashboard_view(resource.dashboard, context["dashboard_access_method"])
 
             with task_chain_context():
-                dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
+                # Viewers of a shared dashboard never get the tile details panel, so the people
+                # who created and last modified the dashboard and its tiles stay out of the payload
+                dashboard_context = {**context, "hide_extra_details": True}
+                dashboard_data = DashboardSerializer(resource.dashboard, context=dashboard_context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
