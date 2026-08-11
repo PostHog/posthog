@@ -35,30 +35,17 @@ export interface IntegrationServerOverrides {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
-/**
- * Run `task` every `intervalMs`, after an initial delay drawn from [0, intervalMs) so
- * replicas do not reload in lockstep. The period never exceeds `intervalMs`, because the
- * reload is how a signing-key revocation reaches this pod. Timers are unref'd.
- */
-export function everyJittered(intervalMs: number, task: () => Promise<void>): () => void {
-    let repeat: NodeJS.Timeout | undefined
+/** Run `task` every `intervalMs`. The timer is unref'd; the return value cancels it. */
+export function every(intervalMs: number, task: () => Promise<void>): () => void {
     // A rejecting task would otherwise reach the unhandledRejection handler and exit the
     // process, so a blip in whatever the task talks to would take the pod down.
-    const run = (): void => {
+    const timer = setInterval(() => {
         task().catch((err: unknown) => {
             logger.error('timer:task_failed', { error: err instanceof Error ? err.message : String(err) })
         })
-    }
-    const first = setTimeout(() => {
-        run()
-        repeat = setInterval(run, intervalMs)
-        repeat.unref()
-    }, Math.random() * intervalMs)
-    first.unref()
-    return () => {
-        clearTimeout(first)
-        clearInterval(repeat)
-    }
+    }, intervalMs)
+    timer.unref()
+    return () => clearInterval(timer)
 }
 
 export class IntegrationServer {
@@ -113,7 +100,7 @@ export class IntegrationServer {
             logger.info('server:started', { host: config.host, port: info.port, env: config.env })
         })
 
-        this.cancelTimers.push(everyJittered(config.reloadSeconds * 1000, () => this.reload()))
+        this.cancelTimers.push(every(config.reloadSeconds * 1000, () => this.reload()))
 
         this.setupProcessListeners()
     }

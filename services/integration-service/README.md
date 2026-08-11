@@ -108,9 +108,8 @@ plain string values.
 External Secrets Operator syncs that secret into a Kubernetes Secret, and kubelet mounts it as a
 directory of one file per key. Kubelet rewrites the mount in place and swaps the `..data` symlink
 atomically, so a rotation reaches the pod without a restart and a read never sees a half-written
-set. The service re-reads on a timer (`src/mount.ts`) and holds the parsed set in memory; each
-replica's first read lands at a random point inside `INTEGRATION_SERVICE_RELOAD_SECONDS` so
-replicas do not reload in lockstep, and the period never exceeds it after that.
+set. The service re-reads on a timer (`src/mount.ts`), every
+`INTEGRATION_SERVICE_RELOAD_SECONDS`, and holds the parsed set in memory.
 
 A pod holding no credentials fails its readiness probe rather than exiting, so an empty mount
 recovers on its own once ESO syncs instead of crash-looping. A mount that stops being readable

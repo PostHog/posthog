@@ -23,13 +23,7 @@ export const RESERVED_PREFIX = '__'
 /** Comma-separated names of the credentials that are in recovery. */
 export const RECOVERY_KEYS = 'INTEGRATION_RECOVERY_KEYS'
 
-/**
- * Suffix holding the outgoing value during a rotation, comma-separated, newest first.
- *
- * A sibling key rather than an AWS staging label: `AWSPREVIOUS` applies to a whole secret
- * version, so with everything in one secret an unrelated edit would silently end an
- * in-flight rotation's overlap.
- */
+/** Suffix holding the outgoing value during a rotation, comma-separated, newest first. */
 export const FALLBACK_SUFFIX = '_FALLBACKS'
 
 function commaList(value: string | undefined): string[] {

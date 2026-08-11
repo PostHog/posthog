@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AUDIENCE } from '@/auth/types'
 import type { Config } from '@/lib/config'
-import { everyJittered, IntegrationServer } from '@/server'
+import { every, IntegrationServer } from '@/server'
 
 const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
 const SIGNING_KEY = 'server-test-signing-key'
@@ -121,21 +121,18 @@ describe('integration server', () => {
 })
 
 // The reload is how a signing-key revocation reaches a running pod, so the cadence must
-// never stretch past the configured interval, and replicas must not all reload at once.
-describe('everyJittered', () => {
+// never stretch past the configured interval.
+describe('every', () => {
     afterEach(() => {
         vi.useRealTimers()
-        vi.restoreAllMocks()
     })
 
-    it('runs first inside the interval, then on exactly that period', async () => {
+    it('runs on exactly the configured period', async () => {
         vi.useFakeTimers()
-        // Worst-case initial draw: the first run must still land at the interval, not past it.
-        vi.spyOn(Math, 'random').mockReturnValue(1)
         const runs: number[] = []
         const start = Date.now()
 
-        const cancel = everyJittered(10_000, () => {
+        const cancel = every(10_000, () => {
             runs.push(Date.now() - start)
             return Promise.resolve()
         })
@@ -145,30 +142,10 @@ describe('everyJittered', () => {
         expect(runs).toEqual([10_000, 20_000, 30_000])
     })
 
-    it('draws a different initial delay per replica', async () => {
-        vi.useFakeTimers()
-        vi.spyOn(Math, 'random').mockReturnValueOnce(0.1).mockReturnValueOnce(0.9)
-        const firstRunAt: number[] = []
-        const start = Date.now()
-        const task = (): Promise<void> => {
-            firstRunAt.push(Date.now() - start)
-            return Promise.resolve()
-        }
-
-        const cancelA = everyJittered(10_000, task)
-        const cancelB = everyJittered(10_000, task)
-        await vi.advanceTimersByTimeAsync(9_500)
-        cancelA()
-        cancelB()
-
-        expect(firstRunAt).toEqual([1_000, 9_000])
-    })
-
     // An escaped rejection reaches the unhandledRejection handler, which exits the process.
     // A blip in whatever the task talks to must not take the pod down.
     it('swallows a rejecting task and keeps running', async () => {
         vi.useFakeTimers()
-        vi.spyOn(Math, 'random').mockReturnValue(0)
         const task = vi.fn().mockRejectedValue(new Error('boom'))
         const unhandled: unknown[] = []
         const onUnhandled = (reason: unknown): void => {
@@ -176,26 +153,25 @@ describe('everyJittered', () => {
         }
         process.on('unhandledRejection', onUnhandled)
 
-        const cancel = everyJittered(10_000, task)
+        const cancel = every(10_000, task)
         await vi.advanceTimersByTimeAsync(20_000)
         cancel()
         process.removeListener('unhandledRejection', onUnhandled)
 
-        expect(task).toHaveBeenCalledTimes(3)
+        expect(task).toHaveBeenCalledTimes(2)
         expect(unhandled).toEqual([])
     })
 
     it('stops running once cancelled', async () => {
         vi.useFakeTimers()
-        vi.spyOn(Math, 'random').mockReturnValue(0)
         const task = vi.fn().mockResolvedValue(undefined)
 
-        const cancel = everyJittered(10_000, task)
+        const cancel = every(10_000, task)
         await vi.advanceTimersByTimeAsync(10_000)
-        expect(task).toHaveBeenCalledTimes(2)
+        expect(task).toHaveBeenCalledTimes(1)
 
         cancel()
         await vi.advanceTimersByTimeAsync(60_000)
-        expect(task).toHaveBeenCalledTimes(2)
+        expect(task).toHaveBeenCalledTimes(1)
     })
 })
