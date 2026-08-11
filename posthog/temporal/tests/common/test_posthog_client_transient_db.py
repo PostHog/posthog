@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,6 +7,7 @@ import psycopg.errors
 from parameterized import parameterized
 from temporalio.worker import ExecuteActivityInput
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.posthog_client import _PostHogClientActivityInboundInterceptor
 
 
@@ -18,7 +17,7 @@ def _wrapped_by_django(message: str, cause: Exception) -> OperationalError:
     return error
 
 
-@dataclass
+@frozen
 class _Input:
     team_id: int
 
