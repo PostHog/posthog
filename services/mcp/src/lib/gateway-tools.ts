@@ -22,6 +22,10 @@ import type { Context, Tool, ZodObjectAny } from '@/tools/types'
  *  kebab-case and never contain `__`, so a namespaced name can't collide with one. */
 export const GATEWAY_TOOL_SEPARATOR = '__'
 
+/** Analytics category for proxied tools. Matches the sentence case of the catalog's own
+ *  categories, since both land in the same `$mcp_tool_category` breakdown. */
+export const THIRD_PARTY_TOOL_CATEGORY = 'Third-party tools'
+
 type AvailableServer = Schemas.AvailableServer
 type AvailableTool = Schemas.AvailableTool
 
@@ -34,6 +38,19 @@ interface GatewayToolTarget {
 
 export function gatewayToolName(slug: string, toolName: string): string {
     return `${slug}${GATEWAY_TOOL_SEPARATOR}${toolName}`
+}
+
+/** Whether a tool name came from a connected third-party server rather than PostHog. */
+export function isGatewayToolName(name: string): boolean {
+    return name.includes(GATEWAY_TOOL_SEPARATOR)
+}
+
+/** The server slug a namespaced tool name routes to, or undefined for a PostHog tool. */
+export function gatewayServerSlug(name: string): string | undefined {
+    if (!isGatewayToolName(name)) {
+        return undefined
+    }
+    return name.slice(0, name.indexOf(GATEWAY_TOOL_SEPARATOR))
 }
 
 /**

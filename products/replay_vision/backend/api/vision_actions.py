@@ -33,10 +33,6 @@ from products.replay_vision.backend.api.delivery import archive_delivery, provis
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
 from products.replay_vision.backend.digest import digest_name_for_scanner, unique_digest_name
-from products.replay_vision.backend.feature_flag import (
-    ReplayVisionActionsEnabledPermission,
-    ReplayVisionEnabledPermission,
-)
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
@@ -50,7 +46,7 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
-from products.replay_vision.backend.scanner_access import is_uuid, readable_scanner_ids
+from products.replay_vision.backend.scanner_access import readable_scanner_ids, selection_target_ids
 from products.replay_vision.backend.scanner_config import acting_user
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
@@ -589,12 +585,6 @@ class VisionActionSerializer(serializers.ModelSerializer):
         raise error
 
 
-def _selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
-    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`."""
-    configured = (selection or {}).get("scanner_ids") or []
-    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
-
-
 def _check_action_scanner_access(
     view: TeamAndOrgViewSetMixin, scanner: ReplayScanner, selection: dict[str, Any] | None
 ) -> None:
@@ -606,7 +596,7 @@ def _check_action_scanner_access(
     scanner's data into another scanner's summary.
     """
     view.check_object_permissions(view.request, scanner)
-    other_ids = _selection_target_ids(scanner.id, selection)
+    other_ids = selection_target_ids(scanner.id, selection)
     if not other_ids:
         return
     other_scanners = ReplayScanner.objects.filter(team_id=scanner.team_id, id__in=other_ids)
@@ -651,7 +641,6 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_action"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
     serializer_class = VisionActionSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionAction.objects.unscoped()
@@ -718,7 +707,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # action that looks created but never delivers.
         with transaction.atomic():
             action = serializer.save()
-            provision_delivery(action, request=self.request, team=self.team)
+            provision_delivery(action, user=acting_user(self.get_serializer_context()), team=self.team)
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
@@ -742,7 +731,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # enabled flag, or the name (each destination is named after the action). Cadence/selection
             # edits don't touch the destinations, so they must not churn them.
             if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
-                provision_delivery(action, request=self.request, team=self.team)
+                provision_delivery(action, user=acting_user(self.get_serializer_context()), team=self.team)
 
     def perform_destroy(self, instance: VisionAction) -> None:
         archive_delivery(instance, team=self.team)
@@ -976,7 +965,6 @@ class VisionActionRunViewSet(
     scope_object = "vision_action"
     # Runs surface recording-derived summaries, so reading them requires session_recording read too.
     required_scopes = ["vision_action:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
     serializer_class = VisionActionRunSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionActionRun.objects.unscoped()

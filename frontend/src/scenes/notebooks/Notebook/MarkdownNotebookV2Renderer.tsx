@@ -89,8 +89,14 @@ type MarkdownNotebookEntityPickerKind =
 
 export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
-        useValues(notebookLogic)
+    const {
+        isEditable,
+        isShared,
+        notebook,
+        markdownEditorValue,
+        markdownEditorInteractionActive,
+        markdownRemoteCarets,
+    } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const hiddenInsertCommandKeys = useMemo(
@@ -749,6 +755,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     remoteValue={remoteMarkdown}
                     remoteVersion={notebook?.version}
                     mode={isEditable ? 'edit' : 'view'}
+                    hideResourceLinks={isShared}
                     registry={markdownRegistry}
                     extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
                     hiddenInsertCommandKeys={hiddenInsertCommandKeys}

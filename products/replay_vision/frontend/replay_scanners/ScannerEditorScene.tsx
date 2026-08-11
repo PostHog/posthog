@@ -6,25 +6,14 @@ import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-    LemonTextArea,
-    Link,
-    SpinnerOverlay,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -45,7 +34,7 @@ import {
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
-import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS } from './types'
+import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -95,16 +84,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         durationValidationError,
     } = useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -223,6 +202,8 @@ function ConfigureStep(): JSX.Element {
     const { scanner, isNew } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const isTypeSelectable = isNew && !searchParams.template
 
     if (!scanner) {
@@ -232,10 +213,14 @@ function ConfigureStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <LemonField name="name" label="Name">
-                <LemonInput placeholder="e.g. Confused checkout flow" />
+                <LemonInput placeholder="e.g. Checkout friction" />
             </LemonField>
 
-            <LemonField name="description" label="Description (optional)">
+            <LemonField
+                name="description"
+                label="Description (optional)"
+                help="The scanning agent doesn't see this field. It's for you and your team to keep scanners organized."
+            >
                 <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
             </LemonField>
 
@@ -297,10 +282,16 @@ function ConfigureStep(): JSX.Element {
 
             <div className="flex flex-col gap-1 items-start">
                 <LemonField name="model" label="Model" className="items-start">
-                    <LemonSelect className="max-w-full" value={scanner.model} options={MODEL_OPTIONS} />
+                    <LemonSelect
+                        className="max-w-full"
+                        value={scanner.model}
+                        options={getModelOptions(namingVariant)}
+                    />
                 </LemonField>
                 <div className="text-xs text-muted">
-                    Newer models tend to produce higher-quality observations, but cost more per observation.
+                    {namingVariant
+                        ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
+                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}
                 </div>
             </div>
 
@@ -356,7 +347,8 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const stepIndex = visibleSteps.indexOf(step)
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
@@ -366,6 +358,26 @@ function EditorFooter({
     const ownsDurationFilter = step === 'triggers' || step === 'self_driving'
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
+
+    const cancel = (): void => {
+        // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
+        discardScannerDraft()
+        router.actions.push(isNew ? urls.replayVision() : urls.replayVision(scannerId))
+    }
+    const handleCancel = (): void => {
+        if (!hasUnsavedChanges) {
+            cancel()
+            return
+        }
+        LemonDialog.open({
+            title: isNew ? 'Discard this scanner?' : 'Discard your changes?',
+            description: isNew
+                ? "The scanner you've been setting up won't be saved."
+                : "The changes you made won't be saved.",
+            primaryButton: { children: 'Discard', status: 'danger', onClick: cancel },
+            secondaryButton: { children: 'Keep editing' },
+        })
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -389,30 +401,38 @@ function EditorFooter({
                         Back
                     </LemonButton>
                 ) : null}
-                {nextStep ? (
+                <div className="flex flex-wrap items-center gap-2 ml-auto">
                     <LemonButton
-                        type="primary"
-                        loading={isSubmitting}
-                        disabledReason={saveDisabledReason}
-                        onClick={onAdvance}
-                        className="ml-auto"
-                        data-attr="vision-editor-next"
+                        type="tertiary"
+                        onClick={handleCancel}
+                        disabledReason={isSubmitting ? 'Saving…' : undefined}
+                        data-attr="vision-editor-cancel"
                     >
-                        Next: {STEP_LABELS[nextStep]}
+                        Cancel
                     </LemonButton>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        loading={isSubmitting}
-                        disabledReason={saveDisabledReason}
-                        onClick={onSave}
-                        className="ml-auto"
-                        data-attr="vision-editor-save"
-                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
-                    >
-                        {isNew ? 'Create scanner' : 'Save changes'}
-                    </LemonButton>
-                )}
+                    {nextStep ? (
+                        <LemonButton
+                            type="primary"
+                            loading={isSubmitting}
+                            disabledReason={saveDisabledReason}
+                            onClick={onAdvance}
+                            data-attr="vision-editor-next"
+                        >
+                            Next: {STEP_LABELS[nextStep]}
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            loading={isSubmitting}
+                            disabledReason={saveDisabledReason}
+                            onClick={onSave}
+                            data-attr="vision-editor-save"
+                            data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                        >
+                            {isNew ? 'Create scanner' : 'Save changes'}
+                        </LemonButton>
+                    )}
+                </div>
             </div>
         </div>
     )

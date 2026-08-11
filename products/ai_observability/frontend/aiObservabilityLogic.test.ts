@@ -6,7 +6,9 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { emptySceneParams } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { productRedirects } from '~/products'
@@ -38,6 +40,7 @@ const redirectUrl = (
 describe('LLM analytics URL split', () => {
     it('uses the new canonical product URLs', () => {
         expect(urls.aiObservabilityDashboard()).toBe('/ai-observability/dashboard')
+        expect(urls.aiObservabilitySelfDriving()).toBe('/ai-observability/self-driving')
         expect(urls.aiObservabilityReviews()).toBe('/ai-observability/reviews')
         expect(urls.aiObservabilityTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
         expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/datasets')
@@ -119,6 +122,12 @@ describe('aiObservabilitySharedLogic', () => {
             },
             shouldFilterTestAccounts: true,
         })
+    })
+
+    it('selects the Self-driving tab for its scene key', () => {
+        sceneLogic.actions.setScene(Scene.AIObservability, 'aiObservabilitySelfDriving', emptySceneParams, false)
+
+        expectLogic(logic).toMatchValues({ activeTab: 'self-driving' })
     })
 
     it('preserves params owned by other logics when rewriting the URL', () => {
@@ -228,6 +237,35 @@ describe('aiObservabilitySharedLogic', () => {
 
         expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
         expect(router.values.searchParams).toMatchObject({ trace_search: 'walrus' })
+    })
+})
+
+describe('aiObservabilitySharedLogic AI event detection', () => {
+    let logic: ReturnType<typeof aiObservabilitySharedLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        sceneLogic.mount()
+        router.actions.push(urls.aiObservabilityTraces())
+        logic = aiObservabilitySharedLogic({})
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('waits for the project before probing for AI events', async () => {
+        // Probing without a project id throws, and the setup poll would repeat that every 20s.
+        projectLogic.actions.loadCurrentProjectSuccess(null)
+        logic.mount()
+
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadAIEventDefinition'])
+    })
+
+    it('probes for AI events once the project is known', async () => {
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadAIEventDefinition'])
     })
 })
 

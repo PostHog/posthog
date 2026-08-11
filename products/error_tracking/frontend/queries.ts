@@ -154,7 +154,7 @@ export const errorTrackingIssueEventsQuery = ({
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `issue_id_v2 = toUUID(${escapeHogQLString(issueId)})`
+    let where_string = `issue_id = toUUID(${escapeHogQLString(issueId)})`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery

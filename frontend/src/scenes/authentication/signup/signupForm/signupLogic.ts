@@ -11,6 +11,7 @@ import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
@@ -493,7 +494,7 @@ export const signupLogic = kea<signupLogicType>([
                 referral_source_ai_prompt: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
-                name: !name ? 'Please enter your name' : undefined,
+                name: !name?.trim() ? 'Please enter your name' : undefined,
                 role_at_organization: !role_at_organization ? 'Please select your role in the organization' : undefined,
             }),
             submit: async (payload, breakpoint) => {
@@ -503,9 +504,8 @@ export const signupLogic = kea<signupLogicType>([
 
                     const signupData: Record<string, any> = {
                         email: values.signupPanelEmail.email,
-                        first_name: payload.name.split(' ')[0],
-                        last_name: payload.name.split(' ')[1] || undefined,
-                        organization_name: payload.organization_name || undefined,
+                        ...splitFullName(payload.name),
+                        organization_name: payload.organization_name?.trim() || undefined,
                         role_at_organization: payload.role_at_organization,
                         referral_source: payload.referral_source,
                         referral_source_ai_prompt: payload.referral_source_ai_prompt,
@@ -524,7 +524,7 @@ export const signupLogic = kea<signupLogicType>([
 
                     const res = await api.create('api/signup/', signupData)
 
-                    if (!payload.organization_name) {
+                    if (!payload.organization_name?.trim()) {
                         posthog.capture('sign up organization name not provided')
                     }
 
@@ -556,6 +556,17 @@ export const signupLogic = kea<signupLogicType>([
                         actions.setSignupPanelEmailManualErrors({ email: message })
                         actions.setPanel(0)
                         return
+                    }
+
+                    // The `name` input is split into first_name/last_name for the API — surface
+                    // errors on those attributes next to the field the user actually sees.
+                    // Must throw (not return) so kea-forms marks the submit as failed and keeps
+                    // showing errors — on a successful submit it hides them again.
+                    if (error.attr === 'first_name' || error.attr === 'last_name') {
+                        actions.setSignupPanelOnboardingManualErrors({
+                            name: String(error.detail || 'Please enter your name'),
+                        })
+                        throw e
                     }
 
                     if (error.code === 'throttled') {

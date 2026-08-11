@@ -608,6 +608,79 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert "simulated per-alert query failure" in str(bad_prefetch.error)
         assert bad_prefetch.query_duration_ms is not None and bad_prefetch.query_duration_ms >= 0
 
+    @freeze_time("2026-01-01T10:05:00Z")
+    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
+    def test_attribute_filter_single_alert_cohort_succeeds_end_to_end(self):
+        # The shape that broke in production: a size-1, projection-ineligible
+        # cohort whose alert filters on a log attribute. Runs the real batched
+        # query via _run_cohort_query with predicate hoisting enabled, so it
+        # catches wiring drift between the activity call site and
+        # BatchedAlertCheckQuery that tests constructing the query class
+        # directly cannot.
+        from products.logs.backend.temporal.activities import _AlertCohort, _run_cohort_query
+
+        rows = [
+            {
+                "uuid": f"incident-{i}",
+                "team_id": self.team.id,
+                "timestamp": ts,
+                "body": "",
+                "severity_text": "error",
+                "severity_number": 17,
+                "service_name": "incident_usage_reporter",
+                "resource_attributes": {},
+                "attributes_map_str": attributes,
+            }
+            for i, (ts, attributes) in enumerate(
+                [
+                    ("2026-01-01 10:01:10", {"job_kind__str": "usage-rollup"}),
+                    ("2026-01-01 10:02:20", {"job_kind__str": "usage-rollup"}),
+                    ("2026-01-01 10:03:30", {}),
+                ]
+            )
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="incident shape",
+            threshold_count=0,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=3,
+            filters={
+                "serviceNames": ["incident_usage_reporter"],
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "job_kind",
+                                    "value": "usage-rollup",
+                                    "operator": "exact",
+                                    "type": "log_attribute",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+        cohort = _AlertCohort(
+            alerts=(alert,),
+            date_to=datetime(2026, 1, 1, 10, 5, 0, tzinfo=UTC),
+            projection_eligible=False,
+        )
+
+        result = _run_cohort_query(cohort)
+
+        prefetched = result.per_alert[str(alert.id)]
+        assert prefetched.error is None
+        assert prefetched.buckets is not None
+        assert sum(b.count for b in prefetched.buckets) == 2
+
 
 class TestEvaluateSingleAlert(APIBaseTest):
     def setUp(self):

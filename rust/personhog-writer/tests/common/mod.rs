@@ -103,7 +103,20 @@ pub fn make_person(team_id: i64, person_id: i64, version: i64) -> Person {
         is_identified: false,
         is_user_id: None,
         last_seen_at: None,
+        is_deleted: false,
     }
+}
+
+/// A team id no other test shares, however the tests are scheduled.
+/// Random rather than counter- or clock-derived: nextest runs each test
+/// in its own process, so any per-process counter or seconds-based salt
+/// hands the same id to tests launched in the same second. Rows in the
+/// shared table are keyed by team, so a unique team makes concurrent
+/// tests collision-free: one test's cleanup can never delete another's
+/// rows. Stays inside the team_id column's range.
+#[allow(dead_code)]
+pub fn unique_team_id() -> i32 {
+    (uuid::Uuid::new_v4().as_u128() % 900_000_000 + 100_000_000) as i32
 }
 
 /// Clean up test data from the personhog_person_tmp table for a given team.

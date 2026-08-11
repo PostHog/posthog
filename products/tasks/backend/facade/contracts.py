@@ -131,6 +131,25 @@ class WarmRunDTO:
 
 
 @dataclass(frozen=True)
+class SlackThreadReferenceDTO:
+    """A passive link from a task to a public Slack discussion."""
+
+    url: str
+    channel: str
+    created_at: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskSlackUnfurlDTO:
+    """The task metadata needed to build a Slack unfurl."""
+
+    id: UUID
+    title: str
+    created_by_id: int | None
+    latest_run_status: str | None
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -167,6 +186,7 @@ class TaskDetailDTO:
     created_by: "TaskUserBasicInfo | None" = None
     latest_run_id: UUID | None = None
     channel: UUID | None = None
+    slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
