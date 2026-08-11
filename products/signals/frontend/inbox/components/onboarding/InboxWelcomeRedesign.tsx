@@ -2,7 +2,7 @@ import './InboxWelcomeRedesign.scss'
 
 import { useEffect, useRef, useState } from 'react'
 
-import { IconWarning } from '@posthog/icons'
+import { IconRewindPlay, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
@@ -41,8 +41,8 @@ function CommandCta(): JSX.Element {
     }
 
     return (
-        <div className="InboxWelcomeRedesign__cta flex flex-wrap items-center justify-center gap-x-4 gap-y-3 py-3.5 pl-5 pr-3.5">
-            <span className="whitespace-nowrap font-mono text-base text-white">
+        <div className="InboxWelcomeRedesign__cta flex flex-wrap items-center justify-center gap-x-3 gap-y-2.5 py-2.5 pl-4 pr-2.5">
+            <span className="whitespace-nowrap font-mono text-sm text-white">
                 <span className="select-none text-[#6f6f76]">$ </span>
                 {SELF_DRIVING_WIZARD_COMMAND}
             </span>
@@ -68,7 +68,7 @@ function StageCard({
     className,
     children,
 }: {
-    stage: 'signals' | 'scout' | 'inbox'
+    stage: 'signals' | 'agents' | 'inbox'
     className?: string
     children: React.ReactNode
 }): JSX.Element {
@@ -96,7 +96,7 @@ function Arrow({ second = false }: { second?: boolean }): JSX.Element {
 }
 
 /**
- * The illustrative loop: signal sources -> scouts -> a PR in your inbox. Never interactive
+ * The illustrative loop: signal sources -> agents -> a PR in your inbox. Never interactive
  * (pointer-events-none on the whole grid); the cards and the Review button are props, not UI.
  */
 function LoopDiagram(): JSX.Element {
@@ -104,6 +104,10 @@ function LoopDiagram(): JSX.Element {
         <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 md:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
             <div className="flex flex-col gap-2">
                 <StageLabel>Signal sources</StageLabel>
+                <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
+                    <IconRewindPlay className="shrink-0 text-sm text-warning" />
+                    <span className="truncate text-xs">Rage clicks in checkout replay</span>
+                </StageCard>
                 <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
                     <IconWarning className="shrink-0 text-sm text-danger" />
                     <span className="truncate font-mono text-xs">TypeError in checkout</span>
@@ -117,8 +121,8 @@ function LoopDiagram(): JSX.Element {
             </div>
             <Arrow />
             <div className="flex flex-col gap-2">
-                <StageLabel>Scouts</StageLabel>
-                <StageCard stage="scout" className="flex flex-col gap-1.5 px-3.5 py-3">
+                <StageLabel>Agents</StageLabel>
+                <StageCard stage="agents" className="flex flex-col gap-1.5 px-3.5 py-3">
                     <div className="flex items-center gap-2 text-[13px] font-semibold">
                         <span className="size-[7px] shrink-0 rounded-full bg-success" />
                         Reproduced the bug, wrote the fix
@@ -155,7 +159,7 @@ function LoopDiagram(): JSX.Element {
 /**
  * Redesigned self-driving welcome takeover (test arm of the `inbox-welcome-redesign` experiment;
  * `InboxOnboardingTakeover` is control). Leads with the payoff, makes the wizard command the one
- * CTA, and explains scouts and signal sources as labels over an animated loop instead of prose.
+ * CTA, and explains signal sources and agents as labels over an animated loop instead of prose.
  * Rendered without the tab bar: this variant is a full-pane welcome, not a locked tab.
  */
 export function InboxWelcomeRedesign(): JSX.Element {
@@ -174,7 +178,7 @@ export function InboxWelcomeRedesign(): JSX.Element {
                         Ship fixes while you sleep
                     </h1>
                     <p className="mb-9 max-w-[560px] text-[15px] leading-[1.55] text-secondary">
-                        PostHog watches your errors, session replays, and Slack. When it finds something worth fixing,
+                        PostHog watches your session replays, errors, and Slack. When it finds something worth fixing,
                         it writes the pull request. You review and merge.
                     </p>
                     <CommandCta />
