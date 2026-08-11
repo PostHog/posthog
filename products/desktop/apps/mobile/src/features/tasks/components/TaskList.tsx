@@ -36,6 +36,7 @@ import { useTasks } from "../hooks/useTasks";
 import { useUserIntegrations } from "../hooks/useUserIntegrations";
 import { useArchivedTasksStore } from "../stores/archivedTasksStore";
 import { useTaskStore } from "../stores/taskStore";
+import { resolveBulkPinTargets } from "../utils/bulkPin";
 import { buildTaskListItems } from "../utils/taskListItems";
 import { GitHubConnectionPrompt } from "./GitHubConnectionPrompt";
 import { GitHubLoadNotice } from "./GitHubLoadNotice";
@@ -236,19 +237,17 @@ export function TaskList({
     exitSelection();
   }, [selectedIds, archiveMany, exitSelection]);
 
-  // A mixed selection pins rather than unpins, so the action is only
-  // destructive to existing pins once everything selected is already pinned.
-  const bulkPinWouldPin = Array.from(selectedIds).some((id) => !isPinned(id));
+  const { targetPinned: bulkPinWouldPin, toToggle: bulkPinToToggle } =
+    resolveBulkPinTargets(selectedIds, isPinned);
 
   const handleBulkPin = useCallback(() => {
-    if (selectedIds.size === 0) return;
+    if (bulkPinToToggle.length === 0) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    for (const taskId of selectedIds) {
-      if (isPinned(taskId) !== bulkPinWouldPin) continue;
+    for (const taskId of bulkPinToToggle) {
       togglePin(taskId);
     }
     exitSelection();
-  }, [selectedIds, isPinned, bulkPinWouldPin, togglePin, exitSelection]);
+  }, [bulkPinToToggle, togglePin, exitSelection]);
 
   const handleRefresh = async () => {
     await Promise.all([refetch(), refetchIntegrations()]);
