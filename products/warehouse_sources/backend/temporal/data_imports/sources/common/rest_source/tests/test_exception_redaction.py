@@ -90,53 +90,61 @@ class TestExceptionRedaction:
 
     @parameterized.expand(
         [
-            # The API's own error object is what names the cause; without it a 4xx is only
-            # diagnosable by its status code.
-            ("json_error", b'{"code": 20001, "message": "Invalid parameter"}', "20001"),
-            # An API that echoes a request param back must not put the secret into `latest_error`.
-            ("echoes_secret", f'{{"detail": "bad key {SECRET}"}}'.encode(), "bad key ***"),
-            ("long_body", b"x" * 900, "…"),
+            # Twilio's shape: the code and the docs link are what name the cause.
+            (
+                "code_and_link",
+                b'{"code": 20001, "message": "Invalid parameter",'
+                b' "more_info": "https://www.twilio.com/docs/errors/20001"}',
+                "code=20001 https://www.twilio.com/docs/errors/20001",
+            ),
+            # A slug code, wrapped one level down, as GitHub and Linode return it.
+            ("wrapped_slug", b'{"errors": [{"code": "missing_field"}]}', "code=missing_field"),
+            ("oauth_style", b'{"error": "invalid_grant"}', "code=invalid_grant"),
         ]
     )
     @patch(f"{MODULE}.make_tracked_session")
-    def test_client_error_carries_redacted_body(self, _name: str, content: bytes, expected: str, MockSession) -> None:
+    def test_client_error_names_the_api_error(self, _name: str, content: bytes, expected: str, MockSession) -> None:
         mock_session = _make_client(SECRET, MockSession)
         mock_session.send.return_value = _make_response(400, SECRET, reason="Bad Request", content=content)
         client = RESTClient(
             base_url="https://api.example.com",
             auth=APIKeyAuth(api_key=SECRET, name="api_key", location="query"),
             max_retry_attempts=1,
-            include_error_body=True,
         )
         with pytest.raises(Exception) as excinfo:
             list(client.paginate(path="/items"))
         message = str(excinfo.value)
-        assert SECRET not in message
-        assert expected in message
-        # The stock prefix stays intact ahead of the body — non-retryable-error patterns match on it.
+        assert f"api error: {expected}" in message
+        # The stock prefix stays intact ahead of it — non-retryable-error patterns match on that.
         assert message.startswith("400 Client Error: Bad Request for url:")
 
     @parameterized.expand(
         [
-            # A source that hasn't opted in keeps its error bodies out of the persisted message,
-            # whatever account detail they carry.
-            ("not_opted_in", False, b'{"detail": "account 4021 is past due"}'),
-            ("opted_in_empty_body", True, b""),
+            # Free text is where an API puts account, billing, and record detail. It never travels,
+            # whichever key it sits under, since this message is persisted and logged.
+            ("prose_message", b'{"message": "card ending 4021 was declined for Acme Inc"}'),
+            ("prose_reason", b'{"errors": [{"reason": "account 4021 is past due"}]}'),
+            ("prose_in_a_code_key", b'{"code": "account 4021 is past due"}'),
+            # A link that carries state is not a docs link.
+            ("link_with_query", b'{"more_info": "https://api.example.com/docs?account=4021"}'),
+            ("html_error_page", b"<html><body>account 4021 is past due</body></html>"),
+            ("empty", b""),
         ]
     )
     @patch(f"{MODULE}.make_tracked_session")
-    def test_error_body_is_omitted(self, _name: str, include_error_body: bool, content: bytes, MockSession) -> None:
+    def test_client_error_never_carries_free_text(self, _name: str, content: bytes, MockSession) -> None:
         mock_session = _make_client(SECRET, MockSession)
         mock_session.send.return_value = _make_response(400, SECRET, reason="Bad Request", content=content)
         client = RESTClient(
             base_url="https://api.example.com",
             auth=APIKeyAuth(api_key=SECRET, name="api_key", location="query"),
             max_retry_attempts=1,
-            include_error_body=include_error_body,
         )
         with pytest.raises(Exception) as excinfo:
             list(client.paginate(path="/items"))
-        assert "response body" not in str(excinfo.value)
+        message = str(excinfo.value)
+        assert "4021" not in message
+        assert "api error" not in message
 
     @parameterized.expand([("raw", SECRET), ("reserved_chars", SPECIAL_SECRET)])
     @patch(f"{MODULE}.make_tracked_session")

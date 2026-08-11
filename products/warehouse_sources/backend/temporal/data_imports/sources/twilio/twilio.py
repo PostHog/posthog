@@ -267,9 +267,6 @@ def twilio_source(
             # HTTP basic auth via the framework so the secret is redacted from logs and errors.
             "auth": {"type": "http_basic", "username": auth[0], "password": auth[1]},
             "paginator": TwilioNextPageUriPaginator(),
-            # Twilio answers an error with a `code`, `message`, and `more_info` docs link and no
-            # account data, so quoting it turns an opaque status code into a diagnosable failure.
-            "include_error_body": True,
         },
         "resource_defaults": {},
         "resources": [

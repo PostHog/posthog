@@ -182,11 +182,6 @@ class ClientConfig(TypedDict, total=False):
     # source pointed at a customer-controlled host that stalls holds an import worker forever.
     # A single float applies to both connect and read; a tuple sets them separately.
     request_timeout: Optional[float | tuple[float, float]]
-    # When True, a 4xx body is quoted (truncated and redacted) in the raised error, so a failing
-    # sync names its own cause instead of reporting a bare status code. Defaults to False, since
-    # that message is persisted and logged and error bodies can carry account detail. Set it only
-    # for APIs whose error bodies are a plain code and message.
-    include_error_body: bool
 
 
 class IncrementalArgs(TypedDict, total=False):
