@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { AssigneeMultiSelect, type AssigneeFilterEntry } from 'products/conversations/frontend/components/Assignee'
+import { clearFilterButtonProps } from 'products/conversations/frontend/components/clearFilterButtonProps'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
@@ -16,7 +19,65 @@ import {
     type ConversationsTicketAssignee,
     parseConversationsWidgetConfig,
     patchConversationsWidgetConfig,
+    type ConversationsTicketPriority,
 } from './conversationsWidgetConfigValidation'
+
+function priorityFilterLabel(priorities: ConversationsTicketPriority[]): string {
+    if (priorities.length === 0) {
+        return 'All priorities'
+    }
+    if (priorities.length === 1) {
+        return (
+            CONVERSATIONS_TICKET_PRIORITY_OPTIONS.find((option) => option.key === priorities[0])?.label ?? priorities[0]
+        )
+    }
+    return `${priorities.length} priorities`
+}
+
+function ConversationsPriorityFilter({
+    value,
+    onChange,
+}: {
+    value: ConversationsTicketPriority[]
+    onChange: (value: ConversationsTicketPriority[]) => void
+}): JSX.Element {
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            overlay={
+                <div className="space-y-px p-1">
+                    {CONVERSATIONS_TICKET_PRIORITY_OPTIONS.map((option) => (
+                        <LemonButton
+                            key={option.key}
+                            type="tertiary"
+                            size="small"
+                            fullWidth
+                            icon={
+                                <LemonCheckbox checked={value.includes(option.key)} className="pointer-events-none" />
+                            }
+                            onClick={() => {
+                                const nextValue = value.includes(option.key)
+                                    ? value.filter((priority) => priority !== option.key)
+                                    : [...value, option.key]
+                                onChange(nextValue)
+                            }}
+                        >
+                            {option.label}
+                        </LemonButton>
+                    ))}
+                </div>
+            }
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                {...clearFilterButtonProps(value.length > 0 ? () => onChange([]) : null, 'Clear priority filter')}
+            >
+                {priorityFilterLabel(value)}
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
 
 function ConversationsSearchFilter({
     value,
@@ -75,53 +136,51 @@ export function ConversationsWidgetTileFilters({
     }
     return (
         <WidgetTileFiltersBar dataAttr="conversations-widget-filters">
-            <LemonSelect
-                size="small"
-                value={status}
-                options={CONVERSATIONS_TICKET_STATUS_OPTIONS}
-                onChange={(value) => {
-                    if (value) {
-                        const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { status: value })
+            <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
+                <LemonSelect
+                    size="small"
+                    value={status}
+                    options={CONVERSATIONS_TICKET_STATUS_OPTIONS}
+                    onChange={(value) => {
+                        if (value) {
+                            const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { status: value })
+                            void persistConfigNow(nextConfig)
+                        }
+                    }}
+                />
+                <ConversationsPriorityFilter
+                    value={priorities}
+                    onChange={(value) => {
+                        const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { priorities: value })
                         void persistConfigNow(nextConfig)
-                    }
-                }}
-            />
-            <LemonInputSelect
-                size="small"
-                mode="multiple"
-                value={priorities}
-                options={CONVERSATIONS_TICKET_PRIORITY_OPTIONS}
-                placeholder="All priorities"
-                onChange={(value) => {
-                    const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { priorities: value })
-                    void persistConfigNow(nextConfig)
-                }}
-            />
-            <LemonSelect
-                size="small"
-                value={channel}
-                options={CONVERSATIONS_TICKET_CHANNEL_OPTIONS}
-                onChange={(value) => {
-                    const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { channel: value })
-                    void persistConfigNow(nextConfig)
-                }}
-            />
-            <AssigneeMultiSelect
-                value={assignees}
-                onChange={(value) => {
-                    const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), {
-                        assignees: value as ConversationsTicketAssignee[],
-                    })
-                    void persistConfigNow(nextConfig)
-                }}
-            />
-            <ConversationsSearchFilter
-                value={search}
-                onChange={(value) => {
-                    const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { search: value })
-                    void persistConfigNow(nextConfig)
-                }}
-            />
+                    }}
+                />
+                <LemonSelect
+                    size="small"
+                    value={channel}
+                    options={CONVERSATIONS_TICKET_CHANNEL_OPTIONS}
+                    onChange={(value) => {
+                        const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { channel: value })
+                        void persistConfigNow(nextConfig)
+                    }}
+                />
+                <AssigneeMultiSelect
+                    value={assignees}
+                    onChange={(value) => {
+                        const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), {
+                            assignees: value as ConversationsTicketAssignee[],
+                        })
+                        void persistConfigNow(nextConfig)
+                    }}
+                />
+                <ConversationsSearchFilter
+                    value={search}
+                    onChange={(value) => {
+                        const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { search: value })
+                        void persistConfigNow(nextConfig)
+                    }}
+                />
+            </div>
         </WidgetTileFiltersBar>
     )
 }
