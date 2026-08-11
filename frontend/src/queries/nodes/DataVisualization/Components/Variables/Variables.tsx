@@ -214,6 +214,9 @@ export const VariableInput = ({
                 )}
                 {variable.type === 'Date' && (
                     <DateField
+                        // The calendar is narrower than the popover, so grow to fill it rather than
+                        // leaving dead space down the right-hand side.
+                        className="grow"
                         variable={{ ...variable, default_value: String(localInputValue) } as DateVariable}
                         updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value)}
                         onApply={commit}
