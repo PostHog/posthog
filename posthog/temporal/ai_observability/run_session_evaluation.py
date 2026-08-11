@@ -481,7 +481,7 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
     if skip_reason or result is None:
         return build_session_skip_result(allows_na, skip_reason or "session_not_found")
 
-    return finalize_hog_eval_result(result, allows_na=allows_na, unit_label="session")
+    return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="session")
 
 
 @dataclass

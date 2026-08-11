@@ -42,8 +42,9 @@ import {
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
+import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { AnimatePresence, motion } from "framer-motion";
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { flattenSelectOptions } from "../sessionStore";
 import { useRetainedConfigOption } from "../useRetainedConfigOption";
 import {
@@ -70,33 +71,6 @@ interface ReasoningLevelSelectorProps {
   onConfigOptionChange?: (configId: string, value: string) => void;
   disabled?: boolean;
   isLoading?: boolean;
-}
-
-/** Tweens the menu's height between the slider and advanced views so the
- * popup morphs instead of snapping when the content swaps. */
-function AnimatedHeight({ children }: { children: React.ReactNode }) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number | "auto">("auto");
-
-  useLayoutEffect(() => {
-    const node = contentRef.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setHeight(node.offsetHeight));
-    observer.observe(node);
-    setHeight(node.offsetHeight);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <motion.div
-      initial={false}
-      animate={{ height }}
-      transition={{ duration: 0.18, ease: [0.3, 0.9, 0.3, 1] }}
-      className="overflow-hidden"
-    >
-      <div ref={contentRef}>{children}</div>
-    </motion.div>
-  );
 }
 
 function toDropdownOptions(
