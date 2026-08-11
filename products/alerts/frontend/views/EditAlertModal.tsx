@@ -141,6 +141,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
     )
     const insightAlertKind = insightAlertKindForQuery(query)
+    const anomalyAlertGuidanceEnabled = useFeatureFlag('ANOMALY_ALERT_GUIDANCE_EXPERIMENT', 'anomaly_guidance')
 
     const formLogicProps = {
         alert,
@@ -344,6 +345,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 labelColumnOptions: hogqlLabelColumnOptions,
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
+            showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             twoColumnLayout
             investigationAgentEnabled={investigationAgentEnabled}
             simulationResult={simulationResult}
