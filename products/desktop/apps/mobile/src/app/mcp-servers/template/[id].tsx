@@ -1,5 +1,6 @@
 import { FloatingScreenHeader } from "@components/FloatingScreenHeader";
 import { Text } from "@components/text";
+import { isStdioMcpServer } from "@posthog/core/mcp-servers/presentation";
 import { router, useLocalSearchParams } from "expo-router";
 import { Lock, Warning } from "phosphor-react-native";
 import { useMemo, useState } from "react";
@@ -17,7 +18,6 @@ import {
   useMcpMarketplace,
 } from "@/features/mcp/hooks";
 import { installTemplateWithOAuth } from "@/features/mcp/oauth";
-import { isStdioMcpServer } from "@/features/mcp/presentation";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { logger } from "@/lib/logger";
 import { openExternalUrl } from "@/lib/openExternalUrl";

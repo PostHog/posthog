@@ -1,10 +1,10 @@
+import { iconDomainFromServerUrl } from "@posthog/core/mcp-servers/iconDomain";
 import { useColorScheme } from "nativewind";
 import { PuzzlePiece } from "phosphor-react-native";
 import { useState } from "react";
 import { Image, View } from "react-native";
 import { useAuthStore } from "@/features/auth";
 import { useThemeColors } from "@/lib/theme";
-import { iconDomainFromServerUrl } from "../iconDomain";
 
 interface ServerIconProps {
   /** The template's brand domain (`icon_domain`). Falls back to deriving one from serverUrl. */

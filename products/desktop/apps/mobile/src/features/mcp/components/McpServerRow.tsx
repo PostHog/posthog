@@ -3,11 +3,11 @@ import type {
   McpRecommendedServer,
   McpServerInstallation,
 } from "@posthog/api-client/types";
+import { isStdioMcpServer } from "@posthog/core/mcp-servers/presentation";
 import { CaretRight, Lock, Warning } from "phosphor-react-native";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { useThemeColors } from "@/lib/theme";
-import { isStdioMcpServer } from "../presentation";
 import { ServerIcon } from "./ServerIcon";
 
 interface McpServerRowProps {

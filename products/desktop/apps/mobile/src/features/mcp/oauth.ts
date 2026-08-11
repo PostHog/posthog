@@ -4,10 +4,10 @@ import type {
   McpInstallResponse,
   McpServerInstallation,
 } from "@posthog/api-client/types";
+import { isMcpOAuthRedirect } from "@posthog/core/mcp-servers/presentation";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
-import { isMcpOAuthRedirect } from "./presentation";
 
 /** Custom URL scheme registered via app.json (`scheme: "posthog"`). The cloud
  *  bounces the OAuth redirect back to this URL once the provider completes

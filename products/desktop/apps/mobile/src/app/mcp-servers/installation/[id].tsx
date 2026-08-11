@@ -1,6 +1,7 @@
 import { FloatingScreenHeader } from "@components/FloatingScreenHeader";
 import { Text } from "@components/text";
 import type { McpApprovalState } from "@posthog/api-client/types";
+import { isStdioMcpServer } from "@posthog/core/mcp-servers/presentation";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   ArrowsClockwise,
@@ -28,7 +29,6 @@ import {
   useUpdateMcpToolApproval,
 } from "@/features/mcp/hooks";
 import { reauthorizeInstallation } from "@/features/mcp/oauth";
-import { isStdioMcpServer } from "@/features/mcp/presentation";
 import { getMcpConnectionManager } from "@/features/mcp/service";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { logger } from "@/lib/logger";
