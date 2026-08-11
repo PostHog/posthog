@@ -14,6 +14,7 @@ import {
     mockTeamConfig,
 } from './__mocks__/inboxMocks'
 import { InboxScene } from './InboxScene'
+import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
 // layout: header, tab bar + single border, scope picker, filter bar, and the
@@ -107,11 +108,16 @@ export const SelfDrivingOnboardingRedesign: Story = {
     ],
 }
 
-// The set-up verdict is still loading (config + count requests hang) → the neutral skeleton, with
-// no tab bar and no welcome page. Guards the regression where the normal tabbed inbox rendered
-// first and was then swapped for the welcome takeover.
+// First-ever visit while the set-up verdict is still loading (config + count requests hang, no
+// cached verdict) → the neutral skeleton, with no tab bar and no welcome page. Guards the
+// regression where the normal tabbed inbox rendered first and was then swapped for the takeover.
 export const SelfDrivingVerdictPending: Story = {
     decorators: [
+        (StoryFn) => {
+            // Other stories cache their settled verdict; this story is the no-history first visit.
+            window.localStorage.removeItem(INBOX_LAST_UI_STATE_STORAGE_KEY)
+            return <StoryFn />
+        },
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/reports': () => new Promise(() => {}),
