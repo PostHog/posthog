@@ -5438,14 +5438,106 @@ export namespace Schemas {
       config: LogsListWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi;
+    export type ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType = typeof ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType[keyof typeof ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType = {
+      ConversationsRecentTickets: 'conversations_recent_tickets',
+    } as const;
+
+    /**
+     * Ticket status filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigStatus = typeof ConversationsRecentTicketsWidgetConfigStatus[keyof typeof ConversationsRecentTicketsWidgetConfigStatus];
+
+
+    export const ConversationsRecentTicketsWidgetConfigStatus = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+      All: 'all',
+    } as const;
+
+    export type ConversationsRecentTicketsWidgetConfigPrioritiesItem = typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem[keyof typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem];
+
+
+    export const ConversationsRecentTicketsWidgetConfigPrioritiesItem = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    /**
+     * Ticket channel filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigChannel = typeof ConversationsRecentTicketsWidgetConfigChannel[keyof typeof ConversationsRecentTicketsWidgetConfigChannel];
+
+
+    export const ConversationsRecentTicketsWidgetConfigChannel = {
+      Widget: 'widget',
+      Email: 'email',
+      Slack: 'slack',
+      Teams: 'teams',
+      Github: 'github',
+      All: 'all',
+    } as const;
+
+    export interface ConversationsRecentTicketsWidgetConfig {
+      /**
+         * Maximum number of tickets to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Ticket status filter. */
+      status?: ConversationsRecentTicketsWidgetConfigStatus;
+      /** Only show tickets with these priorities. Empty shows all priorities. */
+      priorities?: ConversationsRecentTicketsWidgetConfigPrioritiesItem[];
+      /** Ticket channel filter. */
+      channel?: ConversationsRecentTicketsWidgetConfigChannel;
+      /**
+         * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
+         * @maxItems 100
+         */
+      assignees?: ('me' | 'unassigned' | WidgetAssigneeFilter)[];
+      /**
+         * Search requester name or email, ticket subject, message text, or ticket number.
+         * @maxLength 200
+         */
+      search?: string;
+      /** short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit. */
+      savedViewId?: string | null;
+    }
+
+    export interface ConversationsRecentTicketsWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the recent tickets widget. */
+      config: ConversationsRecentTicketsWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -8356,7 +8448,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -16744,6 +16836,60 @@ export namespace Schemas {
       readonly task: ConversationTask | null;
     }
 
+    export type ConversationsRecentTicketsWidgetCatalogEntryOpenApiWidgetType = typeof ConversationsRecentTicketsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ConversationsRecentTicketsWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ConversationsRecentTicketsWidgetCatalogEntryOpenApiWidgetType = {
+      ConversationsRecentTickets: 'conversations_recent_tickets',
+    } as const;
+
+    export interface ConversationsRecentTicketsWidgetCatalogEntryOpenApi {
+      widget_type: ConversationsRecentTicketsWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ConversationsRecentTicketsWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `conversations_recent_tickets` - conversations_recent_tickets
+     */
+    export type ConversationsRecentTicketsWidgetTypeEnum = typeof ConversationsRecentTicketsWidgetTypeEnum[keyof typeof ConversationsRecentTicketsWidgetTypeEnum];
+
+
+    export const ConversationsRecentTicketsWidgetTypeEnum = {
+      ConversationsRecentTickets: 'conversations_recent_tickets',
+    } as const;
+
+    export type ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType = typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType = {
+      ConversationsRecentTickets: 'conversations_recent_tickets',
+    } as const;
+
+    export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ConversationsRecentTicketsWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent tickets widget. Omit to leave unchanged. */
+      config?: ConversationsRecentTicketsWidgetConfig;
+    }
+
     export interface ConversationsTicketImage {
       url: string;
       author: string;
@@ -18334,6 +18480,7 @@ export namespace Schemas {
 
     /**
      * * `activity_events_list` - activity_events_list
+     * * `conversations_recent_tickets` - conversations_recent_tickets
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
@@ -18346,6 +18493,7 @@ export namespace Schemas {
 
     export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
       ActivityEventsList: 'activity_events_list',
+      ConversationsRecentTickets: 'conversations_recent_tickets',
       ErrorTrackingList: 'error_tracking_list',
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
@@ -18360,6 +18508,7 @@ export namespace Schemas {
       /** Widget type identifier (cannot be changed on update).
        *
        * * `activity_events_list` - activity_events_list
+       * * `conversations_recent_tickets` - conversations_recent_tickets
        * * `error_tracking_list` - error_tracking_list
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
@@ -28913,6 +29062,13 @@ export namespace Schemas {
       readonly deleted: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
+      /** Number of reports generated from this evaluation report config. */
+      readonly generated_report_count: number;
+      /**
+         * When the most recent report was generated, or null if no reports have been generated.
+         * @nullable
+         */
+      readonly last_generated_at: string | null;
       /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
@@ -29114,6 +29270,13 @@ export namespace Schemas {
       readonly deleted: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
+      /** Number of reports generated from this evaluation report config. */
+      readonly generated_report_count: number;
+      /**
+         * When the most recent report was generated, or null if no reports have been generated.
+         * @nullable
+         */
+      readonly last_generated_at: string | null;
       /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
@@ -54789,6 +54952,13 @@ export namespace Schemas {
       readonly deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
+      /** Number of reports generated from this evaluation report config. */
+      readonly generated_report_count?: number;
+      /**
+         * When the most recent report was generated, or null if no reports have been generated.
+         * @nullable
+         */
+      readonly last_generated_at?: string | null;
       /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
@@ -60341,7 +60511,7 @@ export namespace Schemas {
       config?: SurveyResultsWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -78060,7 +78230,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */

@@ -7103,6 +7103,7 @@ const api = {
             data: Partial<{
                 status: string
                 escalation_reason: string
+                assignee: { type: 'user' | 'role'; id: string | number } | null
             }>
         ): Promise<any> {
             return await new ApiRequest().conversationsTicket(ticketId).update({ data })
