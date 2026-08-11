@@ -1388,16 +1388,22 @@ def fetch_query_log_stats(
     table: str,
     flush: bool,
     wait_seconds: float,
+    team_ids: Sequence[int] = (),
+    lookback_hours: Optional[int] = None,
     batch_size: int = DEFAULT_QUERY_LOG_BATCH_SIZE,
     log: Optional[Callable[[str], None]] = None,
 ) -> dict[str, ResourceStats]:
     """Read per-query resource stats from the query log, polling until rows appear.
 
-    The lookup is split into batches of ``batch_size`` ids. One IN-list covering a whole sweep is
-    a wide scan of the distributed archive table and exceeds max_execution_time — and because a
-    failure abandoned the lookup, that cost the run every resource stat it had. Batches now fail
-    independently, so a timeout costs only its own slice, and each poll retries just the ids still
-    missing (rows reach the log asynchronously, so early passes legitimately come back short).
+    ``query_log_archive`` is ORDER BY (team_id, event_date, event_time, query_id), so a lookup
+    filtered on query_id alone prunes nothing and reads the entire retained log — it exceeds
+    max_execution_time, and splitting it into batches only multiplies the scan. ``team_ids`` is
+    the key prefix and does the actual pruning; ``lookback_hours`` narrows the range within each
+    team. Both are optional because the local default table (system.query_log) has neither column.
+
+    Batching remains as a size guard, not a speed fix: batches fail independently so a timeout
+    costs one slice rather than the whole lookup, and each poll retries only the ids still missing
+    (rows reach the log asynchronously, so early passes legitimately come back short).
 
     Degrades gracefully: any failure (missing table, no privileges, lag) returns whatever was
     found so far so the run continues with timing-only stats.
@@ -1418,8 +1424,28 @@ def fetch_query_log_stats(
         except Exception as exc:
             _emit(f"SYSTEM FLUSH LOGS failed ({exc}); continuing without it")
 
+    pruning_filters: list[str] = []
+    pruning_params: dict[str, Any] = {}
+    if team_ids:
+        pruning_filters.append("team_id IN %(team_ids)s")
+        pruning_params["team_ids"] = sorted(set(team_ids))
+    if lookback_hours:
+        # event_date is partition + key column, event_time the next key column; filtering both is
+        # what debug_ch_queries does and is what keeps the range small inside each team.
+        pruning_filters.append("event_date >= toDate(now() - INTERVAL %(lookback_hours)s HOUR)")
+        pruning_filters.append("event_time > now() - INTERVAL %(lookback_hours)s HOUR")
+        pruning_params["lookback_hours"] = int(lookback_hours)
+
     # is_initial_query = 1 keeps distributed sub-query rows from double-counting read_bytes on a
     # multi-node cluster; on a single node it simply selects the one row per ClickHouse query.
+    conditions = "\n          AND ".join(
+        [
+            *pruning_filters,
+            "query_id IN %(query_ids)s",
+            "type IN ('QueryFinish', 'ExceptionWhileProcessing')",
+            "is_initial_query = 1",
+        ]
+    )
     query = f"""
         SELECT
             query_id,
@@ -1429,9 +1455,7 @@ def fetch_query_log_stats(
             sum(query_duration_ms),
             count()
         FROM {table}
-        WHERE query_id IN %(query_ids)s
-          AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
-          AND is_initial_query = 1
+        WHERE {conditions}
         GROUP BY query_id
     """  # noqa: S608 — table is operator-supplied and validated against _SAFE_TABLE_RE above
 
@@ -1446,14 +1470,17 @@ def fetch_query_log_stats(
         batches = [pending[start : start + step] for start in range(0, len(pending), step)]
         failed = 0
         last_error: Optional[Exception] = None
-        for batch in batches:
+        for index, batch in enumerate(batches, start=1):
             try:
-                rows = sync_execute(query, {"query_ids": batch})
+                rows = sync_execute(query, {**pruning_params, "query_ids": batch})
             except Exception as exc:
                 failed += 1
                 last_error = exc
                 continue
             found.update(parse_query_log_rows(rows))
+            if len(batches) > 1:
+                # This lookup can run for minutes; without progress it reads as a hang.
+                _emit(f"query_log: batch {index}/{len(batches)} — {len(found)}/{len(unique_ids)} matched")
         if failed:
             _emit(f"query_log: {failed}/{len(batches)} batch(es) failed on {table} ({last_error})")
         if first_pass and failed == len(batches):
@@ -1896,6 +1923,15 @@ class Command(BaseCommand):
         )
         parser.add_argument("--query-log-wait", type=float, default=10.0, help="Seconds to poll for query-log rows")
         parser.add_argument(
+            "--query-log-lookback-hours",
+            type=int,
+            default=24,
+            metavar="H",
+            help="Only look for query-log rows from the last H hours (default 24). Prunes the scan, so raise it "
+            "rather than lower it when resuming a run whose queries executed days ago — rows older than the window "
+            "are simply not found.",
+        )
+        parser.add_argument(
             "--query-log-batch-size",
             type=int,
             default=DEFAULT_QUERY_LOG_BATCH_SIZE,
@@ -2232,12 +2268,33 @@ class Command(BaseCommand):
     def _attach_resource_stats(
         self, findings: list[InsightFinding], all_query_ids: list[str], options: dict[str, Any]
     ) -> None:
-        self.stdout.write(f"Reading ClickHouse resource stats for {len(set(all_query_ids))} query id(s)…")
+        # Scope the lookup to the teams whose queries we are actually asking about: team_id is the
+        # archive's key prefix, so this is what keeps it from reading the whole log. system.query_log
+        # (the local default) has no team_id column, hence the table check.
+        wanted = set(all_query_ids)
+        team_ids = (
+            sorted(
+                {
+                    finding.team_id
+                    for finding in findings
+                    if wanted.intersection((*finding.legacy_query_ids, *finding.dwh_query_ids))
+                }
+            )
+            if "archive" in options["query_log_table"]
+            else []
+        )
+        self.stdout.write(
+            f"Reading ClickHouse resource stats for {len(wanted)} query id(s)"
+            + (f" across {len(team_ids)} team(s)" if team_ids else "")
+            + "…"
+        )
         stats_by_id = fetch_query_log_stats(
             all_query_ids,
             table=options["query_log_table"],
             flush=options["flush_query_log"],
             wait_seconds=options["query_log_wait"],
+            team_ids=team_ids,
+            lookback_hours=options["query_log_lookback_hours"],
             batch_size=options["query_log_batch_size"],
             log=lambda message: self.stdout.write(self.style.WARNING(f"  {message}")),
         )

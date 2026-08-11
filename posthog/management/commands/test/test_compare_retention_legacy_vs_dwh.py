@@ -3,6 +3,7 @@ import json
 import tempfile
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 
 from unittest import TestCase
 from unittest.mock import patch
@@ -678,6 +679,38 @@ class TestFetchQueryLogStats(TestCase):
     @staticmethod
     def _row(query_id):
         return (query_id, 1000, 50, 9000, 12, 1)
+
+    def _capture_query(self, **kwargs):
+        seen: dict[str, Any] = {}
+
+        def fake_execute(query, params):
+            seen["query"] = query
+            seen["params"] = params
+            return []
+
+        with patch(f"{_QUERY_LOG_MODULE}.sync_execute", side_effect=fake_execute):
+            fetch_query_log_stats(["a"], flush=False, wait_seconds=0, **kwargs)
+        return seen
+
+    def test_scopes_the_scan_by_team_and_time_window(self):
+        # query_log_archive is ORDER BY (team_id, event_date, event_time, query_id): filtering on
+        # query_id alone prunes nothing, so the lookup reads the whole retained log and times out.
+        seen = self._capture_query(table="query_log_archive", team_ids=[7, 2, 7], lookback_hours=48)
+
+        self.assertIn("team_id IN %(team_ids)s", seen["query"])
+        self.assertIn("event_date >= toDate(now() - INTERVAL %(lookback_hours)s HOUR)", seen["query"])
+        self.assertIn("event_time > now() - INTERVAL %(lookback_hours)s HOUR", seen["query"])
+        self.assertEqual(seen["params"]["team_ids"], [2, 7])
+        self.assertEqual(seen["params"]["lookback_hours"], 48)
+
+    def test_omits_the_scoping_filters_when_the_table_lacks_those_columns(self):
+        # system.query_log (the local default) has neither team_id nor event_date; emitting them
+        # anyway would fail every local run outright.
+        seen = self._capture_query(table="system.query_log")
+
+        self.assertNotIn("team_id", seen["query"])
+        self.assertNotIn("event_date", seen["query"])
+        self.assertEqual(set(seen["params"]), {"query_ids"})
 
     def test_a_failing_batch_does_not_cost_the_other_batches_their_stats(self):
         batches = []
