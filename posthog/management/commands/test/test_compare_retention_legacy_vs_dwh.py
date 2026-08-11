@@ -28,6 +28,7 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     classify_insight,
     compute_perf_result,
     diff_retention_results,
+    fetch_query_log_stats,
     finding_from_dict,
     finding_to_json_line,
     intersect_stable_mismatch,
@@ -665,6 +666,79 @@ class TestComputePerfResult(TestCase):
         self.assertEqual(result.ratio_median_wall, expected_ratio)
         self.assertEqual(result.is_regression, expected_regression)
         self.assertEqual(result.is_improvement, expected_improvement)
+
+
+_QUERY_LOG_MODULE = "posthog.management.commands.compare_retention_legacy_vs_dwh"
+
+
+class TestFetchQueryLogStats(TestCase):
+    # A sweep's worth of ids in one IN-list scans the distributed archive table and exceeds
+    # max_execution_time, and the lookup used to abandon everything on the first failure — a perf
+    # run losing every resource stat it collected, which is the load-independent half of the report.
+    @staticmethod
+    def _row(query_id):
+        return (query_id, 1000, 50, 9000, 12, 1)
+
+    def test_a_failing_batch_does_not_cost_the_other_batches_their_stats(self):
+        batches = []
+
+        def fake_execute(_query, params):
+            batch = list(params["query_ids"])
+            batches.append(batch)
+            if "b2" in batch:
+                raise Exception("Query has hit the max execution time before completing")
+            return [self._row(query_id) for query_id in batch]
+
+        with patch(f"{_QUERY_LOG_MODULE}.sync_execute", side_effect=fake_execute):
+            found = fetch_query_log_stats(
+                ["a1", "a2", "b1", "b2"], table="query_log_archive", flush=False, wait_seconds=0, batch_size=2
+            )
+
+        self.assertEqual(batches, [["a1", "a2"], ["b1", "b2"]])
+        self.assertEqual(sorted(found), ["a1", "a2"])
+
+    def test_a_wholly_failing_lookup_gives_up_instead_of_polling(self):
+        # Missing table or missing privileges: no amount of waiting produces rows, so the run must
+        # fall through to timing-only immediately rather than burn its whole --query-log-wait budget.
+        batches = []
+
+        def fake_execute(_query, params):
+            batches.append(list(params["query_ids"]))
+            raise Exception("Unknown table query_log_archive")
+
+        with (
+            patch(f"{_QUERY_LOG_MODULE}.sync_execute", side_effect=fake_execute),
+            patch(f"{_QUERY_LOG_MODULE}.time.sleep") as sleep,
+        ):
+            found = fetch_query_log_stats(
+                ["a", "b", "c"], table="query_log_archive", flush=False, wait_seconds=0.05, batch_size=1
+            )
+
+        self.assertEqual(found, {})
+        self.assertEqual(len(batches), 3)
+        sleep.assert_not_called()
+
+    def test_polling_asks_only_for_the_ids_still_missing(self):
+        # Rows reach the log asynchronously, so early passes come back short. Re-asking for ids
+        # already found is what grew the lookup back to sweep size on every resume.
+        batches = []
+
+        def fake_execute(_query, params):
+            batch = list(params["query_ids"])
+            batches.append(batch)
+            flushed = batch if len(batches) > 1 else [query_id for query_id in batch if query_id != "late"]
+            return [self._row(query_id) for query_id in flushed]
+
+        with (
+            patch(f"{_QUERY_LOG_MODULE}.sync_execute", side_effect=fake_execute),
+            patch(f"{_QUERY_LOG_MODULE}.time.sleep"),
+        ):
+            found = fetch_query_log_stats(
+                ["early", "late"], table="query_log", flush=False, wait_seconds=5, batch_size=10
+            )
+
+        self.assertEqual(batches, [["early", "late"], ["late"]])
+        self.assertEqual(sorted(found), ["early", "late"])
 
 
 class TestResourceStats(TestCase):

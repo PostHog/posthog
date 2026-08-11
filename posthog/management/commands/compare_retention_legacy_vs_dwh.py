@@ -111,6 +111,7 @@ ROLLING_24H_WINDOW_MODE = "24_hour_windows"
 CLICKHOUSE_EXECUTE_TIMING_KEY = "clickhouse_execute"
 DEFAULT_MAX_CELL_DIFFS = 25
 DEFAULT_WORST_N = 15
+DEFAULT_QUERY_LOG_BATCH_SIZE = 500
 HEARTBEAT_EVERY = 10
 _SAFE_TABLE_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 
@@ -1387,9 +1388,16 @@ def fetch_query_log_stats(
     table: str,
     flush: bool,
     wait_seconds: float,
+    batch_size: int = DEFAULT_QUERY_LOG_BATCH_SIZE,
     log: Optional[Callable[[str], None]] = None,
 ) -> dict[str, ResourceStats]:
     """Read per-query resource stats from the query log, polling until rows appear.
+
+    The lookup is split into batches of ``batch_size`` ids. One IN-list covering a whole sweep is
+    a wide scan of the distributed archive table and exceeds max_execution_time — and because a
+    failure abandoned the lookup, that cost the run every resource stat it had. Batches now fail
+    independently, so a timeout costs only its own slice, and each poll retries just the ids still
+    missing (rows reach the log asynchronously, so early passes legitimately come back short).
 
     Degrades gracefully: any failure (missing table, no privileges, lag) returns whatever was
     found so far so the run continues with timing-only stats.
@@ -1429,14 +1437,32 @@ def fetch_query_log_stats(
 
     deadline = perf_counter() + max(0.0, wait_seconds)
     found: dict[str, ResourceStats] = {}
+    step = max(1, batch_size)
+    first_pass = True
     while True:
-        try:
-            rows = sync_execute(query, {"query_ids": unique_ids})
-        except Exception as exc:
-            _emit(f"query_log lookup failed on {table} ({exc}); continuing with timing only")
+        pending = [query_id for query_id in unique_ids if query_id not in found]
+        if not pending:
+            break
+        batches = [pending[start : start + step] for start in range(0, len(pending), step)]
+        failed = 0
+        last_error: Optional[Exception] = None
+        for batch in batches:
+            try:
+                rows = sync_execute(query, {"query_ids": batch})
+            except Exception as exc:
+                failed += 1
+                last_error = exc
+                continue
+            found.update(parse_query_log_rows(rows))
+        if failed:
+            _emit(f"query_log: {failed}/{len(batches)} batch(es) failed on {table} ({last_error})")
+        if first_pass and failed == len(batches):
+            # Nothing at all came back: a missing table or missing privileges, which no amount of
+            # polling fixes. Partial failure is the size/load case and stays in the retry loop.
+            _emit(f"query_log lookup failed on {table}; continuing with timing only")
             return found
-        found = parse_query_log_rows(rows)
-        if len(found) >= len(unique_ids) or perf_counter() >= deadline:
+        first_pass = False
+        if perf_counter() >= deadline:
             break
         time.sleep(1.0)
     if len(found) < len(unique_ids):
@@ -1869,6 +1895,15 @@ class Command(BaseCommand):
             help="Run SYSTEM FLUSH LOGS before reading (default on; ignored if unprivileged)",
         )
         parser.add_argument("--query-log-wait", type=float, default=10.0, help="Seconds to poll for query-log rows")
+        parser.add_argument(
+            "--query-log-batch-size",
+            type=int,
+            default=DEFAULT_QUERY_LOG_BATCH_SIZE,
+            metavar="N",
+            help=f"Query ids per query-log lookup (default {DEFAULT_QUERY_LOG_BATCH_SIZE}). Lower it if batches "
+            "still hit max_execution_time on a busy cluster; batches fail independently, so only the failing "
+            "slice loses its stats.",
+        )
         parser.add_argument("--report-path", type=str, default=None, help="Markdown report path")
         parser.add_argument("--json-path", type=str, default=None, help="Optional machine-readable JSON dump path")
         parser.add_argument("--base-url", type=str, default="https://us.posthog.com", help="Base URL for insight links")
@@ -1910,7 +1945,15 @@ class Command(BaseCommand):
         findings: list[InsightFinding] = list(loaded)
         # Loaded findings' query ids go into the lookup too, so a resumed run attaches resource
         # stats to work done before the interruption (the archive table still has those rows).
-        all_query_ids: list[str] = [qid for f in loaded for qid in (*f.legacy_query_ids, *f.dwh_query_ids)]
+        # …but only for the ones still missing them. Re-reading stats a previous run already
+        # attached grows the lookup by the whole sweep on every resume, which is what pushed it
+        # past max_execution_time.
+        all_query_ids: list[str] = [
+            qid
+            for f in loaded
+            if not (f.resource_legacy and f.resource_dwh)
+            for qid in (*f.legacy_query_ids, *f.dwh_query_ids)
+        ]
         started_at = perf_counter()
 
         progress_sink = open_findings_sink(options["progress_path"])
@@ -2195,6 +2238,7 @@ class Command(BaseCommand):
             table=options["query_log_table"],
             flush=options["flush_query_log"],
             wait_seconds=options["query_log_wait"],
+            batch_size=options["query_log_batch_size"],
             log=lambda message: self.stdout.write(self.style.WARNING(f"  {message}")),
         )
         if not stats_by_id:
