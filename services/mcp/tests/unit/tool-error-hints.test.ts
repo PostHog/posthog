@@ -42,6 +42,21 @@ describe('getToolRecoveryHint', () => {
     it('fires when status is unknown but the URL is a logs query endpoint', () => {
         expect(getToolRecoveryHint({ url: LOGS_QUERY_URL })).not.toBeUndefined()
     })
+
+    it.each([502, 503, 504])(
+        'returns the transient retry footer for a %i on an unrelated endpoint',
+        (status: number) => {
+            const hint = getToolRecoveryHint({ url: 'https://us.posthog.com/api/users/@me/', status })
+
+            expect(hint).not.toBeUndefined()
+            expect(hint).toContain('transient gateway error')
+            expect(hint).toContain('call the same tool again')
+        }
+    )
+
+    it('prefers the logs hint over the transient footer for a 503 on a logs endpoint', () => {
+        expect(getToolRecoveryHint({ url: LOGS_QUERY_URL, status: 503 })).toContain('scans too much data')
+    })
 })
 
 describe('handleToolError recovery hints', () => {

@@ -216,6 +216,18 @@ function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
     return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
 }
 
+/**
+ * Transient gateway statuses: the proxy in front of the Django API returns
+ * 502/503/504 during a blip (its bare `Error 503` page), and Django itself
+ * sheds ClickHouse capacity with a 503. These are infrastructure-level and
+ * transient rather than an endpoint bug, so `fetchJson` retries idempotent
+ * reads that hit one, and `handleToolError` collapses the retry-exhausted
+ * remainder into a single issue per status.
+ */
+export function isTransientGatewayStatus(status: number): boolean {
+    return status === 502 || status === 503 || status === 504
+}
+
 export interface PostHogRateLimitErrorOptions {
     body: string
     url: string
@@ -516,11 +528,22 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             ? error
             : new MCPToolError(error instanceof Error ? error.message : String(error), toolName, error)
 
+    // A retry-exhausted transient gateway 5xx (502/503/504) is an infrastructure
+    // blip, not a per-tool bug. Fingerprint it once by status so every tool that
+    // catches the same blip collapses into one issue, instead of minting a fresh
+    // issue per tool — the same noise fix the 4xx short-circuit above applies.
+    const transientApiError =
+        recoverableApiError instanceof PostHogApiError && isTransientGatewayStatus(recoverableApiError.status)
+            ? recoverableApiError
+            : undefined
+
     const properties: Record<string, any> = {
         team: 'growth',
         tool: mcpError.tool,
         is_mcp_tool_error: error instanceof MCPToolError,
-        $exception_fingerprint: mcpError.tool,
+        $exception_fingerprint: transientApiError
+            ? `posthog-api-transient-5xx:${transientApiError.status}`
+            : mcpError.tool,
     }
 
     if (sessionUuid) {

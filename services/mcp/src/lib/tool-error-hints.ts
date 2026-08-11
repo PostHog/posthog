@@ -13,6 +13,8 @@
  * path without depending on how the tool name is plumbed through.
  */
 
+import { isTransientGatewayStatus } from '@/lib/errors'
+
 /**
  * The logs query endpoints scan ClickHouse and time out (surfacing as a 5xx)
  * when the window is too wide or the filters too loose. They all share the same
@@ -39,6 +41,18 @@ const LOGS_QUERY_URL_FRAGMENTS = [
     '/logs/sparkline/',
 ]
 
+/**
+ * Footer for a transient gateway 5xx (502/503/504) that still failed after
+ * `fetchJson` exhausted its bounded retries. The failure is an infrastructure
+ * blip, not a problem with the request, so the agent's best move is simply to
+ * try the same call again in a moment rather than change its inputs.
+ */
+const TRANSIENT_GATEWAY_RECOVERY_HINT = [
+    'This was a transient gateway error from the PostHog API, not a problem with your request. The MCP server already retried it a few times.',
+    '',
+    'Wait a moment, then call the same tool again. It will most likely succeed.',
+].join('\n')
+
 interface RecoveryHintInput {
     /** The failed request URL (from `PostHogApiError.url`), if the error was an HTTP failure. */
     url?: string | undefined
@@ -61,6 +75,9 @@ export function getToolRecoveryHint({ url, status }: RecoveryHintInput): string 
     }
     if (url && LOGS_QUERY_URL_FRAGMENTS.some((fragment) => url.includes(fragment))) {
         return LOGS_QUERY_RECOVERY_HINT
+    }
+    if (status !== undefined && isTransientGatewayStatus(status)) {
+        return TRANSIENT_GATEWAY_RECOVERY_HINT
     }
     return undefined
 }

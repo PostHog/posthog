@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { getUserAgent } from '@/lib/constants'
 import {
     ErrorCode,
+    isTransientGatewayStatus,
     parseRetryAfterSeconds,
     PostHogApiError,
     PostHogPermissionError,
@@ -29,11 +30,13 @@ import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
 
-// Outbound 429 retry policy. The API is the source of truth for rate limits
+// Outbound retry policy, shared by the 429 (rate limit) and transient gateway
+// 5xx (502/503/504) paths. The API is the source of truth for rate limits
 // (per-scope, with per-team overrides), so we honor its Retry-After signal and
 // fall back to jittered exponential backoff when the header is missing or
-// invalid. The total wait budget bounds how long a throttled tool call can
-// hold the MCP client's request open across all retries combined.
+// invalid; transient 5xx carry no such signal, so they always use the jittered
+// backoff. The total wait budget bounds how long one tool call can hold the MCP
+// client's request open across all retries combined.
 const RATE_LIMIT_MAX_RETRIES = 3
 const RATE_LIMIT_BASE_BACKOFF_MS = 2000
 const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
@@ -479,6 +482,31 @@ export class ApiClient {
                     )
                     await new Promise((resolve) => setTimeout(resolve, delayMs))
                     continue
+                }
+
+                // Transient gateway failure (502/503/504): a proxy or capacity
+                // blip in front of the Django API, not an endpoint bug, so one
+                // retry usually completes the call. Retried only for idempotent
+                // reads — a 5xx can arrive after a mutation has already
+                // committed, so replaying a write is unsafe. Uses the same
+                // jittered backoff and shared wait budget as the 429 path.
+                if (isTransientGatewayStatus(response.status) && method === 'GET' && attempt < RATE_LIMIT_MAX_RETRIES) {
+                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
+                    // Equal jitter so concurrent failures don't retry in lockstep.
+                    const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
+
+                    if (delayMs <= waitBudgetMs) {
+                        waitBudgetMs -= delayMs
+                        console.warn(
+                            `[API] Transient ${response.status} on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
+                        )
+                        await new Promise((resolve) => setTimeout(resolve, delayMs))
+                        continue
+                    }
+
+                    console.warn(
+                        `[API] Transient ${response.status} on ${method} ${url}. Remaining ${Math.round(waitBudgetMs / 1000)}s retry budget too small to retry; giving up.`
+                    )
                 }
 
                 if (!response.ok) {
