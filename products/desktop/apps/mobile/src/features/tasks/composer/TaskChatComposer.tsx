@@ -31,7 +31,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useVoiceRecording } from "@/features/chat";
+import { useMicPressHandlers, useVoiceRecording } from "@/features/chat";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
 import { logger } from "@/lib/logger";
 import { useThemeColors } from "@/lib/theme";
@@ -300,19 +300,14 @@ export function TaskChatComposer({
     clearStatus(id);
   };
 
-  const handleMicPress = async () => {
-    if (isRecording) {
-      await stopRecording();
-    } else if (!isTranscribing) {
-      await startRecording();
-    }
-  };
-
-  const handleMicLongPress = async () => {
-    if (isRecording) {
-      await cancelRecording();
-    }
-  };
+  const { onMicPress, onMicLongPress, onMicPressOut } = useMicPressHandlers({
+    isRecording,
+    isTranscribing,
+    holdToRecordEnabled: !canSend && !showStop,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  });
 
   const handleStop = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -446,9 +441,10 @@ export function TaskChatComposer({
 
               <Pressable
                 onPress={
-                  canSend ? handleSend : showStop ? handleStop : handleMicPress
+                  canSend ? handleSend : showStop ? handleStop : onMicPress
                 }
-                onLongPress={handleMicLongPress}
+                onLongPress={onMicLongPress}
+                onPressOut={onMicPressOut}
                 disabled={isTranscribing || disabled || sendBlocked}
                 className={`h-9 w-9 items-center justify-center rounded-lg ${
                   canSend ? "bg-gray-12" : "bg-gray-3"

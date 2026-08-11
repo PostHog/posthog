@@ -41,7 +41,7 @@ import {
   useReanimatedKeyboardAnimation,
 } from "react-native-keyboard-controller";
 import Animated, { runOnJS, useAnimatedStyle } from "react-native-reanimated";
-import { useVoiceRecording } from "@/features/chat";
+import { useMicPressHandlers, useVoiceRecording } from "@/features/chat";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { GitHubConnectionPrompt } from "@/features/tasks/components/GitHubConnectionPrompt";
 import { GitHubLoadNotice } from "@/features/tasks/components/GitHubLoadNotice";
@@ -242,19 +242,14 @@ export default function NewTaskScreen() {
   const isRecording = voiceStatus === "recording";
   const isTranscribing = voiceStatus === "transcribing";
 
-  const handleMicPress = useCallback(async () => {
-    if (isRecording) {
-      await stopRecording();
-    } else if (!isTranscribing) {
-      await startRecording();
-    }
-  }, [isRecording, isTranscribing, startRecording, stopRecording]);
-
-  const handleMicLongPress = useCallback(async () => {
-    if (isRecording) {
-      await cancelRecording();
-    }
-  }, [isRecording, cancelRecording]);
+  const { onMicPress, onMicLongPress, onMicPressOut } = useMicPressHandlers({
+    isRecording,
+    isTranscribing,
+    holdToRecordEnabled: !prompt.trim() && attachments.length === 0,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  });
 
   const addAttachment = useCallback(
     async (picker: () => Promise<PendingAttachment | null>) => {
@@ -693,12 +688,13 @@ export default function NewTaskScreen() {
                       isTranscribing
                         ? undefined
                         : isRecording
-                          ? handleMicPress
+                          ? onMicPress
                           : hasContent
                             ? handleCreateTask
-                            : handleMicPress
+                            : onMicPress
                     }
-                    onLongPress={handleMicLongPress}
+                    onLongPress={onMicLongPress}
+                    onPressOut={onMicPressOut}
                     disabled={
                       isTranscribing ||
                       (hasContent && !canSubmit && !isRecording)
