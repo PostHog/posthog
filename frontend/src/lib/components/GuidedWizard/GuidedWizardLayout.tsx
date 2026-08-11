@@ -2,16 +2,16 @@ import { ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
-interface WizardStepLayoutProps {
+interface GuidedWizardStepLayoutProps {
     children: ReactNode
     className?: string
 }
 
-export function WizardStepLayout({ children, className }: WizardStepLayoutProps): JSX.Element {
+export function GuidedWizardStepLayout({ children, className }: GuidedWizardStepLayoutProps): JSX.Element {
     return <div className={cn('space-y-5', className)}>{children}</div>
 }
 
-interface WizardSectionProps {
+interface GuidedWizardSectionProps {
     title: ReactNode
     description?: ReactNode
     children?: ReactNode
@@ -24,7 +24,7 @@ interface WizardSectionProps {
     actions?: ReactNode
 }
 
-export function WizardSection({
+export function GuidedWizardSection({
     title,
     description,
     children,
@@ -35,7 +35,7 @@ export function WizardSection({
     descriptionClassName,
     badge,
     actions,
-}: WizardSectionProps): JSX.Element {
+}: GuidedWizardSectionProps): JSX.Element {
     return (
         <section className={cn('space-y-3', className)}>
             <div className={cn('space-y-1', headerClassName)}>
@@ -53,16 +53,16 @@ export function WizardSection({
     )
 }
 
-interface WizardPanelProps {
+interface GuidedWizardPanelProps {
     children: ReactNode
     className?: string
 }
 
-export function WizardPanel({ children, className }: WizardPanelProps): JSX.Element {
+export function GuidedWizardPanel({ children, className }: GuidedWizardPanelProps): JSX.Element {
     return <div className={cn('rounded-lg border border-border bg-surface-primary p-3', className)}>{children}</div>
 }
 
-interface WizardDividerSectionProps {
+interface GuidedWizardDividerSectionProps {
     title?: ReactNode
     description?: ReactNode
     children: ReactNode
@@ -72,7 +72,7 @@ interface WizardDividerSectionProps {
     descriptionClassName?: string
 }
 
-export function WizardDividerSection({
+export function GuidedWizardDividerSection({
     title,
     description,
     children,
@@ -80,7 +80,7 @@ export function WizardDividerSection({
     contentClassName,
     titleClassName,
     descriptionClassName,
-}: WizardDividerSectionProps): JSX.Element {
+}: GuidedWizardDividerSectionProps): JSX.Element {
     return (
         <section className={cn('border-t border-border pt-5', className)}>
             {(title || description) && (

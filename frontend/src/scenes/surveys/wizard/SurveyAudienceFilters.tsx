@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { GuidedWizardPanel, GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardLayout'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -18,7 +19,6 @@ import {
     getSurveyTargetingFilters,
     isSimpleSurveyAudienceTargeting,
 } from '../utils'
-import { WizardPanel, WizardSection } from './WizardLayout'
 
 function buildSimpleAudienceFilters(properties: AnyPropertyFilter[], rolloutPercentage: number): FeatureFlagFilters {
     return {
@@ -111,7 +111,7 @@ export function SurveyAudienceFilters({ onOpenFullEditor }: { onOpenFullEditor?:
     const headerSummary = getSurveyAudienceSummaryValue(survey) || (audienceMode === 'all' ? 'Everyone' : null)
 
     return (
-        <WizardSection
+        <GuidedWizardSection
             title="Who should see this?"
             description="Narrow this survey to people or cohorts, and control how broadly it rolls out."
             className="space-y-2.5"
@@ -125,13 +125,13 @@ export function SurveyAudienceFilters({ onOpenFullEditor }: { onOpenFullEditor?:
         >
             {hasAdvancedTargeting ? (
                 <div className="space-y-2.5">
-                    <WizardPanel>
+                    <GuidedWizardPanel>
                         <div className="text-sm font-medium text-primary">Advanced audience targeting</div>
                         <div className="mt-1 text-xs text-secondary">
                             This survey already uses targeting rules that are more advanced than the guided editor
                             supports.
                         </div>
-                    </WizardPanel>
+                    </GuidedWizardPanel>
                     <div className="flex items-center justify-between gap-3">
                         <p className="m-0 text-xs text-muted">Use the full editor to review or change these rules.</p>
                         {onOpenFullEditor && (
@@ -163,7 +163,7 @@ export function SurveyAudienceFilters({ onOpenFullEditor }: { onOpenFullEditor?:
 
                     {audienceMode === 'specific' && (
                         <div className="ml-6 space-y-2.5">
-                            <WizardPanel>
+                            <GuidedWizardPanel>
                                 <div className="text-xs font-medium uppercase tracking-wide text-muted-alt">
                                     Rollout
                                 </div>
@@ -196,9 +196,9 @@ export function SurveyAudienceFilters({ onOpenFullEditor }: { onOpenFullEditor?:
                                         suffix={<span>%</span>}
                                     />
                                 </div>
-                            </WizardPanel>
+                            </GuidedWizardPanel>
 
-                            <WizardPanel>
+                            <GuidedWizardPanel>
                                 <div className="text-xs font-medium uppercase tracking-wide text-muted-alt">
                                     Audience rules
                                 </div>
@@ -221,7 +221,7 @@ export function SurveyAudienceFilters({ onOpenFullEditor }: { onOpenFullEditor?:
                                         openOnInsert
                                     />
                                 </div>
-                            </WizardPanel>
+                            </GuidedWizardPanel>
 
                             <div className="flex items-center justify-between gap-3">
                                 <p className="m-0 text-xs text-muted">
@@ -237,6 +237,6 @@ export function SurveyAudienceFilters({ onOpenFullEditor }: { onOpenFullEditor?:
                     )}
                 </div>
             )}
-        </WizardSection>
+        </GuidedWizardSection>
     )
 }

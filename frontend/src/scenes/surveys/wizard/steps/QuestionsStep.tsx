@@ -10,6 +10,7 @@ import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { GuidedWizardSection, GuidedWizardStepLayout } from 'lib/components/GuidedWizard/GuidedWizardLayout'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -31,7 +32,6 @@ import { splitChoicesOnPaste } from '../../utils'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
-import { WizardSection, WizardStepLayout } from '../WizardLayout'
 import { TranslationsSection } from './TranslationsSection'
 
 const MAX_CHOICES = 10
@@ -583,8 +583,8 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
     const activeQuestion = activeIndex !== null ? questions[activeIndex] : null
 
     return (
-        <WizardStepLayout>
-            <WizardSection
+        <GuidedWizardStepLayout>
+            <GuidedWizardSection
                 title="Your survey questions"
                 description="Click any question to edit it"
                 descriptionClassName="text-sm"
@@ -644,6 +644,6 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
             {surveyTranslationsEnabled ? (
                 <TranslationsSection editingLanguage={editingLanguage} setEditingLanguage={setEditingLanguage} />
             ) : null}
-        </WizardStepLayout>
+        </GuidedWizardStepLayout>
     )
 }
