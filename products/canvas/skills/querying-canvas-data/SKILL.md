@@ -64,6 +64,10 @@ rows.
 - A saved **SQL** insight may ignore `dateRange` (its window lives inside the SQL) — a reason to
   prefer insight query types. If its window comes from a `{variables.…}` placeholder, drive it
   through `variables` (below) instead; `dateRange` will never reach it.
+- Inline HogQL escape hatch only: never bake `now()` or a hardcoded INTERVAL. Compute unix bounds
+  (`Math.floor(win.start.getTime() / 1000)`) and write half-open
+  `timestamp >= toDateTime(fromUnix) AND timestamp < toDateTime(toUnix)`. Prior period = the
+  equal-length window immediately before; bucket with `toStartOfDay`/`toStartOfHour`.
 
 ## SQL variables
 
@@ -71,7 +75,7 @@ A saved SQL insight whose HogQL contains `{variables.name}` placeholders takes i
 keyed by the variable's **code name** (not its uuid):
 
 ```js
-await ph.loadInsight(shortId, { variables: { product: "surveys", month: "2026-07-01" } })
+await ph.loadInsight(shortId, { variables: { product: 'surveys', month: '2026-07-01' } })
 ```
 
 This is how one saved insight fills a whole board — the same per-product insight loaded once per
@@ -85,10 +89,6 @@ product — rather than every tile resolving the insight's saved default.
   returning every product as rows over the same insight loaded N times, and slice it client-side.
 - Values are typed by the variable's definition in PostHog (String / Number / Boolean / Date / List);
   pass the same shape the insight expects, and an array for a multi-select List variable.
-- Inline HogQL escape hatch only: never bake `now()` or a hardcoded INTERVAL. Compute unix bounds
-  (`Math.floor(win.start.getTime() / 1000)`) and write half-open
-  `timestamp >= toDateTime(fromUnix) AND timestamp < toDateTime(toUnix)`. Prior period = the
-  equal-length window immediately before; bucket with `toStartOfDay`/`toStartOfHour`.
 
 ## Side effects
 
