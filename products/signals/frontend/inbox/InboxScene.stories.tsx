@@ -107,6 +107,21 @@ export const SelfDrivingOnboardingRedesign: Story = {
     ],
 }
 
+// The set-up verdict is still loading (config + count requests hang) → the neutral skeleton, with
+// no tab bar and no welcome page. Guards the regression where the normal tabbed inbox rendered
+// first and was then swapped for the welcome takeover.
+export const SelfDrivingVerdictPending: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => new Promise(() => {}),
+                '/api/projects/:id/signals/source_configs': () => new Promise(() => {}),
+                '/api/projects/:id/signals/scout/configs': () => new Promise(() => {}),
+            },
+        }),
+    ],
+}
+
 // Had self-driving before (reports exist) but nothing is watching now → the sleek re-enable banner
 // over the normal inbox, so existing work stays accessible. Reports are mocked explicitly (not
 // inherited) so "existing work" is unambiguous and the banner – not the takeover – is shown.

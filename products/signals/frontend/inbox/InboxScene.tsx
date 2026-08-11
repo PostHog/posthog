@@ -11,6 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CardSkeleton } from './components/cards/CardSkeleton'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
@@ -120,7 +121,10 @@ function InboxListView(): JSX.Element {
     // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
     // is dropped too, so the onboarding is the whole story – just run the one command.
     const onboarding = onboardingMode === 'takeover'
-    const showRail = wide && !onboarding
+    // The takeover verdict is still settling: commit to neither UI. Rendering the tab bar or the
+    // rail here is what caused the normal inbox to flash in and get replaced by the welcome page.
+    const pending = onboardingMode === 'pending'
+    const showRail = wide && !onboarding && !pending
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
@@ -153,7 +157,7 @@ function InboxListView(): JSX.Element {
                     pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
                 {/* The redesigned welcome (experiment test arm) is a full-pane page with no tab
                     row at all; control keeps the locked "Welcome" tab over the disabled real tabs. */}
-                {!isWelcomeRedesign && (
+                {!isWelcomeRedesign && !pending && (
                     <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                         <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
                         {!onboarding && isReportListTab(effectiveTab) && (
@@ -164,7 +168,11 @@ function InboxListView(): JSX.Element {
                     </div>
                 )}
                 <div className="flex-1 overflow-auto min-h-0">
-                    {onboarding ? (
+                    {pending ? (
+                        <div className="mx-auto max-w-4xl px-6 py-4">
+                            <CardSkeleton count={4} variant="cards" />
+                        </div>
+                    ) : onboarding ? (
                         isWelcomeRedesign ? (
                             <InboxWelcomeRedesign />
                         ) : (
@@ -269,13 +277,16 @@ export function InboxScene(): JSX.Element {
                     // The description explains the active tab so new users can orient themselves.
                     // In the onboarding takeover the tabs are locked, so keep the overall pitch.
                     // The redesigned welcome leads with its own full-size pitch, so a description
-                    // here would say the same thing twice.
+                    // here would say the same thing twice. While the verdict is pending neither
+                    // description is safe to show – either would flash and swap.
                     description={
-                        onboardingMode === 'takeover'
-                            ? isWelcomeRedesign
-                                ? null
-                                : 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
-                            : INBOX_TAB_DESCRIPTION[activeTab]
+                        onboardingMode === 'pending'
+                            ? null
+                            : onboardingMode === 'takeover'
+                              ? isWelcomeRedesign
+                                  ? null
+                                  : 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
+                              : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
                     actions={
