@@ -31,13 +31,13 @@ describe('SyncFrequencySelect', () => {
 
         const bySource = options.find((option) => option.value === '15min')
         const byConsumer = options.find((option) => option.value === '24hour')
-        expect(bySource?.disabledReason).toBe('Fresher than stripe_invoices delivers')
+        expect(bySource?.disabledReason).toBe('More often than stripe_invoices syncs')
         expect(byConsumer?.disabledReason).toBe('Too slow for daily_revenue')
         expect(options.find((option) => option.value === '6hour')?.disabledReason).toBeUndefined()
     })
 
     it('explains the range only where a per-view cadence is writable', () => {
-        expect(buildExplanation(bounds())).toContain('Set this between 6 hours and 12 hours.')
+        expect(buildExplanation(bounds())).toContain('Pick between 6 hours and 12 hours.')
         expect(buildExplanation(bounds({ frequency_mode: 'dag_schedule' }))).toBeNull()
         expect(buildExplanation(bounds({ floor: null, ceiling: null }))).toBeNull()
     })
@@ -86,16 +86,16 @@ describe('SyncFrequencySelect', () => {
         it('names both ends and what to change when the bounds cross', () => {
             // Every cadence blocked means Materialize would 400 whatever the picker had selected.
             expect(unsatisfiableReason(nothingAllowed())).toBe(
-                'No cadence works here: stripe_invoices only delivers new data every 6 hours, ' +
-                    'but daily_revenue needs data no older than 12 hours. ' +
+                'No cadence works here: stripe_invoices only syncs every 6 hours, ' +
+                    'but daily_revenue refreshes every 12 hours. ' +
                     'Slow down daily_revenue or speed up stripe_invoices.'
             )
         })
 
         it('asks for the source to speed up when only a floor blocks every cadence', () => {
             expect(unsatisfiableReason(nothingAllowed({ ceiling: null }))).toBe(
-                'No cadence works here: stripe_invoices only delivers new data every 6 hours, ' +
-                    'slower than any cadence this can be set to. Speed up stripe_invoices first.'
+                'No cadence works here: stripe_invoices only syncs every 6 hours, ' +
+                    'less often than anything this can refresh at. Speed up stripe_invoices first.'
             )
         })
 

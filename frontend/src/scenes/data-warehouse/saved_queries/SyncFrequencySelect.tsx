@@ -7,9 +7,10 @@ import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generat
 export type SyncFrequencyValue = DataModelingSyncInterval | 'never'
 
 /**
- * Target wording, not interval wording: a cadence is a promise about how stale data may get, and the
- * two bounds read as one range only when both ends describe the same thing. The bar carries that
- * wording once in its label, so each segment only has to say which duration it is.
+ * Interval wording ("refresh every X"), which the bounds are what make truthful: a view may only be
+ * set at or below its consumers' cadence, so the value picked here is the cadence that runs, not a
+ * request the scheduler quietly tightens. The bar carries the wording once in its label, so each
+ * segment only has to say which duration it is.
  */
 const CADENCE_LABELS: Record<DataModelingSyncInterval, string> = {
     '15min': '15 minutes',
@@ -35,13 +36,6 @@ const CADENCE_SEGMENTS: Record<DataModelingSyncInterval, string> = {
 
 const ORDERED_CADENCES = Object.keys(CADENCE_LABELS) as DataModelingSyncInterval[]
 
-/** Last, not first: it leaves the range rather than extending it. */
-const NEVER_OPTION: LemonSegmentedButtonOption<SyncFrequencyValue> = {
-    value: 'never',
-    label: 'Never',
-    tooltip: 'Stop refreshing this view on a schedule.',
-}
-
 /**
  * Why the picker is read-only, for the modes where cadence is not this view's to set.
  *
@@ -56,10 +50,9 @@ const MODE_DISABLED_REASONS: Record<string, string> = {
 export interface SyncFrequencySelectProps {
     /** Bounds from the saved query. Undefined while loading, or on surfaces that don't fetch them. */
     bounds?: SyncFrequencyBoundsApi | null
+    /** A paused view ("never") leaves the bar with nothing selected, since pausing is not a cadence. */
     value: SyncFrequencyValue | null
-    onChange: (value: SyncFrequencyValue) => void
-    /** Offer "Never". Only meaningful once a view is materialized, since it stops a live schedule. */
-    includeNever?: boolean
+    onChange: (value: DataModelingSyncInterval) => void
     /** Locks the bar while a change is in flight, so one click can't queue eight cadence writes. */
     loading?: boolean
     /** Takes precedence over the mode's own reason, so access checks win over scheduling ones. */
@@ -77,7 +70,6 @@ export function SyncFrequencySelect({
     bounds,
     value,
     onChange,
-    includeNever,
     loading,
     disabledReason,
     'data-attr': dataAttr,
@@ -92,12 +84,12 @@ export function SyncFrequencySelect({
 
     return (
         <div className="flex flex-col gap-1 items-start" data-attr={dataAttr}>
-            <LemonLabel>Keep data no older than</LemonLabel>
-            <LemonSegmentedButton<SyncFrequencyValue>
+            <LemonLabel>Refresh every</LemonLabel>
+            <LemonSegmentedButton<DataModelingSyncInterval>
                 size="small"
-                value={value ?? undefined}
+                value={value && value !== 'never' ? value : undefined}
                 onChange={(next) => onChange(next)}
-                options={includeNever ? [...options, NEVER_OPTION] : options}
+                options={options}
                 disabledReason={reason}
             />
             {explanation && <span className="text-xs text-secondary">{explanation}</span>}
@@ -105,7 +97,9 @@ export function SyncFrequencySelect({
     )
 }
 
-export function buildOptions(bounds?: SyncFrequencyBoundsApi | null): LemonSegmentedButtonOption<SyncFrequencyValue>[] {
+export function buildOptions(
+    bounds?: SyncFrequencyBoundsApi | null
+): LemonSegmentedButtonOption<DataModelingSyncInterval>[] {
     if (!bounds?.options.length) {
         return ORDERED_CADENCES.map((cadence) => segment(cadence))
     }
@@ -120,8 +114,8 @@ export function buildOptions(bounds?: SyncFrequencyBoundsApi | null): LemonSegme
 }
 
 /** Abbreviated on the bar, spelled out on hover, so eight segments stay readable at one glance. */
-function segment(cadence: DataModelingSyncInterval): LemonSegmentedButtonOption<SyncFrequencyValue> {
-    return { value: cadence, label: CADENCE_SEGMENTS[cadence], tooltip: CADENCE_LABELS[cadence] }
+function segment(cadence: DataModelingSyncInterval): LemonSegmentedButtonOption<DataModelingSyncInterval> {
+    return { value: cadence, label: CADENCE_SEGMENTS[cadence], tooltip: `Every ${CADENCE_LABELS[cadence]}` }
 }
 
 /**
@@ -131,7 +125,7 @@ function segment(cadence: DataModelingSyncInterval): LemonSegmentedButtonOption<
 function blockedReason(option: SyncFrequencyBoundsApi['options'][number], bounds: SyncFrequencyBoundsApi): string {
     const name = option.blocker?.name
     if (option.blocked_by === 'source' && name && bounds.floor) {
-        return `Fresher than ${name} delivers`
+        return `More often than ${name} syncs`
     }
     if (option.blocked_by === 'consumer' && name && bounds.ceiling) {
         return `Too slow for ${name}`
@@ -155,19 +149,22 @@ export function unsatisfiableReason(bounds?: SyncFrequencyBoundsApi | null): str
     const consumer = bounds.ceiling?.blocker?.name ?? 'a view or endpoint built on this one'
     if (bounds.floor && bounds.ceiling) {
         return (
-            `No cadence works here: ${source} only delivers new data every ${bounds.floor.label}, ` +
-            `but ${consumer} needs data no older than ${bounds.ceiling.label}. ` +
+            `No cadence works here: ${source} only syncs every ${bounds.floor.label}, ` +
+            `but ${consumer} refreshes every ${bounds.ceiling.label}. ` +
             `Slow down ${consumer} or speed up ${source}.`
         )
     }
     if (bounds.floor) {
         return (
-            `No cadence works here: ${source} only delivers new data every ${bounds.floor.label}, ` +
-            `slower than any cadence this can be set to. Speed up ${source} first.`
+            `No cadence works here: ${source} only syncs every ${bounds.floor.label}, ` +
+            `less often than anything this can refresh at. Speed up ${source} first.`
         )
     }
     if (bounds.ceiling) {
-        return `No cadence works here: ${consumer} needs data no older than ${bounds.ceiling.label}.`
+        return (
+            `No cadence works here: ${consumer} refreshes every ${bounds.ceiling.label}, ` +
+            `more often than anything this can refresh at. Slow down ${consumer} first.`
+        )
     }
     return 'No cadence works here.'
 }
@@ -209,22 +206,20 @@ export function buildExplanation(bounds?: SyncFrequencyBoundsApi | null): string
 
     if (bounds.floor && bounds.ceiling) {
         parts.push(
-            `Set this between ${bounds.floor.label} and ${bounds.ceiling.label}. ` +
-                `${floorName} delivers every ${bounds.floor.label}, ` +
-                `and ${ceilingName} needs data no older than ${bounds.ceiling.label}.`
+            `Pick between ${bounds.floor.label} and ${bounds.ceiling.label}. ` +
+                `${floorName} syncs every ${bounds.floor.label}, ` +
+                `and ${ceilingName} refreshes every ${bounds.ceiling.label}.`
         )
     } else if (bounds.floor) {
-        parts.push(`${floorName} delivers every ${bounds.floor.label}, so this can't be fresher than that.`)
+        parts.push(`${floorName} syncs every ${bounds.floor.label}, so this can't refresh more often.`)
     } else if (bounds.ceiling) {
-        parts.push(
-            `${ceilingName} needs data no older than ${bounds.ceiling.label}, so this can't be slower than that.`
-        )
+        parts.push(`${ceilingName} refreshes every ${bounds.ceiling.label}, so this can't refresh less often.`)
     }
 
     if (bounds.best_effort_sources.length) {
         const names = bounds.best_effort_sources.map((source) => source.name).join(', ')
         const verb = bounds.best_effort_sources.length > 1 ? 'have' : 'has'
-        parts.push(`${names} ${verb} no sync schedule, so this view may still serve data older than you pick.`)
+        parts.push(`${names} ${verb} no sync schedule, so refreshing more often won't make that data any newer.`)
     }
 
     return parts.length ? parts.join(' ') : null

@@ -475,17 +475,20 @@ def _nothing_satisfiable_message(bounds: TargetBounds, names: Mapping[str, str] 
     consumer = _describe(ceiling.blocker, names, "a view or endpoint built on this one") if ceiling else ""
     if floor is not None and ceiling is not None:
         return (
-            f"No cadence works here: {source} only delivers new data every {humanize_cadence(floor.value)},"
-            f" but {consumer} needs data no older than {humanize_cadence(ceiling.value)}."
+            f"No cadence works here: {source} only syncs every {humanize_cadence(floor.value)},"
+            f" but {consumer} refreshes every {humanize_cadence(ceiling.value)}."
             f" Slow down {consumer} or speed up {source}."
         )
     if floor is not None:
         return (
-            f"No cadence works here: {source} only delivers new data every {humanize_cadence(floor.value)},"
-            f" slower than any cadence this can be set to. Speed up {source} first."
+            f"No cadence works here: {source} only syncs every {humanize_cadence(floor.value)},"
+            f" less often than anything this can refresh at. Speed up {source} first."
         )
     if ceiling is not None:
-        return f"No cadence works here: {consumer} needs data no older than {humanize_cadence(ceiling.value)}."
+        return (
+            f"No cadence works here: {consumer} refreshes every {humanize_cadence(ceiling.value)},"
+            f" more often than anything this can refresh at. Slow down {consumer} first."
+        )
     return "No cadence works here."
 
 
@@ -506,7 +509,7 @@ def validate_declared_target(
     if target not in SCHEDULABLE_BUCKETS:
         supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
         raise UnsupportedFrequencyTargetError(
-            f"Can't keep this data less than {humanize_cadence(target)} old. Pick one of: {supported}."
+            f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
         )
 
     bounds = compute_target_bounds(
@@ -526,14 +529,14 @@ def validate_declared_target(
     if option.blocked_by == "source" and bounds.floor is not None:
         source = _describe(option.blocker, names, "the sources this query reads")
         raise UnsatisfiableFrequencyError(
-            f"Can't keep this data less than {humanize_cadence(target)} old: {source} only delivers new data every"
+            f"Can't refresh every {humanize_cadence(target)}: {source} only syncs every"
             f" {humanize_cadence(bounds.floor.value)}."
             f" Pick {humanize_cadence(min(bounds.allowed))} instead."
         )
     if option.blocked_by == "consumer" and bounds.ceiling is not None:
         consumer = _describe(option.blocker, names, "a view or endpoint built on this one")
         raise UnsatisfiableFrequencyError(
-            f"Can't let this data get {humanize_cadence(target)} old: {consumer} needs data no older than"
+            f"Can't refresh every {humanize_cadence(target)}: {consumer} refreshes every"
             f" {humanize_cadence(bounds.ceiling.value)}. Pick {humanize_cadence(max(bounds.allowed))} instead."
         )
 

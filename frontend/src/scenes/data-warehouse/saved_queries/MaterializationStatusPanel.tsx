@@ -16,13 +16,7 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DataModelingJob,
-    DataModelingSyncInterval,
-    LogEntryLevel,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
@@ -149,6 +143,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
     const startingFrequency = defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency)
     const noCadenceReason = unsatisfiableReason(savedQuery.sync_frequency_bounds)
+    const isPaused = !savedQuery.sync_frequency || savedQuery.sync_frequency === 'never'
 
     // Prefer the serving engine's entry when several engines are suspended.
     const suspension = savedQuery.suspended
@@ -207,7 +202,23 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         <span>Materialization scheduled</span>
                                     </div>
                                 )}
-                                <div className="flex flex-col gap-2 mt-2">
+                                <div className="flex flex-col gap-2 items-start mt-2">
+                                    {kind !== 'endpoint' && (
+                                        <SyncFrequencySelect
+                                            bounds={savedQuery.sync_frequency_bounds}
+                                            disabledReason={sync || materializationAccessReason || undefined}
+                                            value={(savedQuery.sync_frequency as SyncFrequencyValue) || 'never'}
+                                            onChange={(newValue) =>
+                                                updateDataWarehouseSavedQuery({
+                                                    id: viewId,
+                                                    sync_frequency: newValue,
+                                                    types: [[]],
+                                                    lifecycle: 'update',
+                                                })
+                                            }
+                                            loading={updatingDataWarehouseSavedQuery}
+                                        />
+                                    )}
                                     <div className="flex items-center gap-2">
                                         <LemonButton
                                             className="whitespace-nowrap"
@@ -236,6 +247,28 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"
+                                                tooltip="Stop refreshing on a schedule. The table stays, holding what it last loaded."
+                                                disabledReason={
+                                                    materializationAccessReason ||
+                                                    (isPaused ? 'Already paused. Pick a cadence to resume.' : undefined)
+                                                }
+                                                loading={updatingDataWarehouseSavedQuery}
+                                                onClick={() =>
+                                                    updateDataWarehouseSavedQuery({
+                                                        id: viewId,
+                                                        sync_frequency: 'never',
+                                                        types: [[]],
+                                                        lifecycle: 'update',
+                                                    })
+                                                }
+                                            >
+                                                Pause refreshes
+                                            </LemonButton>
+                                        )}
+                                        {kind !== 'endpoint' && (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
                                                 tooltip="Revert materialized view to view"
                                                 disabledReason={revert || materializationAccessReason}
                                                 icon={<IconRevert />}
@@ -258,23 +291,6 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             />
                                         )}
                                     </div>
-                                    {kind !== 'endpoint' && (
-                                        <SyncFrequencySelect
-                                            bounds={savedQuery.sync_frequency_bounds}
-                                            disabledReason={sync || materializationAccessReason || undefined}
-                                            value={(savedQuery.sync_frequency as SyncFrequencyValue) || 'never'}
-                                            onChange={(newValue) =>
-                                                updateDataWarehouseSavedQuery({
-                                                    id: viewId,
-                                                    sync_frequency: newValue,
-                                                    types: [[]],
-                                                    lifecycle: 'update',
-                                                })
-                                            }
-                                            loading={updatingDataWarehouseSavedQuery}
-                                            includeNever
-                                        />
-                                    )}
                                 </div>
                             </div>
                         ) : (
@@ -299,9 +315,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             bounds={savedQuery.sync_frequency_bounds}
                                             disabledReason={materializationAccessReason || undefined}
                                             value={startingFrequency}
-                                            onChange={(newValue) =>
-                                                setInitialSyncFrequency(newValue as DataModelingSyncInterval)
-                                            }
+                                            onChange={(newValue) => setInitialSyncFrequency(newValue)}
                                         />
                                     )}
                                     <LemonButton

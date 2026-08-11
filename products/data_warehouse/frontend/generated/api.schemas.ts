@@ -1151,7 +1151,7 @@ export interface SyncFrequencyOptionApi {
     cadence: MaterializeSyncFrequencyEnumApi
     /** False when writing this cadence would be rejected. */
     allowed: boolean
-    /** Which side withholds this cadence: 'source' when no upstream source delivers data that often, 'consumer' when a downstream view or endpoint needs data fresher than this. Null when the cadence is allowed.
+    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
      *
      * * `source` - source
      * * `consumer` - consumer */
@@ -1178,11 +1178,11 @@ export interface SyncFrequencyBoundsApi {
     frequency_mode: FrequencyModeEnumApi
     /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
     options: SyncFrequencyOptionApi[]
-    /** The fastest bound: no cadence finer than this is allowed, because the source named here does not deliver more often. Null when no source withholds a cadence. */
+    /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
     floor: SyncFrequencyBoundApi | null
-    /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here needs data fresher than that. Null when no consumer withholds a cadence. */
+    /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
     ceiling: SyncFrequencyBoundApi | null
-    /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and a cadence finer than their real delivery will serve stale data. */
+    /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. */
     best_effort_sources: SyncFrequencyBlockerApi[]
 }
 
@@ -1223,7 +1223,7 @@ export interface DataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag: boolean
-    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream freshness targets set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
@@ -1350,7 +1350,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag?: boolean
-    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream freshness targets set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.

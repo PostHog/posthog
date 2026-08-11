@@ -207,7 +207,7 @@ class TestValidateFrequencyTarget(TestCase):
 
 
 class TestComputeTargetBounds(TestCase):
-    # src delivers every 6h, and endpoint `ep` downstream needs data no older than 12h,
+    # src syncs every 6h, and endpoint `ep` downstream refreshes every 12h,
     # so only 6h and 12h are legal for `a` — every other cadence is withheld by one side or the other.
     EDGES = [("src", "a"), ("a", "ep")]
     TARGETS = {"ep": H12}

@@ -146,8 +146,8 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
     blocked_by = serializers.ChoiceField(
         choices=[("source", "source"), ("consumer", "consumer")],
         allow_null=True,
-        help_text="Which side withholds this cadence: 'source' when no upstream source delivers data "
-        "that often, 'consumer' when a downstream view or endpoint needs data fresher than this. "
+        help_text="Which side withholds this cadence: 'source' when no upstream source syncs that "
+        "often, 'consumer' when a downstream view or endpoint refreshes more often than this. "
         "Null when the cadence is allowed.",
     )
     blocker = SyncFrequencyBlockerSerializer(
@@ -178,24 +178,24 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
     floor = SyncFrequencyBoundSerializer(
         allow_null=True,
         help_text="The fastest bound: no cadence finer than this is allowed, because the source named "
-        "here does not deliver more often. Null when no source withholds a cadence.",
+        "here does not sync more often. Null when no source withholds a cadence.",
     )
     ceiling = SyncFrequencyBoundSerializer(
         allow_null=True,
         help_text="The slowest bound: no cadence coarser than this is allowed, because the consumer "
-        "named here needs data fresher than that. Null when no consumer withholds a cadence.",
+        "named here refreshes that often. Null when no consumer withholds a cadence.",
     )
     best_effort_sources = SyncFrequencyBlockerSerializer(
         many=True,
         help_text="Upstream sources with no sync schedule, so the floor is a guess: these arrive when "
-        "someone runs them, and a cadence finer than their real delivery will serve stale data.",
+        "someone runs them, and refreshing more often than they really sync will serve stale data.",
     )
 
 
 SYNC_FREQUENCY_BOUNDS_HELP_TEXT = (
     "Which cadences this view can actually be set to, and what withholds the rest. Computed from the "
-    "view's data modeling lineage: upstream source sync frequencies set a floor, downstream freshness "
-    "targets set a ceiling. Read-only, and present on retrieve, create and update responses only."
+    "view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences "
+    "set a ceiling. Read-only, and present on retrieve, create and update responses only."
 )
 
 
