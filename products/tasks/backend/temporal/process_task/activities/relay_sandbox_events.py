@@ -20,6 +20,12 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
+from products.tasks.backend.logic.services.awaiting_input import (
+    clear_run_awaiting_input,
+    is_permission_lifecycle_event,
+    mark_run_awaiting_input,
+    track_permission_state,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
@@ -414,6 +420,8 @@ async def _relay_loop(
                                 permission_request = parse_permission_request(event_data)
                                 if permission_request is not None:
                                     await asyncio.to_thread(_broker_permission_request, task_run, permission_request)
+                                elif is_permission_lifecycle_event(event_data):
+                                    await asyncio.to_thread(_track_awaiting_input, task_run, event_data)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
@@ -421,6 +429,10 @@ async def _relay_loop(
 
                             if _is_end_of_turn(event_data):
                                 agent_active[0] = False
+                                if task_run is not None:
+                                    # An agent that has finished its turn is not waiting on a
+                                    # permission, whatever the last request event said.
+                                    await asyncio.to_thread(_clear_awaiting_input, task_run)
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
@@ -870,10 +882,26 @@ def _broker_permission_request(task_run: TaskRunModel, permission_request: dict)
         # it would close the test transaction's connection).
         if not settings.TEST:
             close_old_connections()
-        try_auto_respond_permission_request(task_run, permission_request)
+        if not try_auto_respond_permission_request(task_run, permission_request):
+            # Nobody answered it for the user, so the run is now waiting on one.
+            mark_run_awaiting_input(str(task_run.id), permission_request["request_id"])
     except Exception:
         logger.warning(
             "relay_sandbox_events_permission_broker_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )
+
+
+def _track_awaiting_input(task_run: TaskRunModel, event_data: dict) -> None:
+    """Sync DB write; call via asyncio.to_thread."""
+    if not settings.TEST:
+        close_old_connections()
+    track_permission_state(str(task_run.id), event_data)
+
+
+def _clear_awaiting_input(task_run: TaskRunModel) -> None:
+    """Sync DB write; call via asyncio.to_thread."""
+    if not settings.TEST:
+        close_old_connections()
+    clear_run_awaiting_input(str(task_run.id))

@@ -343,6 +343,49 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_permission_request_ingest_records_what_the_run_waits_on(self) -> None:
+        token = self._create_token()
+
+        status, _ = self._call_ingest(
+            token,
+            [
+                {
+                    "seq": 1,
+                    "event": {
+                        "type": "notification",
+                        "notification": {
+                            "method": "_posthog/permission_request",
+                            "params": {
+                                "requestId": "req-1",
+                                "toolCall": {"toolCallId": "tool-1"},
+                                "options": [{"optionId": "allow", "kind": "allow_once", "name": "Yes"}],
+                            },
+                        },
+                    },
+                }
+            ],
+        )
+        self.assertEqual(status, 200)
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.awaiting_input_request_id, "req-1")
+
+        status, _ = self._call_ingest(
+            token,
+            [
+                {
+                    "seq": 2,
+                    "event": {
+                        "type": "notification",
+                        "notification": {"method": "_posthog/turn_complete"},
+                    },
+                }
+            ],
+        )
+        self.assertEqual(status, 200)
+        self.task_run.refresh_from_db()
+        self.assertIsNone(self.task_run.awaiting_input_request_id)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
         token = self._create_token()
         heartbeat_entered = threading.Event()

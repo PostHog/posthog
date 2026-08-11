@@ -45,6 +45,7 @@ interface TaskItemProps {
   isPinned?: boolean;
   isSuspended?: boolean;
   needsPermission?: boolean;
+  awaitsInput?: boolean;
   taskRunStatus?: TaskRunStatus;
   runMode?: RunMode;
   originProduct?: string;
@@ -118,6 +119,7 @@ export function TaskItem({
   isUnread,
   isPinned = false,
   needsPermission = false,
+  awaitsInput = false,
   taskRunStatus,
   runMode,
   originProduct,
@@ -145,6 +147,7 @@ export function TaskItem({
       isPinned={isPinned}
       isSuspended={isSuspended}
       needsPermission={needsPermission}
+      awaitsInput={awaitsInput}
       taskRunStatus={taskRunStatus}
       runMode={runMode}
       originProduct={originProduct}

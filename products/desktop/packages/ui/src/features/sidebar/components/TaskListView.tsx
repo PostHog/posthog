@@ -116,6 +116,7 @@ function TaskRow({
       isUnread={task.isUnread}
       isPinned={task.isPinned}
       needsPermission={task.needsPermission}
+      awaitsInput={task.awaitsInput}
       taskRunStatus={task.taskRunStatus}
       runMode={task.runMode}
       originProduct={task.originProduct}

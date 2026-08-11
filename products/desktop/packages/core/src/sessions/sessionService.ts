@@ -7541,10 +7541,20 @@ export class SessionService {
       update,
     );
 
+    // Logs as well as snapshots: a snapshot is what a watch starts from, so covering only that
+    // recovers a prompt raised before the app opened the run and misses one raised while it is
+    // watching — the case where the live `permission_request` frame never lands (a reconnect
+    // that replays the request as a log line rather than re-emitting it). The request only
+    // reaches the reader once, either way: an answered or already-surfaced one is dropped by
+    // `handleCloudPermissionRequest`.
+    const isLiveLogBatch =
+      update.kind === "logs" &&
+      !isTerminalStatus(this.d.store.getSessions()[taskRunId]?.cloudStatus);
     if (
-      update.kind === "snapshot" &&
-      !isTerminalStatus(update.status) &&
-      !isStaleNonTerminalStatus
+      isLiveLogBatch ||
+      (update.kind === "snapshot" &&
+        !isTerminalStatus(update.status) &&
+        !isStaleNonTerminalStatus)
     ) {
       this.surfacePersistedPendingPermissions(taskRunId, update.newEntries);
     }

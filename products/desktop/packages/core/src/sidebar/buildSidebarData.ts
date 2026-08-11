@@ -18,6 +18,7 @@ export interface FullTask {
     environment?: "local" | "cloud" | null;
     output?: { pr_url?: unknown } | null;
     state?: Record<string, unknown> | null;
+    awaiting_input?: boolean | null;
   } | null;
 }
 
@@ -35,6 +36,8 @@ export interface SidebarTask {
     output?: { pr_url?: unknown } | null;
     /** "interactive" or "background"; see `readRunMode`. */
     mode?: RunMode | null;
+    /** The agent is blocked on a question to the user; see `TaskData.awaitsInput`. */
+    awaiting_input?: boolean | null;
   } | null;
 }
 
@@ -76,6 +79,7 @@ export function narrowFullTask(task: FullTask | Task): SidebarTask {
           environment: task.latest_run.environment ?? null,
           output: task.latest_run.output ?? null,
           mode: readRunMode(task.latest_run.state),
+          awaiting_input: task.latest_run.awaiting_input ?? null,
         }
       : null,
     origin_product: task.origin_product,
@@ -223,6 +227,7 @@ export function deriveTaskData(
     isPinned: ctx.pinnedIds.has(task.id),
     isSuspended: ctx.suspendedIds.has(task.id),
     needsPermission: (session?.pendingPermissions?.size ?? 0) > 0,
+    awaitsInput: task.latest_run?.awaiting_input === true,
     repository: getRepositoryInfo(task, workspace?.folderPath ?? undefined),
     folderId: workspace?.folderId || undefined,
     taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,

@@ -11,6 +11,7 @@ const task = (overrides: Partial<TaskData>): TaskData => ({
   isUnread: false,
   isPinned: false,
   needsPermission: false,
+  awaitsInput: false,
   repository: null,
   isSuspended: false,
   folderPath: null,

@@ -51140,6 +51140,8 @@ export namespace Schemas {
       /** @nullable */
       output: TaskRunDetailDTOOutput;
       state: TaskRunDetailDTOState;
+      /** Whether the agent has asked the user something and is blocked on the answer. The run stays 'in_progress' while it waits, so this is the only field that says so. */
+      awaiting_input?: boolean;
       readonly artifacts: readonly TaskRunArtifactResponse[];
       /** @nullable */
       created_at?: string | null;
@@ -51290,6 +51292,8 @@ export namespace Schemas {
     export interface TaskRunSummary {
       status: TaskRunStatusEnum | null;
       environment: TaskRunEnvironmentEnum | null;
+      /** Whether the agent has asked the user something and is blocked on the answer. The run stays 'in_progress' while it waits, so this is the only field that says so. */
+      awaiting_input?: boolean;
     }
 
     /**

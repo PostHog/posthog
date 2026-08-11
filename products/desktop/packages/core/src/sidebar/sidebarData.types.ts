@@ -14,7 +14,14 @@ export interface TaskData {
   isGenerating: boolean;
   isUnread: boolean;
   isPinned: boolean;
+  /** A live session in this app is holding a prompt only this app can answer. */
   needsPermission: boolean;
+  /**
+   * The run is blocked on a question to the user, as the backend reports it. This is the only
+   * route for a task no session in this app is attached to: the agent's prompts live in the
+   * run's log, so without one the row would read as plain "working".
+   */
+  awaitsInput: boolean;
   repository: TaskRepositoryInfo | null;
   isSuspended: boolean;
   folderId?: string;

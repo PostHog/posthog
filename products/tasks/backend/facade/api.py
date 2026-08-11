@@ -366,6 +366,17 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
+def _run_is_awaiting_input(awaiting_input_request_id: str | None, status: str | None) -> bool:
+    """Whether the run is blocked on a question to the user.
+
+    A settled run is never waiting, however its last permission request was recorded — reading
+    the status here saves every path that ends a run from having to clear the request id too.
+    """
+    if not awaiting_input_request_id:
+        return False
+    return status not in (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+
 def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
@@ -393,6 +404,7 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
         error_message=run.error_message,
         output=run.output,
         state=run.state or {},
+        awaiting_input=_run_is_awaiting_input(run.awaiting_input_request_id, run.status),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
         updated_at=run.updated_at,
@@ -4383,7 +4395,13 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     latest_run = (
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
-        .annotate(_data=JSONObject(status="status", environment="environment"))
+        .annotate(
+            _data=JSONObject(
+                status="status",
+                environment="environment",
+                awaiting_input_request_id="awaiting_input_request_id",
+            )
+        )
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
@@ -4395,7 +4413,11 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
         latest = (
-            contracts.TaskLatestRunSummaryDTO(status=raw.get("status"), environment=raw.get("environment"))
+            contracts.TaskLatestRunSummaryDTO(
+                status=raw.get("status"),
+                environment=raw.get("environment"),
+                awaiting_input=_run_is_awaiting_input(raw.get("awaiting_input_request_id"), raw.get("status")),
+            )
             if isinstance(raw, dict)
             else None
         )

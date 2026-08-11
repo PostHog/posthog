@@ -49,12 +49,15 @@ export function useBlockedSessionCount(): (
   const blocked = useBlockedTaskIds();
   const archivedTaskIds = useArchivedTaskIds();
   const counts = useMemo(() => {
-    if (blocked.size === 0) return new Map<string, number>();
     // Archived alongside the yellow count, for the same reason: a space's
     // lists drop them, so a dot for one points at a row you cannot reach.
     return countSessionsByChannel(
       tasks ?? [],
-      (task) => blocked.has(task.id) && !archivedTaskIds.has(task.id),
+      (task) =>
+        // A session here holding the prompt, or the run itself reporting that it
+        // waits — the second is the only route for a task nothing here has open.
+        (blocked.has(task.id) || task.latest_run?.awaiting_input === true) &&
+        !archivedTaskIds.has(task.id),
     );
   }, [blocked, tasks, archivedTaskIds]);
   return useMemo(

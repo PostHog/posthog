@@ -1841,6 +1841,18 @@ class TaskRun(models.Model):
         help_text="Names of desktop-only MCP servers the creating client relays into this run (docs/cloud-mcp-relay.md). Names only — configuration never crosses the wire.",
     )
 
+    # Which permission request the agent is currently blocked on, if any. Held here rather than
+    # derived from the log because a client that only polls the API — a task list with no live
+    # session attached to the run — otherwise cannot tell "the agent is working" from "the agent
+    # is waiting on a person".
+    awaiting_input_request_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Id of the permission request this run is waiting on, or null when it is not waiting on one.",
+    )
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)

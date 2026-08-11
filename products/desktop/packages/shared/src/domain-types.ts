@@ -298,6 +298,9 @@ export interface TaskRun {
   error_message: string | null;
   output: Record<string, unknown> | null; // Structured output (PR URL, commit SHA, etc.)
   state: Record<string, unknown>; // Intermediate run state (defaults to {}, never null)
+  /** The agent has asked the user something and is blocked on the answer. `status`
+   * stays `in_progress` throughout, so this is the only field that says so. */
+  awaiting_input?: boolean;
   artifacts?: TaskRunArtifact[];
   created_at: string;
   updated_at: string;

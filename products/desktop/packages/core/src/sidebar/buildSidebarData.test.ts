@@ -16,6 +16,7 @@ function makeTask(id: string): TaskData {
     isUnread: false,
     isPinned: false,
     needsPermission: false,
+    awaitsInput: false,
     repository: null,
     isSuspended: false,
     folderPath: null,

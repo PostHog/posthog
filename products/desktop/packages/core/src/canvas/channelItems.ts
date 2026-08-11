@@ -161,7 +161,11 @@ export function buildChannelItems({
               sessionFacts.workspaceModeByTaskId.get(task.id),
             ),
             source: sourceOf(task),
-            needsInput: sessionFacts.needsInputTaskIds.has(task.id),
+            // Either a live session here holds the prompt, or the backend says the run is
+            // waiting on one — the second is the only route for a task with no session here.
+            needsInput:
+              sessionFacts.needsInputTaskIds.has(task.id) ||
+              task.latest_run?.awaiting_input === true,
             unread: isTaskUnread(
               task.updated_at,
               sessionFacts.viewedTimestamps[task.id],

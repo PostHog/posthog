@@ -40,6 +40,7 @@ export function TaskTabIcon({
       isPinned={taskData.isPinned}
       isSuspended={taskData.isSuspended}
       needsPermission={taskData.needsPermission}
+      awaitsInput={taskData.awaitsInput}
       taskRunStatus={taskData.taskRunStatus}
       runMode={taskData.runMode}
       originProduct={taskData.originProduct}

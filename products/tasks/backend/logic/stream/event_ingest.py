@@ -17,6 +17,11 @@ from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
 
+from products.tasks.backend.logic.services.awaiting_input import (
+    clear_run_awaiting_input,
+    is_permission_lifecycle_event,
+    track_permission_state,
+)
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
@@ -207,6 +212,7 @@ async def _ingest_event_lines(
 
             result.accepted += 1
             result.last_accepted_seq = sequence
+            await _track_awaiting_input(claims.run_id, event)
             await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)
     except EventIngestPayloadTooLarge as error:
         if result.last_accepted_seq and error.last_accepted_seq == 0:
@@ -369,9 +375,33 @@ def _parse_ingest_line(line: str) -> EventIngestEventLine | EventIngestCompleteL
     return EventIngestEventLine(sequence=sequence, event=event)
 
 
+async def _track_awaiting_input(run_id: str, event: dict) -> None:
+    """Keep the run's awaiting-input flag in step with the agent's permission prompts."""
+    if not is_permission_lifecycle_event(event):
+        return
+    await sync_to_async(_track_awaiting_input_sync, thread_sensitive=True)(run_id, event)
+
+
+def _track_awaiting_input_sync(run_id: str, event: dict) -> None:
+    # Same connection caveat as `_heartbeat_workflow`: this thread's pooled connection is
+    # never health-checked by Django, so clear stale ones first.
+    if not settings.TEST:
+        close_old_connections()
+    track_permission_state(run_id, event)
+
+
+def _clear_awaiting_input_sync(run_id: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+    clear_run_awaiting_input(run_id)
+
+
 async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id: str, event: dict) -> None:
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
+        # An agent that has finished its turn is not waiting on a permission, whatever the
+        # last request event said — this is the backstop against a stuck "needs input".
+        await sync_to_async(_clear_awaiting_input_sync, thread_sensitive=True)(run_id)
         await _dispatch_turn_completed_if_interactive(run_id)
         return
 

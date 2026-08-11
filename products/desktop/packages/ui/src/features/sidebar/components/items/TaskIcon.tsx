@@ -273,7 +273,14 @@ export interface TaskIconProps {
   isUnread?: boolean;
   isPinned?: boolean;
   isSuspended?: boolean;
+  /** A live session in this app holds a prompt only this app can answer. */
   needsPermission?: boolean;
+  /**
+   * The backend reports the run is blocked on a question to the user. Reads the same as
+   * `needsPermission` — which app holds the prompt is not the reader's problem — but it also
+   * arrives for tasks nothing here has a session for.
+   */
+  awaitsInput?: boolean;
   taskRunStatus?: TaskRunStatus;
   /** Whether anyone follows this run. Only a background run's status claims work. */
   runMode?: RunMode;
@@ -299,6 +306,7 @@ export function TaskIcon({
   isPinned,
   isSuspended,
   needsPermission,
+  awaitsInput,
   taskRunStatus,
   originProduct,
   slackThreadUrl,
@@ -310,7 +318,7 @@ export function TaskIcon({
   const isTerminalCloud = isCloudTask && isTerminalStatus(taskRunStatus);
   const originProductMeta = getOriginProductMeta(originProduct);
 
-  if (needsPermission) {
+  if (needsPermission || awaitsInput) {
     return (
       <Tooltip content="Needs your input" side="right">
         <span className="flex items-center justify-center">

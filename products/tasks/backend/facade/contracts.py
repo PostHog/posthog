@@ -350,10 +350,15 @@ class TaskCommentDetailDTO:
 
 @dataclass(frozen=True)
 class TaskLatestRunSummaryDTO:
-    """The latest-run status/environment pair nested in a task summary response."""
+    """The latest-run status/environment pair nested in a task summary response.
+
+    ``awaiting_input`` says the agent has asked the user something and is blocked on the answer,
+    which a run's ``status`` cannot express — it stays ``in_progress`` throughout.
+    """
 
     status: str | None
     environment: str | None
+    awaiting_input: bool = False
 
 
 @dataclass(frozen=True)
@@ -526,8 +531,9 @@ class TaskRunDetailDTO:
     The SMF-derived fields are computed in the facade mapper ``_task_run_detail_to_dto``:
     ``log_url`` is a presigned S3 URL (cached); ``runtime_adapter`` / ``provider`` / ``model`` /
     ``reasoning_effort`` are parsed off the run ``state``. ``artifacts`` carries the run's
-    artifact manifest entries verbatim. Reused by the run-detail responses and nested as
-    ``latest_run`` by the task detail response.
+    artifact manifest entries verbatim. ``awaiting_input`` says the agent is blocked on a
+    question to the user, which ``status`` cannot express — it stays ``in_progress`` throughout.
+    Reused by the run-detail responses and nested as ``latest_run`` by the task detail response.
     """
 
     id: UUID
@@ -544,6 +550,7 @@ class TaskRunDetailDTO:
     error_message: str | None
     output: dict | None
     state: dict
+    awaiting_input: bool = False
     artifacts: list = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None

@@ -11078,6 +11078,7 @@ export namespace Schemas {
     error_message?: (string | null) | undefined;
     output?: (unknown | null) | undefined;
     state?: unknown | undefined;
+    awaiting_input?: boolean | undefined;
     artifacts: Array<TaskRunArtifactResponse>;
     created_at: string;
     updated_at: string;
@@ -11092,6 +11093,7 @@ export namespace Schemas {
   export type TaskRunSummary = {
     status: (StatusA35Enum | NullEnum) | null;
     environment: (EnvironmentC1cEnum | NullEnum) | null;
+    awaiting_input?: boolean | undefined;
   };
   export type TaskSummary = {
     id: string;

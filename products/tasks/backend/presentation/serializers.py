@@ -353,6 +353,13 @@ class TaskRunDetailSerializer(DataclassSerializer):
         required=False,
         help_text="Configured reasoning effort for this run when the selected model supports it.",
     )
+    awaiting_input = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the agent has asked the user something and is blocked on the answer. "
+            "The run stays 'in_progress' while it waits, so this is the only field that says so."
+        ),
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -371,6 +378,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "error_message",
             "output",
             "state",
+            "awaiting_input",
             "artifacts",
             "created_at",
             "updated_at",
@@ -1466,6 +1474,13 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
 class TaskRunSummarySerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
     environment = serializers.ChoiceField(choices=tasks_facade.TaskRunEnvironment.choices, allow_null=True)
+    awaiting_input = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the agent has asked the user something and is blocked on the answer. "
+            "The run stays 'in_progress' while it waits, so this is the only field that says so."
+        ),
+    )
 
 
 class TaskSummarySerializer(DataclassSerializer):

@@ -124,7 +124,10 @@ export interface TaskDot {
  * with last run's PR still on the task.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
-  if (props.needsPermission) {
+  // Either route to the same fact: a live session here holding the prompt, or the backend
+  // reporting the run is blocked on one. The second is what a row nothing here has a session
+  // for is drawn from — without it such a row reads as "working" for as long as it waits.
+  if (props.needsPermission || props.awaitsInput) {
     // Not flashing. Blue already reads as the one thing in the list that is
     // yours to answer, and a blink on top of that argues with every quiet row
     // around it — in a sidebar of a dozen spaces it is the whole tree moving.

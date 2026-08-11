@@ -1544,6 +1544,8 @@ export interface TaskRunDetailDTOApi {
     /** @nullable */
     output: TaskRunDetailDTOApiOutput
     state: TaskRunDetailDTOApiState
+    /** Whether the agent has asked the user something and is blocked on the answer. The run stays 'in_progress' while it waits, so this is the only field that says so. */
+    awaiting_input?: boolean
     readonly artifacts: readonly TaskRunArtifactResponseApi[]
     /** @nullable */
     created_at?: string | null
@@ -3981,6 +3983,8 @@ export const TaskRunEnvironmentEnumApi = {
 export interface TaskRunSummaryApi {
     status: TaskRunStatusEnumApi | null
     environment: TaskRunEnvironmentEnumApi | null
+    /** Whether the agent has asked the user something and is blocked on the answer. The run stays 'in_progress' while it waits, so this is the only field that says so. */
+    awaiting_input?: boolean
 }
 
 /**
