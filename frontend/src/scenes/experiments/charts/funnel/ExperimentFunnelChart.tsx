@@ -106,7 +106,12 @@ export function ExperimentFunnelChart({
     )
 
     const config = useMemo(
-        () => ({ chartMinHeight: MIN_PLOT_HEIGHT, maxBandRange: steps.length * STEP_BAND_WIDTH }),
+        () => ({
+            chartMinHeight: MIN_PLOT_HEIGHT,
+            maxBandRange: steps.length * STEP_BAND_WIDTH,
+            // Cursor-anchored like the insights funnel, instead of the funnel default pinned to the band top.
+            tooltip: { placement: 'cursor' as const },
+        }),
         [steps.length]
     )
 
