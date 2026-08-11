@@ -187,6 +187,22 @@ class TestHogQLTypeSystem:
             assert exc_info.value.start is not None, query
             assert exc_info.value.end is not None, query
 
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "SELECT coalesce(properties.some_key, false) FROM events",
+            "SELECT ifNull(properties.some_key, false) FROM events",
+        ],
+    )
+    def test_resolver_tolerates_boolean_against_json_property(self, query: str) -> None:
+        # An event `properties.<key>` access types as JSON. Pairing it with a boolean literal has no
+        # common type, so it must degrade to UnknownType and print fine against ClickHouse rather
+        # than raise during type resolution.
+        node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="clickhouse"))
+        column_type = node.select[0].type
+        assert column_type is not None
+        assert column_type.resolve_constant_type(self.context) == ast.UnknownType(nullable=True), query
+
     def test_resolver_poisons_only_unanalyzable_branches(self) -> None:
         # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...
         for query in ("SELECT ifNull(throwIf(0, 'x'), 1)", "SELECT if(1, throwIf(0, 'x'), 1)"):

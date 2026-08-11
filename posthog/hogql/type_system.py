@@ -161,8 +161,12 @@ FLOAT_RUNTIME_TYPE = RuntimeType(family="float", bits=64)
 DATE_RUNTIME_TYPE = RuntimeType(family="date")
 DATETIME_RUNTIME_TYPE = RuntimeType(family="datetime")
 
-# Families least_common_runtime_type() already unifies with boolean (bool literals read as 0/1).
-_BOOLEAN_COMPATIBLE_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"boolean", "integer", "float", "decimal"})
+# A Boolean branch has no common type with these families and fails in ClickHouse — the reported
+# symptom (`if(cond, false, someDate)`). Every other family combination, including JSON (an event
+# `properties.<key>` access) against a Boolean, keeps degrading to UnknownType instead of raising.
+_BOOLEAN_INCOMPATIBLE_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset(
+    {"date", "datetime", "string", "fixed_string", "enum"}
+)
 
 
 _INTEGER_RE = re.compile(r"^(U?Int)(8|16|32|64|128|256)$", re.IGNORECASE)
@@ -737,14 +741,15 @@ def _branch_supertype_or_raise(
     function_name: str,
 ) -> ast.ConstantType:
     """Like least_common_supertype, but raises a user-facing error naming the conflicting branch
-    types and their source span when a boolean branch is mixed with a non-numeric branch, rather
+    types and their source span when a boolean branch is mixed with a date or string family, rather
     than silently degrading to UnknownType and failing downstream in ClickHouse.
 
-    Scoped to boolean mismatches specifically (the reported symptom: `if(cond, false, someDate)`)
-    rather than raising on every family combination with no explicit unification rule: many
-    generated queries elsewhere in the codebase mix families (e.g. DateTime with a String
-    placeholder, JSON with a String default) that silently degrade to UnknownType today and work
-    fine against ClickHouse, so raising there would be a false positive."""
+    Scoped to that mismatch specifically (the reported symptom: `if(cond, false, someDate)`) rather
+    than raising on every family combination with no explicit unification rule: many generated
+    queries elsewhere in the codebase mix families that silently degrade to UnknownType today and
+    work fine against ClickHouse, so raising there would be a false positive. `coalesce(properties.x,
+    false)` is the common case — an event `properties.<key>` access types as JSON — so a Boolean
+    paired with JSON keeps degrading to UnknownType rather than failing type resolution."""
     result = least_common_supertype(branch_types, dialect=dialect)
     if not isinstance(result, ast.UnknownType) or result.unanalyzable:
         return result
@@ -756,7 +761,7 @@ def _branch_supertype_or_raise(
     if len(known) < 2:
         return result
     families = {runtime_type_from_constant_type(branch_type).family for branch_type, _ in known}
-    if "boolean" not in families or not (families - _BOOLEAN_COMPATIBLE_FAMILIES):
+    if "boolean" not in families or not (families & _BOOLEAN_INCOMPATIBLE_FAMILIES):
         return result
     type_names = sorted({branch_type.print_type() for branch_type, _ in known})
     positions = [
