@@ -5,7 +5,12 @@ import { waitFor } from '@testing-library/react'
 import { initKeaTests } from '~/test/init'
 
 import * as canvasApi from 'products/canvas/frontend/generated/api'
-import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
+import type {
+    CanvasApi,
+    CanvasBuildsResponseApi,
+    CanvasSourcePublishResponseApi,
+    CanvasSourceResponseApi,
+} from 'products/canvas/frontend/generated/api.schemas'
 import * as tasksApi from 'products/tasks/frontend/generated/api'
 import type { TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -34,6 +39,27 @@ const canvas: CanvasApi = {
 }
 
 const task = { id: 'task-1' } as TaskDetailDTOApi
+const source: CanvasSourceResponseApi = {
+    canvas: {
+        id: canvas.id,
+        name: canvas.name,
+        channel_id: canvas.channel,
+        current_version_id: 'version-1',
+        published_build_id: null,
+        created_at: canvas.created_at,
+    },
+    project: {
+        schemaVersion: 1,
+        files: { 'src/canvas.tsx': 'export default function Canvas() { return null }' },
+        entryHtml: 'index.html',
+    },
+    current_version_id: 'version-1',
+}
+const publishResult: CanvasSourcePublishResponseApi = {
+    canvas: { ...source.canvas, current_version_id: 'version-2' },
+    current_version_id: 'version-2',
+    diagnostics: [],
+}
 
 describe('notebookNodeCanvasLogic', () => {
     let logic: ReturnType<typeof notebookNodeCanvasLogic.build>
@@ -66,26 +92,36 @@ describe('notebookNodeCanvasLogic', () => {
             ...canvas,
             generation_task_id: task.id,
         })
+        jest.spyOn(canvasApi, 'canvasesSourceRetrieve').mockResolvedValue(source)
         jest.spyOn(tasksApi, 'tasksCreate').mockResolvedValue(task)
         jest.spyOn(tasksApi, 'tasksRunCreate').mockResolvedValue(task)
     })
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
         jest.restoreAllMocks()
     })
 
-    it('creates one canvas from a prompt, persists its id, and starts its generation task', async () => {
+    it('waits for an explicit action before creating a canvas from a prompt', async () => {
         const updateAttributes = jest.fn()
         const prompt = 'Make a spinning 3D globe showing signups by country'
         logic = notebookNodeCanvasLogic({
             id: '',
             nodeId: 'node-1',
             prompt,
+            isEditable: true,
             updateAttributes,
         })
         logic.mount()
 
+        await Promise.resolve()
+
+        expect(canvasApi.canvasesCreate).not.toHaveBeenCalled()
+        expect(tasksApi.tasksCreate).not.toHaveBeenCalled()
+        expect(tasksApi.tasksRunCreate).not.toHaveBeenCalled()
+
+        logic.actions.createFromPrompt()
         await waitFor(() => expect(tasksApi.tasksRunCreate).toHaveBeenCalledTimes(1))
 
         expect(tasksApi.taskChannelsList).toHaveBeenCalledWith(String(MOCK_TEAM_ID))
@@ -117,6 +153,7 @@ describe('notebookNodeCanvasLogic', () => {
             id: canvas.id,
             nodeId: 'node-1',
             prompt: 'The original request',
+            isEditable: true,
             updateAttributes: jest.fn(),
         })
         logic.mount()
@@ -126,5 +163,90 @@ describe('notebookNodeCanvasLogic', () => {
         expect(canvasApi.canvasesCreate).not.toHaveBeenCalled()
         expect(tasksApi.tasksCreate).not.toHaveBeenCalled()
         expect(tasksApi.tasksRunCreate).not.toHaveBeenCalled()
+    })
+
+    it('does not create a prompt-only canvas without edit access', async () => {
+        logic = notebookNodeCanvasLogic({
+            id: '',
+            nodeId: 'node-1',
+            prompt: 'Make a spinning 3D globe',
+            isEditable: false,
+            updateAttributes: jest.fn(),
+        })
+        logic.mount()
+
+        logic.actions.createFromPrompt()
+        await Promise.resolve()
+
+        expect(canvasApi.canvasesCreate).not.toHaveBeenCalled()
+        expect(tasksApi.tasksCreate).not.toHaveBeenCalled()
+        expect(logic.values.canvasCreationError).toBe('You need edit access to create this canvas.')
+    })
+
+    it('keeps an edit made while a source reload is in flight', async () => {
+        let resolveSource: (value: CanvasSourceResponseApi) => void = () => {}
+        jest.spyOn(canvasApi, 'canvasesSourceRetrieve').mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveSource = resolve
+                })
+        )
+        logic = notebookNodeCanvasLogic({
+            id: canvas.id,
+            nodeId: 'node-1',
+            prompt: '',
+            isEditable: true,
+            updateAttributes: jest.fn(),
+        })
+        logic.mount()
+
+        logic.actions.loadSource()
+        logic.actions.setEditedCode('export default function NewerEdit() { return null }')
+        resolveSource(source)
+
+        await waitFor(() => expect(logic.values.source).toEqual(source))
+        expect(logic.values.sourceCode).toBe('export default function NewerEdit() { return null }')
+
+        logic.actions.discardSourceChanges()
+        expect(logic.values.sourceCode).toBe(source.project.files['src/canvas.tsx'])
+    })
+
+    it('continues polling a published build after a transient request failure', async () => {
+        jest.useFakeTimers()
+        const readyBuilds = {
+            published_build_id: 'build-1',
+            current_version_id: publishResult.current_version_id,
+            builds: [
+                {
+                    id: 'build-1',
+                    source_version_id: publishResult.current_version_id,
+                    build_status: 'ready',
+                    diagnostics: [],
+                    integrity: 'sha256',
+                    artifact_url: 'https://example.com/canvas.html',
+                    pinned: false,
+                    created_at: '2026-08-11T12:00:00Z',
+                    finished_at: '2026-08-11T12:00:01Z',
+                },
+            ],
+        } as CanvasBuildsResponseApi
+        jest.spyOn(canvasApi, 'canvasesBuildsRetrieve')
+            .mockRejectedValueOnce(new Error('Temporary failure'))
+            .mockResolvedValueOnce(readyBuilds)
+        logic = notebookNodeCanvasLogic({
+            id: '',
+            nodeId: 'node-1',
+            prompt: '',
+            isEditable: true,
+            updateAttributes: jest.fn(),
+        })
+        logic.mount()
+
+        logic.actions.publishSourceSuccess(publishResult)
+        await jest.advanceTimersByTimeAsync(4_000)
+
+        expect(canvasApi.canvasesBuildsRetrieve).toHaveBeenCalledTimes(2)
+        expect(logic.values.builds).toEqual(readyBuilds)
+        expect(logic.values.isBuilding).toBe(false)
     })
 })

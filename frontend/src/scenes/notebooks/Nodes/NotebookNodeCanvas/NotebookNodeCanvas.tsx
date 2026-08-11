@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { CanvasArtifactFrame } from './CanvasArtifactFrame'
-import { CANVAS_COMPONENT_PATH, notebookNodeCanvasLogic } from './notebookNodeCanvasLogic'
+import { CANVAS_COMPONENT_PATH, getCanvasNameFromPrompt, notebookNodeCanvasLogic } from './notebookNodeCanvasLogic'
 
 const EmptyStateMessage = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <div className="flex-1 flex items-center justify-center p-4 text-center text-secondary">{children}</div>
@@ -23,11 +23,13 @@ const EmptyStateMessage = ({ children }: { children: React.ReactNode }): JSX.Ele
 
 const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeCanvasAttributes>): JSX.Element => {
     const { id, prompt = '' } = attributes
+    const { isEditable } = useValues(notebookNodeLogic)
     const logic = notebookNodeCanvasLogic({
         id: id ?? '',
         nodeId: attributes.nodeId,
         channelId: attributes.channelId,
         prompt,
+        isEditable,
         updateAttributes,
     })
     const {
@@ -41,14 +43,16 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         runtimeError,
         creatingCanvas,
         canvasCreationError,
+        dataAccessApproved,
     } = useValues(logic)
-    const { createFromPrompt, setRuntimeError } = useActions(logic)
+    const { approveDataAccess, createFromPrompt, setRuntimeError } = useActions(logic)
     const { setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const canvasTitle = canvas?.name || getCanvasNameFromPrompt(prompt) || 'Canvas'
 
     useEffect(() => {
-        setTitlePlaceholder(canvas?.name ? `Canvas: ${canvas.name}` : 'Canvas')
+        setTitlePlaceholder(canvasTitle)
         // oxlint-disable-next-line exhaustive-deps
-    }, [canvas?.name])
+    }, [canvasTitle])
 
     useEffect(() => {
         const generationTaskId = canvas?.generation_task_id
@@ -78,16 +82,32 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
             <EmptyStateMessage>
                 <div className="deprecated-space-y-2">
                     <div>Couldn't create the canvas: {canvasCreationError}</div>
-                    <LemonButton type="primary" onClick={() => createFromPrompt()}>
-                        Try again
-                    </LemonButton>
+                    {isEditable ? (
+                        <LemonButton type="primary" onClick={() => createFromPrompt()} loading={creatingCanvas}>
+                            Try again
+                        </LemonButton>
+                    ) : null}
                 </div>
             </EmptyStateMessage>
         )
     }
 
     if (!id) {
-        return <EmptyStateMessage>Add a canvas ID or prompt in the block settings.</EmptyStateMessage>
+        if (!prompt.trim()) {
+            return <EmptyStateMessage>Add a canvas ID or prompt in the block settings.</EmptyStateMessage>
+        }
+        return (
+            <EmptyStateMessage>
+                <div className="deprecated-space-y-2">
+                    <div>This canvas has not been created yet.</div>
+                    {isEditable ? (
+                        <LemonButton type="primary" onClick={() => createFromPrompt()} loading={creatingCanvas}>
+                            Create canvas
+                        </LemonButton>
+                    ) : null}
+                </div>
+            </EmptyStateMessage>
+        )
     }
 
     if (canvasMissing) {
@@ -114,6 +134,19 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                     : buildInProgress
                       ? 'This canvas is still building. Check back in a moment.'
                       : 'This canvas has no published build yet. Publish it from PostHog Desktop to see it here.'}
+            </EmptyStateMessage>
+        )
+    }
+
+    if (!dataAccessApproved) {
+        return (
+            <EmptyStateMessage>
+                <div className="deprecated-space-y-2">
+                    <div>Run this canvas to let it query project data and capture events with your access.</div>
+                    <LemonButton type="primary" onClick={approveDataAccess}>
+                        Run canvas
+                    </LemonButton>
+                </div>
             </EmptyStateMessage>
         )
     }
@@ -146,11 +179,13 @@ const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeCanvasAttributes>): JSX.Element => {
     const { id, prompt = '' } = attributes
+    const { isEditable } = useValues(notebookNodeLogic)
     const logic = notebookNodeCanvasLogic({
         id: id ?? '',
         nodeId: attributes.nodeId,
         channelId: attributes.channelId,
         prompt,
+        isEditable,
         updateAttributes,
     })
     const {
@@ -169,6 +204,7 @@ const Settings = ({
         creatingCanvas,
     } = useValues(logic)
     const {
+        discardSourceChanges,
         loadSource,
         setEditedCode,
         publishSource,
@@ -287,8 +323,11 @@ const Settings = ({
                     {publishDiagnostics.length > 0 ? (
                         <LemonBanner type="error">
                             <div className="deprecated-space-y-1">
-                                {publishDiagnostics.map((diagnostic, index) => (
-                                    <div key={index} className="text-xs">
+                                {publishDiagnostics.map((diagnostic) => (
+                                    <div
+                                        key={`${diagnostic.code}:${diagnostic.path}:${diagnostic.line}:${diagnostic.message}`}
+                                        className="text-xs"
+                                    >
                                         <LemonTag type={diagnostic.severity === 'error' ? 'danger' : 'warning'}>
                                             {diagnostic.severity}
                                         </LemonTag>{' '}
@@ -321,7 +360,7 @@ const Settings = ({
                             Publish changes
                         </LemonButton>
                         <LemonButton
-                            onClick={() => loadSource()}
+                            onClick={discardSourceChanges}
                             disabledReason={!hasSourceChanges ? 'No changes to discard' : undefined}
                         >
                             Discard
@@ -350,7 +389,7 @@ export const NotebookNodeCanvas = createPostHogWidgetNode<NotebookNodeCanvasAttr
     titlePlaceholder: 'Canvas',
     Component,
     Settings,
-    serializedText: (attrs) => `(bluebird:${attrs.id ?? 'new'})`,
+    serializedText: (attrs) => getCanvasNameFromPrompt(attrs.prompt ?? '') || 'Canvas',
     heightEstimate: 400,
     minHeight: 100,
     resizeable: true,

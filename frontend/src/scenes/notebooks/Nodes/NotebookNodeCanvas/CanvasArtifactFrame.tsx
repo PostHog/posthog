@@ -96,8 +96,9 @@ export function CanvasArtifactFrame({
             referrerPolicy="no-referrer"
             // Without a matching color-scheme the UA paints the embedded
             // documents' base canvas opaque white, flashing over dark mode.
-            style={{ colorScheme: theme }}
-            className="w-full h-full border-0 bg-primary"
+            className={`w-full h-full border-0 bg-primary ${
+                theme === 'dark' ? '[color-scheme:dark]' : '[color-scheme:light]'
+            }`}
         />
     )
 }

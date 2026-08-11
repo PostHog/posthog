@@ -1,4 +1,9 @@
-import { CanvasCapabilities, assertCanvasCapability, parseCanvasCapabilities } from './canvasArtifactBridge'
+import {
+    CanvasCapabilities,
+    assertCanvasCapability,
+    createCanvasHostMessageRouter,
+    parseCanvasCapabilities,
+} from './canvasArtifactBridge'
 
 describe('canvasArtifactBridge', () => {
     const capabilities: CanvasCapabilities = {
@@ -46,5 +51,52 @@ describe('canvasArtifactBridge', () => {
         ],
     ] as [string, unknown, CanvasCapabilities | undefined][])('parses capabilities: %s', (_label, raw, expected) => {
         expect(parseCanvasCapabilities(raw)).toEqual(expected)
+    })
+
+    it('keeps timed-out requests in the concurrency limit until their work finishes', async () => {
+        jest.useFakeTimers()
+        const post = jest.fn()
+        const pending: Array<(value: unknown) => void> = []
+        const onDataRequest = jest.fn(
+            () =>
+                new Promise((resolve) => {
+                    pending.push(resolve)
+                })
+        )
+        const route = createCanvasHostMessageRouter(post, () => ({ onDataRequest }))
+        const requests = Array.from({ length: 8 }, (_, index) =>
+            route({
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: `request-${index}`,
+                method: 'query',
+                payload: {},
+            })
+        )
+
+        await Promise.resolve()
+        expect(onDataRequest).toHaveBeenCalledTimes(8)
+
+        await jest.advanceTimersByTimeAsync(30_000)
+        await route({
+            channel: 'posthog-canvas',
+            type: 'data-request',
+            id: 'request-9',
+            method: 'query',
+            payload: {},
+        })
+
+        expect(onDataRequest).toHaveBeenCalledTimes(8)
+        expect(post).toHaveBeenCalledWith({
+            channel: 'posthog-canvas',
+            type: 'data-response',
+            id: 'request-9',
+            ok: false,
+            error: 'Canvas data request exceeds runtime limits',
+        })
+
+        pending.forEach((resolve) => resolve(null))
+        await Promise.all(requests)
+        jest.useRealTimers()
     })
 })

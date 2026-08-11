@@ -185,6 +185,7 @@ export function createCanvasHostMessageRouter(
                 if (typeof message.id !== 'string' || typeof message.method !== 'string') {
                     return
                 }
+                const method = message.method
                 if (activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS || !isBoundedPayload(message.payload)) {
                     post({
                         channel: CANVAS_CHANNEL,
@@ -196,15 +197,17 @@ export function createCanvasHostMessageRouter(
                     return
                 }
                 activeDataRequests += 1
+                let timeoutId: ReturnType<typeof setTimeout> | undefined
+                const dataRequest = Promise.resolve().then(() => callbacks().onDataRequest(method, message.payload))
                 try {
                     const result = await Promise.race([
-                        callbacks().onDataRequest(message.method, message.payload),
-                        new Promise<never>((_, reject) =>
-                            setTimeout(
+                        dataRequest,
+                        new Promise<never>((_, reject) => {
+                            timeoutId = setTimeout(
                                 () => reject(new Error('Canvas data request timed out')),
                                 DATA_REQUEST_TIMEOUT_MS
                             )
-                        ),
+                        }),
                     ])
                     post({ channel: CANVAS_CHANNEL, type: 'data-response', id: message.id, ok: true, result })
                 } catch (error) {
@@ -216,6 +219,10 @@ export function createCanvasHostMessageRouter(
                         error: error instanceof Error ? error.message : String(error),
                     })
                 } finally {
+                    if (timeoutId !== undefined) {
+                        clearTimeout(timeoutId)
+                    }
+                    await dataRequest.catch(() => undefined)
                     activeDataRequests -= 1
                 }
                 return
