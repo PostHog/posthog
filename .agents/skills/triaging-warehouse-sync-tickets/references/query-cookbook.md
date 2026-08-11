@@ -43,8 +43,12 @@ every team's production data, not just the `team_id` you filtered on.
   match `^[0-9]+$`, or the id format the column actually uses (check the type in
   `system.information_schema.columns` if unsure). Reject anything else instead of interpolating it.
 - Free-text placeholders (`<fragment>`, `<token>`, `<email>`) must not contain `'`, `;`, `--`, `/*`,
-  `*/`, or a backslash. If the ticket text contains any of those, strip them before substituting, or ask
-  the reporter for a cleaner value. Do not pass ticket text through unmodified.
+  `*/`, or a backslash. If the ticket text contains any of those, reject the value and ask the reporter
+  for a cleaner one. Do not pass ticket text through unmodified, and do not strip the offending
+  characters and substitute what's left — for `<email>` specifically, that turns the value into an
+  identity check, and silently mutating an identity value (e.g. dropping an apostrophe) can resolve it
+  to a _different_, real user's address, authorizing the wrong account. Reject and re-ask instead of
+  transforming.
 - `<fragment>` is additionally used inside `LIKE`/`ILIKE` patterns, where `%` and `_` are wildcards, not
   literal characters. Stripping the characters above is not enough there: a fragment of `%` matches every
   row, and `_` lets an attacker extract a name character by character. Strip `%` and `_` from `<fragment>`
