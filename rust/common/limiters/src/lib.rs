@@ -1,3 +1,4 @@
+pub mod byte_rate;
 pub mod custom_key_source;
 pub mod global_rate_limiter;
 pub mod overflow;
