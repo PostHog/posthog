@@ -79,7 +79,7 @@ Our signup funnel shows the following conversion rates:
 - Do not include the inline placeholder text, empty `<Prompt question="" />` blocks, or the user's instruction prompt in the final markdown unless the user explicitly asks to keep them
 - Use a direct assistant markdown response instead of this tool only for local answers or small insertions that should replace the inline response placeholder
 - Component tags such as `<Query … />`, `<SQLV2 … />`, and `<PythonV2 … />` render a `title` prop in their block header. Keep the titles already there, and give any tag you add a short one saying what it shows, so a reader can skim the notebook without opening each block
-- `<Canvas id="<canvas uuid>" />` embeds a published Channels canvas (an agent-built app page) inline. Only reference canvas ids the user or context provided — never invent one
+- `<BlueBird id="<canvas uuid>" prompt="<original request>" />` embeds a saved canvas inline. Keep the prompt so the notebook preserves why it was created. Omit `id` to create a new canvas from the prompt; never invent an id
 
 # Transient vs saved notebooks:
 - By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.

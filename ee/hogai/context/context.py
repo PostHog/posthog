@@ -461,8 +461,9 @@ class AssistantContextManager(AssistantContextMixin):
                     "one saying what it shows, so a reader can skim the notebook without opening each block."
                 ),
                 (
-                    '- `<Canvas id="<canvas uuid>" />` embeds a published Channels canvas (an agent-built app '
-                    "page) inline. Only reference canvas ids the user or context provided — never invent one."
+                    '- `<BlueBird id="<canvas uuid>" prompt="<original request>" />` embeds a saved canvas inline. '
+                    "Keep the prompt so the notebook preserves why it was created. Omit `id` to create a new canvas "
+                    "from the prompt; never invent an id."
                 ),
                 (
                     "When the current user asks you to change broad notebook content, use notebook tools against "

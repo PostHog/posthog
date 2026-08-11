@@ -124,6 +124,13 @@ class TestNotebookMarkdownConversion(BaseTest):
                         "edit": True,
                     },
                 },
+                {
+                    "type": "ph-canvas",
+                    "attrs": {
+                        "id": "018f4f7e-2ac8-7d18-b688-dbd0f82cce0a",
+                        "prompt": "Make a spinning 3D globe",
+                    },
+                },
             ],
         }
 
@@ -136,6 +143,10 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert '<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />' in markdown
         assert '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"legacyInsight"}} />' in markdown
         assert '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />' in markdown
+        assert (
+            '<BlueBird hideFilters id="018f4f7e-2ac8-7d18-b688-dbd0f82cce0a" '
+            'prompt="Make a spinning 3D globe" />' in markdown
+        )
 
     def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
         content = {

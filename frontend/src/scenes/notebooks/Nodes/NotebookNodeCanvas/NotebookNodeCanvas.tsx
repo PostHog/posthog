@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
@@ -20,12 +21,28 @@ const EmptyStateMessage = ({ children }: { children: React.ReactNode }): JSX.Ele
     <div className="flex-1 flex items-center justify-center p-4 text-center text-secondary">{children}</div>
 )
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCanvasAttributes>): JSX.Element => {
-    const { id } = attributes
-    const logic = notebookNodeCanvasLogic({ id })
-    const { canvas, canvasLoading, canvasMissing, builds, buildsLoading, artifactUrl, capabilities, runtimeError } =
-        useValues(logic)
-    const { setRuntimeError } = useActions(logic)
+const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeCanvasAttributes>): JSX.Element => {
+    const { id, prompt = '' } = attributes
+    const logic = notebookNodeCanvasLogic({
+        id: id ?? '',
+        nodeId: attributes.nodeId,
+        channelId: attributes.channelId,
+        prompt,
+        updateAttributes,
+    })
+    const {
+        canvas,
+        canvasLoading,
+        canvasMissing,
+        builds,
+        buildsLoading,
+        artifactUrl,
+        capabilities,
+        runtimeError,
+        creatingCanvas,
+        canvasCreationError,
+    } = useValues(logic)
+    const { createFromPrompt, setRuntimeError } = useActions(logic)
     const { setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
@@ -34,7 +51,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCanvasAttribute
     }, [canvas?.name])
 
     useEffect(() => {
+        const generationTaskId = canvas?.generation_task_id
         setActions([
+            generationTaskId
+                ? {
+                      text: 'View generation task',
+                      onClick: () => router.actions.push(urls.taskDetail(generationTaskId)),
+                  }
+                : undefined,
             canvas
                 ? {
                       text: 'Open in PostHog Desktop',
@@ -45,8 +69,25 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCanvasAttribute
         // oxlint-disable-next-line exhaustive-deps
     }, [canvas])
 
+    if (creatingCanvas) {
+        return <EmptyStateMessage>The agent is creating this canvas.</EmptyStateMessage>
+    }
+
+    if (canvasCreationError) {
+        return (
+            <EmptyStateMessage>
+                <div className="deprecated-space-y-2">
+                    <div>Couldn't create the canvas: {canvasCreationError}</div>
+                    <LemonButton type="primary" onClick={() => createFromPrompt()}>
+                        Try again
+                    </LemonButton>
+                </div>
+            </EmptyStateMessage>
+        )
+    }
+
     if (!id) {
-        return <EmptyStateMessage>No canvas selected. Edit this block to set a canvas ID.</EmptyStateMessage>
+        return <EmptyStateMessage>Add a canvas ID or prompt in the block settings.</EmptyStateMessage>
     }
 
     if (canvasMissing) {
@@ -63,14 +104,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCanvasAttribute
     }
 
     if (!artifactUrl) {
-        const inProgress = builds?.builds.some(
+        const buildInProgress = builds?.builds.some(
             (build) => build.build_status === 'queued' || build.build_status === 'building'
         )
         return (
             <EmptyStateMessage>
-                {inProgress
-                    ? 'This canvas is still building. Check back in a moment.'
-                    : 'This canvas has no published build yet. Publish it from PostHog Desktop to see it here.'}
+                {canvas?.generation_task_id
+                    ? 'This canvas has no published build yet. Open the generation task to check its progress.'
+                    : buildInProgress
+                      ? 'This canvas is still building. Check back in a moment.'
+                      : 'This canvas has no published build yet. Publish it from PostHog Desktop to see it here.'}
             </EmptyStateMessage>
         )
     }
@@ -93,16 +136,23 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCanvasAttribute
 }
 
 type NotebookNodeCanvasAttributes = {
-    id: string
+    id?: string
     channelId?: string
+    prompt?: string
 }
 
 const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeCanvasAttributes>): JSX.Element => {
-    const { id } = attributes
-    const logic = notebookNodeCanvasLogic({ id })
+    const { id, prompt = '' } = attributes
+    const logic = notebookNodeCanvasLogic({
+        id: id ?? '',
+        nodeId: attributes.nodeId,
+        channelId: attributes.channelId,
+        prompt,
+        updateAttributes,
+    })
     const {
         canvasLoading,
         nameValue,
@@ -116,6 +166,7 @@ const Settings = ({
         publishResultLoading,
         isBuilding,
         publishDiagnostics,
+        creatingCanvas,
     } = useValues(logic)
     const {
         loadSource,
@@ -126,6 +177,7 @@ const Settings = ({
         saveCanvasMeta,
         setAgentInstruction,
         askAgent,
+        createFromPrompt,
     } = useActions(logic)
 
     useEffect(() => {
@@ -139,6 +191,17 @@ const Settings = ({
 
     return (
         <div className="p-3 deprecated-space-y-2">
+            <div className="flex-1">
+                <LemonLabel info="The original request stays with this notebook block. A prompt without a canvas ID creates a new canvas.">
+                    Prompt
+                </LemonLabel>
+                <LemonTextArea
+                    value={prompt}
+                    onChange={(value) => updateAttributes({ prompt: value || undefined })}
+                    placeholder="Describe the canvas to create, for example: a spinning 3D globe showing signups by country."
+                    minRows={3}
+                />
+            </div>
             <div className="flex gap-2">
                 <div className="flex-1">
                     <LemonLabel>Canvas ID</LemonLabel>
@@ -267,7 +330,16 @@ const Settings = ({
                     </div>
                 </>
             ) : (
-                <div className="text-secondary">Set a canvas ID to load its source.</div>
+                <LemonButton
+                    type="primary"
+                    onClick={() => createFromPrompt()}
+                    loading={creatingCanvas}
+                    disabledReason={
+                        creatingCanvas ? 'Creating the canvas' : !prompt.trim() ? 'Add a prompt first' : undefined
+                    }
+                >
+                    Create canvas
+                </LemonButton>
             )}
         </div>
     )
@@ -278,21 +350,22 @@ export const NotebookNodeCanvas = createPostHogWidgetNode<NotebookNodeCanvasAttr
     titlePlaceholder: 'Canvas',
     Component,
     Settings,
-    serializedText: (attrs) => `(canvas:${attrs.id})`,
+    serializedText: (attrs) => `(bluebird:${attrs.id ?? 'new'})`,
     heightEstimate: 400,
     minHeight: 100,
     resizeable: true,
     expandable: false,
-    href: (attrs) => (attrs.channelId ? urls.codeCanvasLink(attrs.channelId, attrs.id) : undefined),
+    href: (attrs) => (attrs.channelId && attrs.id ? urls.codeCanvasLink(attrs.channelId, attrs.id) : undefined),
     attributes: {
-        id: {},
+        id: { default: '' },
         channelId: {},
+        prompt: { default: '' },
     },
 })
 
-export function buildCanvasContent(id: string, channelId?: string): JSONContent {
+export function buildCanvasContent(id?: string, channelId?: string, prompt?: string): JSONContent {
     return {
         type: NotebookNodeType.Canvas,
-        attrs: { id, ...(channelId ? { channelId } : {}) },
+        attrs: { ...(id ? { id } : {}), ...(channelId ? { channelId } : {}), ...(prompt ? { prompt } : {}) },
     }
 }

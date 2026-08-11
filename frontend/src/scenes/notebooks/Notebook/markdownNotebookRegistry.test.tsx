@@ -66,13 +66,14 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        it('offers the Canvas node only behind the bluebird flag, while always rendering it', () => {
+        it('offers the BlueBird node only behind the bluebird flag, while always rendering existing tags', () => {
             const flagOn = getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.PROJECT_BLUEBIRD]: true })
-            expect(flagOn.components.Canvas.insertCommand).toBeTruthy()
+            expect(flagOn.components.BlueBird.insertCommand).toBeTruthy()
 
             const flagOff = getMarkdownRegistryForFeatureFlags({})
-            expect(flagOff.components.Canvas.insertCommand).toBeUndefined()
+            expect(flagOff.components.BlueBird.insertCommand).toBeUndefined()
             // Only insertion is gated - an already-inserted canvas must still render.
+            expect(flagOff.components.BlueBird.ViewComponent).toBeTruthy()
             expect(flagOff.components.Canvas.ViewComponent).toBeTruthy()
         })
     })
