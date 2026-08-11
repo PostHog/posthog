@@ -152,7 +152,7 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(created.json()["github_integration"], integration.id)
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
-    def test_only_creator_can_configure_or_rename_public_channel(self, list_repositories):
+    def test_project_member_can_configure_or_rename_public_channel(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
@@ -165,14 +165,14 @@ class ChannelsAPITestCase(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         channel = Channel.objects.unscoped().get(id=channel_id)
-        self.assertEqual(channel.repositories, [])
-        self.assertIsNone(channel.github_integration_id)
+        self.assertEqual(channel.repositories, ["posthog/posthog"])
+        self.assertEqual(channel.github_integration_id, integration.id)
 
         renamed = other_client.patch(f"{self._channels_url()}{channel_id}/", {"name": "renamed"}, format="json")
-        self.assertEqual(renamed.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(Channel.objects.unscoped().get(id=channel_id).name, "growth")
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
+        self.assertEqual(Channel.objects.unscoped().get(id=channel_id).name, "renamed")
 
     def test_public_channel_task_is_readable_but_not_controllable_by_teammates(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
@@ -246,30 +246,55 @@ class ChannelsAPITestCase(TestCase):
             status.HTTP_404_NOT_FOUND,
         )
 
-    def test_task_channel_cannot_be_changed(self):
+    def test_task_controller_can_move_task_between_public_spaces(self):
         first = self.client.post(self._channels_url(), {"name": "first"}).json()["id"]
         second = self.client.post(self._channels_url(), {"name": "second"}).json()["id"]
         task = self.client.post(
             self._tasks_url(),
-            {"title": "Fixed placement", "description": "d", "channel": first},
+            {"title": "Move me", "description": "d", "channel": first},
         ).json()
 
         response = self.client.patch(f"{self._tasks_url()}{task['id']}/", {"channel": second}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(str(Task.objects.get(id=task["id"]).channel_id), first)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(str(Task.objects.get(id=task["id"]).channel_id), second)
 
-    def test_only_creator_can_delete_an_empty_public_space(self):
+    def test_task_controller_can_move_public_task_to_private_space(self):
+        public_space_id = self.client.post(self._channels_url(), {"name": "shared"}).json()["id"]
+        private_space_id = next(
+            space["id"] for space in self.client.get(self._channels_url()).json() if space["channel_type"] == "personal"
+        )
+        task = self.client.post(
+            self._tasks_url(),
+            {"title": "Move private", "description": "d", "channel": public_space_id},
+        ).json()
+
+        moved = self.client.patch(
+            f"{self._tasks_url()}{task['id']}/",
+            {"channel": private_space_id},
+            format="json",
+        )
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+
+        self.assertEqual(moved.status_code, status.HTTP_200_OK, moved.content)
+        self.assertEqual(moved.json()["channel"], private_space_id)
+        self.assertEqual(
+            other_client.get(f"{self._tasks_url()}{task['id']}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        clear = self.client.patch(f"{self._tasks_url()}{task['id']}/", {"channel": None}, format="json")
+        self.assertEqual(clear.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(str(Task.objects.get(id=task["id"]).channel_id), private_space_id)
+
+    def test_project_member_can_delete_an_empty_public_space(self):
         channel_id = self.client.post(self._channels_url(), {"name": "empty"}).json()["id"]
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
 
         self.assertEqual(
             other_client.delete(f"{self._channels_url()}{channel_id}/").status_code,
-            status.HTTP_404_NOT_FOUND,
-        )
-        self.assertEqual(
-            self.client.delete(f"{self._channels_url()}{channel_id}/").status_code,
             status.HTTP_204_NO_CONTENT,
         )
 

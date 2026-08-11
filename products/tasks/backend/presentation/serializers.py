@@ -632,6 +632,12 @@ class TaskWriteSerializer(serializers.Serializer):
             "takes it via the run start endpoint instead."
         ),
     )
+    channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=False,
+        allow_null=True,
+        help_text="Space this task belongs to. Omit it when creating a task to use your private #me space.",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -640,6 +646,16 @@ class TaskWriteSerializer(serializers.Serializer):
         cast(
             serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
         ).queryset = tasks_facade.signal_report_queryset()
+        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
+
+    def validate_channel(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value is not None and (value.deleted or value.channel_type not in {"public", "personal"}):
+            raise serializers.ValidationError("Space not found")
+        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
+            raise serializers.ValidationError("Private spaces can only be used by their owner")
+        return value
 
     def validate_github_integration(self, value):
         """Validate that the GitHub integration belongs to the same team"""
@@ -757,18 +773,12 @@ class TaskWriteSerializer(serializers.Serializer):
 class TaskUpdateSerializer(TaskWriteSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
-        if "channel" in self.initial_data:
-            raise serializers.ValidationError({"channel": "Tasks cannot be moved to another space yet"})
+        if "channel" in attrs and attrs["channel"] is None:
+            raise serializers.ValidationError({"channel": "Choose a space to move this task."})
         return attrs
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
-    channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
-        required=False,
-        allow_null=True,
-        help_text="Space this task is created in. Omit it to use your private #me space.",
-    )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
@@ -788,19 +798,6 @@ class TaskCreateSerializer(TaskWriteSerializer):
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
-
-    def validate_channel(self, value):
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        if value is not None and (value.deleted or value.channel_type not in {"public", "personal"}):
-            raise serializers.ValidationError("Space not found")
-        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
-            raise serializers.ValidationError("Private spaces can only be used by their owner")
-        return value
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):

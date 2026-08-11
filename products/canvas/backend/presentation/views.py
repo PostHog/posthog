@@ -30,6 +30,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildsResponseSerializer,
     CanvasCreateSerializer,
     CanvasPublishConflictSerializer,
+    CanvasPublishCurrentVersionSerializer,
     CanvasRevertSerializer,
     CanvasSerializer,
     CanvasSourceEditSerializer,
@@ -102,10 +103,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "partial_update",
         "destroy",
         "publish",
+        "publish_current_version",
         "edit",
         "revert",
         "build_action",
     ]
+
+    _CREATOR_ONLY_ACTIONS = {"partial_update", "destroy", "publish", "edit", "revert", "build_action"}
 
     @extend_schema(
         parameters=[
@@ -133,6 +137,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Q(generation_task_id=sandbox_task_id) | Q(source_versions__task_id=sandbox_task_id)
             ).distinct()
+        elif self.action in self._CREATOR_ONLY_ACTIONS:
+            if user is None:
+                return queryset.none()
+            queryset = queryset.filter(created_by_id=user.id)
         if self.action == "list":
             channel_id = self.request.query_params.get("channel")
             if channel_id:
@@ -323,6 +331,44 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
         diagnostics = validate_source_project(payload.validated_data["project"])
         return Response({"valid": not has_errors(diagnostics), "diagnostics": diagnostics})
+
+    @extend_schema(
+        operation_id="canvases_publish_current_version_create",
+        request=CanvasPublishCurrentVersionSerializer,
+        responses={
+            200: CanvasBuildSerializer,
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id.",
+            ),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="publish-current-version")
+    def publish_current_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Queue a build for the current source version without changing source or metadata."""
+        canvas = self.get_object()
+        payload = CanvasPublishCurrentVersionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            canvas, build = build_service.publish_current_source_version(
+                canvas,
+                payload.validated_data["expected_current_version_id"],
+                user=self._request_user(),
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasVersionConflict as conflict:
+            return _conflict_response(conflict)
+        except build_service.CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        self._report_canvas_action(
+            "canvas published",
+            canvas,
+            version_id=str(build.source_version_id),
+            first_publish=False,
+            is_sandbox_publish=self._sandbox_task_id(request) is not None,
+        )
+        return Response(CanvasBuildSerializer(build).data)
 
     @extend_schema(
         operation_id="canvases_publish_create",

@@ -1769,7 +1769,7 @@ export interface TaskCreateApi {
      */
     auto_publish?: boolean | null
     /**
-     * Space this task is created in. Omit it to use your private #me space.
+     * Space this task belongs to. Omit it when creating a task to use your private #me space.
      * @nullable
      */
     channel?: string | null
@@ -1911,6 +1911,11 @@ export interface TaskUpdateApi {
      * @nullable
      */
     auto_publish?: boolean | null
+    /**
+     * Space this task belongs to. Omit it when creating a task to use your private #me space.
+     * @nullable
+     */
+    channel?: string | null
 }
 
 /**
@@ -2034,6 +2039,11 @@ export interface PatchedTaskUpdateApi {
      * @nullable
      */
     auto_publish?: boolean | null
+    /**
+     * Space this task belongs to. Omit it when creating a task to use your private #me space.
+     * @nullable
+     */
+    channel?: string | null
 }
 
 export interface TaskArtifactApi {
