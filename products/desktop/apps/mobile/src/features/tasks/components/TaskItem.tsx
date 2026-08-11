@@ -1,26 +1,76 @@
 import { Text } from "@components/text";
-import { readPrUrls, type Task } from "@posthog/shared";
+import type { Task } from "@posthog/shared";
 import { differenceInHours, format, formatDistanceToNow } from "date-fns";
-import { Check, GitPullRequest, Laptop, PushPin } from "phosphor-react-native";
+import {
+  Check,
+  GitMerge,
+  GitPullRequest,
+  Laptop,
+  PushPin,
+} from "phosphor-react-native";
 import { memo } from "react";
-import { Linking, Pressable, View } from "react-native";
-import { parseGithubIssueUrl } from "@/lib/githubIssueUrl";
-import { useThemeColors } from "@/lib/theme";
+import { Pressable, View } from "react-native";
+import { openExternalUrl } from "@/lib/openExternalUrl";
+import { type ThemeColors, useThemeColors } from "@/lib/theme";
+import { usePrStatus } from "../hooks/usePrStatus";
+import {
+  deriveTaskPrChip,
+  getPrChipAppearance,
+  MERGED_PR_COLOR,
+  type PrChipTone,
+  prChipAccessibilityLabel,
+  type TaskPrChip,
+} from "../utils/prPresentation";
 import { isLocalRunTask } from "../utils/taskRunPlacement";
 import { TaskStatusIcon } from "./TaskStatusIcon";
 
-function PrBadge({ prUrl, number }: { prUrl: string; number: number }) {
+// Tone -> row styling. Kept here rather than in the pure helper: `getPrVisualConfig`
+// speaks in desktop's color names, and only this layer knows the RN tokens.
+function prChipStyle(
+  tone: PrChipTone,
+  themeColors: ThemeColors,
+): { textClassName: string; color: string } {
+  switch (tone) {
+    case "green":
+      return {
+        textClassName: "text-status-success",
+        color: themeColors.status.success,
+      };
+    case "red":
+      return {
+        textClassName: "text-status-error",
+        color: themeColors.status.error,
+      };
+    case "purple":
+      return { textClassName: "text-[#8e4ec6]", color: MERGED_PR_COLOR };
+    case "gray":
+      return { textClassName: "text-gray-11", color: themeColors.gray[11] };
+  }
+}
+
+/**
+ * Tappable PR shortcut on a task row. Nested inside the row's Pressable: React
+ * Native hands the touch to the innermost responder, so tapping the chip opens
+ * GitHub without also navigating into the task, and a long-press anywhere else
+ * on the row still starts multi-select.
+ */
+function PrChip({ chip }: { chip: TaskPrChip }) {
   const themeColors = useThemeColors();
+  const { data: status } = usePrStatus(chip.url);
+  const { tone, statusLabel } = getPrChipAppearance(status);
+  const { textClassName, color } = prChipStyle(tone, themeColors);
+  const Icon = tone === "purple" ? GitMerge : GitPullRequest;
+
   return (
     <Pressable
-      onPress={() => Linking.openURL(prUrl).catch(() => {})}
+      onPress={() => openExternalUrl(chip.url)}
       hitSlop={8}
       className="shrink-0 flex-row items-center gap-0.5 rounded border border-gray-6 bg-gray-3 px-1.5 py-0.5 active:opacity-60"
       accessibilityRole="link"
-      accessibilityLabel={`Open pull request #${number}`}
+      accessibilityLabel={prChipAccessibilityLabel(chip, statusLabel)}
     >
-      <GitPullRequest size={11} weight="bold" color={themeColors.gray[11]} />
-      <Text className="text-[11px] text-gray-11">{`#${number}`}</Text>
+      <Icon size={11} weight="bold" color={color} />
+      <Text className={`text-[11px] ${textClassName}`}>{chip.label}</Text>
     </Pressable>
   );
 }
@@ -52,8 +102,7 @@ function TaskItemComponent({
     hoursSinceCreated < 24
       ? formatDistanceToNow(createdAt, { addSuffix: true })
       : format(createdAt, "MMM d");
-  const prUrl = readPrUrls(task.latest_run?.output)[0];
-  const prRef = prUrl ? parseGithubIssueUrl(prUrl) : null;
+  const prChip = deriveTaskPrChip(task);
   // Desktop-local runs are listed but can't be driven from here until they're
   // continued in the cloud — the glyph plus the dimmed title says so without
   // spending a whole row on an explanation.
@@ -105,8 +154,8 @@ function TaskItemComponent({
           {pinned ? (
             <PushPin size={11} weight="fill" color={themeColors.gray[9]} />
           ) : null}
-          {prRef?.kind === "pr" ? (
-            <PrBadge prUrl={prRef.normalizedUrl} number={prRef.number} />
+          {prChip ? (
+            <PrChip chip={prChip} />
           ) : (
             <Text className="shrink-0 text-[11px] text-gray-9">
               {timeDisplay}

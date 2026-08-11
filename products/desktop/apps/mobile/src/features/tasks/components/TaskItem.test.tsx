@@ -1,11 +1,18 @@
 import type { Task } from "@posthog/shared";
 import { createElement } from "react";
 import { act, create } from "react-test-renderer";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PrChipStatus } from "../utils/prPresentation";
 import { TaskItem } from "./TaskItem";
+
+const { mockPrStatus } = vi.hoisted(() => ({
+  mockPrStatus: vi.fn<() => PrChipStatus | null>(() => null),
+}));
 
 vi.mock("phosphor-react-native", () => ({
   Check: (props: Record<string, unknown>) => createElement("Check", props),
+  GitMerge: (props: Record<string, unknown>) =>
+    createElement("GitMerge", props),
   GitPullRequest: (props: Record<string, unknown>) =>
     createElement("GitPullRequest", props),
   Laptop: (props: Record<string, unknown>) => createElement("Laptop", props),
@@ -16,7 +23,14 @@ vi.mock("@/lib/theme", () => ({
   useThemeColors: () => ({
     gray: { 9: "#888888", 11: "#444444" },
     accent: { 9: "#ff5500" },
+    status: { success: "#00aa00", error: "#cc0000" },
   }),
+}));
+
+// The chip fetches live PR state through react-query; the row tests render
+// without a provider, so the hook stands in for the network.
+vi.mock("../hooks/usePrStatus", () => ({
+  usePrStatus: () => ({ data: mockPrStatus() }),
 }));
 
 vi.mock("@components/text", () => ({
@@ -71,6 +85,10 @@ function render(task: Task, pinned = false) {
 }
 
 describe("TaskItem", () => {
+  beforeEach(() => {
+    mockPrStatus.mockReturnValue(null);
+  });
+
   function prIcons(renderer: ReturnType<typeof create>) {
     return renderer.root.findAll(
       (node) => String(node.type) === "GitPullRequest",
@@ -136,6 +154,55 @@ describe("TaskItem", () => {
     ],
   ])("does not show the PR badge when %s", (_label, task) => {
     expect(prIcons(render(task))).toHaveLength(0);
+  });
+
+  function chipLabelNode(renderer: ReturnType<typeof create>) {
+    return renderer.root.findAll(
+      (node) => String(node.type) === "Text" && node.props.children === "#2422",
+    )[0];
+  }
+
+  const prTask = () =>
+    makeTask({
+      output: { pr_url: "https://github.com/PostHog/code/pull/2422" },
+    });
+
+  it.each<[string, PrChipStatus | null, string]>([
+    ["unresolved", null, "text-gray-11"],
+    [
+      "open",
+      { state: "open", merged: false, draft: false },
+      "text-status-success",
+    ],
+    ["draft", { state: "open", merged: false, draft: true }, "text-gray-11"],
+    [
+      "closed",
+      { state: "closed", merged: false, draft: false },
+      "text-status-error",
+    ],
+    [
+      "merged",
+      { state: "closed", merged: true, draft: false },
+      "text-[#8e4ec6]",
+    ],
+  ])("colors the chip for a %s PR", (_label, status, expected) => {
+    mockPrStatus.mockReturnValue(status);
+
+    expect(chipLabelNode(render(prTask())).props.className).toContain(expected);
+  });
+
+  it("swaps in the merge glyph once the PR is merged", () => {
+    mockPrStatus.mockReturnValue({
+      state: "closed",
+      merged: true,
+      draft: false,
+    });
+    const renderer = render(prTask());
+
+    expect(
+      renderer.root.findAll((node) => String(node.type) === "GitMerge"),
+    ).toHaveLength(1);
+    expect(prIcons(renderer)).toHaveLength(0);
   });
 
   function pinIcons(renderer: ReturnType<typeof create>) {
