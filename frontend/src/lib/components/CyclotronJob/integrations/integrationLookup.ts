@@ -19,14 +19,10 @@ export type IntegrationIdValue = IntegrationType['id'] | string | null | undefin
  * rather than "selection matching nothing".
  */
 export function matchesIntegrationIdValue(integrationId: IntegrationType['id'], value: IntegrationIdValue): boolean {
-    if (value === undefined || value === null || value === '') {
+    if (!isIntegrationIdValue(value)) {
         return false
     }
-    const target = Number(value)
-    if (!Number.isFinite(target)) {
-        return false
-    }
-    return Number(integrationId) === target
+    return Number(integrationId) === Number(value)
 }
 
 /**
