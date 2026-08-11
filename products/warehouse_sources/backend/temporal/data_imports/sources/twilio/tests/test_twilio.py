@@ -110,9 +110,10 @@ class TestBuildInitialParams:
         "endpoint,expected",
         [
             ("messages", {"PageSize": 1000}),
-            # Twilio answers PageSize=1000 on the Verify Services endpoint with a 400, so this one
-            # sends no page size at all and takes Twilio's default.
+            # Twilio answers PageSize=1000 on Verify with a 400, so neither Verify endpoint sends
+            # one; a page size we don't send can't be rejected.
             ("verification_services", {}),
+            ("verification_attempts", {}),
         ],
     )
     def test_full_refresh_sends_only_the_endpoints_page_size(self, endpoint: str, expected: dict[str, Any]):
@@ -367,7 +368,7 @@ class TestPagination:
         # than the legacy root-relative `next_page_uri`. Getting either wrong makes Verify tables
         # unreachable (wrong host) or stops the sync after page one (missed next link).
         session = MockSession.return_value
-        next_url = "https://verify.twilio.com/v2/Services?PageSize=1000&Page=1&PageToken=abc"
+        next_url = "https://verify.twilio.com/v2/Services?Page=1&PageToken=abc"
         snapshots = _wire(
             session,
             [
