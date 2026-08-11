@@ -94,6 +94,7 @@ function ConversationsWidgetRow({
     const assignee = ticketAssignee(ticket)
     const assigneeName = ticketAssigneeName(ticket)
     const isAssignmentLoading = ticketAssignmentLoadingId === ticket.id
+    const assignmentDisabledReason = ticketAssignmentLoadingId ? 'Updating assignee...' : undefined
     const channelLabel = channelOptions.find((option) => option.value === ticket.channel_source)?.label
     const captureTicketOpened = (): void => {
         posthog.capture('dashboard widget open support ticket clicked', {
@@ -141,7 +142,7 @@ function ConversationsWidgetRow({
                         <AssigneeSelect
                             assignee={assignee}
                             onChange={(nextAssignee) => assignTicket(ticket.id, nextAssignee)}
-                            disabledReason={isAssignmentLoading ? 'Updating assignee...' : undefined}
+                            disabledReason={assignmentDisabledReason}
                             loadOnOpen
                         >
                             {(resolvedAssignee, isOpen) => (
