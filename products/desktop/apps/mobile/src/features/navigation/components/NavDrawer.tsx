@@ -5,6 +5,7 @@ import {
   BookOpen,
   Clock,
   GearSix,
+  List,
   ListBullets,
   PuzzlePiece,
   Tray,
