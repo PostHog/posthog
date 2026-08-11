@@ -662,6 +662,8 @@ class ModalSandbox(SandboxBase):
         """
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return cls.NOTEBOOK_APP_NAME
+        # Unlike the class-attribute names, this constant has no per-provider override, so local
+        # and eval Streamlit boxes share the production Streamlit app.
         if template == SandboxTemplate.STREAMLIT_BASE:
             return STREAMLIT_MODAL_APP_NAME
         return None
