@@ -91,9 +91,9 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert '"threshold":1.5' in markdown
         assert "invalid link" in markdown
         assert "juheapi" not in markdown
-        assert "hideFilters" in markdown
+        assert "hideFilters" not in markdown
 
-    def test_converts_v1_widget_nodes_with_filters_closed_by_default(self) -> None:
+    def test_converts_v1_widget_nodes_to_default_panel_visibility(self) -> None:
         content = {
             "type": "doc",
             "content": [
@@ -131,22 +131,36 @@ class TestNotebookMarkdownConversion(BaseTest):
                         "prompt": "Make a spinning 3D globe",
                     },
                 },
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "query": {"kind": "SavedInsightNode", "shortId": "custom-panels"},
+                        "showFilters": True,
+                        "showResults": False,
+                    },
+                },
+                {
+                    "type": "ph-feature-flag",
+                    "attrs": {
+                        "id": 123,
+                        "view": "summary",
+                    },
+                },
             ],
         }
 
         markdown = convert_notebook_content_to_markdown(content)
 
-        assert (
-            '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"ZcWG6625"}} title="Activation" />'
-            in markdown
-        )
-        assert '<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />' in markdown
-        assert '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"legacyInsight"}} />' in markdown
+        assert '<Query query={{"kind":"SavedInsightNode","shortId":"ZcWG6625"}} title="Activation" />' in markdown
+        assert '<Recording id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />' in markdown
+        assert '<Query query={{"kind":"SavedInsightNode","shortId":"legacyInsight"}} />' in markdown
         assert '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />' in markdown
         assert (
-            '<BlueBird hideFilters id="018f4f7e-2ac8-7d18-b688-dbd0f82cce0a" '
-            'prompt="Make a spinning 3D globe" />' in markdown
+            '<Query showFilters hideResults query={{"kind":"SavedInsightNode","shortId":"custom-panels"}} />'
+            in markdown
         )
+        assert '<BlueBird id="018f4f7e-2ac8-7d18-b688-dbd0f82cce0a" prompt="Make a spinning 3D globe" />' in markdown
+        assert '<FeatureFlag id={123} view="summary" />' in markdown
 
     def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
         content = {
