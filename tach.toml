@@ -654,6 +654,7 @@ depends_on = [
     "products.cohorts",
     "products.experiments",
     "products.exports",
+    "products.posthog_ai",
     "products.signals",
     "products.tasks",
 ]

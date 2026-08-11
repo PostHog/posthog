@@ -72,6 +72,7 @@ const STEP_HEADERS: Record<
 
 export function ScannerEditorSceneComponent(): JSX.Element {
     const { scannerId, step, isNew, visibleSteps } = useValues(scannerEditorSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
