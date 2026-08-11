@@ -373,10 +373,7 @@ export async function getJSONOrNull(response: Response): Promise<any> {
 
 function apiErrorFallback(response: Response, method: string, url: string): string {
     const pathname = new URL(url, location.origin).pathname
-    // `statusText` is empty over HTTP/2, so only append it when the transport actually set it.
-    // Without this guard every HTTP/2 failure reads `(status 403: )` and groups by an empty reason.
-    const reason = response.statusText ? `: ${response.statusText}` : ''
-    return `Non-OK response [${method} ${pathname}] (status ${response.status}${reason})`
+    return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
 }
 
 /**
