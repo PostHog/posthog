@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import json
+import importlib
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
@@ -188,6 +189,10 @@ def _stub_picker_facade():
     # the stdlib `ModuleType` rejects them outright, and ruff B010 reverts any
     # `setattr` workaround back to attribute syntax.
     fake: Any = ModuleType(facade_name)
+    # Seed from the real module so overriding a handful of functions doesn't hide the
+    # rest of its namespace from anything else that imports it while the swap is in
+    # place — the tasks serializers pull a dozen constants from here.
+    fake.__dict__.update(vars(importlib.import_module(facade_name)))
     fake.RuntimeAdapter = _RuntimeAdapter()
     fake.get_supported_reasoning_efforts = fake_get_supported
     fake.get_reasoning_effort_error = fake_get_error
