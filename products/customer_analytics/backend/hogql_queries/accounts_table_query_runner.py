@@ -37,6 +37,7 @@ from products.customer_analytics.backend.facade import api, contracts
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
 ACCOUNTS_TABLE_MAX_FILTERS = 50
 ACCOUNTS_TABLE_MAX_FILTER_VALUES = 100
+ACCOUNTS_TABLE_MAX_METRICS = 5
 ACCOUNTS_TABLE_MAX_PAGE_SIZE = 500
 ACCOUNTS_TABLE_MAX_STRING_LENGTH = 1_000
 
@@ -182,9 +183,13 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
             raise ValidationError("Account table sort definition IDs must be valid UUIDs.") from error
 
     def _metrics(self) -> tuple[contracts.AccountTableMetric, ...]:
+        query_metrics = self.query.metrics or []
+        if len(query_metrics) > ACCOUNTS_TABLE_MAX_METRICS:
+            raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_METRICS} metrics.")
+
         metrics: list[contracts.AccountTableMetric] = []
         try:
-            for metric in self.query.metrics or []:
+            for metric in query_metrics:
                 if isinstance(metric, AccountsTableCountMetric):
                     metrics.append(contracts.AccountTableCountMetric())
                 elif isinstance(metric, AccountsTableAggregateMetric):

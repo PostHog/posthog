@@ -213,6 +213,14 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
         if (!isUUIDLike(filter.definitionId) || !definition || !isNumericDisplayType(definition.display_type)) {
             return null
         }
+        if (filter.operator === AccountsTableCustomPropertyOperator.IsNot) {
+            filters.push({
+                kind: 'custom_property',
+                definitionId: filter.definitionId,
+                operator: AccountsTableCustomPropertyOperator.IsSet,
+                values: [],
+            })
+        }
         filters.push(filter)
     }
     return filters

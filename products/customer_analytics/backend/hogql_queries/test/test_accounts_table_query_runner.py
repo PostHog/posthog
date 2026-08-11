@@ -48,6 +48,7 @@ from products.customer_analytics.backend.hogql_queries.accounts_table_query_runn
     ACCOUNTS_TABLE_MAX_COLUMNS,
     ACCOUNTS_TABLE_MAX_FILTER_VALUES,
     ACCOUNTS_TABLE_MAX_FILTERS,
+    ACCOUNTS_TABLE_MAX_METRICS,
     ACCOUNTS_TABLE_MAX_PAGE_SIZE,
     ACCOUNTS_TABLE_MAX_STRING_LENGTH,
     AccountsTableQueryRunner,
@@ -259,9 +260,17 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
 
-    def test_caps_selected_columns_and_page_size(self) -> None:
+    def test_caps_selected_columns_metrics_and_page_size(self) -> None:
         with self.assertRaises(ValidationError):
             self._run(AccountsTableQuery(columns=[AccountsTableTagsColumn()] * (ACCOUNTS_TABLE_MAX_COLUMNS + 1)))
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    metrics=[AccountsTableCountMetric()] * (ACCOUNTS_TABLE_MAX_METRICS + 1),
+                )
+            )
 
         response = self._run(AccountsTableQuery(columns=[], limit=ACCOUNTS_TABLE_MAX_PAGE_SIZE + 1))
 
