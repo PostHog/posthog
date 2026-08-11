@@ -3,8 +3,20 @@ import { dayjs } from 'lib/dayjs'
 import type { ObservationStatsApi } from '../generated/api.schemas'
 import { deriveSummarizerFacetStats, isAwaitingFirstResults } from './scannerStats'
 
-// Partial on purpose: only the fields deriveSummarizerFacetStats reads.
-const stats = {
+// Fully typed (no cast) so schema changes to ObservationStatsApi break these fixtures at compile time.
+const emptyStats: ObservationStatsApi = {
+    status_counts: { total: 0, succeeded: 0, failed: 0, ineligible: 0, in_flight: 0, success_rate: null },
+    coverage: { recent_sessions: 0, total_sessions: 0, recent_days: 14 },
+    labels: { up_total: 0, down_total: 0, by_day: [], by_rating_day: [], version_markers: [] },
+    available_tags: [],
+    monitor: null,
+    classifier: null,
+    scorer: null,
+    summarizer: null,
+}
+
+const stats: ObservationStatsApi = {
+    ...emptyStats,
     status_counts: { total: 10, succeeded: 8, failed: 1, ineligible: 1, in_flight: 0, success_rate: 0.8 },
     summarizer: {
         friction_ranked: [{ term: 'checkout stalls', count: 3 }],
@@ -12,23 +24,15 @@ const stats = {
         total_with_facets: 4,
         total_with_friction: 3,
     },
-} as ObservationStatsApi
+}
 
 describe('isAwaitingFirstResults', () => {
     const NOW = dayjs('2026-08-11T12:00:00Z')
 
-    const statsWith = (counts: Partial<ObservationStatsApi['status_counts']>): ObservationStatsApi =>
-        ({
-            status_counts: {
-                total: 0,
-                succeeded: 0,
-                failed: 0,
-                ineligible: 0,
-                in_flight: 0,
-                success_rate: null,
-                ...counts,
-            },
-        }) as ObservationStatsApi
+    const statsWith = (counts: Partial<ObservationStatsApi['status_counts']>): ObservationStatsApi => ({
+        ...emptyStats,
+        status_counts: { ...emptyStats.status_counts, ...counts },
+    })
 
     // Mirrors a fresh scanner: created moments ago, watermark seeded 35 minutes before creation.
     const scannerWith = (
