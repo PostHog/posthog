@@ -14,7 +14,6 @@ from llm_gateway.products.config import (
     filter_to_free_tier_models,
     validate_product,
 )
-from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCostService
 from llm_gateway.rate_limiting.throttles import is_usage_unlimited
 from llm_gateway.services.model_registry import get_available_models
@@ -79,13 +78,8 @@ def _format_rate(rate: float) -> str:
     return format(Decimal(str(rate)), "f")
 
 
-def _get_model_pricing(model_id: str) -> ModelPricing | None:
-    cost_service = ModelCostService.get_instance()
-    costs = cost_service.get_costs(model_id)
-    if costs is None:
-        cost_alias = COST_ALIASES.get(f"openai/{model_id}")
-        if cost_alias is not None:
-            costs = cost_service.get_costs(cost_alias[0])
+def _get_model_pricing(cost_model_id: str) -> ModelPricing | None:
+    costs = ModelCostService.get_instance().get_costs(cost_model_id)
     if costs is None:
         return None
 
@@ -116,7 +110,7 @@ def _build_response(product: str) -> ModelsResponse:
             context_window=m.context_window,
             supports_streaming=m.supports_streaming,
             supports_vision=m.supports_vision,
-            pricing=_get_model_pricing(m.id),
+            pricing=_get_model_pricing(m.cost_model_id),
         )
         for m in models
     ]

@@ -116,6 +116,15 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "cache_read_input_token_cost": 0.14e-6,
         "mode": "chat",
     },
+    "baseten/deepseek-ai/deepseek-v4-flash-0731": {
+        "litellm_provider": "baseten",
+        "max_input_tokens": 1048000,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0.13e-6,
+        "output_cost_per_token": 0.26e-6,
+        "cache_read_input_token_cost": 0.028e-6,
+        "mode": "chat",
+    },
 }
 
 
@@ -239,6 +248,12 @@ class TestListModelsForProductEndpoint:
             "completion": "0.0000044",
             "cache_read": "0.00000014",
             "cache_write": "0.0000014",
+        }
+        assert models["deepseek-ai/deepseek-v4-flash-0731"]["pricing"] == {
+            "prompt": "0.00000013",
+            "completion": "0.00000026",
+            "cache_read": "0.000000028",
+            "cache_write": "0.00000013",
         }
 
     @pytest.mark.parametrize("alias", ["twig", "array"])
