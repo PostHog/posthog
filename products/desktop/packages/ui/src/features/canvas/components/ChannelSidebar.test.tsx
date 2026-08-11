@@ -104,19 +104,20 @@ describe("ChannelSidebar", () => {
       what: "nothing has arrived yet",
       state: { items: [], isLoading: true },
       shown: [] as string[],
-      hidden: ["Sessions", "No matches", "Nothing here yet"],
+      hidden: ["Sessions", "No matches", "No sessions yet"],
     },
     {
       what: "the space is settled and genuinely empty",
       state: { items: [], isLoading: false },
-      shown: ["Nothing here yet"],
-      hidden: ["Sessions", "No matches"],
+      // The tabs stay, or an empty tab is one you can't leave.
+      shown: ["Sessions", "No sessions yet"],
+      hidden: ["No matches"],
     },
     {
       what: "the space is settled with items",
       state: { items: [item()], isLoading: false },
       shown: ["Sessions", "Investigate signup drop-off"],
-      hidden: ["No matches", "Nothing here yet"],
+      hidden: ["No matches", "No sessions yet"],
     },
   ])("shows one state when $what", ({ state, shown, hidden }) => {
     mocks.items = state.items;
@@ -160,7 +161,7 @@ describe("ChannelSidebar", () => {
     rerender(sidebar());
 
     expect(screen.queryByText("No matches")).not.toBeInTheDocument();
-    expect(screen.queryByText("Nothing here yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
   });
 
   it("shows a single empty state when the last item goes away under a search", async () => {
@@ -173,7 +174,37 @@ describe("ChannelSidebar", () => {
     rerender(sidebar());
 
     expect(screen.getByText("No matches")).toBeInTheDocument();
-    expect(screen.queryByText("Nothing here yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
+  });
+
+  it("shows one kind at a time, and drops the run filters with the sessions", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.items = [
+      item(),
+      item({
+        key: "canvas:c1",
+        kind: "canvas",
+        id: "c1",
+        title: "Signup funnel canvas",
+      }),
+    ];
+    renderSidebar();
+
+    await user.click(screen.getByRole("tab", { name: "Canvases" }));
+
+    expect(screen.getByText("Signup funnel canvas")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Investigate signup drop-off"),
+    ).not.toBeInTheDocument();
+
+    // A canvas has no run, so the filters that ask about one are gone rather
+    // than left to empty the tab.
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    expect(
+      await screen.findByRole("menuitem", { name: /Pinned/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Status/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Source/ })).toBeNull();
   });
 });
 

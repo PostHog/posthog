@@ -2,9 +2,12 @@ import {
   ChatsCircleIcon,
   MagnifyingGlass,
   PackageIcon,
+  ShapesIcon,
 } from "@phosphor-icons/react";
 import {
+  ANY_SOURCE,
   type ChannelItemFilters,
+  type ChannelItemModel,
   type ChannelItemSort,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
@@ -26,6 +29,9 @@ import {
   MenuLabel,
   Skeleton,
   SkeletonText,
+  Tabs,
+  TabsList,
+  TabsTrigger,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
@@ -52,7 +58,17 @@ import { Fragment, useMemo, useState } from "react";
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
 
+/** The list holds two kinds of thing, and shows one of them at a time. */
+type ChannelTab = ChannelItemModel["kind"];
+
+const CHANNEL_TABS: readonly { value: ChannelTab; label: string }[] = [
+  { value: "task", label: "Sessions" },
+  { value: "canvas", label: "Canvases" },
+];
+
 function RecentSectionHeader({
+  tab,
+  onTabChange,
   searchOpen,
   onToggleSearch,
   query,
@@ -63,8 +79,11 @@ function RecentSectionHeader({
   onSortChange,
   sources,
   showCreatedBy,
+  showRunFilters,
   filtersActive,
 }: {
+  tab: ChannelTab;
+  onTabChange: (tab: ChannelTab) => void;
   searchOpen: boolean;
   onToggleSearch: () => void;
   query: string;
@@ -76,14 +95,38 @@ function RecentSectionHeader({
   sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
   showCreatedBy: boolean;
+  /** False on the canvases tab: a canvas has no run to ask these about. */
+  showRunFilters: boolean;
   filtersActive: boolean;
 }) {
   return (
     <>
       <div className="flex items-center gap-0.5">
-        <div className="min-w-0 flex-1">
-          <MenuLabel>Sessions</MenuLabel>
-        </div>
+        {/* The tabs name the list, so it has no label of its own. */}
+        <Tabs
+          value={tab}
+          onValueChange={(value: string) => onTabChange(value as ChannelTab)}
+          className="min-w-0 flex-1"
+        >
+          {/* text-[13px] is the sidebar's own scale: quill's default tab is
+              sized for a page header, which reads as a heading over this list. */}
+          {/* quill-tabs-fill: the active/hover fills, from globals.css — they
+              can't be utilities here, see the rule's comment. */}
+          <TabsList
+            variant="line"
+            className="quill-tabs-fill h-auto gap-0.5 border-b-0"
+          >
+            {CHANNEL_TABS.map(({ value, label }) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                className="rounded-sm px-1 py-0.5 text-[13px]"
+              >
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
         <Button
           variant="default"
           size="icon-xs"
@@ -101,6 +144,7 @@ function RecentSectionHeader({
           onSortChange={onSortChange}
           sources={sources}
           showCreatedBy={showCreatedBy}
+          showRunFilters={showRunFilters}
           active={filtersActive}
         />
       </div>
@@ -111,7 +155,9 @@ function RecentSectionHeader({
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search…"
-            aria-label="Search sessions"
+            aria-label={
+              tab === "canvas" ? "Search canvases" : "Search sessions"
+            }
             className="h-6 text-[12px]"
           />
         </div>
@@ -127,7 +173,7 @@ const SKELETON_ROW_WIDTHS = [60, 80, 40, 75, 50, 66] as const;
 function ChannelItemsSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-px">
-      {/* Stands in for the "Sessions" MenuLabel, so it carries that label's scale. */}
+      {/* Stands in for the tabs row, so it carries that row's scale. */}
       <SkeletonText
         lines={1}
         maxWidth={100}
@@ -147,6 +193,31 @@ function ChannelItemsSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+/** An empty tab says what would fill it, rather than what the space holds. */
+function TabEmptyState({ tab }: { tab: ChannelTab }) {
+  return (
+    <Empty className="border-0 py-6">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          {tab === "canvas" ? (
+            <ShapesIcon size={18} />
+          ) : (
+            <ChatsCircleIcon size={18} />
+          )}
+        </EmptyMedia>
+        <EmptyTitle>
+          {tab === "canvas" ? "No canvases yet" : "No sessions yet"}
+        </EmptyTitle>
+        <EmptyDescription>
+          {tab === "canvas"
+            ? "Canvases you create in this space show up here."
+            : "Sessions you start in this space show up here."}
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }
 
@@ -196,6 +267,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { renameTask } = useRenameTask();
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
 
+  const [tab, setTab] = useState<ChannelTab>("task");
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [rawFilters, setFilters] = useState<ChannelItemFilters>(
@@ -209,16 +281,33 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   const isPersonalChannel =
     channels.find((c) => c.id === channelId)?.name === PERSONAL_CHANNEL_NAME;
-  const filters = useMemo<ChannelItemFilters>(
-    () =>
-      isPersonalChannel ? { ...rawFilters, createdBy: "anyone" } : rawFilters,
-    [isPersonalChannel, rawFilters],
-  );
+  // A canvas has no run, so the three run filters can only ever empty the
+  // canvases tab. Same treatment as createdBy above: neutralised as well as
+  // hidden, or a choice made on the sessions tab would empty this one.
+  const filters = useMemo<ChannelItemFilters>(() => {
+    const scoped = isPersonalChannel
+      ? { ...rawFilters, createdBy: "anyone" as const }
+      : rawFilters;
+    return tab === "canvas"
+      ? {
+          ...scoped,
+          attention: "any",
+          environment: "any",
+          source: ANY_SOURCE,
+        }
+      : scoped;
+  }, [isPersonalChannel, rawFilters, tab]);
   const filtersActive = hasActiveChannelItemFilters(filters);
+  // The tab is the list, so everything below it — the filters, the empty state,
+  // the sections — is about one kind of thing at a time.
+  const tabItems = useMemo(
+    () => items.filter((item) => item.kind === tab),
+    [items, tab],
+  );
   // The menu only offers sources the list holds, so it is built from everything
-  // in the space rather than from what the current filters left behind — picking
+  // in the tab rather than from what the current filters left behind — picking
   // one source must not be what removes the others from the menu.
-  const sources = useMemo(() => channelItemSources(items), [items]);
+  const sources = useMemo(() => channelItemSources(tabItems), [tabItems]);
 
   const base = `/website/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
@@ -237,10 +326,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const recentItems = useMemo(
     () =>
       sortChannelItems(
-        filterChannelItems(items, { query, filters, me }),
+        filterChannelItems(tabItems, { query, filters, me }),
         sort,
       ).slice(0, RECENTS_CAP),
-    [items, query, filters, sort, me],
+    [tabItems, query, filters, sort, me],
   );
   const sections = useMemo(
     () => groupChannelItems(recentItems, sort),
@@ -251,12 +340,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const listState = listStateOf({
     channelMissing,
     isLoading,
-    itemCount: items.length,
+    itemCount: tabItems.length,
     narrowed,
   });
-  // The one section, which only exists once there are items — but its header
-  // stays while the list is narrowed, so you can undo whatever emptied it.
-  const showRecent = listState === "ready";
+  // The header stays while the list is narrowed, so you can undo whatever
+  // emptied it — and while a tab is empty, so you can leave that tab.
+  const showHeader = listState === "ready" || listState === "empty";
 
   const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
     placeTaskInCommandCenter(taskId, taskTitle);
@@ -372,11 +461,36 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         )}
       </div>
 
-      {/* Relative so the FAB can float over the list. */}
-      <div className="relative mt-2 min-h-0 flex-1">
+      {/* Relative so the FAB can float over the list. The tabs sit above the
+          scroll container rather than in it: they are how you leave whatever
+          the list is showing, so they can't scroll away with it. */}
+      <div className="relative mt-2 flex min-h-0 flex-1 flex-col">
+        {showHeader && (
+          <div className="border-border border-b px-2">
+            <RecentSectionHeader
+              tab={tab}
+              onTabChange={setTab}
+              searchOpen={searchOpen}
+              onToggleSearch={() => {
+                if (searchOpen) setQuery("");
+                setSearchOpen(!searchOpen);
+              }}
+              query={query}
+              onQueryChange={setQuery}
+              filters={filters}
+              onFiltersChange={setFilters}
+              sort={sort}
+              onSortChange={setSort}
+              sources={sources}
+              showCreatedBy={!isPersonalChannel}
+              showRunFilters={tab === "task"}
+              filtersActive={filtersActive}
+            />
+          </div>
+        )}
         <div
           aria-busy={isLoading}
-          className="scroll-mask-4 h-full overflow-y-auto px-2 pb-2"
+          className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
         >
           {listState === "loading" && <ChannelItemsSkeleton />}
 
@@ -394,66 +508,35 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             </Empty>
           )}
 
-          {showRecent && (
-            <>
-              <RecentSectionHeader
-                searchOpen={searchOpen}
-                onToggleSearch={() => {
-                  if (searchOpen) setQuery("");
-                  setSearchOpen(!searchOpen);
-                }}
-                query={query}
-                onQueryChange={setQuery}
-                filters={filters}
-                onFiltersChange={setFilters}
-                sort={sort}
-                onSortChange={setSort}
-                sources={sources}
-                showCreatedBy={!isPersonalChannel}
-                filtersActive={filtersActive}
-              />
-              {sections.length > 0 ? (
-                <div className="flex flex-col gap-px">
-                  {sections.map((section) => (
-                    <Fragment key={section.key}>
-                      {section.label && <MenuLabel>{section.label}</MenuLabel>}
-                      {/* Under "Pinned" every row would wear the same badge, so
+          {showHeader &&
+            (listState === "empty" ? (
+              <TabEmptyState tab={tab} />
+            ) : sections.length > 0 ? (
+              <div className="flex flex-col gap-px">
+                {sections.map((section) => (
+                  <Fragment key={section.key}>
+                    {section.label && <MenuLabel>{section.label}</MenuLabel>}
+                    {/* Under "Pinned" every row would wear the same badge, so
                           the header says it once instead. */}
-                      {section.items.map((item) =>
-                        taskRow(item, section.key !== PINNED_SECTION_KEY),
-                      )}
-                    </Fragment>
-                  ))}
-                </div>
-              ) : (
-                <Empty className="border-0 py-6">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <MagnifyingGlass size={18} />
-                    </EmptyMedia>
-                    <EmptyTitle>No matches</EmptyTitle>
-                    <EmptyDescription>
-                      Try a different search or clear the filters.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              )}
-            </>
-          )}
-
-          {listState === "empty" && (
-            <Empty className="border-0 py-6">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <ChatsCircleIcon size={18} />
-                </EmptyMedia>
-                <EmptyTitle>Nothing here yet</EmptyTitle>
-                <EmptyDescription>
-                  Tasks and canvases you create in this space show up here.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
+                    {section.items.map((item) =>
+                      taskRow(item, section.key !== PINNED_SECTION_KEY),
+                    )}
+                  </Fragment>
+                ))}
+              </div>
+            ) : (
+              <Empty className="border-0 py-6">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <MagnifyingGlass size={18} />
+                  </EmptyMedia>
+                  <EmptyTitle>No matches</EmptyTitle>
+                  <EmptyDescription>
+                    Try a different search or clear the filters.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ))}
         </div>
         <ChannelsFab channelId={channelId} />
       </div>

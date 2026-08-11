@@ -154,6 +154,7 @@ export function ChannelFilterMenu({
   onSortChange,
   sources,
   showCreatedBy,
+  showRunFilters,
   active,
 }: {
   filters: ChannelItemFilters;
@@ -164,6 +165,8 @@ export function ChannelFilterMenu({
   sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
   showCreatedBy: boolean;
+  /** False on the canvases tab: a canvas has no run to ask these about. */
+  showRunFilters: boolean;
   /** A filter is narrowing the list, so the button says so. */
   active: boolean;
 }) {
@@ -208,12 +211,14 @@ export function ChannelFilterMenu({
         sideOffset={6}
         className="min-w-fit"
       >
-        <FilterSubmenu
-          label="Status"
-          options={ATTENTION_OPTIONS}
-          value={filters.attention}
-          onChange={(value) => set("attention", value)}
-        />
+        {showRunFilters && (
+          <FilterSubmenu
+            label="Status"
+            options={ATTENTION_OPTIONS}
+            value={filters.attention}
+            onChange={(value) => set("attention", value)}
+          />
+        )}
         {/* #me holds only your own sessions, so "created by" can only ever
             answer "you" — the whole group is dropped rather than shown with two
             options that empty the list. */}
@@ -231,18 +236,22 @@ export function ChannelFilterMenu({
           value={filters.pinned}
           onChange={(value) => set("pinned", value)}
         />
-        <FilterSubmenu
-          label="Environment"
-          options={ENVIRONMENT_OPTIONS}
-          value={filters.environment}
-          onChange={(value) => set("environment", value)}
-        />
-        <FilterSubmenu
-          label="Source"
-          options={sourceOptions}
-          value={filters.source}
-          onChange={(value) => set("source", value)}
-        />
+        {showRunFilters && (
+          <>
+            <FilterSubmenu
+              label="Environment"
+              options={ENVIRONMENT_OPTIONS}
+              value={filters.environment}
+              onChange={(value) => set("environment", value)}
+            />
+            <FilterSubmenu
+              label="Source"
+              options={sourceOptions}
+              value={filters.source}
+              onChange={(value) => set("source", value)}
+            />
+          </>
+        )}
         <DropdownMenuSeparator />
         <FilterSubmenu
           label="Sort by"
