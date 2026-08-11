@@ -8,6 +8,8 @@ const mockClient = vi.hoisted(() => ({
   getTaskChannels: vi.fn(),
   resolveTaskChannel: vi.fn(),
   starTaskChannel: vi.fn(),
+  renameTaskChannel: vi.fn(),
+  deleteTaskChannel: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -141,6 +143,112 @@ describe("useChannelMutations", () => {
     });
 
     expect(mockClient.starTaskChannel).not.toHaveBeenCalled();
+  });
+
+  it("applies a rename before the server round-trip resolves", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([
+      taskChannel("1", "alpha"),
+      taskChannel("2", "beta"),
+    ]);
+    const list = renderHook(() => useChannels(), { wrapper });
+    await waitFor(() => expect(list.result.current.isLoading).toBe(false));
+    // Freeze both the rename call and any trailing refetch, so the rename can
+    // only show through the optimistic cache write.
+    let resolveRename: (channel: TaskChannel) => void = () => {};
+    mockClient.renameTaskChannel.mockReturnValue(
+      new Promise<TaskChannel>((resolve) => {
+        resolveRename = resolve;
+      }),
+    );
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
+
+    const mutations = renderHook(() => useChannelMutations(), { wrapper });
+    let pending: Promise<unknown> | undefined;
+    await act(async () => {
+      pending = mutations.result.current.renameChannel("2", "gamma");
+    });
+    // The server call is still in flight, so the rename can only be visible
+    // through the optimistic cache write.
+    await waitFor(() =>
+      expect(list.result.current.channels.map((c) => c.name)).toEqual([
+        "alpha",
+        "gamma",
+      ]),
+    );
+
+    await act(async () => {
+      resolveRename(taskChannel("2", "gamma"));
+      await pending;
+    });
+    expect(list.result.current.channels.map((c) => c.name)).toEqual([
+      "alpha",
+      "gamma",
+    ]);
+  });
+
+  it("restores the old name when a rename fails", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([taskChannel("1", "alpha")]);
+    const list = renderHook(() => useChannels(), { wrapper });
+    await waitFor(() => expect(list.result.current.isLoading).toBe(false));
+    mockClient.renameTaskChannel.mockRejectedValue(new Error("nope"));
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
+
+    const mutations = renderHook(() => useChannelMutations(), { wrapper });
+    await act(async () => {
+      await expect(
+        mutations.result.current.renameChannel("1", "beta"),
+      ).rejects.toThrow("nope");
+    });
+    expect(list.result.current.channels.map((c) => c.name)).toEqual(["alpha"]);
+  });
+
+  it("removes a deleted space from the list before the round-trip resolves", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([
+      taskChannel("1", "alpha"),
+      taskChannel("2", "beta"),
+    ]);
+    const list = renderHook(() => useChannels(), { wrapper });
+    await waitFor(() => expect(list.result.current.isLoading).toBe(false));
+    let resolveDelete: () => void = () => {};
+    mockClient.deleteTaskChannel.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveDelete = () => resolve(undefined);
+      }),
+    );
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
+
+    const mutations = renderHook(() => useChannelMutations(), { wrapper });
+    let pending: Promise<unknown> | undefined;
+    await act(async () => {
+      pending = mutations.result.current.deleteChannel("1");
+    });
+    // The server call is still in flight, so the removal can only be visible
+    // through the optimistic cache write.
+    await waitFor(() =>
+      expect(list.result.current.channels.map((c) => c.name)).toEqual(["beta"]),
+    );
+
+    await act(async () => {
+      resolveDelete();
+      await pending;
+    });
+    expect(list.result.current.channels.map((c) => c.name)).toEqual(["beta"]);
+  });
+
+  it("restores a deleted space when the delete fails", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([taskChannel("1", "alpha")]);
+    const list = renderHook(() => useChannels(), { wrapper });
+    await waitFor(() => expect(list.result.current.isLoading).toBe(false));
+    mockClient.deleteTaskChannel.mockRejectedValue(new Error("nope"));
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
+
+    const mutations = renderHook(() => useChannelMutations(), { wrapper });
+    await act(async () => {
+      await expect(mutations.result.current.deleteChannel("1")).rejects.toThrow(
+        "nope",
+      );
+    });
+    expect(list.result.current.channels.map((c) => c.name)).toEqual(["alpha"]);
   });
 
   it("leaves the star alone when the name resolves a space that already exists", async () => {

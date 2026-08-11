@@ -109,7 +109,24 @@ export function useChannelMutations() {
       if (!client) throw new Error("Not authenticated");
       return client.deleteTaskChannel(id);
     },
-    onSuccess: invalidate,
+    // Optimistic remove: the space leaves the sidebar the moment it's clicked,
+    // not after the delete round-trip + list refetch. Restore on failure.
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
+      const previous = queryClient.getQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+      );
+      queryClient.setQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY, (old) =>
+        old?.filter((channel) => channel.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, context.previous);
+      }
+    },
+    onSettled: invalidate,
   });
 
   const renameMutation = useMutation({
@@ -117,7 +134,26 @@ export function useChannelMutations() {
       if (!client) throw new Error("Not authenticated");
       return client.renameTaskChannel(id, name);
     },
-    onSuccess: invalidate,
+    // Optimistic rename: the typed name already passed the same normalization
+    // rule the server applies, so it can land in the cache at submit time.
+    onMutate: async ({ id, name }) => {
+      await queryClient.cancelQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
+      const previous = queryClient.getQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+      );
+      queryClient.setQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY, (old) =>
+        old?.map((channel) =>
+          channel.id === id ? { ...channel, name } : channel,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, context.previous);
+      }
+    },
+    onSettled: invalidate,
   });
 
   return {
