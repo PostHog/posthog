@@ -7,8 +7,18 @@ import type { OrganizeMode } from "../stores/taskStore";
 
 export const NO_REPO_LABEL = "No repository";
 
+export const ATTENTION_GROUP_KEY = "attention";
+export const ATTENTION_GROUP_LABEL = "Needs attention";
+
 export type TaskListItem =
   | { type: "task"; task: Task }
+  | {
+      type: "attention-header";
+      groupKey: string;
+      label: string;
+      count: number;
+      collapsed: boolean;
+    }
   | {
       type: "repo-header";
       groupKey: string;
@@ -63,6 +73,8 @@ interface BuildTaskListItemsOptions {
   organizeMode: OrganizeMode;
   sortMode: TaskActivitySortMode;
   collapsedGroupKeys: ReadonlySet<string>;
+  /** Tasks blocked on the user, pinned into their own group above everything. */
+  awaitingInputTaskIds?: ReadonlySet<string>;
   now?: number;
 }
 
@@ -70,19 +82,55 @@ interface BuildTaskListItemsOptions {
  * Flattens tasks into the FlatList's header/task rows. A collapsed group keeps
  * its header (and its full count, so the header still says how much is hidden)
  * and drops its task rows.
+ *
+ * Tasks blocked on the user are lifted out of their normal group into a
+ * "Needs attention" group at the top, in both organize modes — a task waiting on
+ * a reply is the one thing worth acting on, and burying it under a repo or date
+ * heading is what the grouping was hiding. They appear there and nowhere else,
+ * so every row still has a unique key.
  */
 export function buildTaskListItems({
   tasks,
   organizeMode,
   sortMode,
   collapsedGroupKeys,
+  awaitingInputTaskIds,
   now = Date.now(),
 }: BuildTaskListItemsOptions): TaskListItem[] {
   const items: TaskListItem[] = [];
 
+  const isAwaiting = (task: Task) =>
+    awaitingInputTaskIds?.has(task.id) === true;
+  const awaitingTasks = tasks.filter(isAwaiting);
+  const restingTasks =
+    awaitingTasks.length > 0
+      ? tasks.filter((task) => !isAwaiting(task))
+      : tasks;
+
+  if (awaitingTasks.length > 0) {
+    const collapsed = collapsedGroupKeys.has(ATTENTION_GROUP_KEY);
+    items.push({
+      type: "attention-header",
+      groupKey: ATTENTION_GROUP_KEY,
+      label: ATTENTION_GROUP_LABEL,
+      count: awaitingTasks.length,
+      collapsed,
+    });
+    if (!collapsed) {
+      awaitingTasks.sort(
+        (a, b) =>
+          taskActivityTimestamp(b, sortMode) -
+          taskActivityTimestamp(a, sortMode),
+      );
+      for (const task of awaitingTasks) {
+        items.push({ type: "task", task });
+      }
+    }
+  }
+
   if (organizeMode === "by-project") {
     const groups = new Map<string, Task[]>();
-    for (const task of tasks) {
+    for (const task of restingTasks) {
       const key = task.repository?.trim() || NO_REPO_LABEL;
       const bucket = groups.get(key);
       if (bucket) {
@@ -128,7 +176,7 @@ export function buildTaskListItems({
     return items;
   }
 
-  const sorted = [...tasks].sort(
+  const sorted = [...restingTasks].sort(
     (a, b) =>
       taskActivityTimestamp(b, sortMode) - taskActivityTimestamp(a, sortMode),
   );

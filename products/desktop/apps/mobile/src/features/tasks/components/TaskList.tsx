@@ -273,8 +273,16 @@ export function TaskList({
         organizeMode,
         sortMode,
         collapsedGroupKeys,
+        awaitingInputTaskIds,
       }),
-    [tasks, archivedTasks, organizeMode, sortMode, collapsedGroupKeys],
+    [
+      tasks,
+      archivedTasks,
+      organizeMode,
+      sortMode,
+      collapsedGroupKeys,
+      awaitingInputTaskIds,
+    ],
   );
 
   if (error) {
@@ -353,6 +361,24 @@ export function TaskList({
           </>
         }
         renderItem={({ item }) => {
+          if (item.type === "attention-header") {
+            return (
+              <GroupHeader
+                label={item.label}
+                count={item.count}
+                collapsed={item.collapsed}
+                onPress={() => handleToggleGroup(item.groupKey)}
+                icon={
+                  <View
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: themeColors.accent[9] }}
+                  />
+                }
+                uppercase
+              />
+            );
+          }
+
           if (item.type === "repo-header") {
             return (
               <GroupHeader

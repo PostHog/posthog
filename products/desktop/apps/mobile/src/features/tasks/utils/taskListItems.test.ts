@@ -1,6 +1,7 @@
 import type { Task } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
+  ATTENTION_GROUP_KEY,
   buildTaskListItems,
   dateGroupKey,
   NO_REPO_LABEL,
@@ -42,12 +43,16 @@ function build(
   tasks: Task[],
   organizeMode: "by-project" | "chronological",
   collapsed: string[] = [],
+  awaitingInputTaskIds?: string[],
 ) {
   return buildTaskListItems({
     tasks,
     organizeMode,
     sortMode: "updated",
     collapsedGroupKeys: new Set(collapsed),
+    awaitingInputTaskIds: awaitingInputTaskIds
+      ? new Set(awaitingInputTaskIds)
+      : undefined,
     now: NOW,
   });
 }
@@ -163,5 +168,87 @@ describe("buildTaskListItems chronologically", () => {
       repoGroupKey("Today"),
       "t",
     ]);
+  });
+});
+
+describe("buildTaskListItems needs-attention group", () => {
+  const tasks = [
+    makeTask("waiting", { repository: "posthog/a", updatedAt: daysAgo(20) }),
+    makeTask("also-waiting", {
+      repository: "posthog/b",
+      updatedAt: daysAgo(0),
+    }),
+    makeTask("busy", { repository: "posthog/a", updatedAt: daysAgo(1) }),
+  ];
+  const awaiting = ["waiting", "also-waiting"];
+
+  it.each([
+    {
+      organizeMode: "by-project" as const,
+      expected: [
+        ATTENTION_GROUP_KEY,
+        "also-waiting",
+        "waiting",
+        repoGroupKey("posthog/a"),
+        "busy",
+      ],
+    },
+    {
+      organizeMode: "chronological" as const,
+      expected: [
+        ATTENTION_GROUP_KEY,
+        "also-waiting",
+        "waiting",
+        dateGroupKey("Yesterday"),
+        "busy",
+      ],
+    },
+  ])(
+    "pins awaiting tasks above every other group, newest first ($organizeMode)",
+    ({ organizeMode, expected }) => {
+      expect(ids(build(tasks, organizeMode, [], awaiting))).toEqual(expected);
+    },
+  );
+
+  it("shows the count and starts expanded", () => {
+    expect(build(tasks, "chronological", [], awaiting)[0]).toMatchObject({
+      type: "attention-header",
+      label: "Needs attention",
+      count: 2,
+      collapsed: false,
+    });
+  });
+
+  it("keeps its count and drops its rows once collapsed", () => {
+    const items = build(
+      tasks,
+      "chronological",
+      [ATTENTION_GROUP_KEY],
+      awaiting,
+    );
+
+    expect(ids(items)).toEqual([
+      ATTENTION_GROUP_KEY,
+      dateGroupKey("Yesterday"),
+      "busy",
+    ]);
+    expect(items[0]).toMatchObject({ count: 2, collapsed: true });
+  });
+
+  it("omits the group when nothing is awaiting", () => {
+    expect(ids(build(tasks, "chronological", [], []))).toEqual([
+      dateGroupKey("Today"),
+      "also-waiting",
+      dateGroupKey("Yesterday"),
+      "busy",
+      dateGroupKey("This month"),
+      "waiting",
+    ]);
+  });
+
+  it("ignores awaiting ids for tasks the list is not showing", () => {
+    expect(
+      ids(build([makeTask("solo")], "chronological", [], ["ghost"])),
+    ).toEqual([dateGroupKey("Today"), "solo"]);
   });
 });
