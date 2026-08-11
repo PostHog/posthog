@@ -263,10 +263,9 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
             return None
 
         task_dtos = self.context.get("conversation_task_dtos_by_id")
-        task_dto: TaskDetailDTO | None = (
-            task_dtos.get(str(conversation.task_id)) if isinstance(task_dtos, dict) else None
-        )
-        if task_dto is None:
+        if isinstance(task_dtos, dict):
+            task_dto: TaskDetailDTO | None = task_dtos.get(str(conversation.task_id))
+        else:
             team = self.context["team"]
             user = self.context["user"]
             task_dto = tasks_facade.get_conversation_task_dtos([conversation.task_id], team.id, user.id).get(
