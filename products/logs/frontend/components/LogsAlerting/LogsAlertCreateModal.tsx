@@ -102,7 +102,7 @@ function buildLogsAlertWizardSteps({
             canAdvance: !configurationCannotAdvanceReason,
             cannotAdvanceReason: configurationCannotAdvanceReason,
             content: (
-                <div className="max-w-2xl space-y-6">
+                <div className="max-w-2xl space-y-5">
                     <AlertEditorFormDetails nameError={configurationCannotAdvanceReason} />
                     <LogsAlertFilters />
                     <LogsAlertTrigger />

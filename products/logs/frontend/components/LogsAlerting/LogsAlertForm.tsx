@@ -108,7 +108,7 @@ export function LogsAlertForm(): JSX.Element {
                 title="Definition"
                 description="Checks run every 5 minutes. Each check queries logs matching these filters."
             >
-                <div className="space-y-6">
+                <div className="space-y-5">
                     <LogsAlertFilters />
                     <LogsAlertTrigger />
                 </div>
@@ -126,9 +126,9 @@ export function LogsAlertFilters(): JSX.Element {
     )
 
     return (
-        <div className="space-y-5">
+        <div className="space-y-3">
             <h4 className="m-0">Filters</h4>
-            <div className="grid max-w-3xl gap-5 md:grid-cols-2">
+            <div className="grid max-w-3xl gap-3 md:grid-cols-2">
                 <LemonField name="severityLevels" label="Severity">
                     <SeverityLevelsFilter
                         value={alertForm.severityLevels}
@@ -157,7 +157,7 @@ export function LogsAlertTrigger(): JSX.Element {
         Number(alertForm.cooldownMinutes > 0)
 
     return (
-        <>
+        <div className="space-y-4">
             <div className="space-y-2">
                 <h4 className="m-0">Trigger condition</h4>
                 <AlertDefinitionRow label="Alert if count goes">
@@ -254,7 +254,7 @@ export function LogsAlertTrigger(): JSX.Element {
                     </div>
                 </LemonField.Pure>
             </AlertAdvancedOptions>
-        </>
+        </div>
     )
 }
 
