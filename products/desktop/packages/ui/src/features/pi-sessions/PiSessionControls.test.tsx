@@ -94,4 +94,24 @@ describe("PiModelSelector", () => {
       screen.getByRole("menuitem", { name: /^Harness/ }),
     ).toBeInTheDocument();
   });
+
+  it("keeps an open menu mounted while the Pi catalog loads", async () => {
+    render(
+      <Theme>
+        <PiModelSelector
+          models={[]}
+          isLoading
+          onChange={vi.fn()}
+          onHarnessChange={vi.fn()}
+          menuOpen
+          onMenuOpenChange={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: /Loading/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("menuitem", { name: /^Harness/ }),
+    ).toBeInTheDocument();
+  });
 });

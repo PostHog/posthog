@@ -1495,6 +1495,7 @@ export function TaskInput({
                         }
                         thinkingLevels={piThinkingLevels}
                         disabled={isCreatingTask || isPiConfigLoading}
+                        isLoading={isPiConfigLoading}
                         onChange={handlePiModelChange}
                         onThinkingLevelChange={handlePiThinkingLevelChange}
                         onHarnessChange={handleHarnessChange}

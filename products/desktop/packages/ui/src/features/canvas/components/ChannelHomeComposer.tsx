@@ -591,6 +591,7 @@ export const ChannelHomeComposer = forwardRef<
               }
               thinkingLevels={piThinkingLevels}
               disabled={isBusy || isPiConfigLoading}
+              isLoading={isPiConfigLoading}
               onChange={handlePiModelChange}
               onThinkingLevelChange={handlePiThinkingLevelChange}
               onHarnessChange={handleHarnessChange}
@@ -600,7 +601,7 @@ export const ChannelHomeComposer = forwardRef<
           ) : null
         }
         reasoningSelector={
-          runtime === "pi" || isLoading ? null : (
+          runtime === "pi" ? null : (
             <ReasoningLevelSelector
               thoughtOption={thoughtOption}
               modelOption={modelOption}
@@ -618,6 +619,7 @@ export const ChannelHomeComposer = forwardRef<
               menuOpen={modelMenuOpen}
               onMenuOpenChange={setModelMenuOpen}
               disabled={isBusy}
+              isLoading={isLoading}
             />
           )
         }

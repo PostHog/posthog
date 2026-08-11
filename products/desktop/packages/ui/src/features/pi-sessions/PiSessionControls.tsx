@@ -1,4 +1,10 @@
-import { CaretDown, Lightning, PiIcon, Stack } from "@phosphor-icons/react";
+import {
+  CaretDown,
+  Lightning,
+  PiIcon,
+  Spinner,
+  Stack,
+} from "@phosphor-icons/react";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -7,6 +13,7 @@ import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSub,
@@ -30,6 +37,7 @@ interface PiModelSelectorProps {
   thinkingLevel?: PiThinkingLevel;
   thinkingLevels?: PiThinkingLevel[];
   disabled?: boolean;
+  isLoading?: boolean;
   onChange: (model: PiModelSelection) => void;
   onThinkingLevelChange?: (level: PiThinkingLevel) => void;
   onHarnessChange?: (harness: AgentHarness) => void;
@@ -61,6 +69,7 @@ export function PiModelSelector({
   thinkingLevel,
   thinkingLevels = [],
   disabled,
+  isLoading,
   onChange,
   onThinkingLevelChange,
   onHarnessChange,
@@ -72,6 +81,49 @@ export function PiModelSelector({
   const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
 
   if (models.length === 0) {
+    if (isLoading) {
+      // Keep the dropdown mounted while the Pi catalog first loads (a
+      // harness switch to Pi): unmounting it closes a menu the user is
+      // mid-interaction with.
+      return (
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <DropdownMenuTrigger
+            render={
+              <Button type="button" variant="default" size="sm">
+                <span className="text-muted-foreground">
+                  <PiIcon size={14} weight="bold" className="translate-y-px" />
+                </span>
+                <Spinner size={12} className="animate-spin" />
+                Loading...
+              </Button>
+            }
+          />
+          <DropdownMenuContent
+            align="start"
+            side="top"
+            sideOffset={6}
+            className="min-w-[230px]"
+          >
+            {onHarnessChange && (
+              <HarnessSubmenu
+                value="pi"
+                includePi
+                closeOnChange={false}
+                onChange={(harness) => {
+                  if (harness !== "pi") {
+                    onHarnessChange(harness);
+                  }
+                }}
+              />
+            )}
+            <DropdownMenuItem disabled>
+              <Spinner size={12} className="animate-spin" />
+              Loading models...
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    }
     return null;
   }
 
