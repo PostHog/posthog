@@ -855,6 +855,9 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
         (_role, system_content) = messages[0]
         assert "CLEANED_PROMPT_MARKER" in system_content
         assert "CONTEXT_BLOB_MARKER" in system_content
+        assert "system.dashboard_tiles" in system_content
+        assert "system.insights" in system_content
+        assert "Metadata-only queries" in system_content
         # The template's `{{{...}}}` placeholders must be gone — proving substitution ran.
         assert "{{{" not in system_content
 

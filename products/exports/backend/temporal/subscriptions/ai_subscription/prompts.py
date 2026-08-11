@@ -107,7 +107,7 @@ Output rules:
   When context lists "Events matching your request", prefer those exact event names — they were
   selected for this prompt. For an event's properties, use only the names listed under its
   "`<event>` properties" line (access as `properties.<name>`); do not invent property names.
-- The analysis window is fixed, but you must NOT write its dates yourself. Filter EVERY query on the
+- The analysis window is fixed, but you must NOT write its dates yourself. Filter every event-data query on the
   window using the literal placeholder token `{{date_range}}` — write it verbatim where the timestamp
   predicate goes, e.g. `WHERE {{date_range}}` or `WHERE event = '$pageview' AND {{date_range}}`. The
   system substitutes the concrete half-open range at run time, so the plan stays reusable as the window
@@ -119,6 +119,12 @@ Output rules:
   is period-over-period growth ("vs last week/yesterday"), which uses `{{compare_date_range}}` and
   `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}` /
   `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
+- For a request about a dashboard or its tiles, query `system.dashboards`, `system.dashboard_tiles`, and
+  `system.insights`. Join `system.dashboard_tiles.dashboard_id` to `system.dashboards.id` and
+  `system.dashboard_tiles.insight_id` to `system.insights.id`. These tables expose dashboard and tile metadata,
+  including saved insight names and definitions. Metadata-only queries against these tables have no event timestamp,
+  so do not add `{{date_range}}` to them. They do not contain rendered tile values; use the saved insight definition
+  and event data to calculate those values when the request needs them.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Keep queries cheap: prefer aggregation over raw selects; cap with LIMIT 50; avoid wildcards on large tables.
 - Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
