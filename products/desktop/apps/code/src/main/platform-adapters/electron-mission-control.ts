@@ -75,6 +75,11 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
     this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
   }
 
+  refresh(): void {
+    if (!this.enabled || !this.resolveSampler()) return;
+    this.poll();
+  }
+
   disarm(): void {
     this.clearTimer();
     this.setActive(false);

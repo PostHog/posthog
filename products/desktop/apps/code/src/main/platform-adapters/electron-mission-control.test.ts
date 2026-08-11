@@ -127,6 +127,21 @@ describe("MissionControlService", () => {
     expect(service.getState().active).toBe(false);
   });
 
+  it("refreshes immediately when the app regains focus", () => {
+    const { state, impl } = fakeSampler([MISSION_CONTROL_BACKING]);
+    sampler.create.mockReturnValue(impl);
+    const service = new MissionControlService();
+
+    service.arm();
+    vi.advanceTimersByTime(250);
+    expect(service.getState().active).toBe(true);
+
+    state.windows = [];
+    service.refresh();
+
+    expect(service.getState().active).toBe(false);
+  });
+
   it("never touches the window list while the setting is off", () => {
     settings.enabled = false;
     const { state, impl } = fakeSampler([MISSION_CONTROL_BACKING]);

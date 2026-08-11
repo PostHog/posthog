@@ -326,6 +326,7 @@ export function createWindow(): void {
   );
   mainWindow.on("show", () => missionControl.arm());
   mainWindow.on("restore", () => missionControl.arm());
+  mainWindow.on("focus", () => missionControl.refresh());
   mainWindow.on("hide", () => missionControl.disarm());
   mainWindow.on("minimize", () => missionControl.disarm());
   mainWindow.on("closed", () => missionControl.disarm());
