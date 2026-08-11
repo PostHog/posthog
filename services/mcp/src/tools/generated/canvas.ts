@@ -11,6 +11,8 @@ import {
     CanvasesListQueryParams,
     CanvasesPublishCreateBody,
     CanvasesPublishCreateParams,
+    CanvasesPublishCurrentVersionCreateBody,
+    CanvasesPublishCurrentVersionCreateParams,
     CanvasesSourceRetrieveParams,
     CanvasesSourceRetrieveQueryParams,
     CanvasesValidateCreateBody,
@@ -152,6 +154,28 @@ const canvasPublishCreate = (): ToolBase<typeof CanvasPublishCreateSchema, Schem
     },
 })
 
+const CanvasPublishCurrentVersionSchema = CanvasesPublishCurrentVersionCreateParams.omit({ project_id: true }).extend(
+    CanvasesPublishCurrentVersionCreateBody.shape
+)
+
+const canvasPublishCurrentVersion = (): ToolBase<typeof CanvasPublishCurrentVersionSchema, Schemas.CanvasBuild> => ({
+    name: 'canvas-publish-current-version',
+    schema: CanvasPublishCurrentVersionSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasPublishCurrentVersionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        const result = await context.api.request<Schemas.CanvasBuild>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/publish-current-version/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CanvasSourceRetrieveSchema = CanvasesSourceRetrieveParams.omit({ project_id: true })
     .extend(CanvasesSourceRetrieveQueryParams.shape)
     .extend({ id: CanvasesSourceRetrieveParams.shape['id'].describe('ID of the canvas whose source to read.') })
@@ -200,6 +224,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-edit-create': canvasEditCreate,
     'canvas-list': canvasList,
     'canvas-publish-create': canvasPublishCreate,
+    'canvas-publish-current-version': canvasPublishCurrentVersion,
     'canvas-source-retrieve': canvasSourceRetrieve,
     'canvas-validate-create': canvasValidateCreate,
 }
