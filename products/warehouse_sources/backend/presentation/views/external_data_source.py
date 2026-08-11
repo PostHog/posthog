@@ -170,6 +170,9 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
+INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
+    "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
+)
 
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
@@ -1220,7 +1223,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     source_config, instance.team_id, api_version=effective_api_version
                 )
             if not credentials_valid:
-                raise ValidationError(credentials_error or "Invalid credentials")
+                raise ValidationError(credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE)
             if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(
                     source_config, instance.team_id, api_version=effective_api_version
@@ -3107,7 +3110,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": credentials_error or "Invalid credentials"},
+                data={"message": credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE},
             )
 
         try:
@@ -3544,7 +3547,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return (
                 Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": credentials_error or "Invalid credentials"},
+                    data={"message": credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE},
                 ),
                 None,
             )
