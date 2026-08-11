@@ -25549,7 +25549,10 @@
                 "Wix",
                 "Sevalla",
                 "Motion",
-                "Framer"
+                "Framer",
+                "Depot",
+                "Schematic",
+                "Dokploy"
             ],
             "type": "string"
         },
