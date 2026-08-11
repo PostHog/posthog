@@ -13,6 +13,7 @@ import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -79,10 +80,19 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
         500
     )
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    // Serializing the whole graph is real work on large workflows, so skip building the context
+    // entirely for users the integration flag hasn't reached.
     const agentContextItems = useMemo(
         () =>
-            buildWorkflowAgentContext(debouncedAgentSource.workflow, debouncedAgentSource.id, hogFunctionTemplatesById),
-        [debouncedAgentSource, hogFunctionTemplatesById]
+            sceneIntegrationEnabled
+                ? buildWorkflowAgentContext(
+                      debouncedAgentSource.workflow,
+                      debouncedAgentSource.id,
+                      hogFunctionTemplatesById
+                  )
+                : null,
+        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById]
     )
     useSceneAgentPanel({
         sceneKey: 'workflow',

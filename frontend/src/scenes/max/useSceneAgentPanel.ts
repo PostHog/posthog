@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { useAttachedContext, useWelcomeOverride } from 'products/posthog_ai/frontend/api/logics'
@@ -22,7 +22,9 @@ export interface SceneAgentPanelOptions {
 /**
  * Scene-level PostHog AI integration: attaches the given context items for the lifetime of the
  * scene and auto-opens the AI side panel (subject to `sceneAgentPanelLogic`'s gates, including the
- * user's persisted per-scene dismissal). Call once from a scene component.
+ * user's persisted per-scene dismissal). The whole integration rides
+ * `sceneAgentPanelLogic.sceneIntegrationEnabled`, so nothing is attached or overridden for users
+ * the rollout flag hasn't reached. Call once from a scene component.
  */
 export function useSceneAgentPanel({
     sceneKey,
@@ -31,11 +33,14 @@ export function useSceneAgentPanel({
     active = true,
     autoOpen = true,
 }: SceneAgentPanelOptions): void {
-    useAttachedContext(contextItems, { active })
-    useWelcomeOverride(headlines ?? null, { active })
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { sceneEntered, sceneLeft } = useActions(sceneAgentPanelLogic)
+    useAttachedContext(contextItems, { active: active && sceneIntegrationEnabled })
+    useWelcomeOverride(headlines ?? null, { active: active && sceneIntegrationEnabled })
 
     useEffect(() => {
+        // Deliberately not gated on sceneIntegrationEnabled: the logic decides eligibility itself,
+        // including the late-resolving flag case (scene entered before the flags response lands).
         if (!active || !autoOpen) {
             return
         }
