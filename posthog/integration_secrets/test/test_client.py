@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 import jwt
 from parameterized import parameterized
@@ -49,7 +49,7 @@ def steady(value: str) -> dict[str, Any]:
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestIntegrationSecretsClient(TestCase):
+class TestIntegrationSecretsClient(SimpleTestCase):
     def setUp(self) -> None:
         self.secrets = IntegrationSecretsClient()
         flag = patch(FLAG, return_value=True)
@@ -122,7 +122,7 @@ class TestIntegrationSecretsClient(TestCase):
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestRolloutFlag(TestCase):
+class TestRolloutFlag(SimpleTestCase):
     def setUp(self) -> None:
         self.secrets = IntegrationSecretsClient()
 
@@ -165,7 +165,7 @@ class TestRolloutFlag(TestCase):
             assert integration_service_enabled() is expected
 
 
-class TestUnconfigured(TestCase):
+class TestUnconfigured(SimpleTestCase):
     """Self-hosted and local dev: no service, read the environment exactly as before."""
 
     @override_settings(INTEGRATION_SERVICE_URL="", INTEGRATION_SERVICE_JWT_SECRET="")
@@ -175,7 +175,7 @@ class TestUnconfigured(TestCase):
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestMintedToken(TestCase):
+class TestMintedToken(SimpleTestCase):
     """The token IS the request — there is no body, so these claims are the whole scope."""
 
     def setUp(self) -> None:
