@@ -120,7 +120,10 @@ token-authed; only the bulk-bytes leg moves to object storage.
 ## Resource governance — not hammering ClickHouse
 
 Materialization runs on the **OFFLINE pool** (batch exports' home), as a **dedicated `notebooks` ClickHouse
-user**. An earlier draft argued for ONLINE — someone is waiting on their cell — but the query itself is
+user**, for any run whose user has the `notebooks-frame-store-ch-writes` flag. One flag carries the whole new
+flow: the pool, the CH user, and (phase 2) handing the object write to ClickHouse. Without it a run keeps the
+interactive pool and the default user, so the rollout is per user rather than per deployment.
+An earlier draft argued for ONLINE — someone is waiting on their cell — but the query itself is
 batch-shaped: a 500k-row streaming pull with minutes-scale deadlines (the kernel's object-delivery poll
 already tolerates 11 minutes), far closer to a batch export than to an insight query. The decisive risk runs
 the other way: a single materialization can be far more expensive than an insight query, an **uncapped whale
