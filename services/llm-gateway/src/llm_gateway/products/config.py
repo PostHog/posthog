@@ -453,6 +453,27 @@ def check_free_tier_model_access(
     )
 
 
+# Models a caller may only select while the paired flag is enabled for them, mirroring
+# products/tasks MODEL_ACCESS_FLAGS. Each model maps to its own access flag — the same flag the
+# Desktop picker gates it behind — so an entitlement can't be widened for one model by proxy of
+# another. Keys are the model ids callers send.
+MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {
+    "moonshotai/kimi-k3": "tasks-kimi-k3",
+    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+}
+
+
+def get_required_model_flag(model: str | None) -> str | None:
+    """The feature flag a caller needs to select `model`, or None when it is generally available."""
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
+        if gated_model.lower() == normalized:
+            return flag_key
+    return None
+
+
 def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
     """Subset of model_ids on the posthog_code free tier."""
     settings = get_settings()

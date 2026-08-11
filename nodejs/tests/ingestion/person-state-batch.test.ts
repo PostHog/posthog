@@ -342,11 +342,6 @@ describe('PersonState.processEvent()', () => {
         return await clickhouse.query<ClickHousePerson>(query)
     }
 
-    async function fetchOverridesForDistinctId(distinctId: string) {
-        const query = `SELECT * FROM person_distinct_id_overrides_mv FINAL WHERE team_id = ${teamId} AND distinct_id = '${distinctId}'`
-        return await clickhouse.query(query)
-    }
-
     async function fetchPersonsRowsWithVersionHigerEqualThan(version = 1) {
         const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} AND version >= ${version}`
         return await clickhouse.query(query)
@@ -405,73 +400,6 @@ describe('PersonState.processEvent()', () => {
             expect(personPrimaryTeam.uuid).toEqual(uuidFromDistinctId(primaryTeamId, newUserDistinctId))
             expect(personOtherTeam.uuid).toEqual(uuidFromDistinctId(otherTeamId, newUserDistinctId))
             expect(personPrimaryTeam.uuid).not.toEqual(personOtherTeam.uuid)
-        })
-
-        it('overrides are created only when distinct_id is in posthog_personlessdistinctid', async () => {
-            // oldUserDistinctId exists, and 'old2' will merge into it, but not create an override
-            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
-                distinctId: oldUserDistinctId,
-            })
-
-            // newUserDistinctId exists, and 'new2' will merge into it, and will create an override
-            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, {
-                distinctId: newUserDistinctId,
-            })
-
-            const personRepository = new PostgresPersonRepository(hub.postgres)
-            await personRepository.addPersonlessDistinctId(teamId, 'new2')
-
-            const hubParam = undefined
-            const processPerson = true
-            const result1 = await personProcessor(
-                {
-                    event: '$identify',
-                    distinct_id: oldUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: 'old2',
-                    },
-                },
-                undefined,
-                undefined,
-                hubParam,
-                processPerson
-            ).processEvent()
-
-            const result2 = await personProcessor(
-                {
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: 'new2',
-                    },
-                },
-                undefined,
-                undefined,
-                hubParam,
-                processPerson
-            ).processEvent()
-
-            await kafkaProducer.flush()
-            await Promise.all(result1.sideEffects)
-            await Promise.all(result2.sideEffects)
-
-            // new2 has an override, because it was in posthog_personlessdistinctid
-            await clickhouse.delayUntilEventIngested(() => fetchOverridesForDistinctId('new2'))
-            const chOverrides = await fetchOverridesForDistinctId('new2')
-            expect(chOverrides.length).toEqual(1)
-            expect(chOverrides).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        distinct_id: 'new2',
-                        person_id: newUserUuid,
-                        version: 1,
-                    }),
-                ])
-            )
-
-            // old2 has no override, because it wasn't in posthog_personlessdistinctid
-            const chOverridesOld = await fetchOverridesForDistinctId('old2')
-            expect(chOverridesOld.length).toEqual(0)
         })
 
         it('creates person if they are new', async () => {

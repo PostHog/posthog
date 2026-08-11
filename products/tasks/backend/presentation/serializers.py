@@ -1527,6 +1527,26 @@ class TaskListQuerySerializer(serializers.Serializer):
     )
 
 
+class TaskSearchQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(min_length=1, max_length=512, help_text="Text or exact identifier to search for.")
+    limit = serializers.IntegerField(
+        required=False, default=20, min_value=1, max_value=50, help_text="Maximum number of results to return."
+    )
+
+
+class TaskSearchResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Search document identifier.")
+    kind = serializers.ChoiceField(
+        choices=["task", "pull_request", "artifact", "channel"], help_text="Type of matched resource."
+    )
+    title = serializers.CharField(help_text="Primary result label.")
+    subtitle = serializers.CharField(allow_blank=True, help_text="Secondary result context.")
+    task_id = serializers.UUIDField(allow_null=True, help_text="Containing task identifier, when applicable.")
+    task_run_id = serializers.UUIDField(allow_null=True, help_text="Containing task run identifier, when applicable.")
+    channel_id = serializers.UUIDField(allow_null=True, help_text="Containing space identifier, when applicable.")
+    metadata = serializers.JSONField(help_text="Resource-specific navigation metadata.")
+
+
 class ChannelSerializer(DataclassSerializer):
     """Response shape for a task channel, read from a frozen ``ChannelDTO``."""
 
@@ -1551,6 +1571,14 @@ class ChannelWriteSerializer(serializers.Serializer):
 
     name = serializers.CharField(
         max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+    )
+    star = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Star the channel for the requester when this call creates it. "
+            "Ignored when the channel already exists, which leaves existing stars untouched."
+        ),
     )
 
 

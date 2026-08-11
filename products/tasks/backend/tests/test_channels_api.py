@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 
+from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
 from products.tasks.backend.push_dispatcher import (
@@ -123,6 +124,21 @@ class ChannelsAPITestCase(TestCase):
         other_client.force_authenticate(self.other_user)
         listed = other_client.get(self._tasks_url(), {"channel": channel_id}).json()["results"]
         self.assertEqual([t["id"] for t in listed], [created.json()["id"]])
+
+    def test_deleting_github_integration_clears_channel_repositories(self):
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        channel = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="growth",
+            github_integration=integration,
+            repositories=["posthog/posthog"],
+        )
+
+        Integration.objects.filter(id=integration.id).delete()
+
+        channel.refresh_from_db()
+        self.assertIsNone(channel.github_integration_id)
+        self.assertEqual(channel.repositories, [])
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
     def test_new_tasks_inherit_channel_repositories(self, list_repositories):
@@ -310,6 +326,20 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
 
         again = self.author_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_send_to_agent_returns_structured_compute_quota_denial(self):
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        message_id = self.peer_client.post(self._thread_url(), {"content": "try X"}).json()["id"]
+
+        with patch(
+            "products.tasks.backend.facade.api.signal_task_run_user_message",
+            side_effect=ComputeBillingLimitError({"team_id": self.team.id}),
+        ):
+            response = self.author_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "posthog_code_billing_limit_exceeded")
+        self.assertIsNone(TaskThreadMessage.objects.unscoped().get(id=message_id).forwarded_to_agent_at)
 
     def test_thread_hidden_when_task_not_visible(self):
         private_task = Task.objects.create(

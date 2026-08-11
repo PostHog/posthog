@@ -198,8 +198,8 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
         .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES)
         .values_list("total_count", "dispatched_count", "skipped_count", "credits_per_observation")
     )
-    # Skipped candidates were counted at creation but will never be dispatched, so they are not a
-    # commitment; leaving them in strands phantom credits in the projection for the whole run.
+    # Skipped candidates were quoted and then scanned by the live sweep first, so the backfill no longer
+    # owes their credits. Leaving them in strands phantom commitment for the rest of the run.
     return sum(max(0, total - dispatched - skipped) * price for total, dispatched, skipped, price in rows)
 
 

@@ -29,7 +29,22 @@ from uuid import UUID, uuid4
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Count, Exists, F, Func, Min, OuterRef, Q, QuerySet, Subquery
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    Func,
+    IntegerField,
+    Min,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
@@ -82,6 +97,7 @@ from products.tasks.backend.models import (
     TaskCommentActivity,
     TaskPin,
     TaskRun,
+    TaskSearchDocument,
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
@@ -177,6 +193,7 @@ __all__ = [
     "get_sandbox_environment",
     "get_sandbox_snapshot",
     "get_stale_prewarmed_queued_task_run_ids",
+    "get_stale_terminal_prewarmed_task_run_ids",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
     "get_task_detail",
@@ -944,6 +961,23 @@ def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -
     )
 
 
+def get_stale_terminal_prewarmed_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
+    now = django_timezone.now()
+    return list(
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED],
+            state__prewarmed=True,
+            state__await_user_message=True,
+            task__deleted=False,
+            task__title="",
+            task__description="",
+            updated_at__lt=now - older_than,
+        )
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
 def _gauge_rows(values_qs, value_key: str, *, with_status: bool, now=None) -> list[contracts.TaskRunGaugeRow]:
     rows = []
     for row in values_qs:
@@ -1240,7 +1274,13 @@ def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None)
     if run is None:
         return False
     run.mark_failed(error, error_type=error_type)
+    run.task.soft_delete_if_unclaimed_prewarm(run)
     return True
+
+
+def soft_delete_unclaimed_prewarm_task(run_id: str | UUID) -> bool:
+    run = TaskRun.objects.select_related("task").filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    return run.task.soft_delete_if_unclaimed_prewarm(run) if run is not None else False
 
 
 def complete_idle_local_task_run(run_id: str | UUID) -> bool:
@@ -3389,6 +3429,13 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+    )
+    from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+
+    if is_compute_quota_exhausted(run.task):
+        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)})
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -4346,6 +4393,65 @@ def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[cont
     return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
 
 
+def search_tasks(
+    team_id: int,
+    user_id: int | None,
+    query: str,
+    *,
+    limit: int = 20,
+    bypass_visibility: bool = False,
+) -> list[dict]:
+    normalized = query.strip().lower()
+    if not normalized:
+        return []
+    visible_task_ids = (
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).filter(internal=False).values("id")
+    )
+    visibility = Q(task_id__in=Subquery(visible_task_ids)) | (
+        Q(task__isnull=True, channel__deleted=False) & Channel.visible_to_q(user_id, relation="channel")
+    )
+    identifiers = [normalized]
+    pr_match = re.match(r"^https?://github\.com/([^/]+/[^/]+)/pull/(\d+)(?:[/?#].*)?$", normalized)
+    if pr_match:
+        repository, number = pr_match.groups()
+        identifiers.extend(
+            [f"https://github.com/{repository}/pull/{number}", f"{repository}#{number}", f"#{number}", number]
+        )
+    exact_match = Q()
+    for identifier in identifiers:
+        exact_match |= Q(exact_identifiers__contains=[identifier])
+    matches = exact_match
+    if len(normalized) >= 3:
+        matches |= Q(search_text__icontains=normalized)
+    documents = (
+        TaskSearchDocument.objects.for_team(team_id)
+        .filter(visibility)
+        .filter(matches)
+        .annotate(
+            _rank=Case(
+                When(exact_match, then=Value(0)),
+                When(search_text__startswith=normalized, then=Value(1)),
+                default=Value(2),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("_rank", "-updated_at")[: min(limit, 50)]
+    )
+    return [
+        {
+            "id": str(document.id),
+            "kind": document.kind,
+            "title": document.title,
+            "subtitle": document.subtitle,
+            "task_id": str(document.task_id) if document.task_id else None,
+            "task_run_id": str(document.task_run_id) if document.task_run_id else None,
+            "channel_id": str(document.channel_id) if document.channel_id else None,
+            "metadata": document.metadata,
+        }
+        for document in documents
+    ]
+
+
 def inaccessible_repositories_via_integration(team_id: int, integration_id: int, repositories: list[str]) -> list[str]:
     return _inaccessible_repositories_via_integration(team_id, integration_id, repositories)
 
@@ -4470,6 +4576,11 @@ def create_task(
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
+    if validated_data.get("repository") and not validated_data.get("github_integration"):
+        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if default_integration:
+            validated_data["github_integration"] = default_integration
+
     if (
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
@@ -4510,6 +4621,18 @@ def create_task(
                 warm_run = None
         if warm_run is not None:
             warm_task = warm_run.task
+            should_set_client_provenance = warm_task.client_provenance is None and client_provenance is not None
+            if should_set_client_provenance:
+                warm_task.client_provenance = client_provenance
+            from products.tasks.backend.exceptions import (
+                ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+            )
+            from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+
+            if is_compute_quota_exhausted(warm_task):
+                raise ComputeBillingLimitError(
+                    {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}
+                )
             description = (validated_data.get("description") or "").strip()
             update_fields: list[str] = []
             if description and not (warm_task.title or "").strip():
@@ -4525,11 +4648,10 @@ def create_task(
                 update_fields.append("channel")
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
-            if warm_task.client_provenance is None and client_provenance is not None:
+            if should_set_client_provenance:
                 Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
                     client_provenance=client_provenance
                 )
-                warm_task.client_provenance = client_provenance
             _activate_warm_run(
                 warm_run,
                 warm_task,
@@ -4637,7 +4759,12 @@ def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
     ``title_manually_set`` untouched (this isn't a user edit) and clamps to the column length. Returns
     whether a row was updated.
     """
-    return bool(Task.objects.filter(id=task_id, team_id=team_id).update(title=title[:255]))
+    task = Task.objects.filter(id=task_id, team_id=team_id).first()
+    if task is None:
+        return False
+    task.title = title[:255]
+    task.save(update_fields=["title"])
+    return True
 
 
 def update_task(
@@ -5771,6 +5898,17 @@ def normalize_channel_name(name: str) -> str:
     return re.sub(r"\s+", "-", name.strip().lower())[:128]
 
 
+def _set_channel_star(channel_id: UUID, team_id: int, user_id: int, *, starred: bool) -> None:
+    if starred:
+        ChannelStar.objects.get_or_create(channel_id=channel_id, user_id=user_id, defaults={"team_id": team_id})
+    else:
+        ChannelStar.objects.filter(channel_id=channel_id, user_id=user_id).delete()
+
+
+def _is_channel_starred(channel_id: UUID, user_id: int) -> bool:
+    return ChannelStar.objects.filter(channel_id=channel_id, user_id=user_id).exists()
+
+
 def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.ChannelDTO:
     return contracts.ChannelDTO(
         id=channel.id,
@@ -5854,9 +5992,11 @@ def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
         logger.exception("Failed to emit channel_created feed message", extra={"channel_id": str(channel.id)})
 
 
-def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
+def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool) -> contracts.ChannelDTO | None:
     """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
-    Emits a ``channel_created`` feed message the first time a channel is created."""
+    Emits a ``channel_created`` feed message the first time a channel is created, and (unless
+    ``star`` is false) stars the channel for whoever created it. Resolving a channel that
+    already exists leaves the requester's star alone — only creation stars."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
@@ -5875,7 +6015,15 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
         )
     if created:
         _emit_channel_created(channel, user_id)
-    return _channel_to_dto(channel)
+    if user_id is None:
+        starred = False
+    elif not created:
+        starred = _is_channel_starred(channel.id, user_id)
+    else:
+        starred = star
+        if star:
+            _set_channel_star(channel.id, team_id, user_id, starred=True)
+    return _channel_to_dto(channel, starred=starred)
 
 
 def update_channel(
@@ -6031,7 +6179,7 @@ def get_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> co
     channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return None
-    starred = user_id is not None and ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).exists()
+    starred = user_id is not None and _is_channel_starred(channel.id, user_id)
     return _channel_to_dto(channel, starred=starred)
 
 
@@ -6230,10 +6378,7 @@ def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred:
     channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return False
-    if starred:
-        ChannelStar.objects.get_or_create(channel_id=channel.id, user_id=user_id, defaults={"team_id": team_id})
-    else:
-        ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).delete()
+    _set_channel_star(channel.id, team_id, user_id, starred=starred)
     return True
 
 

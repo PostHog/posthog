@@ -306,13 +306,17 @@ def get_rows(
         total = data.get(config.total_key) if config.total_key else None
 
         if config.pagination == "page":
-            # Terminate against the reported total using rows actually received, which
-            # stays exact even if the server caps the requested page size. A missing or
-            # malformed total falls back to short-page termination, the only end signal
-            # left besides an empty page.
-            rows_walked += len(items)
+            # Terminate against the reported total using rows actually kept: a row that
+            # shifted pages mid-walk arrives twice but counts once toward the server's
+            # unique total, so counting raw items could reach the total a page early and
+            # drop the final page. Counting kept rows also stays exact if the server caps
+            # the requested page size. A page that contributes nothing new cannot make
+            # progress against the total, so it ends the walk rather than spinning on a
+            # server that ignores the page param. A missing or malformed total falls back
+            # to short-page termination, the only end signal left besides an empty page.
+            rows_walked += len(fresh)
             if isinstance(total, int | float):
-                exhausted = not items or rows_walked >= total
+                exhausted = not fresh or rows_walked >= total
             else:
                 exhausted = not items or (config.page_size is not None and len(items) < config.page_size)
             if fresh:
@@ -375,4 +379,6 @@ def decagon_source(
         partition_format="month" if partitioned else None,
         partition_keys=[config.partition_key] if config.partition_key is not None else None,
         sort_mode=config.sort_mode,
+        chunk_size=config.chunk_size,
+        chunk_size_bytes=config.chunk_size_bytes,
     )

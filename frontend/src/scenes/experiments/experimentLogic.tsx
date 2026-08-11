@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { isApprovalRequiredError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -2833,10 +2834,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             } catch (error: any) {
                 actions.closeFinishExperimentModal()
-                if (error.status === 409 && error.data?.change_request_id) {
+                if (isApprovalRequiredError(error)) {
                     showApprovalRequiredToast(
                         error.data.change_request_id,
-                        'end this experiment and roll out the winning variant'
+                        'end this experiment and roll out the winning variant',
+                        error.data.code
                     )
                     dispatchChangeRequestCreated({
                         resourceType: 'feature_flag',
