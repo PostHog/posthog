@@ -111,6 +111,9 @@ tools:
             come from?". Only EventsNode and ActionsNode goals are explained at the event level; DataWarehouseNode goals
             short-circuit with a note.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-setup-plan-retrieve:
+        operation: marketing_analytics_setup_plan_retrieve
+        enabled: false
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve
         enabled: true

@@ -14,6 +14,7 @@ import { DateMappingOption } from '~/types'
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
+import { ScoreRangeFilterPill } from '../../components/ScoreRangeFilterPill'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import {
@@ -90,6 +91,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationTriggeredByFilter,
         observationVerdictFilter,
         observationTagFilter,
+        observationMinScoreFilter,
+        observationMaxScoreFilter,
         observationSubjectFilter,
         observationDateFrom,
         observationDateTo,
@@ -112,6 +115,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationTriggeredByFilter,
         setObservationVerdictFilter,
         setObservationTagFilter,
+        setObservationScoreRange,
         setObservationSubjectFilter,
         setObservationDateRange,
         setObservationBackfillFilter,
@@ -120,6 +124,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
     const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
+    const scoreScale = scanner?.scanner_type === 'scorer' ? scanner.scanner_config.scale : undefined
 
     const columns: LemonTableColumns<ReplayObservationApi> = [
         {
@@ -281,6 +286,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         options={VERDICT_OPTIONS}
                                         value={observationVerdictFilter}
                                         onChange={setObservationVerdictFilter}
+                                    />
+                                )}
+                                {scannerType === 'scorer' && (
+                                    <ScoreRangeFilterPill
+                                        min={observationMinScoreFilter}
+                                        max={observationMaxScoreFilter}
+                                        scaleMin={scoreScale?.min}
+                                        scaleMax={scoreScale?.max}
+                                        onChange={setObservationScoreRange}
                                     />
                                 )}
                                 {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
