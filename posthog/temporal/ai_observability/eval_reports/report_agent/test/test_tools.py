@@ -142,21 +142,21 @@ class TestWidenedTsWindow(SimpleTestCase):
             "period_start": "2026-04-08T14:00:00+00:00",
             "period_end": "2026-04-08T15:00:00+00:00",
         }
-        ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start, dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC))
-        self.assertEqual(ts_end, dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC))
+        window = _widened_ts_window(state)
+        self.assertEqual(window.ts_start, dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC))
+        self.assertEqual(window.ts_end, dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC))
 
     def test_falls_back_to_sentinels_on_missing_keys(self):
-        ts_start, ts_end = _widened_ts_window({})
+        window = _widened_ts_window({})
         # Wide sentinel bounds so a bad state doesn't prevent partition pruning
-        self.assertEqual(ts_start.year, 2020)
-        self.assertEqual(ts_end.year, 2099)
+        self.assertEqual(window.ts_start.year, 2020)
+        self.assertEqual(window.ts_end.year, 2099)
 
     def test_falls_back_on_malformed_timestamps(self):
         state = {"period_start": "not-a-timestamp", "period_end": "also-bad"}
-        ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start.year, 2020)
-        self.assertEqual(ts_end.year, 2099)
+        window = _widened_ts_window(state)
+        self.assertEqual(window.ts_start.year, 2020)
+        self.assertEqual(window.ts_end.year, 2099)
 
 
 class TestSummaryMetrics(SimpleTestCase):
