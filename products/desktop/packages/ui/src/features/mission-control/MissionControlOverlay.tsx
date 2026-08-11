@@ -57,8 +57,8 @@ export function MissionControlOverlay() {
         // Sized off the viewport like the rest of the overlay so it stays
         // readable in the Mission Control thumbnail.
         <Badge
-          variant="warning"
-          className="h-auto px-[clamp(10px,1.4vw,18px)] py-[clamp(4px,0.6vw,8px)] font-semibold text-[clamp(12px,1.6vw,20px)] uppercase leading-none tracking-widest"
+          variant="destructive"
+          className="-rotate-3 h-auto rounded-(--radius-3) border-4 border-current/40 border-dashed px-[clamp(20px,3.2vw,44px)] py-[clamp(10px,1.4vw,20px)] font-bold font-mono text-[clamp(22px,4vw,52px)] uppercase leading-none tracking-widest"
         >
           Development
         </Badge>
