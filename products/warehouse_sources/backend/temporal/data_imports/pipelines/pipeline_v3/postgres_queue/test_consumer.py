@@ -917,6 +917,15 @@ class TestQueueOperationTimeouts:
         ("the database system is starting up", True),
         ("the database system is not yet accepting connections", True),
         (
+            # Verbatim from the reported error-tracking issue: the refusal arrives with a
+            # trailing DETAIL line, so the classifier must match on a substring of a
+            # multi-line message rather than the bare phrase.
+            'connection failed: connection to server at "172.18.0.8", port 5432 failed: '
+            "FATAL:  the database system is not yet accepting connections\n"
+            "DETAIL:  Consistent recovery state has not been yet reached.",
+            True,
+        ),
+        (
             'connection failed: connection to server at "10.0.0.5", port 5432 failed: '
             "FATAL:  the database system is in recovery mode",
             True,

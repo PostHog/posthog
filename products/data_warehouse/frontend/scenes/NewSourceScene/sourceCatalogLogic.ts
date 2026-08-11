@@ -27,6 +27,7 @@ import {
     FILE_UPLOAD_FORMATS,
     FILE_UPLOAD_SOURCE_CONFIG,
     FILE_UPLOAD_SOURCE_NAME,
+    fileUploadSourceType,
     fileUploadSourceUrl,
 } from './fileUploadSource'
 import { sourceWizardLogic } from './sourceWizardLogic'
@@ -1033,7 +1034,8 @@ export interface sourceCatalogLogicMeta {
                       | 'Piwik'
                       | 'Plaid'
                       | 'Plain'
-                      | 'PlanetScale'
+                      | 'PlanetScaleMySQL'
+                      | 'PlanetScalePostgres'
                       | 'Planhat'
                       | 'PlanningCenter'
                       | 'PlatformSh'
@@ -1579,7 +1581,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 // three tiles, one per format, since users search for "CSV" rather than "File upload".
                 const fileUpload = FILE_UPLOAD_FORMATS.map(
                     ({ format, label, keywords }): CatalogItem => ({
-                        name: `${FILE_UPLOAD_SOURCE_NAME}-${format}`,
+                        name: fileUploadSourceType(format),
                         label,
                         iconType: FILE_UPLOAD_SOURCE_NAME,
                         category: MANUAL_SOURCE_CATEGORY,
