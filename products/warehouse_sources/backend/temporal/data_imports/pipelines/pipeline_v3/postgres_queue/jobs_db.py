@@ -1049,13 +1049,43 @@ class BatchQueue:
         *,
         job_id: str,
         current_run_uuid: str,
+        progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
     ) -> int:
-        """Mark non-terminal batches from older runs of the same job as superseded."""
+        """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
+
+        A run the loader is still working through is spared: any batch whose latest
+        state is 'executing', 'succeeded', or 'waiting_retry' with ``state_changed_at``
+        within ``progress_stale_seconds`` counts as loader progress. Superseding such a
+        run destroys partially loaded work and, repeated on a timer, can re-enqueue a
+        large table from zero forever while flooding the queue with failed rows. A run
+        with no such write is genuinely stalled and still gets superseded, so dead runs
+        recover here on the same clock as the stranded-run reconcile sweep.
+
+        Progress is judged on active-state transitions only: 'pending'/'waiting' rows
+        are producer output the loader never touched (superseding an unstarted backlog
+        loses nothing, since this run re-enqueues equivalent data), and 'failed' is
+        terminal. Heartbeats refresh only the status log, not ``state_changed_at``, so
+        a wedged-but-heartbeating loader cannot keep a run unsupersedable forever.
+
+        A spared run that stalls later is not re-checked here (this fires once, at the
+        new run's first batch); the reconcile sweep's stranded-run pass owns that case.
+        """
         cursor = conn.execute(
-            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s"),
+            _bulk_fail_dual_write_sql(
+                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_live
+                    WHERE b_live.run_uuid = b.run_uuid
+                        AND b_live.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND b_live.latest_state IN ('executing', 'succeeded', 'waiting_retry')
+                        AND b_live.state_changed_at > now() - make_interval(secs => %(progress_stale)s)
+                )"""
+            ),
             {
                 "job_id": job_id,
                 "current_run_uuid": current_run_uuid,
+                "progress_stale": progress_stale_seconds,
                 "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
             },
         )
