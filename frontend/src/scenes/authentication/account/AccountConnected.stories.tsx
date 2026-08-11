@@ -55,19 +55,6 @@ export const GithubIntegrationFailed: Story = {
     },
 }
 
-export const GithubIntegrationPendingFromSlack: Story = {
-    parameters: {
-        pageUrl: pageUrlFor(
-            'github-integration',
-            '?provider=github&project_id=2&connect_from=slack&github_install_pending=1'
-        ),
-    },
-    render: () => {
-        useStorybookMocks({ get: { '/_preflight': cloudPreflight } })
-        return <AccountConnected kind="github-integration" />
-    },
-}
-
 export const GithubLoginLinked: Story = {
     parameters: {
         pageUrl: pageUrlFor('github-login', '?provider=github'),
