@@ -551,16 +551,25 @@ class QueryFieldSerializer(serializers.Serializer):
 # wrapper nodes and a few standalone kinds (e.g. WebOverviewQuery) to real renderers; the
 # kinds below have no bare renderer and fall through to a JSON-dump fallback that paints
 # ~0px inside a dashboard tile, so they are safe (and necessary) to auto-wrap on save.
+#
+# This is every InsightVizNode source kind except the ones Query.tsx renders bare, so a kind
+# added to that union has to be added here too. BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS records
+# the exceptions, and a test pins the two sets against the schema so the split can't drift.
 AUTO_WRAPPED_INSIGHT_QUERY_KINDS = frozenset(
     {
         "TrendsQuery",
         "FunnelsQuery",
         "RetentionQuery",
         "PathsQuery",
+        "PathsV2Query",
         "StickinessQuery",
         "LifecycleQuery",
+        "WebStatsTableQuery",
     }
 )
+
+# InsightVizNode sources the UI also renders unwrapped, so saving them bare is legitimate.
+BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS = frozenset({"WebOverviewQuery"})
 
 
 class InsightFilterOverrideContext(BaseModel):
