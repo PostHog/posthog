@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 
@@ -365,6 +366,35 @@ class TestReplyFooterGate(SimpleTestCase):
         # The footer rides as a `blocks` chunk: a `context` block is the only muted text,
         # and Slack's streamed markdown_text has no equivalent.
         assert any(chunk.get("type") == "blocks" for chunk in chunks) is expected
+
+
+class TestFooterNeverCostsTheAnswer(SimpleTestCase):
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_rejected_footer_reposts_the_answer_as_plain_text(
+        self, mock_get_client, mock_get_integration, _mock_flag, _mock_home
+    ) -> None:
+        # Slack fails the whole request when blocks are invalid — the text fallback does
+        # not rescue it — so without this the reader loses the answer, not just its footer.
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.side_effect = [
+            SlackApiError("invalid_blocks", {"error": "invalid_blocks"}),
+            MagicMock(),
+        ]
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={}, integration_id="T1")
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+
+        SlackThreadHandler(context, RunFooter(model="claude-opus-5")).post_thread_message(
+            "the answer", with_footer=True
+        )
+
+        assert mock_client.chat_postMessage.call_count == 2
+        retry = mock_client.chat_postMessage.call_args_list[1].kwargs
+        assert retry["text"] == "the answer"
+        assert not retry.get("blocks")
 
 
 class TestRelayedAnswerFooter(SimpleTestCase):

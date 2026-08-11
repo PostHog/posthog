@@ -4,6 +4,7 @@ from typing import Any
 
 import structlog
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 
@@ -440,6 +441,25 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
+    def post_footer(self) -> None:
+        """Post the footer alone, for an answer with no message of its own to close.
+
+        Only the file-delivery path needs this: the answer rode along as a file upload's
+        initial comment, which takes no blocks, so the footer has nothing to attach to.
+        """
+        footer = self._footer_block()
+        if not footer:
+            return
+        try:
+            self._get_client().chat_postMessage(
+                channel=self.context.channel,
+                thread_ts=self.context.thread_ts,
+                text=footer["elements"][0]["text"],
+                blocks=[footer],
+            )
+        except Exception as e:
+            logger.warning("slack_app_post_footer_failed", error=str(e))
+
     def post_thread_message(self, text: str, with_footer: bool = False) -> None:
         """Post a plain message in the existing thread.
 
@@ -469,6 +489,15 @@ class SlackThreadHandler:
                 text=text,
                 blocks=blocks,
             )
+        except SlackApiError as e:
+            # Slack rejects a request whose blocks are invalid outright — the `text`
+            # fallback does not rescue it — so the answer would go down with its footer.
+            # Describing a run must never cost the reader the run's answer.
+            if blocks and e.response.get("error") == "invalid_blocks":
+                logger.warning("slack_app_footer_blocks_rejected", error=str(e))
+                self.post_thread_message(text)
+                return
+            logger.warning("slack_post_thread_message_failed", error=str(e))
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
 

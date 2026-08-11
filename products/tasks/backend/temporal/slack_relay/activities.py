@@ -448,6 +448,10 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         # This relay carries one agent answer, split only to fit Slack's length cap, so
         # the last chunk is where the turn ends and the footer belongs.
         handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks_to_post) - 1)
+    if delivered_file_count and not chunks_to_post:
+        # A short answer went out whole as the file's initial comment, which takes no
+        # blocks, so the footer follows it rather than being dropped.
+        handler.post_footer()
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
 
