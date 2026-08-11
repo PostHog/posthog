@@ -142,7 +142,6 @@ async fn setup_router_with_limits(
         false,            // is_mirror_deploy
         0.0,              // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes (25MB)
-        None,             // ai_blob_storage
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1196,7 +1195,6 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         false,
         0.0,
         26_214_400,
-        None,             // ai_blob_storage
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1288,7 +1286,6 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         false,
         0.0,
         26_214_400,
-        None,             // ai_blob_storage
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1384,7 +1381,6 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
-        None,             // ai_blob_storage
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1817,7 +1813,6 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
-        None,             // ai_blob_storage
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
