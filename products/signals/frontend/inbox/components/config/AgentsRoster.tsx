@@ -176,7 +176,7 @@ function EntityRow({
     return (
         <div className="flex items-center gap-2 px-2 py-1 hover:bg-surface-secondary">
             <LemonSwitch
-                size="xxsmall"
+                size="small"
                 checked={entity.enabled}
                 onChange={onToggle}
                 disabledReason={disabledReason}
@@ -263,14 +263,21 @@ function Expansion({
             )}
 
             {onToggleReports && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-start gap-2">
                     <LemonSwitch
-                        size="xsmall"
+                        size="small"
+                        className="mt-0.5"
                         checked={!!reportsEnabled}
                         onChange={onToggleReports}
-                        aria-label="Send a periodic report for each evaluation"
+                        aria-label="Summary reports"
                     />
-                    <span className="text-xs text-secondary">Send a periodic report for each evaluation.</span>
+                    <div className="min-w-0">
+                        <div className="text-xs font-medium text-default">Summary reports</div>
+                        <p className="mb-0 text-xs text-secondary">
+                            File one report for each evaluation, on a schedule or after a set number of new results.
+                            This is separate from the individual results below.
+                        </p>
+                    </div>
                 </div>
             )}
 
@@ -395,11 +402,12 @@ const AgentRow = memo(function AgentRow({
     const enabledCount = entities.filter((entity) => entity.enabled).length
     return (
         <div>
+            {/* A legacy row stays dimmed even while in use, so it reads as the older option. */}
             <div
                 onClick={onExpand}
                 className={`group flex h-13 cursor-pointer items-center gap-2 px-2 transition-colors ${
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
-                }`}
+                } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
                 <StatusDot status={status} tool={tool} toolOff={toolOff} />
                 <AgentIcon source={agent} />
@@ -441,7 +449,6 @@ const AgentRow = memo(function AgentRow({
                         </LemonButton>
                     ) : (
                         <LemonSwitch
-                            size="xsmall"
                             checked={armed}
                             onChange={() => onToggle(agent.source)}
                             disabledReason={
