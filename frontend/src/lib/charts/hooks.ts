@@ -1,6 +1,6 @@
 import { type DependencyList, useCallback, useEffect, useMemo, useState } from 'react'
 
-import { QUILL_CHART_CHROME } from '@posthog/quill-charts'
+import { DEFAULT_CHART_CONFIG } from '@posthog/quill-charts'
 import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -37,8 +37,8 @@ function useCssVarTheme(): ChartTheme {
 }
 
 /** Theme for app quill charts. Pass a stable (memoized or module-level) `overrides` object — a fresh
- *  object every render defeats the memo. The chrome (dashed grid, axis-line color, crosshair) comes
- *  with the css-var theme, so charts reading it straight from the library look the same as these. */
+ *  object every render defeats the memo. Grid/axis/crosshair styling comes with the
+ *  css-var theme, so charts reading it straight from the library look the same as these. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const cssVarTheme = useCssVarTheme()
     return useMemo(() => ({ ...cssVarTheme, ...overrides }), [cssVarTheme, overrides])
@@ -93,7 +93,7 @@ export function useChartConfig<T extends object>(factory: () => T | undefined, d
         }
         const defined = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))
         // Nested, so a chart that sets any tooltip field would otherwise replace the whole default.
-        const tooltip = { ...QUILL_CHART_CHROME.tooltip, ...defined.tooltip }
-        return { ...QUILL_CHART_CHROME, ...defined, tooltip } as T
+        const tooltip = { ...DEFAULT_CHART_CONFIG.tooltip, ...defined.tooltip }
+        return { ...DEFAULT_CHART_CONFIG, ...defined, tooltip } as T
     }, deps)
 }
