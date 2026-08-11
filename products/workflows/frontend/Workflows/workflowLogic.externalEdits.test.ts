@@ -127,6 +127,23 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.isSyncingExternalEdit).toBe(false)
     })
 
+    // The server emits resource_edited during our own PATCH/reload, and the SSE echo can land
+    // before the HTTP response does. Reacting to it against the stale baseline flashed the
+    // conflict banner at the user on every staged auto-save.
+    it('ignores events while our own save or reload is in flight', async () => {
+        logic.actions.setAutoSaveEnabled(false)
+        logic.actions.setWorkflowValue('name', 'My local edit')
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+
+        logic.actions.loadWorkflow()
+        expect(logic.values.originalWorkflowLoading).toBe(true)
+        resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+
+        expect(logic.values.externallyEdited).toBe(false)
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        expect(logic.values.externallyEdited).toBe(false)
+    })
+
     it('ignores the echo of our own staged draft save', async () => {
         // A staged save doesn't bump the live updated_at; the emit broadcasts the draft stamp
         // instead. That echo must not read as an external edit, or every auto-save on an active

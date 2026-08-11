@@ -3404,6 +3404,14 @@ export const workflowLogic = kea<workflowLogicType>([
             if (event.resource_type !== 'HogFlow' || event.resource_id !== props.id) {
                 return
             }
+            // Our own save/reload is mid-flight (originalWorkflowLoading covers both, they share a
+            // loader), or a publish/discard is about to reload: the emit for our own write can beat
+            // its HTTP response back to us, and reacting to that echo against the stale baseline
+            // flashes the conflict banner at ourselves. The landing response re-baselines us, and a
+            // genuine concurrent write is still caught by the 409 backstop on the next save.
+            if (values.originalWorkflowLoading || values.draftActionPending) {
+                return
+            }
             // Draft writes don't bump the live updated_at (the emit broadcasts the newer of the two
             // stamps), so compare against the newest stamp we loaded or a staged edit from another
             // channel would go unnoticed.
