@@ -110,7 +110,7 @@ function UserMessageRow({
                 label="View in chat"
                 variant="link-muted"
                 size="icon-xs"
-                className="ml-auto self-center opacity-0 transition-opacity group-focus-within/timeline-message:opacity-100 group-hover/timeline-message:opacity-100"
+                className="ml-auto self-center opacity-0 transition-[background-color,color,opacity] hover:bg-gray-3 hover:text-foreground focus-visible:bg-gray-3 group-focus-within/timeline-message:opacity-100 group-hover/timeline-message:opacity-100"
                 onClick={onSelect}
               >
                 <ArrowRightIcon size={12} />

@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useThreadNavigationStore,
   useThreadScrollRequest,
@@ -7,6 +7,10 @@ import {
 
 beforeEach(() => {
   useThreadNavigationStore.setState({ scrollRequests: {} });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("useThreadScrollRequest", () => {
@@ -42,5 +46,24 @@ describe("useThreadScrollRequest", () => {
     request();
 
     expect(jump).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries jumps while older rows settle", () => {
+    vi.useFakeTimers();
+    const jump = vi.fn();
+    renderHook(() =>
+      useThreadScrollRequest("task-1", jump, { settleFrames: 2 }),
+    );
+
+    act(() => {
+      useThreadNavigationStore
+        .getState()
+        .requestScrollToMessage("task-1", "turn-1-1-user");
+    });
+    expect(jump).toHaveBeenCalledTimes(1);
+
+    act(() => vi.runAllTimers());
+
+    expect(jump).toHaveBeenCalledTimes(3);
   });
 });

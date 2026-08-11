@@ -1,5 +1,7 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { create } from "zustand";
+
+export const THREAD_SCROLL_SETTLE_FRAMES = 8;
 
 interface ThreadNavigationStoreState {
   /** taskId → conversation item id the transcript should scroll to, if any. */
@@ -45,15 +47,38 @@ export const useThreadNavigationStore = create<ThreadNavigationStore>()(
 export function useThreadScrollRequest(
   taskId: string | undefined,
   jumpToMessage: (messageId: string) => void,
+  { settleFrames = 0 }: { settleFrames?: number } = {},
 ): void {
   const requestedMessageId = useThreadNavigationStore((state) =>
     taskId ? state.scrollRequests[taskId] : null,
   );
+  const jumpRef = useRef(jumpToMessage);
+  jumpRef.current = jumpToMessage;
+  const frameRef = useRef<number | null>(null);
+  const cancelSettle = useCallback(() => {
+    if (frameRef.current === null) return;
+    cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+  }, []);
+
+  useEffect(() => cancelSettle, [cancelSettle]);
 
   useEffect(() => {
     if (!taskId || !requestedMessageId) return;
-    jumpToMessage(requestedMessageId);
-    // Clear via getState so the action isn't an effect dependency.
+    cancelSettle();
+    let framesRemaining = settleFrames;
+    const jump = () => {
+      jumpRef.current(requestedMessageId);
+      if (framesRemaining <= 0) {
+        frameRef.current = null;
+        return;
+      }
+      framesRemaining--;
+      frameRef.current = requestAnimationFrame(jump);
+    };
+    jump();
+    // Clear via getState so the action isn't an effect dependency. Scheduled
+    // retries continue after the request clears while older rows remeasure.
     useThreadNavigationStore.getState().clearScrollRequest(taskId);
-  }, [taskId, requestedMessageId, jumpToMessage]);
+  }, [taskId, requestedMessageId, settleFrames, cancelSettle]);
 }

@@ -114,7 +114,10 @@ import {
   useSessionViewActions,
   useShowRawLogs,
 } from "@posthog/ui/features/sessions/sessionViewStore";
-import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
+import {
+  THREAD_SCROLL_SETTLE_FRAMES,
+  useThreadScrollRequest,
+} from "@posthog/ui/features/sessions/threadNavigationStore";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
 import {
   SessionTaskIdProvider,
@@ -1157,7 +1160,9 @@ function ThreadScrollRequestBridge({
   jumpToMessage?: (id: string) => void;
 }) {
   const { scrollToMessage } = useChatMessageScroller();
-  useThreadScrollRequest(taskId, jumpToMessage ?? scrollToMessage);
+  useThreadScrollRequest(taskId, jumpToMessage ?? scrollToMessage, {
+    settleFrames: jumpToMessage ? 0 : THREAD_SCROLL_SETTLE_FRAMES,
+  });
   return null;
 }
 

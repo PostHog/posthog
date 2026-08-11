@@ -64,6 +64,7 @@ describe("ActivityTimeline", () => {
     expect(actions).toHaveLength(2);
     for (const action of actions) {
       expect(action).toHaveAttribute("data-size", "icon-xs");
+      expect(action).toHaveClass("hover:bg-gray-3");
       expect(action.closest('[role="toolbar"]')).toBeNull();
     }
   });

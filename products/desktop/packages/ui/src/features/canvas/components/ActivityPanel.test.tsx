@@ -10,6 +10,22 @@ import {
   vi,
 } from "vitest";
 
+const activityMocks = vi.hoisted(() => ({
+  rawItems: [] as Array<{
+    type: "user_message";
+    id: string;
+    content: string;
+    timestamp: number;
+  }>,
+  optimisticItems: [] as Array<{
+    type: "user_message";
+    id: string;
+    content: string;
+    timestamp: number;
+  }>,
+  receivedItemIds: [] as string[],
+}));
+
 vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
   useThreadConversation: () => ({
     timeline: [],
@@ -31,7 +47,26 @@ vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityTimeline", () => ({
-  ActivityTimeline: () => <div>timeline body</div>,
+  ActivityTimeline: ({
+    conversationItems,
+  }: {
+    conversationItems: Array<{ id: string }>;
+  }) => {
+    activityMocks.receivedItemIds = conversationItems.map((item) => item.id);
+    return <div>timeline body</div>;
+  },
+}));
+vi.mock(
+  "@posthog/ui/features/sessions/components/buildConversationItems",
+  () => ({
+    buildConversationItems: () => ({ items: activityMocks.rawItems }),
+  }),
+);
+vi.mock("@posthog/ui/features/sessions/sessionStore", () => ({
+  useOptimisticItemsForTask: () => activityMocks.optimisticItems,
+}));
+vi.mock("@posthog/ui/features/sessions/useSession", () => ({
+  useSessionIsCloud: () => true,
 }));
 vi.mock("@posthog/ui/features/canvas/components/TaskArtifactsList", () => ({
   TaskArtifactsList: () => <div>artifacts body</div>,
@@ -82,6 +117,9 @@ describe("ActivityPanel", () => {
 
   beforeEach(() => {
     commentsFlag.enabled = true;
+    activityMocks.rawItems = [];
+    activityMocks.optimisticItems = [];
+    activityMocks.receivedItemIds = [];
     scrollTo = vi.spyOn(Element.prototype, "scrollTo");
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -91,6 +129,29 @@ describe("ActivityPanel", () => {
 
   afterEach(() => {
     scrollTo.mockRestore();
+  });
+
+  it("uses the visible prompt id for timeline navigation", () => {
+    activityMocks.rawItems = [
+      {
+        type: "user_message",
+        id: "echoed-prompt",
+        content: "Original prompt",
+        timestamp: 1,
+      },
+    ];
+    activityMocks.optimisticItems = [
+      {
+        type: "user_message",
+        id: "visible-prompt",
+        content: "Original prompt",
+        timestamp: 1,
+      },
+    ];
+
+    renderPanel();
+
+    expect(activityMocks.receivedItemIds).toEqual(["visible-prompt"]);
   });
 
   it("offers comments as a third tab beside the timeline and artifacts", () => {
