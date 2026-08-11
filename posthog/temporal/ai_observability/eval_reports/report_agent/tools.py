@@ -12,7 +12,6 @@ import json
 import time
 import random
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
@@ -25,6 +24,7 @@ from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.temporal.ai_observability.eval_reports.output_types import (
@@ -189,7 +189,7 @@ def _outcome_for_result(output_type: str, result: object, applicable: object = N
         return None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class TimestampWindow:
     ts_start: datetime
     ts_end: datetime

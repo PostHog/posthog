@@ -22,6 +22,7 @@ import posthoganalytics
 from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
@@ -1569,7 +1570,7 @@ _ASSISTANT_MEMBER_JOIN_WELCOME = (
 )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class AssistantEventFields:
     slack_user_id: str
     dm_channel_id: str | None

@@ -1,13 +1,13 @@
 import gzip
 import json
 import hashlib
-from dataclasses import dataclass
 from enum import Enum
 from typing import TypeVar
 
 import structlog
 from redis import asyncio as aioredis
 
+from posthog.dataclasses import frozen
 from posthog.redis import get_async_client
 
 from products.replay.backend.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
@@ -33,7 +33,7 @@ def generate_state_id_from_session_ids(session_ids: list[str]) -> str:
     return hashlib.sha256(",".join(session_ids).encode()).hexdigest()[:16]
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RedisStateContext:
     client: aioredis.Redis
     input_key: str | None
