@@ -1,18 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconEye } from '@posthog/icons'
+import { IconChevronDown, IconEye, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { quotaUx } from '../utils/quotaProjection'
 import { ObservationDockCard } from './ObservationCard'
 
@@ -108,6 +111,57 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     )
 }
 
+/** One-click summary: an inline summarizer scan, so it needs no saved scanner. */
+function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
+    const logic = observationsDockLogic({ sessionId })
+    const { summarizing } = useValues(logic)
+    const { summarize } = useActions(logic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const [consentRequested, setConsentRequested] = useState(false)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+    // An inline scan mints a scanner, so the endpoint holds it to scanner-editor access. Without this the
+    // button looks available to a viewer and answers 403.
+    const accessDisabledReason = getReplayVisionEditDisabledReason()
+
+    const button = (
+        <LemonButton
+            size="small"
+            type="secondary"
+            icon={<IconNotebook />}
+            loading={summarizing}
+            // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
+            onClick={() => (dataProcessingAccepted ? summarize() : setConsentRequested(true))}
+            disabledReason={accessDisabledReason ?? quotaDisabledReason}
+            tooltip={quotaTooltip ?? 'Write a summary of what happened in this recording'}
+            data-attr="vision-summarize-recording"
+        >
+            {dataProcessingAccepted ? 'Summarize this recording' : 'Allow AI analysis and summarize'}
+        </LemonButton>
+    )
+
+    if (dataProcessingAccepted) {
+        return button
+    }
+
+    return (
+        <AIConsentPopoverWrapper
+            placement="bottom-end"
+            showArrow
+            ignoreDismissal
+            hideTrainingDisclaimer
+            hidden={!consentRequested}
+            onApprove={() => {
+                setConsentRequested(false)
+                summarize()
+            }}
+            onDismiss={() => setConsentRequested(false)}
+        >
+            {button}
+        </AIConsentPopoverWrapper>
+    )
+}
+
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
@@ -145,6 +199,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             {dockOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <ScannerPicker sessionId={sessionId} />
+                <SummarizeButton sessionId={sessionId} />
                 {observations.length > 0 && (
                     <span className="text-muted text-sm min-w-0 truncate">
                         {observations.length} observation{observations.length === 1 ? '' : 's'}
@@ -170,7 +225,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : observations.length === 0 ? (
                         <div className="text-muted text-sm py-4">
-                            No observations yet. Pick a scanner to run on this recording.
+                            No observations yet. Summarize this recording, or pick a scanner to run on it.
                         </div>
                     ) : (
                         observations.map((observation) => (
