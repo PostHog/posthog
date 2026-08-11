@@ -28,9 +28,17 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
         super().__init__(date_range, team, interval, now, **kwargs)
 
     def date_from_delta_mappings(self) -> dict[str, int] | None:
-        if self._date_range and isinstance(self._date_range.date_from, str) and self._date_range.date_from != "all":
+        if self._date_range and self._date_range.date_from == "all":
+            # "All time" resolves to the earliest event rather than a relative offset, so it is not
+            # subject to the "-7d is really 8 days" quirk that get_compare_period_dates corrects for.
+            # Reporting a 7-day mapping here triggers that correction anyway, which shifts the whole
+            # previous period one day later and makes it overlap the start of the current period.
+            return None
+
+        if self._date_range and isinstance(self._date_range.date_from, str):
             date_from = self._date_range.date_from
         else:
+            # No date_from means the default range, which is DEFAULT_DATE_FROM_DAYS long.
             date_from = "-7d"
 
         delta_mapping = relative_date_parse_with_delta_mapping(

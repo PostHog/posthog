@@ -34,6 +34,26 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-11T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-17T23:59:59.999999Z"))
 
+    def test_previous_period_for_all_time_does_not_overlap_current_period(self):
+        # "All time" resolves to the earliest event, so the "-7d is really 8 days" kludge in
+        # get_compare_period_dates must not apply to it. While it did, the previous period was
+        # shifted a day later and its last day was the current period's first day, so that day was
+        # counted in both periods and the comparison reported the first day's traffic as the
+        # previous period's total.
+        now = parser.isoparse("2021-08-25T12:34:00.000Z")
+        date_range = DateRange(date_from="all")
+        query_date_range = QueryPreviousPeriodDateRange(
+            team=self.team,
+            date_range=date_range,
+            interval=IntervalType.DAY,
+            now=now,
+            earliest_timestamp_fallback=parser.isoparse("2021-07-06T00:00:00Z"),
+        )
+        # Current period is [2021-07-06T00:00, 2021-08-25T23:59:59.999999], so the previous period
+        # ends the day before the earliest event.
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-05-16T00:00:00Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-07-05T23:59:59.999999Z"))
+
     def test_explicit_timezone_info_overrides_team_timezone(self):
         # The previous-period delta parsing used to read directly from
         # `self._team.timezone_info`, so a `timezone_info=UTC` override on the constructor
