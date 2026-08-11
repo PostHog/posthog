@@ -38,8 +38,7 @@ function useCssVarTheme(): ChartTheme {
 }
 
 /** Theme for app quill charts. Pass a stable (memoized or module-level) `overrides` object — a fresh
- *  object every render defeats the memo. Grid/axis/crosshair styling comes with the
- *  css-var theme, so charts reading it straight from the library look the same as these. */
+ *  object every render defeats the memo. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const cssVarTheme = useCssVarTheme()
     return useMemo(() => ({ ...cssVarTheme, ...overrides }), [cssVarTheme, overrides])

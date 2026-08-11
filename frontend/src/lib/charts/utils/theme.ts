@@ -8,7 +8,6 @@ export function buildTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const graphColors = getGraphColors()
 
     const base: ChartTheme = {
-        // From the library, so a chart on this theme and one on the library's own render alike.
         ...themeDefaultsFromCssVars(),
         colors: getSeriesColorPalette(),
         backgroundColor:
