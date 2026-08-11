@@ -209,7 +209,9 @@ export function PersonDisplay({
             visible={visible}
             onClickOutside={() => setVisible(false)}
             placement={placement || 'top'}
-            fallbackPlacements={['bottom', 'right']}
+            // Keep the preview above or below the name. A side placement lands on the row's own
+            // action buttons (e.g. "View recording" in the funnel actors modal) and blocks them.
+            fallbackPlacements={['bottom']}
             showArrow
         >
             {withCopyButton ? (
