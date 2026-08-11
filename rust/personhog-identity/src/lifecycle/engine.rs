@@ -94,6 +94,18 @@ impl SagaError {
         };
         matches!(db.code().as_deref(), Some("40P01" | "40001" | "57014"))
     }
+
+    /// The Postgres error detail for a database conflict. For a deadlock it
+    /// names the processes, lock targets, and relations in the cycle — the
+    /// only place that evidence surfaces when server-side error logging is
+    /// disabled (dev RDS logs no ERROR lines).
+    pub fn db_detail(&self) -> Option<&str> {
+        let SagaError::Db(sqlx::Error::Database(db)) = self else {
+            return None;
+        };
+        db.try_downcast_ref::<sqlx::postgres::PgDatabaseError>()
+            .and_then(|e| e.detail())
+    }
 }
 
 impl From<SagaError> for Status {
@@ -382,6 +394,7 @@ impl Engine {
                         op_type = %row.op_type,
                         step = %row.step,
                         error = %err,
+                        detail = %err.db_detail().unwrap_or(""),
                         "lifecycle step lost a database conflict; retrying"
                     );
                     tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
