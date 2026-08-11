@@ -1,7 +1,9 @@
 import { useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultCupedEnabled } from 'scenes/settings/environment/DefaultCupedEnabled'
 import { DefaultCupedLookbackDays } from 'scenes/settings/environment/DefaultCupedLookbackDays'
@@ -12,6 +14,7 @@ import { DefaultSequentialTestingEnabled } from 'scenes/settings/environment/Def
 import { DefaultSequentialTuningParameter } from 'scenes/settings/environment/DefaultSequentialTuningParameter'
 import { ExperimentRecalculationTime } from 'scenes/settings/environment/ExperimentRecalculationTime'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
+import { FlagCleanupRepository } from 'scenes/settings/environment/FlagCleanupRepository'
 
 import { DefaultMinimumDetectableEffect } from './DefaultMinimumDetectableEffect'
 
@@ -21,6 +24,12 @@ import { DefaultMinimumDetectableEffect } from './DefaultMinimumDetectableEffect
  */
 export function ExperimentsSettings(): JSX.Element {
     const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    // The cleanup PR runs as a PostHog Desktop task, so the setting is only relevant with
+    // Code access on top of the rollout flag (same gate as the end-experiment modal checkbox).
+    const cleanupPrAvailable =
+        !!featureFlags[FEATURE_FLAGS.EXPERIMENT_FLAG_CLEANUP_PR] && !!featureFlags[FEATURE_FLAGS.TASKS]
 
     if (experimentsConfigLoading && !experimentsConfig) {
         return <SpinnerOverlay sceneLevel />
@@ -102,6 +111,16 @@ export function ExperimentsSettings(): JSX.Element {
                 </p>
                 <DefaultSequentialTuningParameter />
             </div>
+            {cleanupPrAvailable && (
+                <div>
+                    <LemonLabel className="text-base">Default repository for flag cleanup PRs</LemonLabel>
+                    <p className="text-secondary mt-2">
+                        Used when an experiment doesn't have its own repository. Must be connected to this project's
+                        GitHub integration.
+                    </p>
+                    <FlagCleanupRepository />
+                </div>
+            )}
         </div>
     )
 }

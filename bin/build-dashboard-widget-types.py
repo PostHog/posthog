@@ -108,6 +108,7 @@ def main() -> int:
             "configTypeExport": _friendly_config_type_export(config_model_name),
             "formSchemaExport": config_schema_export.replace("ConfigSchema", "FormSchema"),
             "formFields": list(spec.form_fields),
+            "live": spec.is_live,
         }
 
     FORM_FIELDS_JSON.write_text(json.dumps({"widgets": form_fields_manifest}, indent=2) + "\n", encoding="utf-8")

@@ -161,9 +161,9 @@ class TestNotionSource:
                 "Notion rate limited: url=https://api.notion.com/v1/comments, retry_after=33.0",
             ),
             (
-                "dropped_connection_after_tenacity_exhausted",
+                "ssl_eof_after_tenacity_exhausted",
                 "HTTPSConnectionPool(host='api.notion.com', port=443): Max retries exceeded with url: "
-                "/v1/comments?block_id=abc&page_size=100 (Caused by SSLError(SSLEOFError(8, "
+                "/v1/blocks/abc123/children?page_size=100 (Caused by SSLError(SSLEOFError(8, "
                 "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))",
             ),
             (
@@ -171,6 +171,10 @@ class TestNotionSource:
                 "HTTPSConnectionPool(host='api.notion.com', port=443): Max retries exceeded with url: "
                 "/v1/search (Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='api.notion.com', "
                 'port=443): Read timed out."))',
+            ),
+            (
+                "non_json_response_after_tenacity_exhausted",
+                "Notion returned a non-JSON response: status=200, url=https://api.notion.com/v1/search",
             ),
         ]
     )

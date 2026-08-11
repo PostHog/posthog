@@ -251,7 +251,9 @@ async def validate_schema_and_update_table(
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
-            raw_db_columns = table_created.get_columns()
+            # safe_expose_ch_error=False keeps failures as ServerException (see except clause below)
+            # instead of the generic, user-facing Exception get_columns() raises by default.
+            raw_db_columns = table_created.get_columns(safe_expose_ch_error=False)
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
 
             def _persist_columns() -> None:
@@ -297,7 +299,10 @@ async def validate_schema_and_update_table(
             retry_on_db_connection_drop(_persist_columns)
 
         except ServerException as err:
-            if err.code == 636:
+            # 636 (CANNOT_EXTRACT_TABLE_STRUCTURE) and 742 (DELTA_KERNEL_ERROR, "No files in log
+            # segment") both mean the Delta table has no committed files yet - expected before a
+            # schema's first successful sync, or when a run wrote zero new rows.
+            if err.code in (636, 742):
                 logger.exception(
                     f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
                     exc_info=err,

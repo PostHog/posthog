@@ -24,12 +24,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
-import {
-    isActionFilter,
-    isEventFilter,
-    isEventPropertyFilter,
-    isRecordingPropertyFilter,
-} from 'lib/components/UniversalFilters/utils'
+import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -452,6 +447,12 @@ function sortRecordings(
 
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
+    /**
+     * Which surface embeds this playlist, stamped on `recording list fetched`. Set it wherever the
+     * playlist is one part of another page, so its list loads can be told apart from the replay
+     * scene's own. Left unset, the event carries no source, as it did before.
+     */
+    analyticsSource?: string
     personUUID?: PersonUUID
     distinctIds?: string[]
     updateSearchParams?: boolean
@@ -539,11 +540,13 @@ export interface sessionRecordingsPlaylistLogicActions {
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
-        defaultDurationFilter: RecordingDurationFilter
+        defaultDurationFilter: RecordingDurationFilter,
+        source?: string | undefined
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
         filterType: SessionRecordingFilterType
@@ -1000,7 +1003,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
+                    actions.reportRecordingsListFetched(
+                        loadTimeMs,
+                        values.filters,
+                        defaultRecordingDurationFilter,
+                        props.analyticsSource
+                    )
 
                     breakpoint()
 
@@ -1707,9 +1715,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const eventFilters = filterValues.filter(isEventFilter)
                 const eventPropertyFilters = filterValues.filter(isEventPropertyFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
-                const hasVisitedPageFilter = filterValues
-                    .filter(isRecordingPropertyFilter)
-                    .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
                 const hasEventsProperties = !!eventPropertyFilters.length
@@ -1720,7 +1725,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
-                if (hasActions || hasVisitedPageFilter) {
+                if (hasActions) {
                     return { matchType: 'backend', filters }
                 }
 
@@ -1818,7 +1823,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     (equal(filters.duration?.[0] ?? defaultFilters.duration[0], defaultFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
-                        : 1)
+                        : 1) +
+                    (filters.session_ids?.length ? 1 : 0)
                 )
             },
         ],

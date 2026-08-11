@@ -19,7 +19,6 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { LoopsPromoCard } from "@posthog/ui/features/loops/components/LoopsPromoCard";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
@@ -276,8 +275,6 @@ export function ChannelsSidebar() {
             </button>
           </Box>
         )}
-
-        <LoopsPromoCard />
 
         {/* The code layout keeps it in the footer: that sidebar's top is the nav
             section and task header, and there's no nav row to sit above. */}

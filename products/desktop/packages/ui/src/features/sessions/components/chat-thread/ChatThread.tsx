@@ -70,6 +70,7 @@ import {
   type FlatThreadRow,
   FOLLOWING_END,
   flattenTurnRows,
+  keyTurnRows,
   nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
   SCROLL_UP_KEYS,
@@ -318,7 +319,7 @@ function formatTimestamp(ts: number): string {
 
 /**
  * Hover-revealed footer under a completed agent turn: the turn's timestamp plus a button copying
- * the whole turn. Rendered right-aligned under agent-side content — the end-aligned user bubble
+ * the agent response. Rendered right-aligned under agent-side content — the end-aligned user bubble
  * keeps its own footer — inside a `group` container, so it fades in only while that turn is
  * hovered. Once per turn rather than per row, which was too noisy.
  */
@@ -719,11 +720,7 @@ const ThreadRow = memo(function ThreadRow({
         </div>
         <TurnFooter
           timestamp={completedTurnTimestamp(item)}
-          copyText={
-            buildTurnCopyText(
-              item.prompt ? [item.prompt, ...item.items] : item.items,
-            ) ?? undefined
-          }
+          copyText={buildTurnCopyText(item.items) ?? undefined}
         />
       </ChatMessageScrollerItem>
     );
@@ -992,20 +989,14 @@ function ThreadScrollBody({
   rows: TurnRow[];
   renderItem: (item: ConversationItem) => ReactNode;
   /** Status row (duration / diff stats) pinned as the last item in the thread. */
-  footer?: ReactNode;
+  footer?: ReactElement;
   keyboardFocusedMessageId?: string | null;
   /** Clears keyboard-focused message state on any pointer interaction with the thread. */
   onUserInteract?: () => void;
   /** Continuously updated so the virtualized body can take over mid-session (see {@link ThreadScrollResume}). */
   resumeStateRef: RefObject<ThreadScrollResume>;
 }) {
-  const keyedRows = useMemo(() => {
-    let userTurn = 0;
-    return rows.map((item) => ({
-      item,
-      key: item.type === "user_message" ? `user-turn-${userTurn++}` : item.id,
-    }));
-  }, [rows]);
+  const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
 
   const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
 
@@ -1143,6 +1134,7 @@ interface SharedChatThreadProps {
   task?: Task;
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
+  hasPendingPermission?: boolean;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1216,6 +1208,7 @@ function ChatThreadRenderer({
   task,
   taskId,
   footerState,
+  hasPendingPermission,
   promptRecallRef,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
@@ -1342,6 +1335,7 @@ function ChatThreadRenderer({
         task={task}
         taskId={taskId}
         footerState={footerState}
+        hasPendingPermission={hasPendingPermission}
       />
     </>
   );

@@ -3,6 +3,7 @@ import requests
 from typing import Any, cast
 
 from django.http import HttpRequest
+from django.test import SimpleTestCase
 from django.test.client import RequestFactory
 from parameterized import parameterized
 from rest_framework import status
@@ -10,6 +11,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.api.utils import (
     PaginationMode,
+    canonicalize_encoded_url,
     check_definition_ids_inclusion_field_sql,
     format_paginated_url,
     get_data,
@@ -21,6 +23,7 @@ from posthog.api.utils import (
     safe_clickhouse_string,
     validate_authorized_url_wildcards,
     PublicIPOnlyHttpAdapter,
+    strip_url_userinfo,
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.models.filters.filter import Filter
@@ -29,6 +32,41 @@ from posthog.test.base import BaseTest
 
 def return_true():
     return True
+
+
+class TestAppUrlCanonicalization(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fully encoded url is decoded", "https%3A%2F%2Fexample.com%2Fpage", "https://example.com/page"),
+            # Decoding a URL that already has an authority is what let an encoded terminator
+            # smuggle in a second host, so a parseable URL has to come back untouched.
+            (
+                "url with an authority is untouched",
+                "https://example.com%2F@evil.test/",
+                "https://example.com%2F@evil.test/",
+            ),
+            ("double encoded url stays encoded", "https%253A%252F%252Fexample.com", "https%253A%252F%252Fexample.com"),
+            # Callers run this before their own urlparse, so it has to hand malformed input
+            # back rather than raise and turn a 400 into a 500.
+            ("unterminated ipv6 literal", "https://[::1", "https://[::1"),
+            ("nfkc unstable host", "https://exa℀mple.com/", "https://exa℀mple.com/"),
+        ]
+    )
+    def test_canonicalize_encoded_url(self, _name: str, url: str, expected: str) -> None:
+        assert canonicalize_encoded_url(url) == expected
+
+    @parameterized.expand(
+        [
+            ("userinfo is removed", "https://someone:secret@example.com/page", "https://example.com/page"),
+            ("port is kept", "https://someone@example.com:8443/page", "https://example.com:8443/page"),
+            # urlparse resolves the host after the *last* "@", so splitting on the first one
+            # would hand back a different host than the one the allowlist approved.
+            ("only the last delimiter splits", "https://a@b@example.com/page", "https://example.com/page"),
+            ("url without userinfo is untouched", "https://example.com/page", "https://example.com/page"),
+        ]
+    )
+    def test_strip_url_userinfo(self, _name: str, url: str, expected: str) -> None:
+        assert strip_url_userinfo(url) == expected
 
 
 class TestUtils(BaseTest):
@@ -320,7 +358,24 @@ class TestUtils(BaseTest):
             ("needle is whitespace", ["http://localhost"], "    ", False),
             ("needle is absent", ["http://localhost"], None, False),
             ("single element matches", ["http://localhost"], "http://localhost:8123", True),
-            ("single element matches but is url encoded", ["http://localhost"], "http%3A%2F%2Flocalhost:8123", True),
+            # A needle encoded whole has no authority to judge, so it is decoded once and the
+            # decoded form is both validated and redirected to. See #23504.
+            ("fully encoded needle is decoded", ["http://localhost"], "http%3A%2F%2Flocalhost:8123", True),
+            (
+                "fully encoded needle still has to match the allowlist",
+                ["http://localhost"],
+                "http%3A%2F%2Fevil.example",
+                False,
+            ),
+            # The decode only applies when there is no authority. A needle that already parses to a
+            # host is judged as-is, so a percent-encoded authority terminator cannot smuggle one in.
+            (
+                "encoded terminator in an authority is not decoded",
+                ["https://localhost"],
+                "https://localhost%2F@evil.example/",
+                False,
+            ),
+            ("url encoded dot in host", ["https://example.com"], "https://example%2Ecom/", False),
             ("multi element matches", ["http://localhost", "http://posthog.com"], "http://localhost:8123", True),
             ("scheme should be ignored", ["ftp://localhost"], "https://localhost:8123", True),
             ("needle is not in allowlist", ["http://localhost"], "http://posthog.com:8123", False),
@@ -334,6 +389,30 @@ class TestUtils(BaseTest):
                 ["https://example.com"],
                 "https://www.other.com",
                 False,
+            ),
+            (
+                "encoded slash terminates the authority early",
+                ["https://example.com"],
+                "https://example.com%2F@evil.test/",
+                False,
+            ),
+            (
+                "encoded question mark terminates the authority early",
+                ["https://example.com"],
+                "https://example.com%3F@evil.test/",
+                False,
+            ),
+            (
+                "encoded hash terminates the authority early",
+                ["https://example.com"],
+                "https://example.com%23@evil.test/",
+                False,
+            ),
+            (
+                "encoded characters outside the authority are ignored",
+                ["https://example.com"],
+                "https://example.com/inbox?to=someone%40evil.test",
+                True,
             ),
         ]
     )
