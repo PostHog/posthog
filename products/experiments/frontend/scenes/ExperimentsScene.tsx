@@ -44,7 +44,6 @@ import {
 import { ExperimentsSettings } from 'scenes/experiments/ExperimentsSettings'
 import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
-import { Holdouts } from 'scenes/experiments/Holdouts'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -67,6 +66,7 @@ import {
 } from '~/types'
 
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+import { ExperimentsHoldoutsScene } from 'products/experiments/frontend/scenes/ExperimentsHoldoutsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 
 export const scene: SceneExport = {
@@ -643,7 +643,7 @@ export function ExperimentsScene(): JSX.Element {
                         label: 'Shared metrics',
                         content: <ExperimentsSharedMetricsScene />,
                     },
-                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
+                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <ExperimentsHoldoutsScene /> },
                     {
                         key: ExperimentsTabs.History,
                         label: 'History',

@@ -16,12 +16,11 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { NEW_HOLDOUT, holdoutsLogic } from 'scenes/experiments/holdoutsLogic'
 
 import { AccessControlLevel, AccessControlResourceType, ExperimentHoldoutType } from '~/types'
 
-import { NEW_HOLDOUT, holdoutsLogic } from './holdoutsLogic'
-
-export function Holdouts(): JSX.Element {
+export function ExperimentsHoldoutsScene(): JSX.Element {
     const { holdouts, holdoutsLoading, holdout } = useValues(holdoutsLogic)
     const { createHoldout, deleteHoldout, setHoldout, updateHoldout } = useActions(holdoutsLogic)
 
