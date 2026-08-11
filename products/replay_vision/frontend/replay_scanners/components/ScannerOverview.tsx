@@ -8,6 +8,7 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
@@ -398,10 +399,40 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 }
 
+// The interstitial a just-created scanner shows instead of the filters + charts, whose "no matching
+// events" empty state would wrongly suggest the user's setup is broken while the first sweep runs.
+function FirstScanPendingPanel(): JSX.Element {
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    return (
+        <div
+            className="border rounded bg-surface-primary p-6 flex flex-col items-center gap-2 text-center"
+            data-attr="vision-first-scan-pending"
+        >
+            <Spinner className="text-2xl" />
+            <div className="font-semibold">First scan in progress</div>
+            <div className="text-muted text-sm max-w-md">
+                This scanner picks up new recordings on a schedule. Results usually appear within 15 minutes.
+            </div>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => setActiveTab(ReplayScannerTab.OnDemand)}
+                data-attr="vision-first-scan-pending-scan-now"
+            >
+                Scan a recording now
+            </LemonButton>
+        </div>
+    )
+}
+
 export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { firstScanPending } = useValues(scannerOverviewLogic({ scannerId }))
     if (!scanner) {
         return null
+    }
+    if (firstScanPending) {
+        return <FirstScanPendingPanel />
     }
     const scannerType: ScannerType = scanner.scanner_type
     const typeOverview =

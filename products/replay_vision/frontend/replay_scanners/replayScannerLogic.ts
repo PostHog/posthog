@@ -719,8 +719,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
-                        // First results are minutes away on the schedule — hand off to the instant on-demand tab.
-                        lemonToast.success('Scanner created', {
+                        // First scheduled results are minutes away, so the copy matches the Overview's
+                        // pending panel and the button hands off to the instant on-demand tab.
+                        lemonToast.success('Scanner created. First scan in progress.', {
                             button: {
                                 label: 'Scan a recording now',
                                 action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=on-demand`),

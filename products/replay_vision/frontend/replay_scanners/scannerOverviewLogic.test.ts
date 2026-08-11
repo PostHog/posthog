@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -157,6 +158,82 @@ describe('scannerOverviewLogic', () => {
 
         it.each(noOpCases)('returns null for %s', (_label, overrides) => {
             expect(observationsDrilldownSearchParams(day(overrides))).toBeNull()
+        })
+    })
+
+    describe('firstScanPending', () => {
+        let freshLogic: ReturnType<typeof scannerOverviewLogic.build>
+        let scannerBody: Record<string, unknown>
+        let statsBody: Record<string, unknown>
+
+        const SETTLED_STATS = {
+            ...STATS,
+            status_counts: { total: 3, succeeded: 3, failed: 0, ineligible: 0, in_flight: 0, success_rate: 1 },
+        }
+
+        beforeEach(() => {
+            // A just-created scanner: watermark still at its seeded value 35 minutes before creation.
+            scannerBody = {
+                id: 'fresh',
+                name: 'fresh',
+                scanner_type: 'monitor',
+                scanner_config: { prompt: 'p' },
+                sampling_rate: 1,
+                enabled: true,
+                created_at: dayjs().subtract(2, 'minute').toISOString(),
+                last_swept_at: dayjs().subtract(37, 'minute').toISOString(),
+            }
+            statsBody = STATS
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/:id/': () => [200, scannerBody],
+                    '/api/projects/:team/vision/scanners/:id/observations/stats/': ({ request }) => {
+                        statsRequests.push(request.url)
+                        return [200, statsBody]
+                    },
+                },
+            })
+            freshLogic = scannerOverviewLogic({ scannerId: 'fresh' })
+        })
+
+        afterEach(() => {
+            freshLogic.unmount()
+            jest.useRealTimers()
+        })
+
+        it('is true for a fresh scanner awaiting its first sweep, except while overview filters slice the data', async () => {
+            freshLogic.mount()
+            await expectLogic(freshLogic).toFinishAllListeners()
+            expect(freshLogic.values.firstScanPending).toBe(true)
+
+            // Filters mean the user is inspecting data, so the normal panels must render.
+            await expectLogic(freshLogic, () =>
+                freshLogic.actions.setOverviewVerdictFilter(['no'])
+            ).toFinishAllListeners()
+            expect(freshLogic.values.firstScanPending).toBe(false)
+        })
+
+        it('polls stats in the background while pending and stops once observations settle', async () => {
+            // toFinishAllListeners hangs under fake timers (msw resolves responses on the clock),
+            // so the whole test advances fake time instead, which also flushes microtasks.
+            jest.useFakeTimers()
+            freshLogic.mount()
+            await jest.advanceTimersByTimeAsync(1_000)
+            expect(freshLogic.values.firstScanPending).toBe(true)
+
+            // Pending arms a background reload on the calmer first-scan interval.
+            const before = statsRequests.length
+            await jest.advanceTimersByTimeAsync(16_000)
+            expect(statsRequests.length).toBe(before + 1)
+
+            // Once observations settle, the pending state dissolves and polling stops.
+            statsBody = SETTLED_STATS
+            await jest.advanceTimersByTimeAsync(16_000)
+            expect(freshLogic.values.firstScanPending).toBe(false)
+
+            const after = statsRequests.length
+            await jest.advanceTimersByTimeAsync(60_000)
+            expect(statsRequests.length).toBe(after)
         })
     })
 

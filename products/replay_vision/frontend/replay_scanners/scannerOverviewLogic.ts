@@ -24,6 +24,7 @@ import { IntervalType } from '~/types'
 
 import { visionScannersImpactRetrieve, visionScannersObservationsStatsRetrieve } from '../generated/api'
 import type { ObservationStatsApi, ScannerImpactApi } from '../generated/api.schemas'
+import { scheduleObservationPoll } from '../logics/observationPolling'
 import { replayScannerLogic } from './replayScannerLogic'
 import type { ObservationVerdictValue, ObservationsUrlParams } from './replayScannerLogic'
 import type {
@@ -43,6 +44,7 @@ import {
     deriveScorerHistogram,
     deriveScorerSummary,
     deriveSummarizerFacetStats,
+    isAwaitingFirstResults,
 } from './scannerStats'
 import type { ReplayScanner, ScannerType } from './types'
 
@@ -51,6 +53,9 @@ export interface ScannerOverviewLogicProps {
 }
 
 const DEFAULT_DATE_FROM = '-14d'
+
+// Calmer than the 3s in-flight default: first scheduled results take minutes, not seconds.
+const FIRST_SCAN_POLL_INTERVAL_MS = 15_000
 
 /** The bucket size of the Overview charts; the drill-down only knows how to map day buckets onto the Observations tab. */
 export const OVERVIEW_CHART_INTERVAL: IntervalType = 'day'
@@ -90,6 +95,7 @@ export interface scannerOverviewLogicValues {
     availableTags: string[]
     classifierTagStats: ClassifierTagStats
     coverageStats: CoverageStats
+    firstScanPending: boolean
     hasActiveOverviewFilters: boolean
     monitorStats: MonitorStats
     overviewDateFrom: string | null
@@ -176,6 +182,11 @@ export interface scannerOverviewLogicMeta {
         scorerHistogram: (overviewStatsApi: ObservationStatsApi | null) => ScorerHistogram | null
         summarizerFacetStats: (overviewStatsApi: ObservationStatsApi | null) => SummarizerFacetStats
         coverageStats: (overviewStatsApi: ObservationStatsApi | null) => CoverageStats
+        firstScanPending: (
+            overviewStatsApi: ObservationStatsApi | null,
+            scanner: ReplayScanner | null,
+            hasActiveOverviewFilters: boolean
+        ) => boolean
     }
 }
 
@@ -304,6 +315,14 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             (s) => [s.overviewStatsApi],
             (stats: ObservationStatsApi | null): CoverageStats => deriveCoverageStats(stats),
         ],
+        // While true the Overview swaps its filters + charts for a single "first scan in progress" panel,
+        // so a brand-new scanner never shows the generic "no matching events" empty state. Active filters
+        // mean the user is slicing data, so the normal panels render then.
+        firstScanPending: [
+            (s) => [s.overviewStatsApi, s.scanner, s.hasActiveOverviewFilters],
+            (stats: ObservationStatsApi | null, scanner: ReplayScanner | null, hasFilters: boolean): boolean =>
+                !hasFilters && isAwaitingFirstResults(stats, scanner),
+        ],
     }),
 
     loaders(({ props, values }) => ({
@@ -328,20 +347,39 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
         ],
     })),
 
-    listeners(({ actions, props, values }) => {
+    listeners(({ actions, cache, props, values }) => {
         const reloadStats = (): void => actions.loadOverviewStats()
         // Only the date range changes the impact window; verdict/tag filters don't apply to impact.
         const reloadDateScoped = (): void => {
             actions.loadOverviewStats()
             actions.loadOverviewImpact()
         }
+        // Refresh stats in the background while awaiting the first scan, so the pending panel
+        // dissolves into the real Overview on its own; stops itself the moment pending clears.
+        const scheduleFirstScanPoll = (): void =>
+            scheduleObservationPoll(
+                cache.disposables,
+                values.firstScanPending,
+                () => actions.loadOverviewStats(),
+                FIRST_SCAN_POLL_INTERVAL_MS
+            )
         return {
             setOverviewDateRange: reloadDateScoped,
             setOverviewVerdictFilter: reloadStats,
             setOverviewTagFilter: reloadStats,
             clearOverviewFilters: reloadDateScoped,
+            loadOverviewStatsSuccess: scheduleFirstScanPoll,
+            loadOverviewStatsFailure: () => {
+                // A failing stats endpoint shouldn't loop error toasts every interval.
+                scheduleObservationPoll(cache.disposables, false, () => actions.loadOverviewStats())
+            },
             // Impact needs the scanner type; refire once the scanner (and its type) resolves.
-            loadScannerSuccess: () => actions.loadOverviewImpact(),
+            // The poll re-arms too: pending depends on the scanner's sweep watermark, which may
+            // resolve after the first stats response.
+            loadScannerSuccess: () => {
+                actions.loadOverviewImpact()
+                scheduleFirstScanPoll()
+            },
 
             drillIntoObservations: ({ day, breakdown }) => {
                 const searchParams = observationsDrilldownSearchParams({

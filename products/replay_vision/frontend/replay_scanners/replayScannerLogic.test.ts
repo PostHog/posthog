@@ -279,6 +279,21 @@ describe('replayScannerLogic', () => {
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
         })
+
+        it('submitting the final step creates the scanner, lands on it, and announces the first scan', async () => {
+            const success = jest.spyOn(lemonToast, 'success')
+            router.actions.push('/replay-vision/new/self-driving')
+            scannerEditorSceneLogic.actions.setStep('self_driving')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toContain('/replay-vision/created-scanner')
+            // The toast must tell the same story as the Overview's first-scan pending panel.
+            expect(success).toHaveBeenCalledWith(
+                'Scanner created. First scan in progress.',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Scan a recording now' }) })
+            )
+        })
     })
 
     describe('new scanner draft', () => {
