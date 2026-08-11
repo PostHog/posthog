@@ -71,8 +71,8 @@ tools:
 
             This creates a rich-text (ProseMirror) notebook — use it for document-style notebooks built around embedded
             charts and saved insights. For step-by-step data analysis with executable SQL/Python cells, use
-            `notebooks-create-markdown` instead. A canvas can be embedded with `{type: "ph-canvas", attrs: {nodeId,
-            id: "<canvas uuid>", prompt: "<original request>"}}`. Omit `id` to create a new canvas from `prompt`.
+            `notebooks-create-markdown` instead. A canvas can be embedded with `{type: "ph-canvas", attrs: {nodeId, id:
+            "<canvas uuid>", prompt: "<original request>"}}`. Omit `id` to create a new canvas from `prompt`.
         exclude_params:
             - _create_in_folder
         feature_flag: revamped-py-notebooks
@@ -196,10 +196,10 @@ tools:
             updating the content field, you must provide the current version number for optimistic concurrency control.
             Retrieve the notebook first to get the latest version. If the notebook content is a single
             ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of
-            replacing it with legacy rich-text blocks. Markdown notebooks can embed a canvas with a
-            `<BlueBird id="<canvas uuid>" prompt="<original request>" />` component tag. Keep `prompt` so the notebook
-            preserves why it was created. Omit `id` to create a new canvas from the prompt. An optional `channelId`
-            adds an open-in-desktop link.
+            replacing it with legacy rich-text blocks. Markdown notebooks can embed a canvas with a `<BlueBird
+            id="<canvas uuid>" prompt="<original request>" />` component tag. Keep `prompt` so the notebook preserves
+            why it was created. Omit `id` to create a new canvas from the prompt. An optional `channelId` adds an
+            open-in-desktop link.
         exclude_params:
             - _create_in_folder
         feature_flag: notebooks-collaboration
