@@ -2005,9 +2005,9 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(false)).toFinishAllListeners()
 
             const dialogProps = dialogOpenSpy.mock.calls[0][0]
-            expect(dialogProps.primaryButton?.children).toBe('Disable and archive')
+            expect(dialogProps.secondaryButton?.children).toBe('Disable and archive')
 
-            dialogProps.primaryButton?.onClick?.(undefined as any)
+            dialogProps.secondaryButton?.onClick?.(undefined as any)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(capturesOf('feature flag archived')).toEqual([
