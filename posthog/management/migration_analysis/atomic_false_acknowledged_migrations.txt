@@ -17,3 +17,4 @@
 posthog.1264_delete_revenue_analytics_user_product_list
 product_analytics.0004_delete_revenue_analytics_insights
 tasks.0079_backfill_task_repositories
+replay_vision.0069_backfill_usage_scanner_id
