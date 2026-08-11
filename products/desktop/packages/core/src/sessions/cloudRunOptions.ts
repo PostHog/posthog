@@ -47,6 +47,23 @@ export interface StoredCloudComposerConfig {
   mode?: ExecutionMode;
 }
 
+export function resolveCloudRunAdapter(run: TaskRun | undefined): Adapter {
+  if (run?.runtime_adapter === "codex") return "codex";
+  if (run?.runtime_adapter === "claude") return "claude";
+
+  const stateAdapter = run?.state?.runtime_adapter;
+  if (stateAdapter === "codex" || stateAdapter === "claude") {
+    return stateAdapter;
+  }
+
+  const initialMode = run?.state?.initial_permission_mode;
+  if (initialMode === "full-access" || initialMode === "read-only") {
+    return "codex";
+  }
+
+  return "claude";
+}
+
 export function resolveCloudResumeOptions(
   composerConfig: StoredCloudComposerConfig | undefined,
   previousRun: TaskRun | undefined,

@@ -6,7 +6,28 @@ import {
   getCloudRunSource,
   getCloudRuntimeOptions,
   resolveCloudResumeOptions,
+  resolveCloudRunAdapter,
 } from "./cloudRunOptions";
+
+describe("resolveCloudRunAdapter", () => {
+  it.each([
+    [{ runtime_adapter: "codex" }, "codex"],
+    [{ runtime_adapter: null, state: { runtime_adapter: "codex" } }, "codex"],
+    [
+      {
+        runtime_adapter: null,
+        state: { initial_permission_mode: "full-access" },
+      },
+      "codex",
+    ],
+    [
+      { runtime_adapter: null, state: { initial_permission_mode: "auto" } },
+      "claude",
+    ],
+  ] as const)("uses persisted run data for %o", (run, expected) => {
+    expect(resolveCloudRunAdapter(run as TaskRun)).toBe(expected);
+  });
+});
 
 describe("getCloudPrAuthorshipMode", () => {
   it("honors an explicit user/bot mode", () => {

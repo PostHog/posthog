@@ -77,6 +77,7 @@ import {
   getCloudPrAuthorshipMode,
   getCloudRunSource,
   getCloudRuntimeOptions,
+  resolveCloudRunAdapter,
 } from "./cloudRunOptions";
 import {
   addMissingCloudRuntimeConfigOptions,
@@ -7082,7 +7083,7 @@ export class SessionService {
       typeof run.state?.initial_permission_mode === "string"
         ? run.state.initial_permission_mode
         : undefined,
-      run.runtime_adapter === "codex" ? "codex" : "claude",
+      resolveCloudRunAdapter(run),
       run.model ?? undefined,
       task.description ?? undefined,
       undefined,
@@ -7144,8 +7145,7 @@ export class SessionService {
       typeof task.latest_run?.state?.initial_permission_mode === "string"
         ? task.latest_run.state.initial_permission_mode
         : undefined;
-    const adapter =
-      task.latest_run?.runtime_adapter === "codex" ? "codex" : "claude";
+    const adapter = resolveCloudRunAdapter(task.latest_run);
     const initialModel = task.latest_run?.model ?? undefined;
     const initialReasoningEffort =
       task.latest_run?.reasoning_effort ?? undefined;
