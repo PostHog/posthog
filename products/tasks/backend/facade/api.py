@@ -177,6 +177,7 @@ __all__ = [
     "get_sandbox_environment",
     "get_sandbox_snapshot",
     "get_stale_prewarmed_queued_task_run_ids",
+    "get_stale_terminal_prewarmed_task_run_ids",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
     "get_task_detail",
@@ -944,6 +945,23 @@ def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -
     )
 
 
+def get_stale_terminal_prewarmed_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
+    now = django_timezone.now()
+    return list(
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED],
+            state__prewarmed=True,
+            state__await_user_message=True,
+            task__deleted=False,
+            task__title="",
+            task__description="",
+            updated_at__lt=now - older_than,
+        )
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
 def _gauge_rows(values_qs, value_key: str, *, with_status: bool, now=None) -> list[contracts.TaskRunGaugeRow]:
     rows = []
     for row in values_qs:
@@ -1240,7 +1258,13 @@ def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None)
     if run is None:
         return False
     run.mark_failed(error, error_type=error_type)
+    run.task.soft_delete_if_unclaimed_prewarm(run)
     return True
+
+
+def soft_delete_unclaimed_prewarm_task(run_id: str | UUID) -> bool:
+    run = TaskRun.objects.select_related("task").filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    return run.task.soft_delete_if_unclaimed_prewarm(run) if run is not None else False
 
 
 def complete_idle_local_task_run(run_id: str | UUID) -> bool:

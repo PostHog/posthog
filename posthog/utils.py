@@ -138,9 +138,15 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class DayRange:
+    start: datetime.datetime
+    end: datetime.datetime
+
+
+def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the preceding day.
+    Returns the start and end of the preceding day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -159,12 +165,12 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.d
         tzinfo=ZoneInfo("UTC"),
     )  # start of the previous day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
-def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+def get_current_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the current day.
+    Returns the start and end of the current day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -183,7 +189,7 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.da
         tzinfo=ZoneInfo("UTC"),
     )  # start of the reference day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
 def relative_date_parse_with_delta_mapping(

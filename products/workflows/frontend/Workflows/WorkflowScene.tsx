@@ -1,13 +1,17 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +21,7 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
+import { WORKFLOW_AGENT_HEADLINES, buildWorkflowAgentContext } from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
@@ -49,11 +54,41 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
     const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow } = useValues(logic)
+    // The save/auto-save indicators moved into the WorkflowStatusBar; the scene only needs the
+    // workflow itself (for the agent context) and the load state.
+    const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById } = useValues(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
     useAttachedLogic(logic, sceneLogic)
+
+    // Debounced so per-keystroke edits don't re-serialize the whole graph into the agent context.
+    // The id is debounced with the workflow as one value so a navigation between workflows can never
+    // pair one workflow's ref with the other's editor state during the debounce window.
+    const debouncedAgentSource = useDebouncedValue(
+        useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
+        500
+    )
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    // Serializing the whole graph is real work on large workflows, so skip building the context
+    // entirely for users the integration flag hasn't reached.
+    const agentContextItems = useMemo(
+        () =>
+            sceneIntegrationEnabled
+                ? buildWorkflowAgentContext(
+                      debouncedAgentSource.workflow,
+                      debouncedAgentSource.id,
+                      hogFunctionTemplatesById
+                  )
+                : null,
+        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'workflow',
+        contextItems: agentContextItems,
+        headlines: WORKFLOW_AGENT_HEADLINES,
+        active: !!originalWorkflow || workflowSceneProps.id === 'new',
+    })
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />
