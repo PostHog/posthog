@@ -109,6 +109,24 @@
     }
 
     /*
+     * The unchecked checkbox/radio glyph sits on the item's hover fill, where an
+     * `--input`/`--border` outline all but vanishes in dark mode. Lift it to a
+     * foreground mix while the item is hovered or highlighted so the control
+     * stays readable.
+     */
+    :is(
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-radio-item'],
+            [data-slot='context-menu-checkbox-item'],
+            [data-slot='context-menu-radio-item'],
+            [data-slot='menubar-checkbox-item'],
+            [data-slot='menubar-radio-item']
+        ):is(:hover, [data-highlighted])
+        :is(.quill-checkbox:not([data-checked]), .quill-radio-indicator:not(.quill-radio-indicator--checked)) {
+        border-color: color-mix(in oklab, var(--foreground) 50%, transparent);
+    }
+
+    /*
      * Consecutive checked items merge corners into a seamless block — mirrors
      * the aria-selected/aria-checked Button rules, scoped to menu items so the
      * effect reads even when Base UI wraps items in a group/list container.
@@ -143,7 +161,10 @@
      * stylesheet order.)
      */
     :is(.quill-menu__content, .quill-menu__sub-content)
-        .quill-button--variant-default:is([data-highlighted], :focus-visible):not(:hover) {
+        :is(.quill-button--variant-default, .quill-button--variant-destructive):is(
+            [data-highlighted],
+            :focus-visible
+        ):not(:hover) {
         border-color: transparent;
         box-shadow: none;
     }

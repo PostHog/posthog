@@ -42,6 +42,18 @@
         opacity: 0.5;
     }
 
+    /* Press dips the button 1px. `primary` owns its own version (it rests
+       raised, so it drops back to 0), and tabs opt out — a trigger that moves
+       reads as jitter against the fixed tab strip. */
+    .quill-button:not(
+            .quill-button--variant-primary,
+            [data-slot='tabs-trigger'],
+            :disabled,
+            [aria-disabled='true']
+        ):active {
+        translate: 0 1px;
+    }
+
     .quill-button[aria-invalid='true'] {
         border-color: var(--destructive);
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 20%, transparent);
@@ -191,7 +203,9 @@
         background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
     }
 
-    .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover {
+    /* `[data-highlighted]` covers keyboard navigation inside menus, where the
+       item never takes :hover. */
+    .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):is(:hover, [data-highlighted]) {
         background-color: var(--destructive);
     }
 

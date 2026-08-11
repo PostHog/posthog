@@ -132,7 +132,7 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 | Component    | Variants                                                 | Sizes                                                | Notes                                                                                                                  |
 | ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
+| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable); presses dip 1px (tabs excluded)    |
 | Badge        | default, info, destructive, warning, success, completed  | —                                                    | Semantic status                                                                                                        |
 | Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                                                        |
 | Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                                                     |
@@ -496,7 +496,8 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
 </DropdownMenu>
 ```
 
-Destructive items (`variant="destructive"` on DropdownMenuItem/ContextMenuItem/MenubarItem) render red text on a transparent background, with a red-tinted background only on hover/highlight — they are styled by the menu item itself, not by Button's filled `destructive` variant. Don't pass a Button variant through `render` to restyle a menu item.
+Destructive items (`variant="destructive"` on DropdownMenuItem/ContextMenuItem/MenubarItem) look exactly like a standalone destructive Button — the item forwards its variant to the Button it renders, so a delete row in a menu carries the same weight as a delete button anywhere else.
+Set `variant` on the item; don't pass a Button variant through `render` to restyle it.
 
 Checkbox/radio items:
 
@@ -1008,7 +1009,7 @@ Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableC
 </Menubar>
 ```
 
-MenubarItem wraps DropdownMenuItem, so the same item API applies — including `variant="destructive"` (red text, red-tinted highlight, transparent at rest).
+MenubarItem wraps DropdownMenuItem, so the same item API applies — including `variant="destructive"`, which renders the filled destructive Button.
 
 ### Toast
 
