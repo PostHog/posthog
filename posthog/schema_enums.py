@@ -42,6 +42,14 @@ class AccountsTableAccountField(StrEnum):
     ZENDESK_ID = "zendesk_id"
 
 
+class AccountsTableAggregation(StrEnum):
+    SUM = "sum"
+    AVG = "avg"
+    MIN = "min"
+    MAX = "max"
+    MEDIAN = "median"
+
+
 class WindowDays(float, Enum):
     NUMBER_7 = 7
     NUMBER_14 = 14
@@ -70,6 +78,15 @@ class AccountsTableCustomPropertyOperator(StrEnum):
 class AccountsTableSortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
+
+
+class AccountsTableThresholdOperator(StrEnum):
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    EXACT = "exact"
+    IS_NOT = "is_not"
 
 
 class MathGroupTypeIndex(float, Enum):

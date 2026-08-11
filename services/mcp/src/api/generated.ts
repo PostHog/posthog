@@ -851,16 +851,58 @@ export namespace Schemas {
       kind?: 'account_id';
     }
 
+    export type AccountsTableAggregation = typeof AccountsTableAggregation[keyof typeof AccountsTableAggregation];
+
+
+    export const AccountsTableAggregation = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Min: 'min',
+      Max: 'max',
+      Median: 'median',
+    } as const;
+
+    export interface AccountsTableCustomPropertyColumn {
+      /** Team-scoped custom property definition to return for each account. */
+      definitionId: string;
+      kind?: 'custom_property';
+    }
+
+    export interface AccountsTableAggregateMetric {
+      aggregation: AccountsTableAggregation;
+      column: AccountsTableCustomPropertyColumn;
+      kind?: 'aggregate';
+      scale?: number | null;
+    }
+
     export interface AccountsTableAssignedToFilter {
       kind?: 'assigned_to';
       /** Match accounts where any listed user actively holds any relationship. */
       userIds: number[];
     }
 
-    export interface AccountsTableCustomPropertyColumn {
-      /** Team-scoped custom property definition to return for each account. */
-      definitionId: string;
-      kind?: 'custom_property';
+    export const AccountsTableCountMetricValue = {
+      kind: 'count',
+    } as const;
+    export type AccountsTableCountMetric = typeof AccountsTableCountMetricValue;
+
+    export type AccountsTableThresholdOperator = typeof AccountsTableThresholdOperator[keyof typeof AccountsTableThresholdOperator];
+
+
+    export const AccountsTableThresholdOperator = {
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      Exact: 'exact',
+      IsNot: 'is_not',
+    } as const;
+
+    export interface AccountsTableCountThresholdMetric {
+      column: AccountsTableCustomPropertyColumn;
+      kind?: 'count_threshold';
+      operator: AccountsTableThresholdOperator;
+      value: number;
     }
 
     export type AccountsTableCustomPropertyOperator = typeof AccountsTableCustomPropertyOperator[keyof typeof AccountsTableCustomPropertyOperator];
@@ -993,6 +1035,8 @@ export namespace Schemas {
       hogql?: string | null;
       kind?: 'AccountsTableQuery';
       limit: number;
+      /** Aggregated values in the same order as the requested metrics. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -1032,6 +1076,8 @@ export namespace Schemas {
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
       kind?: 'AccountsTableQuery';
       limit?: number | null;
+      /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
+      metrics?: (AccountsTableCountMetric | AccountsTableAggregateMetric | AccountsTableCountThresholdMetric)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
@@ -6362,6 +6408,8 @@ export namespace Schemas {
       hogql?: string | null;
       kind?: 'AccountsTableQuery';
       limit: number;
+      /** Aggregated values in the same order as the requested metrics. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -64930,6 +64978,8 @@ export namespace Schemas {
       hogql?: string | null;
       kind?: 'AccountsTableQuery';
       limit: number;
+      /** Aggregated values in the same order as the requested metrics. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -65543,6 +65593,8 @@ export namespace Schemas {
       hogql?: string | null;
       kind?: 'AccountsTableQuery';
       limit: number;
+      /** Aggregated values in the same order as the requested metrics. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;

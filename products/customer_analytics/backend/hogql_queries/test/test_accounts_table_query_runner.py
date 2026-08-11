@@ -15,7 +15,11 @@ from posthog.schema import (
     AccountsTableAccountField,
     AccountsTableAccountFieldColumn,
     AccountsTableAccountIdFilter,
+    AccountsTableAggregateMetric,
+    AccountsTableAggregation,
     AccountsTableAssignedToFilter,
+    AccountsTableCountMetric,
+    AccountsTableCountThresholdMetric,
     AccountsTableCustomPropertyColumn,
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
@@ -29,6 +33,7 @@ from posthog.schema import (
     AccountsTableSortDirection,
     AccountsTableTagsColumn,
     AccountsTableTagsFilter,
+    AccountsTableThresholdOperator,
     AccountsTableUnassignedFilter,
 )
 
@@ -161,6 +166,68 @@ class TestAccountsTableQueryRunner(BaseTest):
             str(text_definition.id): None,
         }
         assert empty_row.customPropertyHistory == {str(numeric_definition.id): []}
+
+    def test_calculates_typed_metrics_against_the_filtered_account_set(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="MRR",
+            display_type=DisplayType.CURRENCY,
+        )
+        high = create_account(team_id=self.team.id, name="High")
+        low = create_account(team_id=self.team.id, name="Low")
+        create_account(team_id=self.team.id, name="Unset")
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=high,
+            definition=definition,
+            value_num=20,
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=low,
+            definition=definition,
+            value_num=5,
+        )
+        column = AccountsTableCustomPropertyColumn(definitionId=str(definition.id))
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[],
+                metrics=[
+                    AccountsTableCountMetric(),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.SUM,
+                        column=column,
+                        scale=12,
+                    ),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.AVG,
+                        column=column,
+                    ),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.MIN,
+                        column=column,
+                    ),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.MAX,
+                        column=column,
+                    ),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.MEDIAN,
+                        column=column,
+                    ),
+                    AccountsTableCountThresholdMetric(
+                        column=column,
+                        operator=AccountsTableThresholdOperator.GT,
+                        value=10,
+                    ),
+                ],
+            )
+        )
+
+        assert response.results == []
+        assert response.metricsResults == [3, 300.0, 12.5, 5.0, 20.0, 12.5, 1]
 
     def test_hydrates_custom_properties_with_bounded_queries(self) -> None:
         definition = create_custom_property_definition(
