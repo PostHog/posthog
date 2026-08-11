@@ -102,7 +102,7 @@ const schema = {
   },
   missionControlOverlayEnabled: {
     type: "boolean" as const,
-    default: false,
+    default: true,
   },
 };
 
@@ -119,7 +119,7 @@ export const settingsStore = new Store<SettingsSchema>({
     discordPresenceEnabled: false,
     discordPresenceShowTaskTitle: false,
     discordPresenceShowRepoName: false,
-    missionControlOverlayEnabled: false,
+    missionControlOverlayEnabled: true,
   },
 });
 
@@ -200,7 +200,7 @@ export function setPreventSleepWhileRunning(value: boolean): void {
 }
 
 export function getMissionControlOverlayEnabled(): boolean {
-  return settingsStore.get("missionControlOverlayEnabled", false);
+  return settingsStore.get("missionControlOverlayEnabled", true);
 }
 
 export function setMissionControlOverlayEnabled(value: boolean): void {
