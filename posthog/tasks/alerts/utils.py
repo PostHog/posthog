@@ -10,6 +10,7 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
@@ -271,11 +272,16 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
 
 
 def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
-    return list(
+    candidates = (
         alert.team.all_users_with_access()
         .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
-        .values_list("id", "email")
+        .only("id", "email")
     )
+    return [
+        (user.id, user.email)
+        for user in candidates
+        if UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
+    ]
 
 
 def dispatch_alert_notification(

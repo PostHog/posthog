@@ -605,6 +605,15 @@ class TestNotifyAlert:
 
         assert recipients == []
 
+    async def test_error_notification_excludes_subscriber_without_insight_access(self, alert_with_user) -> None:
+        with patch(
+            "posthog.tasks.alerts.utils.UserAccessControl.check_access_level_for_object",
+            return_value=False,
+        ):
+            recipients = await sync_to_async(get_alert_error_notification_recipients)(alert_with_user)
+
+        assert recipients == []
+
     async def test_error_realtime_notification_failure_does_not_block_recording_delivery(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": "boom"})
 
