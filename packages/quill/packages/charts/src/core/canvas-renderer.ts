@@ -595,8 +595,8 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
 /** Trace a scatter marker's outline at (x, y) without painting it — the caller sets `fillStyle` /
  *  `strokeStyle` and calls `fill()`/`stroke()`. Split that way so a scatter chart can fill each
  *  marker translucently (dense clouds need to show through each other) and stroke it opaquely
- *  from one traced path. `radius` is the glyph's half-extent, so every shape occupies the same
- *  visual box as a circle of that radius. `cross` traces two strokes and can only be stroked. */
+ *  from one traced path. `radius` is the glyph's half-extent, so every shape spans the same width
+ *  as a circle of that radius. `cross` traces two strokes and can only be stroked. */
 export function traceScatterMarker(
     ctx: CanvasRenderingContext2D,
     shape: ScatterMarkerShape,
@@ -610,10 +610,11 @@ export function traceScatterMarker(
             ctx.rect(x - radius, y - radius, radius * 2, radius * 2)
             return
         case 'triangle':
-            // Centroid-centered so the glyph's visual weight sits on the data point.
+            // Base at half the radius, which puts the centroid — not the bounding box — on the
+            // data point, so the glyph's visual weight sits where the value is.
             ctx.moveTo(x, y - radius)
-            ctx.lineTo(x + radius, y + radius * 0.75)
-            ctx.lineTo(x - radius, y + radius * 0.75)
+            ctx.lineTo(x + radius, y + radius * 0.5)
+            ctx.lineTo(x - radius, y + radius * 0.5)
             ctx.closePath()
             return
         case 'cross':

@@ -1,6 +1,11 @@
-import { findNearestPointIndex, flattenScatterPoints, scatterValueRange } from './scatter-layout'
+import { findNearestPointIndex, flattenScatterPoints, scatterValueRange, xLabelEdgeReserve } from './scatter-layout'
 import type { ScatterPointPosition } from './scatter-layout'
 import type { ScatterSeries } from './types'
+
+jest.mock('../../utils/text-measure', () => ({
+    ...jest.requireActual('../../utils/text-measure'),
+    measureLabelWidth: (text: string) => text.length * 10,
+}))
 
 const SERIES: ScatterSeries[] = [
     {
@@ -35,12 +40,12 @@ describe('scatter-layout', () => {
             ['a negative on a log y axis', { x: 1, y: -5 }, { yLogScale: true }],
         ])('drops a point with %s', (_, point, options) => {
             const series: ScatterSeries[] = [{ key: 'a', label: 'A', points: [point, { x: 5, y: 5 }] }]
-            expect(flattenScatterPoints(series, options)).toHaveLength(1)
+            expect(flattenScatterPoints(series, options)).toMatchObject([{ x: 5, y: 5 }])
         })
 
         it('keeps a non-positive coordinate when that axis is linear', () => {
             const series: ScatterSeries[] = [{ key: 'a', label: 'A', points: [{ x: 0, y: -5 }] }]
-            expect(flattenScatterPoints(series)).toHaveLength(1)
+            expect(flattenScatterPoints(series)).toMatchObject([{ x: 0, y: -5 }])
         })
     })
 
@@ -58,6 +63,24 @@ describe('scatter-layout', () => {
             ])
             expect(scatterValueRange(points, 'x')).toMatchObject({ min: -4, max: 8, minPositive: 8, count: 2 })
             expect(scatterValueRange(points, 'y')).toMatchObject({ min: 2, max: 60, minPositive: 2, count: 2 })
+        })
+    })
+
+    describe('xLabelEdgeReserve', () => {
+        // The base chart reserves nothing for a continuous x axis, so a tick centered on the plot's
+        // last pixel loses its outer half to the wrapper's overflow unless this gutter is set.
+        // measureLabelWidth is mocked above at 10px per character.
+        it('reserves half the widest tick label, formatted the way the axis formats it', () => {
+            // Ticks run to '$30' over the points' 10–30 span: 3 characters, so 15px of overhang.
+            expect(xLabelEdgeReserve(flattenScatterPoints(SERIES), undefined, (v) => `$${v}`)).toBe(15 + 4)
+        })
+
+        it('follows a pinned domain rather than the points', () => {
+            expect(xLabelEdgeReserve(flattenScatterPoints(SERIES), [0, 1000], (v) => `$${v}`)).toBe(25 + 4)
+        })
+
+        it('reserves nothing when there is no point to label', () => {
+            expect(xLabelEdgeReserve([], undefined, undefined)).toBe(0)
         })
     })
 

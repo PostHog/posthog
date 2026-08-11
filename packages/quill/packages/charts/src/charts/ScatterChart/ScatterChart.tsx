@@ -8,6 +8,7 @@ import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { dimColor, resolveCssColor } from '../../core/color-utils'
+import { applyMarginOverride, DEFAULT_MARGINS } from '../../core/hooks/useChartMargins'
 import { buildValueScale, sanitizeFixedDomain, yTickCountForHeight } from '../../core/scales'
 import type { D3YScale } from '../../core/scales'
 import type {
@@ -15,6 +16,7 @@ import type {
     ChartConfig,
     ChartDimensions,
     ChartDrawArgs,
+    ChartMargins,
     ChartScales,
     ChartTheme,
     CreateScalesFn,
@@ -25,11 +27,14 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import {
+    clampToRange,
+    domainBounds,
     findNearestPointIndex,
     flattenScatterPoints,
     readScatterLayout,
     scatterValueRange,
     toScatterPrivate,
+    xLabelEdgeReserve,
 } from './scatter-layout'
 import type { FlatScatterPoint, ScatterPointPosition } from './scatter-layout'
 import { ScatterTooltip } from './ScatterTooltip'
@@ -196,12 +201,23 @@ function ScatterChartInner<Meta = unknown>({
                 { scaleType: yScaleType, domain: yDomain, startAtZero: yStartAtZero }
             )
 
+            // A pinned domain narrows the chart, so a point outside it is excluded, not just
+            // off-view: a linear scale would place it in the axis gutters and a clamped log scale
+            // would pile it onto the plot edge at a value it doesn't have. Filtering here keeps
+            // drawing, hit-testing, and the hover halo in agreement. A domain derived from the
+            // data already contains every point, so this drops nothing unless a caller pinned one.
+            const [xLow, xHigh] = domainBounds(xScale)
+            const [yLow, yHigh] = domainBounds(yScale)
+
             const positions: ScatterPointPosition[] = []
             const xByIndex = new Array<number | undefined>(points.length)
             let maxRadius = 0
             for (let i = 0; i < points.length; i++) {
                 const point = points[i]
                 if (hidden.has(point.seriesKey)) {
+                    continue
+                }
+                if (point.x < xLow || point.x > xHigh || point.y < yLow || point.y > yHigh) {
                     continue
                 }
                 const x = xScale(point.x)
@@ -232,7 +248,6 @@ function ScatterChartInner<Meta = unknown>({
                     xScale,
                     yScale,
                     positions,
-                    xByIndex,
                     xTicks: xScale.ticks?.(xTickCount) ?? [],
                     maxRadius,
                 }),
@@ -404,20 +419,51 @@ function ScatterChartInner<Meta = unknown>({
 
     // The core reports the drag in pixels — its label range means nothing on a continuous axis —
     // so invert each edge through the committed scales to get the range in the points' own units.
+    // A gesture may end outside the plot (brushing to a corner routinely overshoots), so each
+    // pixel is clamped to its axis first; the selection then never exceeds what the user saw.
     const handleAreaSelect = useCallback(
         (data: AreaSelectData, scales: ChartScales): void => {
             const layout = readScatterLayout(scales)
             if (!layout || !onAreaSelect) {
                 return
             }
+            const { xScale, yScale } = layout
             onAreaSelect({
-                x: sanitizeFixedDomain([layout.xScale.invert(data.xPixel0), layout.xScale.invert(data.xPixel1)]),
+                x: sanitizeFixedDomain([
+                    xScale.invert(clampToRange(data.xPixel0, xScale)),
+                    xScale.invert(clampToRange(data.xPixel1, xScale)),
+                ]),
                 // The y pixel range runs top-to-bottom, so its low pixel inverts to the high value.
-                y: sanitizeFixedDomain([layout.yScale.invert(data.yPixel1), layout.yScale.invert(data.yPixel0)]),
+                y: sanitizeFixedDomain([
+                    yScale.invert(clampToRange(data.yPixel1, yScale)),
+                    yScale.invert(clampToRange(data.yPixel0, yScale)),
+                ]),
             })
         },
         [onAreaSelect]
     )
+
+    // The base chart sizes the y gutter from the adapter series' values, which stop at the data
+    // even when the caller pinned a wider y domain (sharing one domain across sibling charts is a
+    // documented use). Hand it the pinned bounds instead, so the gutter fits the ticks that render.
+    const valueRangeSeries = useMemo<Series[] | undefined>(() => {
+        if (!yDomain) {
+            return undefined
+        }
+        return [{ key: '__scatter_y_domain', label: '', data: sanitizeFixedDomain(yDomain) }]
+    }, [yDomain])
+
+    const resolvedMargins = useMemo<Partial<ChartMargins> | undefined>(() => {
+        if (xAxis.hide) {
+            return margins
+        }
+        // Right side only: on the left, the y-axis gutter already reserves more than half a tick
+        // label. A consumer `margins` override still wins, side by side.
+        const computed: Partial<ChartMargins> = {
+            right: Math.max(DEFAULT_MARGINS.right, xLabelEdgeReserve(points, xDomain, xTickFormatter)),
+        }
+        return margins ? applyMarginOverride(computed, margins) : computed
+    }, [xAxis.hide, margins, points, xDomain, xTickFormatter])
 
     const baseConfig = useMemo<ChartConfig>(
         () => ({
@@ -427,10 +473,10 @@ function ScatterChartInner<Meta = unknown>({
             yAxisLabel,
             hideXAxis: xAxis.hide,
             hideYAxis: yAxis.hide,
-            margins,
+            margins: resolvedMargins,
             tooltip: { enabled: tooltipConfig?.enabled },
         }),
-        [yTickFormatter, xAxisLabel, yAxisLabel, xAxis.hide, yAxis.hide, margins, tooltipConfig?.enabled]
+        [yTickFormatter, xAxisLabel, yAxisLabel, xAxis.hide, yAxis.hide, resolvedMargins, tooltipConfig?.enabled]
     )
 
     return (
@@ -445,6 +491,7 @@ function ScatterChartInner<Meta = unknown>({
                 drawHover={drawHover}
                 resolveHoverIndex={resolveHoverIndex}
                 resolveValue={resolveValue}
+                valueRangeSeries={valueRangeSeries}
                 tooltip={renderTooltip}
                 onPointClick={onPointClick ? handlePointClick : undefined}
                 onAreaSelect={onAreaSelect ? handleAreaSelect : undefined}

@@ -1,6 +1,10 @@
+import { scaleLinear } from 'd3-scale'
+
+import { X_LABEL_EDGE_PADDING } from '../../core/hooks/useChartMargins'
 import type { D3YScale, SeriesValueRange } from '../../core/scales'
-import { extendValueRange } from '../../core/scales'
+import { autoFormatterFor, extendValueRange, sanitizeFixedDomain } from '../../core/scales'
 import type { ChartScales, ScatterMarkerShape } from '../../core/types'
+import { measureLabelWidth } from '../../utils/text-measure'
 import type { ScatterSeries } from './types'
 
 /** One point lifted out of its series into the chart's flat, x-sorted index space. Its position in
@@ -38,8 +42,6 @@ export interface ScatterLayout {
     yScale: D3YScale
     /** Visible, drawable points in ascending x-pixel order — the hit-test's search space. */
     positions: ScatterPointPosition[]
-    /** Global index → x pixel. `undefined` for a point whose series is hidden. */
-    xByIndex: (number | undefined)[]
     xTicks: number[]
     /** Largest marker radius on the plot — the hit-test's pruning bound. */
     maxRadius: number
@@ -55,6 +57,28 @@ export function toScatterPrivate(layout: ScatterLayout): ScatterChartPrivate {
 
 export function readScatterLayout(scales: ChartScales): ScatterLayout | undefined {
     return (scales._private as ScatterChartPrivate | undefined)?.__scatter
+}
+
+/** Ends of a scale interval as `[low, high]`, whichever way round it was declared — a y range runs
+ *  bottom-to-top and a domain may descend. */
+function bounds(interval: number[]): [number, number] {
+    const first = interval[0]
+    const last = interval[interval.length - 1]
+    return first <= last ? [first, last] : [last, first]
+}
+
+/** Lowest and highest value a scale plots. Outside it a linear scale extrapolates and a clamped
+ *  log scale piles points onto the plot edge, so a point outside these bounds isn't drawable. */
+export function domainBounds(scale: D3YScale): [number, number] {
+    return bounds(scale.domain())
+}
+
+/** Clamp a pixel into a scale's own range. A drag can end outside the plot, and inverting a pixel
+ *  past the axis reports a value the user never brushed — on all-positive data, often a negative
+ *  one. A log scale clamps on `invert` already; this makes the linear one agree. */
+export function clampToRange(pixel: number, scale: D3YScale): number {
+    const [low, high] = bounds(scale.range())
+    return Math.min(Math.max(pixel, low), high)
 }
 
 /** A coordinate is plottable on a log axis only when it is strictly positive — `log(0)` is
@@ -96,6 +120,37 @@ export function scatterValueRange(points: FlatScatterPoint[], axis: 'x' | 'y'): 
         empty,
         points.map((point) => point[axis])
     )
+}
+
+/** Half the widest x tick label, plus the shared edge padding — the gutter the plot needs beside a
+ *  tick centered on its edge, or that label's outer half is cut by the wrapper's `overflow`.
+ *
+ *  `useChartMargins` sizes this from the category labels, which a continuous x axis has none of, so
+ *  estimate it the way a horizontal bar chart's value axis does: nice ticks over the axis' range,
+ *  measured with the axis' own formatter. The ticks that actually render depend on the plot width
+ *  this reserve helps decide, so it is an estimate of the right magnitude, not the exact set. */
+export function xLabelEdgeReserve(
+    points: FlatScatterPoint[],
+    domain: readonly [number, number] | undefined,
+    tickFormatter: ((value: number) => string) | undefined
+): number {
+    let extent: [number, number]
+    if (domain) {
+        extent = sanitizeFixedDomain(domain)
+    } else {
+        const range = scatterValueRange(points, 'x')
+        if (range.count === 0) {
+            return 0
+        }
+        extent = [range.min, range.max]
+    }
+    const ticks = scaleLinear().domain(extent).nice(6).ticks(6)
+    const format = tickFormatter ?? autoFormatterFor(ticks)
+    let widest = 0
+    for (const tick of ticks) {
+        widest = Math.max(widest, measureLabelWidth(format(tick)))
+    }
+    return Math.ceil(widest / 2) + X_LABEL_EDGE_PADDING
 }
 
 /** Global index of the marker nearest the cursor, or -1 when none is within `slop` px of its edge.
