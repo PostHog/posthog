@@ -1087,8 +1087,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             data-attr="flag-early-exit"
                             checked={releaseFilters.early_exit ?? false}
                             onChange={(checked) => setEarlyExit(checked)}
-                            label="Stop evaluation at first matching condition set"
-                            info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
+                            label="Stop at the first condition set whose property filters match"
+                            info="Condition sets are evaluated in order. When enabled, the first set whose property filters match decides the result — if that set's rollout percentage excludes the user, the flag returns false and later sets are skipped. When disabled, the user falls through to the next set instead, and a pass on any set is a pass."
                         />
                     </div>
                     {releaseFilters.early_exit && (
