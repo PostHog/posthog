@@ -9,6 +9,7 @@ const SAVED_VIEWS_MAX_RESULTS = 500
 
 export interface conversationsWidgetSavedViewsLogicValues {
     savedViewsError: string | null
+    savedViewsLoaded: boolean
     savedViewLabelById: Record<string, string>
     savedViewOptions: { label: string; value: string }[]
     savedViews: TicketViewApi[]
@@ -63,6 +64,14 @@ export const conversationsWidgetSavedViewsLogic = kea<conversationsWidgetSavedVi
         },
     })),
     reducers({
+        savedViewsLoaded: [
+            false,
+            {
+                loadSavedViews: () => false,
+                loadSavedViewsFailure: () => false,
+                loadSavedViewsSuccess: () => true,
+            },
+        ],
         savedViewsError: [
             null as string | null,
             {

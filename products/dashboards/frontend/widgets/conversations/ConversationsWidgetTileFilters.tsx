@@ -90,7 +90,7 @@ export function ConversationsWidgetTileFilters({
     const savedViewId = parsedConfig.savedViewId ?? null
     const { currentProjectId } = useValues(teamLogic)
     const savedViewsLogic = conversationsWidgetSavedViewsLogic({ projectId: currentProjectId })
-    const { savedViewOptions, savedViews, savedViewsLoading, savedViewsError, savedViewLabelById } =
+    const { savedViewOptions, savedViewsLoaded, savedViewsLoading, savedViewsError, savedViewLabelById } =
         useValues(savedViewsLogic)
     const { loadSavedViews } = useActions(savedViewsLogic)
     const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
@@ -126,7 +126,7 @@ export function ConversationsWidgetTileFilters({
                     options={[{ value: NO_SAVED_VIEW, label: 'No saved view' }, ...savedViewOptions]}
                     menu={{
                         onVisibilityChange: (visible) => {
-                            if (visible && savedViews.length === 0 && !savedViewsLoading) {
+                            if (visible && !savedViewsLoaded && !savedViewsLoading) {
                                 loadSavedViews()
                             }
                         },
