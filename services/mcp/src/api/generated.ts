@@ -14252,6 +14252,23 @@ export namespace Schemas {
     }
 
     /**
+     * How a draft's declared capabilities grow the current head's. A head that
+     * predates the capabilities snapshot reports every declaration as an addition.
+     */
+    export interface CanvasCapabilityWidening {
+      /** True when the draft declares any capability the current head does not. */
+      widens: boolean;
+      /** Insight short ids the draft newly declares access to. */
+      insights_added: string[];
+      /** Event names the draft newly declares it may capture. */
+      capture_events_added: string[];
+      /** True when the draft enables inline queries and the current head does not. */
+      inline_queries_enabled: boolean;
+      /** Network origins the draft newly declares it may reach. */
+      network_origins_added: string[];
+    }
+
+    /**
      * Payload for creating a new, empty canvas in a channel.
      */
     export interface CanvasCreate {
@@ -14267,6 +14284,49 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
+    }
+
+    /**
+     * A staged draft version and the status of its latest build. Preview a
+     * draft's files with `source?version_id=`, then make it live with `promote`.
+     */
+    export interface CanvasDraft {
+      /** Id of the draft source version. */
+      version_id: string;
+      /**
+         * Short description recorded when the draft was staged.
+         * @nullable
+         */
+      prompt: string | null;
+      /** Who staged the draft. */
+      readonly created_by: UserBasic | null;
+      /** When the draft was staged. */
+      created_at: string;
+      /** Status of the draft's latest build; null when no build has been recorded yet.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum | null;
+      /**
+         * Id of the draft's latest build, when one exists.
+         * @nullable
+         */
+      build_id: string | null;
+    }
+
+    /**
+     * Payload for promoting a draft version to the canvas's live head.
+     */
+    export interface CanvasPromote {
+      /** Id of the draft source version to make live. */
+      version_id: string;
+      /**
+         * Current source version observed before requesting the promote (null when the canvas has never been published). A moved head is rejected with 409 version_conflict.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
     }
 
     /**
@@ -14344,6 +14404,65 @@ export namespace Schemas {
     }
 
     /**
+     * Project files keyed by relative path (forward slashes, no '..').
+     */
+    export type CanvasSourceProjectFiles = {[key: string]: string};
+
+    /**
+     * Optional base64-encoded binary assets keyed by safe project-relative paths.
+     */
+    export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
+
+    /**
+     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+     */
+    export type CanvasSourceProjectDependencies = {[key: string]: string};
+
+    /**
+     * A canvas's multi-file source project — the canonical write format for canvas source.
+     */
+    export interface CanvasSourceProject {
+      /** Source-project schema version. Currently always 1. */
+      schemaVersion: number;
+      /** Project files keyed by relative path (forward slashes, no '..'). */
+      files: CanvasSourceProjectFiles;
+      /** Optional base64-encoded binary assets keyed by safe project-relative paths. */
+      assets?: CanvasSourceProjectAssets;
+      /** The project's entry HTML file. Currently always "index.html". */
+      entryHtml: string;
+      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+      dependencies?: CanvasSourceProjectDependencies;
+      /** Version of the host-injected `ph` canvas SDK the project targets. */
+      canvasSdkVersion?: string;
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+      capabilities?: CanvasCapabilities;
+    }
+
+    /**
+     * Payload for staging a complete source project as a draft build.
+     */
+    export interface CanvasSourceDraft {
+      /** The complete source project to stage as a draft. */
+      project: CanvasSourceProject;
+      /** Short description of the change, stored on the draft's version history entry. */
+      prompt?: string;
+    }
+
+    /**
+     * Result of staging a draft build.
+     */
+    export interface CanvasSourceDraftResponse {
+      /** Id of the draft source version this request created. */
+      version_id: string;
+      /** The queued draft build; poll `builds` until it is terminal. */
+      build: CanvasBuild;
+      /** Advisory (warning-severity) diagnostics recorded for the drafted project. */
+      diagnostics: CanvasDiagnostic[];
+      /** What the draft's declared capabilities grant beyond the current head's. Review before promoting. */
+      capability_widening: CanvasCapabilityWidening;
+    }
+
+    /**
      * One per-file edit: set a file's content, or delete it.
      */
     export interface CanvasSourceEditOperation {
@@ -14386,41 +14505,6 @@ export namespace Schemas {
       code: string;
       /** The validation diagnostics, including at least one error. */
       diagnostics: CanvasDiagnostic[];
-    }
-
-    /**
-     * Project files keyed by relative path (forward slashes, no '..').
-     */
-    export type CanvasSourceProjectFiles = {[key: string]: string};
-
-    /**
-     * Optional base64-encoded binary assets keyed by safe project-relative paths.
-     */
-    export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
-
-    /**
-     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
-     */
-    export type CanvasSourceProjectDependencies = {[key: string]: string};
-
-    /**
-     * A canvas's multi-file source project — the canonical write format for canvas source.
-     */
-    export interface CanvasSourceProject {
-      /** Source-project schema version. Currently always 1. */
-      schemaVersion: number;
-      /** Project files keyed by relative path (forward slashes, no '..'). */
-      files: CanvasSourceProjectFiles;
-      /** Optional base64-encoded binary assets keyed by safe project-relative paths. */
-      assets?: CanvasSourceProjectAssets;
-      /** The project's entry HTML file. Currently always "index.html". */
-      entryHtml: string;
-      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
-      dependencies?: CanvasSourceProjectDependencies;
-      /** Version of the host-injected `ph` canvas SDK the project targets. */
-      canvasSdkVersion?: string;
-      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
-      capabilities?: CanvasCapabilities;
     }
 
     /**
@@ -14534,9 +14618,22 @@ export namespace Schemas {
          * @nullable
          */
       task_id: string | null;
+      /** True for a staged draft version that has never been the canvas head; promote it to make it live. */
+      draft: boolean;
       readonly created_by: UserBasic | null;
       /** When the version was published. */
       created_at: string;
+    }
+
+    export interface CapabilityReadiness {
+      /** cost/attribution/roas/cac/retention_by_channel/ltv_by_channel */
+      capability: string;
+      /** unlocked/partial/blocked */
+      status: string;
+      /** Why it's in that state, in plain English */
+      explanation: string;
+      /** Suggestion ids that unblock this capability — the link from a blocked metric to its fixes */
+      blocked_by: string[];
     }
 
     /**
@@ -28383,7 +28480,7 @@ export namespace Schemas {
          */
       source: string;
     } | {
-      /** Classify sentiment from user messages in the generation input. */
+      /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
       source?: 'user_messages';
     };
 
@@ -28590,7 +28687,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_reason_detail: string | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
        *
        * * `llm_judge` - LLM as a judge
        * * `hog` - Hog
@@ -46920,6 +47017,15 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
+    export interface PaginatedCanvasDraftList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CanvasDraft[];
+    }
+
     export interface PaginatedCanvasList {
       count: number;
       /** @nullable */
@@ -54507,7 +54613,7 @@ export namespace Schemas {
          */
       source: string;
     } | {
-      /** Classify sentiment from user messages in the generation input. */
+      /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
       source?: 'user_messages';
     };
 
@@ -54571,7 +54677,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_reason_detail?: string | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
        *
        * * `llm_judge` - LLM as a judge
        * * `hog` - Hog
@@ -68534,6 +68640,65 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    export interface Suggestion {
+      /** Stable identifier for this finding. Deterministic across scans, so clients can dedupe and remember dismissals by it. */
+      id: string;
+      /** Suggestion kind, e.g. connect_source / add_source_mapping */
+      kind: string;
+      /** 'deterministic' or 'ai' — how this suggestion was produced */
+      source: string;
+      /** error/warning/info */
+      severity: string;
+      /** 0-1. Never 1.0: these are inferences, not proofs. */
+      confidence: number;
+      /** Short imperative title, e.g. 'Connect Meta Ads' */
+      title: string;
+      /** The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith */
+      evidence: string;
+      /** Capabilities this unblocks: cost, attribution, roas, cac, retention_by_channel, ltv_by_channel */
+      unlocks: string[];
+      /** The operation that applies this suggestion, or null when there's nothing to automate. An object with an 'op' discriminator — see the ApplyOp union in setup_types. Pass it verbatim to apply_setup_ops; never hand-craft one. */
+      apply: unknown;
+      /** Advice shown alongside the action. Mapping suggestions always carry a 'fix_platform_urls' entry, because a mapping is a workaround and correcting the ad platform's tracking template is the real fix. */
+      also_recommended: unknown[];
+      /** True only for high-confidence, reversible operations — what an 'apply all safe' button may include */
+      safe_to_batch: boolean;
+      /** Ranking score; higher first. Unblocking actions dominate. */
+      rank_score: number;
+      /**
+         * Integration this concerns, if any
+         * @nullable
+         */
+      integration: string | null;
+      /**
+         * In-app URL to resolve this manually, if any
+         * @nullable
+         */
+      deep_link: string | null;
+      /**
+         * Documentation link, if any
+         * @nullable
+         */
+      docs_url: string | null;
+      /** Ad spend currently mis- or un-attributed because of this */
+      spend_at_risk: number;
+      /** Events affected in the window */
+      event_volume: number;
+    }
+
+    export interface SetupPlanResponse {
+      /** Ranked suggestions, most important first */
+      suggestions: Suggestion[];
+      /** Per-capability readiness, with the suggestions blocking each */
+      readiness: CapabilityReadiness[];
+      /** Sub-services that failed. Their suggestions are missing, so do NOT present the plan as a complete clean bill of health when this is non-empty. */
+      degraded: string[];
+      /** True when the campaign or UTM queries hit their row caps. Rates and totals are then top-N subtotals — present them as approximate rather than exact. */
+      truncated: boolean;
+      /** One-line summary of the plan */
+      summary: string;
+    }
+
     /**
      * * `trace` - trace
      * * `debug` - debug
@@ -76106,6 +76271,55 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
     }
 
+    /**
+     * * `task` - task
+     * * `pull_request` - pull_request
+     * * `artifact` - artifact
+     * * `channel` - channel
+     */
+    export type TaskSearchResultKindEnum = typeof TaskSearchResultKindEnum[keyof typeof TaskSearchResultKindEnum];
+
+
+    export const TaskSearchResultKindEnum = {
+      Task: 'task',
+      PullRequest: 'pull_request',
+      Artifact: 'artifact',
+      Channel: 'channel',
+    } as const;
+
+    export interface TaskSearchResult {
+      /** Search document identifier. */
+      id: string;
+      /** Type of matched resource.
+       *
+       * * `task` - task
+       * * `pull_request` - pull_request
+       * * `artifact` - artifact
+       * * `channel` - channel */
+      kind: TaskSearchResultKindEnum;
+      /** Primary result label. */
+      title: string;
+      /** Secondary result context. */
+      subtitle: string;
+      /**
+         * Containing task identifier, when applicable.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Containing task run identifier, when applicable.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /**
+         * Containing space identifier, when applicable.
+         * @nullable
+         */
+      channel_id: string | null;
+      /** Resource-specific navigation metadata. */
+      metadata: unknown;
+    }
+
     export interface TaskSessionResponse {
       /** Task session identifier */
       id: string;
@@ -81381,6 +81595,17 @@ export namespace Schemas {
     version_id?: string;
     };
 
+    export type CanvasesDraftsRetrieveParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type CanvasesSourceRetrieveParams = {
     /**
      * Read this historical source version instead of the head (for version browsing).
@@ -86552,6 +86777,18 @@ export namespace Schemas {
     goal_id: string;
     };
 
+    export type MarketingAnalyticsSetupPlanRetrieveParams = {
+    /**
+     * Window for campaign spend and the UTM catalogue, as a relative range (e.g. '-30d'); defaults to -30d
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Re-run every check instead of serving a recent result. Use right after changing something.
+     */
+    refresh?: boolean;
+    };
+
     export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
     /**
      * Minimum 30d event count to be a candidate
@@ -88792,6 +89029,21 @@ export namespace Schemas {
     window_days?: number;
     };
 
+    export type TasksSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Text or exact identifier to search for.
+     * @minLength 1
+     * @maxLength 512
+     */
+    q: string;
+    };
+
     export type TasksSlackThreadContextRetrieveParams = {
     /**
      * Full Slack permalink to any message in the thread (e.g. https://posthog.slack.com/archives/C…/p1779956938619299). Replies inside the thread are accepted too — the `thread_ts` query param (when present) takes precedence over the in-path message ts.
@@ -89034,6 +89286,14 @@ export namespace Schemas {
      */
     labeled?: string;
     /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number;
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number;
+    /**
      * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
@@ -89160,6 +89420,14 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number;
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -89211,6 +89479,14 @@ export namespace Schemas {
      */
     labeled?: string;
     /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number;
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number;
+    /**
      * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
@@ -89257,6 +89533,14 @@ export namespace Schemas {
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number;
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number;
     /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
