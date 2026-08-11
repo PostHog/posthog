@@ -200,7 +200,9 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 </ScenePanel>
                             </>
                         )}
-                        {hasUnsavedChanges && (
+                        {/* Saved workflows carry their save/draft controls in the status bar above the
+                            canvas; the header only creates (new/template flows have no bar yet). */}
+                        {!isSavedWorkflow && hasUnsavedChanges && (
                             <LemonButton
                                 data-attr="discard-workflow-changes"
                                 type="secondary"
@@ -219,13 +221,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             >
                                 Update template
                             </LemonButton>
-                        ) : (
+                        ) : !isSavedWorkflow ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
                                 minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={
-                                    props.id === 'new' ? undefined : (workflowUserAccessLevel ?? undefined)
-                                }
+                                userAccessLevel={undefined}
                             >
                                 <LemonButton
                                     data-attr="workflow-save"
@@ -245,14 +245,10 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                                 : 'No changes to save'
                                     }
                                 >
-                                    {props.id === 'new'
-                                        ? 'Create as draft'
-                                        : workflow?.status === 'active'
-                                          ? 'Save draft'
-                                          : 'Save'}
+                                    Create as draft
                                 </LemonButton>
                             </AccessControlAction>
-                        )}
+                        ) : null}
                     </>
                 }
             />

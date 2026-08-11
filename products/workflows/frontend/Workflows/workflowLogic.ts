@@ -48,6 +48,7 @@ import {
     type HogFlowEdge,
     type HogFlowSchedule,
 } from './hogflows/types'
+import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
 
@@ -3447,21 +3448,10 @@ export const workflowLogic = kea<workflowLogicType>([
             } finally {
                 actions.setDraftActionPending(null)
             }
-            const inFlight = preview.in_flight_runs ?? 0
-            LemonDialog.open({
-                title: 'Publish staged changes?',
-                description:
-                    'This applies your staged changes to the live workflow.' +
-                    (inFlight > 0
-                        ? ` ${inFlight} ${inFlight === 1 ? 'person is' : 'people are'} currently mid-run.`
-                        : ''),
-                primaryButton: {
-                    children: 'Publish',
-                    onClick: () => actions.confirmPublishDraft(preview.confirm_token ?? ''),
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
+            openPublishConfirmDialog({
+                impact: preview.impact,
+                inFlightRuns: preview.in_flight_runs,
+                onConfirm: () => actions.confirmPublishDraft(preview.confirm_token ?? ''),
             })
         },
         confirmPublishDraft: async ({ confirmToken }) => {
