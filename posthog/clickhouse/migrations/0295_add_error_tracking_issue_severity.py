@@ -21,21 +21,21 @@ _is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
 operations = [
     run_sql_with_exceptions(
-        "ALTER TABLE posthog.raw_error_tracking_fingerprint_issue_state "
+        "ALTER TABLE raw_error_tracking_fingerprint_issue_state "
         "ADD COLUMN IF NOT EXISTS issue_severity Nullable(String) AFTER issue_status",
         node_roles=[NodeRole.AUX],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
-        "ALTER TABLE posthog.writable_error_tracking_fingerprint_issue_state "
+        "ALTER TABLE writable_error_tracking_fingerprint_issue_state "
         "ADD COLUMN IF NOT EXISTS issue_severity Nullable(String) AFTER issue_status",
         node_roles=[NodeRole.AUX],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
-        "ALTER TABLE posthog.error_tracking_fingerprint_issue_state "
+        "ALTER TABLE error_tracking_fingerprint_issue_state "
         "ADD COLUMN IF NOT EXISTS issue_severity Nullable(String) AFTER issue_status",
         node_roles=[NodeRole.DATA, NodeRole.AUX],
         sharded=False,
@@ -44,7 +44,7 @@ operations = [
 ] + (
     [
         run_sql_with_exceptions(
-            "ALTER TABLE posthog.writable_error_tracking_fingerprint_issue_state "
+            "ALTER TABLE writable_error_tracking_fingerprint_issue_state "
             "ADD COLUMN IF NOT EXISTS issue_severity Nullable(String) AFTER issue_status",
             node_roles=[NodeRole.INGESTION_SMALL],
             sharded=False,
