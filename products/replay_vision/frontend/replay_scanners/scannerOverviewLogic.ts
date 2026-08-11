@@ -188,7 +188,7 @@ export interface scannerOverviewLogicMeta {
         coverageStats: (overviewStatsApi: ObservationStatsApi | null) => CoverageStats
         firstScanPending: (
             overviewStatsApi: ObservationStatsApi | null,
-            scanner: ReplayScanner | null,
+            scanner: ReplayScanner,
             hasActiveOverviewFilters: boolean
         ) => boolean
     }
