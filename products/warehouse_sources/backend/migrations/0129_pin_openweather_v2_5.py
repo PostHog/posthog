@@ -28,7 +28,7 @@ def pin_openweather_v2_5(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("warehouse_sources", "0127_pin_qualys_vmdr_null_api_version_to_2_0")]
+    dependencies = [("warehouse_sources", "0128_repin_adobe_analytics_api_version_2_0")]
 
     operations = [
         # Reverse is a no-op: once pinned, a 2.5 row is indistinguishable from one natively stamped
