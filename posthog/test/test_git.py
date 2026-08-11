@@ -35,6 +35,8 @@ class TestExtractExplicitRepo:
             ("unconnected_repo_url", "see https://github.com/acme/widgets/pull/1", None),
             ("lookalike_host", "see https://mygithub.com/posthog/posthog/pull/1", None),
             ("host_prefix_spoof", "see https://github.com.evil.tld/posthog/posthog", None),
+            ("org_url_names_no_repo", "see https://github.com/posthog", None),
+            ("unparseable_url_is_not_an_error", "see https://[::1/posthog/posthog", None),
             (
                 "bare_token_beats_later_url",
                 "fix posthog/posthog-js — context: https://github.com/posthog/posthog/pull/1",

@@ -73,7 +73,7 @@ def _repo_from_github_url(token: str) -> str | None:
 
 
 def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Return the repo named in `text` that matches a connected repo, if exactly one is.
+    """Return the connected repo `text` names: the first one typed, or the only one linked.
 
     Two tiers of evidence, strongest first: a bare `owner/repo` token, then a
     `github.com/owner/repo…` URL of any depth (a run, a pull request, a file permalink).
@@ -82,11 +82,11 @@ def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     platform-specific noise (e.g. bot mentions) by the caller.
 
     Links only resolve when the message points at a single connected repo. Two different
-    linked repos is genuine ambiguity, and returning None lets the caller disambiguate
-    (the Slack cascade falls through to its discovery agent, then a repo picker) rather
-    than silently starting work in whichever was pasted first. A link someone labeled
-    `<url|owner/repo>` reads as a typed token and wins outright; Slack writes its own
-    labels as `github.com/owner/repo/…`, which read as links.
+    linked repos is genuine ambiguity, and None is the answer every caller can act on:
+    Slack falls through to its discovery agent and then a repo picker, and the callers
+    with no such fallback start repo-less rather than on whichever was pasted first. A
+    link someone labeled `<url|owner/repo>` reads as a typed token and wins outright;
+    Slack writes its own labels as `github.com/owner/repo/…`, which read as links.
 
     Pure helper (no Django / heavy deps) so any product can import it downward from core.
     """

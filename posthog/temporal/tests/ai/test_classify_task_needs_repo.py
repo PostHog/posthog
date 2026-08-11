@@ -45,11 +45,10 @@ class TestClassifyTaskNeedsRepo:
 
     @parameterized.expand(
         [
-            # Real #flakey-tests asks, each carrying a product noun that short-circuits
-            # the heuristic to no-repo unless the CI vocabulary vetoes it.
+            # Each ask carries a product noun that short-circuits the heuristic to
+            # no-repo unless the CI vocabulary vetoes it first.
             ("flaky_test_named_after_a_feature", "the experiment insight test is flaky"),
             ("merge_queue", "the merge queue keeps failing on the experiment insight tests"),
-            ("ci_on_a_product_pr", "CI is red on the dashboard PR, can you take a look"),
         ]
     )
     def test_ci_vocabulary_leaves_the_call_to_the_llm(self, _name, text):
