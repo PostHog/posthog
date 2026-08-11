@@ -311,8 +311,16 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
                 True,
                 "no supertype for types",
             ),
-            # A code that does arrive as InternalCHQueryError (307 TOO_MANY_BYTES): terminal.
-            ("too_many_bytes", InternalCHQueryError("DB::Exception", code=307), True, "materialization limits"),
+            # The scan-budget overrun. wrap_clickhouse_query_error maps 307 to
+            # CHQueryErrorTooManyBytes, which is an ExposedCHQueryError, so it lands in the
+            # sanitized-message branch rather than the code-table one. It must still read as
+            # the budget message: the same overrun says the same thing on either transport.
+            (
+                "too_many_bytes",
+                ExposedCHQueryError("Code: 307. DB::Exception: Limit for bytes to read exceeded", code=307),
+                True,
+                "materialization limits",
+            ),
             # Unrecognized code (e.g. an S3-side blip): plausibly transient, retry per policy.
             ("unrecognized_code", InternalCHQueryError("DB::Exception", code=499), False, None),
         ]

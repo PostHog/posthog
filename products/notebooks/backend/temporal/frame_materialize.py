@@ -763,7 +763,16 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(str(exc), non_retryable=True) from exc
         except FrameTooLargeError as exc:
-            # The CH-writes analog of the result-bytes cap: deterministic, so terminal.
+            # The CH-writes analog of the result-bytes cap: deterministic, so terminal. The
+            # user-facing message is deliberately vague about the limit, so log the actual
+            # size: it is the only record of how far over the cap ClickHouse ran before the
+            # post-write check caught it, which is what tells us whether the cap is set right.
+            logger.warning(
+                "notebook_frame_materialize_object_too_large",
+                team_id=inputs.team_id,
+                query_id=inputs.query_id,
+                error=str(exc),
+            )
             _finalize_status(manager, inputs, error_message=_RESULT_SIZE_MESSAGE)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(_RESULT_SIZE_MESSAGE, non_retryable=True) from exc
@@ -811,7 +820,10 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # TYPE_MISMATCH, UNKNOWN_FUNCTION) that HogQL didn't catch at print time —
             # deterministic, so terminal with the sanitized message (ExposedCHQueryError.__str__
             # strips the stack trace) rather than 10 pointless re-analyses ending generic.
-            message = str(exc)
+            # Budget overruns arrive here too (TOO_MANY_BYTES for the scan cap is an
+            # ExposedCHQueryError), so consult the shared code table first: the same failure
+            # must read the same way whichever transport produced it.
+            message = _MID_STREAM_MESSAGES_BY_CODE.get(exc.code, "") or str(exc)
             _finalize_status(manager, inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
