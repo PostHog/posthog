@@ -3632,6 +3632,12 @@ export class SessionService {
         // ended while we waited, a queued message can already have started the
         // next one, and cancelling that would cut off a message the user never
         // steered. Falling through queues this message behind it instead.
+        //
+        // A snapshot is enough even though the cancel is async: it is
+        // dispatched in this same synchronous step, while a replacement turn
+        // can only be dispatched once a later event flush reports this one
+        // ended. Ordered transport then puts `session/cancel` at the agent
+        // first, so a cancel can never overtake the turn that replaces this.
         if (this.isSteeredTurnStillRunning(taskId, steeredTurn)) {
           await this.cancelPrompt(taskId);
         }
