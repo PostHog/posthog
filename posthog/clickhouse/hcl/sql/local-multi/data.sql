@@ -190,6 +190,7 @@ CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   issue_name Nullable(String),
   issue_description Nullable(String),
   issue_status String,
+  issue_severity Nullable(String),
   assigned_user_id Nullable(Int64),
   assigned_role_id Nullable(UUID),
   first_seen DateTime64(3, 'UTC'),
