@@ -15,7 +15,7 @@ import { workflowRevisionsLogic } from './workflowRevisionsLogic'
 
 export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
     const logic = workflowRevisionsLogic({ id })
-    const { revisions, revisionsLoading, restoringVersion } = useValues(logic)
+    const { revisions, revisionsCount, revisionsResponseLoading, restoringVersion } = useValues(logic)
     const { restoreRevision } = useActions(logic)
     const { originalWorkflow, workflowUserAccessLevel } = useValues(workflowLogic({ id }))
 
@@ -32,8 +32,15 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
             </div>
             <LemonTable<HogFlowRevisionBasicApi>
                 dataSource={revisions}
-                loading={revisionsLoading}
+                loading={revisionsResponseLoading}
                 rowKey="version"
+                footer={
+                    revisionsCount > revisions.length ? (
+                        <div className="px-3 py-2 text-xs text-secondary">
+                            Showing the newest {revisions.length} of {revisionsCount} versions.
+                        </div>
+                    ) : undefined
+                }
                 emptyState="No versions yet. One is saved each time the live workflow changes."
                 columns={[
                     {

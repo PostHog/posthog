@@ -74,7 +74,7 @@ function PublishImpactContent({
                                 <li key={variable.variable}>
                                     <code>{variable.variable}</code> is used by {variable.referenced_by.length}{' '}
                                     {variable.referenced_by.length === 1 ? 'step' : 'steps'} but only gets a value{' '}
-                                    {variable.set_by ? 'from a step added in this draft' : 'when a run starts'}.
+                                    {variable.set_by ? 'from a step this draft adds or changes' : 'when a run starts'}.
                                 </li>
                             ))}
                         </ul>
@@ -83,8 +83,16 @@ function PublishImpactContent({
             )}
             {scheduleConflicts.length > 0 && (
                 <LemonBanner type="warning">
-                    This draft removes {scheduleConflicts.length === 1 ? 'a variable' : 'variables'} that existing
-                    schedules still set. Review the schedules after publishing.
+                    {(() => {
+                        const conflictVariables = new Set(scheduleConflicts.flatMap((conflict) => conflict.variables))
+                        return `This draft removes ${
+                            conflictVariables.size === 1 ? 'a variable' : `${conflictVariables.size} variables`
+                        } that ${
+                            scheduleConflicts.length === 1
+                                ? 'an existing schedule still sets'
+                                : 'existing schedules still set'
+                        }. Review the schedules after publishing.`
+                    })()}
                 </LemonBanner>
             )}
         </div>

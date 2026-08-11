@@ -278,6 +278,27 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.workflowChanged).toBe(false)
         })
 
+        it('a metadata-only save on an active workflow applies live without staging a phantom draft', async () => {
+            useMocks(activeMocks(activeWorkflow))
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue('name', 'Renamed active')
+            await jest.advanceTimersByTimeAsync(3100)
+            jest.useRealTimers()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            // Renaming must not route unchanged content into the draft slot: the body carries
+            // neither content fields nor the staging flag.
+            expect(patchBodies[0].stage_draft).toBeUndefined()
+            expect(patchBodies[0].actions).toBeUndefined()
+            expect(patchBodies[0].name).toBe('Renamed active')
+            expect(logic.values.hasStagedDraft).toBe(false)
+        })
+
         it('a status transition sends lifecycle and metadata only, never stage_draft', async () => {
             useMocks(
                 activeMocks({

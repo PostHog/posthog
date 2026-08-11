@@ -9,6 +9,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -119,6 +120,64 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert draft_urls == ["https://changed.example.com"]
         assert flow.name == "Renamed live"
         assert response.json()["draft"] is not None
+
+    def test_discard_bumps_live_stamp_so_stale_draft_saves_get_409(self):
+        # Without the bump, a concurrent editor holding the discarded draft's stamp would pass the
+        # staleness guard (which falls back to the live stamp once the draft is gone) and silently
+        # resurrect the draft it never learned was discarded.
+        flow_id = self._create_active_flow()
+        staged = self._patch_actions_via_mcp(flow_id)
+        assert staged.status_code == 200, staged.json()
+        draft_stamp = HogFlow.objects.get(pk=flow_id).draft_updated_at
+        assert draft_stamp is not None
+
+        live_before_discard = HogFlow.objects.get(pk=flow_id).updated_at
+        discard = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/discard_draft")
+        assert discard.status_code == 200, discard.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.updated_at > live_before_discard
+
+        resave = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": [_trigger_action(), _webhook_action(url="https://resurrect.example.com")],
+                "stage_draft": True,
+                "base_updated_at": draft_stamp.isoformat(),
+            },
+        )
+        assert resave.status_code == 409, resave.json()
+        assert HogFlow.objects.get(pk=flow_id).draft is None
+
+    def test_restore_with_stale_expected_draft_stamp_is_rejected_with_409(self):
+        flow_id = self._create_active_flow()
+        # Revisions only snapshot live-content changes, so make one to have a version to restore.
+        live_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), _webhook_action(url="https://live-v2.example.com")]},
+        )
+        assert live_edit.status_code == 200, live_edit.json()
+        version = (
+            HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).order_by("version").first()
+        ).version
+
+        first = self._patch_actions_via_mcp(flow_id, url="https://first-draft.example.com")
+        assert first.status_code == 200, first.json()
+        stamp_at_dialog = HogFlow.objects.get(pk=flow_id).draft_updated_at
+
+        second = self._patch_actions_via_mcp(flow_id, url="https://second-draft.example.com")
+        assert second.status_code == 200, second.json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/{version}/restore",
+            {"overwrite": True, "expected_draft_updated_at": stamp_at_dialog.isoformat()},
+        )
+        assert response.status_code == 409, response.json()
+        draft_urls = [
+            a["config"]["inputs"]["url"]["value"]
+            for a in HogFlow.objects.get(pk=flow_id).draft["actions"]
+            if a["type"] == "function"
+        ]
+        assert draft_urls == ["https://second-draft.example.com"]
 
     def test_stage_draft_on_inactive_flow_applies_live(self):
         hog_flow = {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]}

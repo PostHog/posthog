@@ -15,6 +15,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
+import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
@@ -2853,14 +2854,36 @@ export const workflowLogic = kea<workflowLogicType>([
                         return result
                     }
 
+                    // The form's clean baseline: the staged draft merged over the live row. Sanitized
+                    // like `updates` so untouched steps compare equal. Cloned via JSON round-trip,
+                    // not structuredClone: the clone only feeds the comparison, and structuredClone
+                    // can yield objects whose constructors fail fast-equals' check, making every
+                    // save look like a content change.
+                    const baseline = values.originalWorkflow
+                        ? sanitizeWorkflow(
+                              JSON.parse(JSON.stringify(withStagedDraft(values.originalWorkflow))),
+                              values.hogFunctionTemplatesById
+                          )
+                        : null
+                    const contentChanged =
+                        !baseline ||
+                        WORKFLOW_CONTENT_FIELDS.some(
+                            (field) => !objectsEqual((updates as any)[field], (baseline as any)[field])
+                        )
+                    const isStatusTransition =
+                        !!values.originalWorkflow && updates.status !== values.originalWorkflow.status
                     // Content edits on an active workflow stage into its draft (publish promotes them).
-                    const stagingDraft = values.originalWorkflow?.status === 'active' && updates.status === 'active'
+                    // Metadata-only saves (rename, description) must not: staging the unchanged content
+                    // would create a phantom draft identical to live.
+                    const stagingDraft =
+                        values.originalWorkflow?.status === 'active' && updates.status === 'active' && contentChanged
                     // A status transition (enable/disable) toggles the lifecycle only. The button is
                     // disabled while the form is dirty, so content in the payload is at best a no-op
                     // re-send of the live row and at worst (with a staged draft merged into the form)
-                    // a silent deploy of unpublished content.
+                    // a silent deploy of unpublished content. Metadata-only saves on active workflows
+                    // strip content the same way, so unchanged content never routes to a draft.
                     const payload: Partial<HogFlow> =
-                        values.originalWorkflow && updates.status !== values.originalWorkflow.status
+                        isStatusTransition || (values.originalWorkflow?.status === 'active' && !contentChanged)
                             ? omitWorkflowContent(updates)
                             : updates
                     // Draft writes race against other draft writes, not the live row, so the staleness
@@ -2873,6 +2896,12 @@ export const workflowLogic = kea<workflowLogicType>([
                         return await api.hogFlows.updateHogFlow(props.id, {
                             ...payload,
                             ...(stagingDraft ? { stage_draft: true } : {}),
+                            // A staged save's metadata still writes live; fence that write with the
+                            // live stamp so it can't overwrite a concurrent metadata edit the
+                            // draft-stamp baseline wouldn't catch.
+                            ...(stagingDraft && values.originalWorkflow?.updated_at
+                                ? { base_live_updated_at: values.originalWorkflow.updated_at }
+                                : {}),
                             // Let the server reject the save if a newer copy exists (optimistic concurrency).
                             // saveBaseUpdatedAt overrides the loaded timestamp after the user picks "Keep mine".
                             base_updated_at: values.saveBaseUpdatedAt ?? loadedBase ?? null,
@@ -3483,7 +3512,9 @@ export const workflowLogic = kea<workflowLogicType>([
             })
         },
         confirmPublishDraft: async ({ confirmToken }) => {
-            if (!props.id || props.id === 'new') {
+            // draftActionPending also guards the dialog's close-animation window, where a fast
+            // double-click on the confirm button dispatches twice.
+            if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
             actions.setDraftActionPending('publish')
@@ -3517,7 +3548,7 @@ export const workflowLogic = kea<workflowLogicType>([
             })
         },
         confirmDiscardDraft: async () => {
-            if (!props.id || props.id === 'new') {
+            if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
             actions.setDraftActionPending('discard')

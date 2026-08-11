@@ -6719,7 +6719,12 @@ const api = {
             // 409 if the stored copy is newer (optimistic concurrency). Omit it for last-writer-wins.
             // `stage_draft` routes content edits on an active workflow into its staged draft instead of
             // the live config; publish promotes them. Ignored on non-active workflows.
-            data: Partial<HogFlow> & { base_updated_at?: string | null; stage_draft?: boolean }
+            // `base_live_updated_at` fences a staged save's live metadata write the same way.
+            data: Partial<HogFlow> & {
+                base_updated_at?: string | null
+                stage_draft?: boolean
+                base_live_updated_at?: string | null
+            }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
         },

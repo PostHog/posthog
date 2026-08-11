@@ -62,10 +62,10 @@ describe('workflowRevisionsLogic', () => {
         await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
 
         await expectLogic(logic, () => {
-            logic.actions.confirmRestoreRevision(2)
+            logic.actions.confirmRestoreRevision(2, null)
         }).toDispatchActions([flowLogic.actionTypes.loadWorkflow])
 
-        expect(restoreBodies).toEqual([{ overwrite: true }])
+        expect(restoreBodies).toEqual([{ overwrite: true, expected_draft_updated_at: null }])
         // The router projects the path under /project/:id.
         expect(router.values.location.pathname).toContain(urls.workflow(WORKFLOW_ID, 'workflow'))
         expect(logic.values.restoringVersion).toBeNull()
