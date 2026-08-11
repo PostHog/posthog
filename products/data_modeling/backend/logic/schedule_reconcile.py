@@ -450,8 +450,8 @@ async def delete_dag_schedules(dag_id: str) -> DagScheduleTeardown:
     Callers that own the DAG row must keep it when `ok` is False: the listing is the only way back
     to these schedules once the row is gone.
     """
-    temporal = await async_connect()
     try:
+        temporal = await async_connect()
         schedule_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
     except Exception as error:
         logger.exception("Failed to list execute-dag schedules", dag_id=dag_id)
