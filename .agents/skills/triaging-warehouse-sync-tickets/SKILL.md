@@ -126,7 +126,7 @@ requester against it:
    belong to.
 
 Do this once per ticket, before Step 1. A project URL or token found in ticket text is a starting point
-for *finding* the team, never a substitute for this check.
+for _finding_ the team, never a substitute for this check.
 
 ## Step 1 — Open the right connections
 
