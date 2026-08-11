@@ -13,7 +13,11 @@ from posthog.schema import QueryStatus
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, ClickHouseTooManyRowsOrBytesError
+from posthog.temporal.common.clickhouse import (
+    ClickHouseMemoryLimitExceededError,
+    ClickHouseTooManyRowsOrBytesError,
+    ClickHouseTooManySimultaneousQueriesError,
+)
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
@@ -146,6 +150,43 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
 
     @parameterized.expand(
         [
+            # Non-final attempt: retry on Temporal's backoff and keep the exempt error type
+            # so the interceptor never files it in error tracking.
+            ("retryable_attempt", 1, False),
+            # Final attempt: the cluster is still busy, so finalize with a "try again" message
+            # instead of the generic materialize-failed fallback.
+            ("last_attempt", frame_materialize._MATERIALIZE_MAX_ATTEMPTS, True),
+        ]
+    )
+    def test_too_many_simultaneous_queries_retries_then_reports_busy(self, _name, attempt, expect_terminal):
+        # ClickHouse code 202 (TOO_MANY_SIMULTANEOUS_QUERIES) is a capacity blip, not a defect:
+        # it must retry quietly rather than escape as an unhandled activity exception.
+        inputs, manager = self._registered_inputs()
+        error = ClickHouseTooManySimultaneousQueriesError("TOO_MANY_SIMULTANEOUS_QUERIES", query="SELECT 1")
+
+        with (
+            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+            patch.object(frame_materialize, "_materialize_slots"),
+            patch.object(frame_materialize.ClickHouseClient, "post_query", side_effect=error),
+            patch.object(frame_materialize.activity, "in_activity", return_value=True),
+            patch.object(frame_materialize.activity, "info", return_value=SimpleNamespace(attempt=attempt)),
+        ):
+            with self.assertRaises(exceptions.ApplicationError) as caught:
+                frame_materialize.materialize_frame(inputs)
+
+        # The exempt type is what keeps every attempt out of error tracking (posthog_client interceptor).
+        self.assertEqual(caught.exception.type, "ClickHouseTooManySimultaneousQueries")
+        status = manager.get_query_status()
+        if expect_terminal:
+            self.assertTrue(caught.exception.non_retryable)
+            self.assertTrue(status.complete and status.error)
+            self.assertIn("busy", status.error_message or "")
+        else:
+            self.assertFalse(caught.exception.non_retryable)  # retryable — Temporal backs off
+            self.assertFalse(status.complete)  # not finalized
+
+    @parameterized.expand(
+        [
             # A storage-side upload failure (or a torn stream) with no ClickHouse-side
             # exception: only a confirmed query-side exception may be terminal, else a
             # transient S3 blip becomes a hard cell failure.
@@ -154,6 +195,9 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
             # (cancel_http_readonly_queries_on_client_close), which the query log records as
             # QUERY_WAS_CANCELLED — that must not be classified as a doomed query.
             ("query_was_cancelled", (394, "Query was cancelled")),
+            # A saturation error (code 202) that only surfaces mid-stream is still a capacity
+            # blip: retry it rather than fail the cell as if the query were doomed.
+            ("too_many_simultaneous_queries", (202, "Too many simultaneous queries")),
         ]
     )
     def test_stream_failure_stays_retryable(self, _name, query_log_result):

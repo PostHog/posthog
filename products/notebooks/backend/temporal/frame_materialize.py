@@ -53,6 +53,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
     ClickHouseTooManyBytesError,
     ClickHouseTooManyRowsOrBytesError,
+    ClickHouseTooManySimultaneousQueriesError,
 )
 
 from products.notebooks.backend import frame_store
@@ -64,6 +65,10 @@ logger = structlog.get_logger(__name__)
 # mechanism that caps process_query_task at 150 global / 10 per team.
 MATERIALIZE_GLOBAL_CONCURRENCY = 10
 MATERIALIZE_PER_TEAM_CONCURRENCY = 2
+# Retry ceiling shared by the workflow's retry policy and the activity: the activity uses it
+# to tell its final attempt from the rest, so a still-busy cluster ends with a "try again"
+# message instead of the generic materialize-failed fallback.
+_MATERIALIZE_MAX_ATTEMPTS = 10
 # Safeguard expiry for a slot whose holder died without releasing; comfortably above the
 # activity's schedule-to-close so a live run never loses its slot mid-stream.
 _SLOT_TTL_SECONDS = 15 * 60
@@ -109,6 +114,9 @@ _RESULT_SIZE_MESSAGE = (
     "Select fewer columns or aggregate before materializing."
 )
 _MID_STREAM_ERROR_MESSAGE = "The query failed while its result was streaming. Adjust it and re-run."
+# Shown once the retries for a busy cluster run out (ClickHouse code 202): a capacity blip,
+# not a bad query, so the message points the user back at the same cell.
+_QUERY_ENGINE_BUSY_MESSAGE = "The query engine is busy right now. Try re-running the cell in a moment."
 # ClickHouse exception codes worth a specific user-facing message when a query dies
 # mid-stream: 158 TOO_MANY_ROWS, 241 MEMORY_LIMIT_EXCEEDED, 307 TOO_MANY_BYTES,
 # 159 TIMEOUT_EXCEEDED, 160 TOO_SLOW, 396 TOO_MANY_ROWS_OR_BYTES (the result-bytes cap).
@@ -121,11 +129,12 @@ _MID_STREAM_MESSAGES_BY_CODE = {
     396: _RESULT_SIZE_MESSAGE,
 }
 # Codes that do NOT mean the query itself is doomed: 209 SOCKET_TIMEOUT and 210
-# NETWORK_ERROR are transport failures, and 394 QUERY_WAS_CANCELLED is what our own
+# NETWORK_ERROR are transport failures, 394 QUERY_WAS_CANCELLED is what our own
 # abandonment produces (a read timeout closes the connection and
-# cancel_http_readonly_queries_on_client_close kills the query). All retry on a fresh
-# connection instead of failing the cell.
-_TRANSIENT_MID_STREAM_CODES = frozenset({209, 210, 394})
+# cancel_http_readonly_queries_on_client_close kills the query), and 202
+# TOO_MANY_SIMULTANEOUS_QUERIES is the cluster's query-slot ceiling — a capacity blip that
+# a later attempt clears. All retry on a fresh connection instead of failing the cell.
+_TRANSIENT_MID_STREAM_CODES = frozenset({202, 209, 210, 394})
 
 FRAME_MATERIALIZATIONS_STARTED_COUNTER = Counter(
     "posthog_notebooks_frame_materializations_started",
@@ -484,6 +493,19 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         raise MidStreamQueryError("ClickHouse stream ended without the Arrow end-of-stream marker")
         except ConcurrencyLimitExceeded:
             raise  # retryable — Temporal backs off and re-attempts
+        except ClickHouseTooManySimultaneousQueriesError as exc:
+            # ClickHouse is at its simultaneous-query ceiling (code 202) — a transient
+            # capacity blip, not a defect, so it must retry on Temporal's backoff and stay
+            # out of error tracking (the interceptor skips this ApplicationError type). On the
+            # last attempt the cluster is still busy, so finalize with a "try again" message
+            # rather than let the generic mark-failed fallback claim the query was at fault.
+            if attempt >= _MATERIALIZE_MAX_ATTEMPTS:
+                _finalize_status(manager, inputs, error_message=_QUERY_ENGINE_BUSY_MESSAGE)
+                FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
+                raise exceptions.ApplicationError(
+                    _QUERY_ENGINE_BUSY_MESSAGE, non_retryable=True, type="ClickHouseTooManySimultaneousQueries"
+                ) from exc
+            raise exceptions.ApplicationError(str(exc), type="ClickHouseTooManySimultaneousQueries") from exc
         except ExposedHogQLError as exc:
             # User-safe and terminal: surface the message through the poll, don't retry —
             # a bad query cannot succeed on a second attempt.
@@ -596,7 +618,7 @@ class NotebookFrameMaterializeWorkflow(PostHogWorkflow):
                     # mid-stream resource overrun that can't be caught up front) must not
                     # re-execute for the full schedule_to_close window. Matches the Celery
                     # async path's max_retries=10.
-                    maximum_attempts=10,
+                    maximum_attempts=_MATERIALIZE_MAX_ATTEMPTS,
                 ),
             )
         except Exception:
