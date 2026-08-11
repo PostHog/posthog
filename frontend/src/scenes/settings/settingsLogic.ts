@@ -390,13 +390,27 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         selectSection: ({ section, level }) => {
             // Expand the collapsible group containing the selected section so it's visible
             // (e.g. when navigating via URL or settings search into a collapsed group)
             const sectionObj = values.sections.find((s) => s.id === section)
             if (sectionObj?.group) {
                 actions.expandGroup(`${level}-${sectionObj.group}`)
+            }
+            setTimeout(() => {
+                const mainElement = document.querySelector('main')
+                if (mainElement) {
+                    mainElement.scrollTo({ top: 0, behavior: 'smooth' })
+                }
+            }, 100)
+        },
+        selectSetting: () => {
+            // Embedded usages (replay, logs) render the chosen setting in place instead of
+            // navigating, so scroll the content pane back to the top like selectSection does.
+            // The full settings scene passes no sectionId and only uses this for anchor links.
+            if (!props.sectionId) {
+                return
             }
             setTimeout(() => {
                 const mainElement = document.querySelector('main')
