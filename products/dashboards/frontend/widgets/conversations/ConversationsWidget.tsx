@@ -137,18 +137,14 @@ function ConversationsWidgetRow({
                             className="min-w-0 truncate font-semibold"
                         />
                         <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
-                        <div className="ml-auto flex shrink-0 items-center gap-2">
+                        <div className="ml-auto flex shrink-0 items-center gap-1">
                             <Tooltip title={channelLabel}>
                                 <span className="flex size-3.5 items-center justify-center text-muted [&>svg]:size-3.5">
                                     {channelIcon[ticket.channel_source]}
                                 </span>
                             </Tooltip>
-                            <span className="text-xs text-muted">Updated</span>
-                            <TZLabel
-                                time={ticket.updated_at}
-                                showPopover={false}
-                                className="w-20 text-right text-xs text-muted"
-                            />
+                            <span className="text-xs text-muted">Last updated</span>
+                            <TZLabel time={ticket.updated_at} showPopover={false} className="text-xs text-muted" />
                         </div>
                     </div>
                     <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
