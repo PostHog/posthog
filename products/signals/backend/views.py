@@ -26,6 +26,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.functions import Cast, Coalesce
+from django.http import JsonResponse
 from django.utils import timezone
 
 import structlog
@@ -3571,7 +3572,7 @@ class SignalReportArtefactViewSet(
 class SignalUserAutonomyConfigView(APIView):
     """Per-user signal autonomy config (singleton keyed by user).
 
-    GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+    GET    /api/users/<id>/signal_autonomy/ → current config, or null when none is saved
     POST   /api/users/<id>/signal_autonomy/ → create or update
     DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
     """
@@ -3598,7 +3599,10 @@ class SignalUserAutonomyConfigView(APIView):
         user = self._resolve_user(request, user_id)
         config = SignalUserAutonomyConfig.objects.filter(user=user).first()
         if config is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+            # No saved config is the default state — serve it as 200 + null, not a 404 that logs
+            # a client_request_failure on every inbox visit. JsonResponse renders a literal `null`
+            # body; DRF's Response(None) renders an empty body the frontend can't parse.
+            return JsonResponse(None, safe=False)
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
     @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})

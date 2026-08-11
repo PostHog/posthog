@@ -1494,7 +1494,7 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
 /**
  * Per-user signal autonomy config (singleton keyed by user).
  *
- * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+ * GET    /api/users/<id>/signal_autonomy/ → current config, or null when none is saved
  * POST   /api/users/<id>/signal_autonomy/ → create or update
  * DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */

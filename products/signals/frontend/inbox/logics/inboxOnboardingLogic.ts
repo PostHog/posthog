@@ -104,6 +104,15 @@ export interface OnboardingModeInputs {
 }
 
 /**
+ * Whether the inbox already holds work (reports or PRs). A null count means its request has not
+ * resolved or has failed — that is unknown, never zero. Only conclude "no work" when both counts
+ * are known, so a flaky count request can never drop the takeover over an inbox that holds reports.
+ */
+export function computeHasExistingWork(pullsCount: number | null, reportsCount: number | null): boolean {
+    return pullsCount === null || reportsCount === null || pullsCount + reportsCount > 0
+}
+
+/**
  * Pure decision for how (if at all) the onboarding shows.
  *
  * `'none'` is the default: render the normal inbox, which shows its own list skeleton while loading.
@@ -318,7 +327,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         hasExistingWork: [
             (s) => [s.pullsCount, s.reportsCount],
             (pullsCount: number | null, reportsCount: number | null): boolean =>
-                (pullsCount ?? 0) + (reportsCount ?? 0) > 0,
+                computeHasExistingWork(pullsCount, reportsCount),
         ],
         isWizardRunning: [
             (s) => [s.activeWorkflowId],

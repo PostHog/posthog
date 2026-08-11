@@ -1,6 +1,7 @@
 import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 
 import {
+    computeHasExistingWork,
     computeOnboardingDecision,
     InboxOnboardingDecision,
     OnboardingModeInputs,
@@ -91,6 +92,20 @@ describe('inboxOnboardingLogic', () => {
             ],
         ])('%s', (_label, overrides, expected) => {
             expect(computeOnboardingDecision({ ...base, ...overrides })).toEqual(expected)
+        })
+    })
+
+    describe('computeHasExistingWork', () => {
+        it.each<[string, number | null, number | null, boolean]>([
+            // Only both-counts-known-and-zero is "no work"; a null count is unknown, never zero.
+            ['both zero', 0, 0, false],
+            ['pulls present', 3, 0, true],
+            ['reports present', 0, 5, true],
+            ['pulls unknown, reports zero', null, 0, true],
+            ['reports unknown, pulls zero', 0, null, true],
+            ['both unknown', null, null, true],
+        ])('%s', (_label, pullsCount, reportsCount, expected) => {
+            expect(computeHasExistingWork(pullsCount, reportsCount)).toBe(expected)
         })
     })
 

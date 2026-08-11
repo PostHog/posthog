@@ -30,16 +30,15 @@ function isStaffOnlyTabKey(tab: InboxTabKey): boolean {
  * (a cheap `limit=1` request) is available for the badge before the tab is ever opened.
  * The active tab shares the same keyed instance, so no double-fetch.
  */
-function FlatTabCount({ tabKey }: { tabKey: InboxFlatListTabKey }): JSX.Element {
+function FlatTabCount({ tabKey }: { tabKey: InboxFlatListTabKey }): JSX.Element | null {
     const logic = reportListLogic({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
     useMountedLogic(logic)
     const { count, countLoading } = useValues(logic)
-    // Skeleton only while the request is genuinely in flight; on failure `count` stays null,
-    // so fall back to the number (0) rather than a permanent skeleton.
-    if (count === null && countLoading) {
-        return <LemonSkeleton className="h-3 w-3 rounded" />
+    // Null count: skeleton while loading, otherwise no chip — an unknown count must not read as 0.
+    if (count === null) {
+        return countLoading ? <LemonSkeleton className="h-3 w-3 rounded" /> : null
     }
-    return <span className="text-xs text-muted tabular-nums">{count ?? 0}</span>
+    return <span className="text-xs text-muted tabular-nums">{count}</span>
 }
 
 /** Synthetic key for the onboarding "Welcome" tab – presentational only, never routed to. */
