@@ -245,7 +245,6 @@ export function DashboardsTable({
                                       >
                                           <LemonButton
                                               onClick={() => moveDashboardsToFolder([id], 'single')}
-                                              loading={resolvingMoveTargets}
                                               disabledReason={
                                                   resolvingMoveTargets ? 'Looking up where this is filed' : undefined
                                               }

@@ -559,7 +559,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 actions.moveDashboardsToFolderResolved()
                 return
             }
-            actions.reportDashboardMoveInitiated(method, ids.length)
             const entries = await resolveProjectTreeRefs(ids.map((id) => ({ type: 'dashboard', ref: String(id) })))
             // A second click while this one is resolving would otherwise open the modal on the wrong rows.
             breakpoint()
@@ -575,6 +574,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     `Only ${entries.length} of ${ids.length} selected dashboards can be moved. We couldn't look up where the rest are filed.`
                 )
             }
+            actions.reportDashboardMoveInitiated(method, entries.length)
             actions.openMoveToModal(entries)
             onOpened?.()
         },
