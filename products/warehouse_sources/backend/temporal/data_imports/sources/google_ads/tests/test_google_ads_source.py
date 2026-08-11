@@ -1698,15 +1698,39 @@ class TestResourceSchemaInvariants:
 
 
 class TestConversionActionSegmentedStats:
-    def test_only_conversion_metrics_are_selected(self):
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            "campaign_conversion_action_stats",
+            "ad_group_conversion_action_stats",
+            "keyword_conversion_action_stats",
+        ],
+    )
+    def test_only_conversion_metrics_are_selected(self, alias):
         # Google rejects a query that pairs segments.conversion_action with a non-conversion metric,
         # which would fail the whole table rather than drop a column. Keep the metric list to the
         # conversion family.
-        field_names = RESOURCE_SCHEMAS["campaign_conversion_action_stats"]["field_names"]
+        field_names = RESOURCE_SCHEMAS[alias]["field_names"]
         metrics = [f for f in field_names if f.startswith("metrics.")]
 
         assert metrics
         assert all("conversion" in metric for metric in metrics)
+
+
+class TestCriterionTablesReachNegatives:
+    # The keyword table is backed by keyword_view, which only ever returns positive, servable
+    # keywords. These criterion tables are the only way to reach negative keywords and other
+    # exclusions, and that reachability hinges on selecting the `negative` flag — without it the row
+    # can't be told apart from a positive target, defeating the table's reason to exist.
+    @pytest.mark.parametrize(
+        "alias, negative_field",
+        [
+            ("ad_group_criterion", "ad_group_criterion.negative"),
+            ("campaign_criterion", "campaign_criterion.negative"),
+        ],
+    )
+    def test_negative_flag_is_selected(self, alias, negative_field):
+        assert negative_field in RESOURCE_SCHEMAS[alias]["field_names"]
 
 
 class TestBreakdownStatsDefaultOff:
@@ -1719,6 +1743,8 @@ class TestBreakdownStatsDefaultOff:
         [
             "age_range_stats",
             "campaign_conversion_action_stats",
+            "ad_group_conversion_action_stats",
+            "keyword_conversion_action_stats",
             "campaign_hourly_stats",
             "detail_placement_stats",
             "gender_stats",
@@ -1726,6 +1752,8 @@ class TestBreakdownStatsDefaultOff:
             "location_stats",
             "product_group_stats",
             "user_location_stats",
+            "ad_group_criterion",
+            "campaign_criterion",
         ],
     )
     def test_breakdown_stats_are_opt_in_and_described(self, alias):
