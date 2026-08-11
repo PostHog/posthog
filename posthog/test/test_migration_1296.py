@@ -1,21 +1,16 @@
 from datetime import timedelta
 from typing import Any
 
-import pytest
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
-# TestMigrations rewinds to `migrate_from` inside the test's own transaction, so getting here means
-# unapplying every later migration — including 1298_user_stripped_alias_index, whose
-# SafeAddIndexConcurrently refuses to run in a transaction block. Nothing about this test is broken;
-# it cannot reach its starting state while a concurrent-index migration sits above it.
-pytestmark = pytest.mark.skip("cannot rewind past the CONCURRENTLY index in 1298_user_stripped_alias_index")
 
-
-class BackfillCimdVerificationTokenUrlMigrationTest(TestMigrations):
+# Non-atomic because rewinding to `migrate_from` unapplies every later migration, and those include
+# `atomic = False` ones whose CONCURRENTLY index operations Postgres refuses inside a transaction.
+class BackfillCimdVerificationTokenUrlMigrationTest(NonAtomicTestMigrations):
     migrate_from = "1295_cimdverificationtoken_cimd_url"
     migrate_to = "1296_backfill_cimd_verification_token_url"
 
