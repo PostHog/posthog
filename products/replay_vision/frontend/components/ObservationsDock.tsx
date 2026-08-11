@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconEye, IconNotebook } from '@posthog/icons'
+import { IconChevronDown, IconCollapse, IconExpand, IconEye, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -99,13 +99,14 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                 size="small"
                 type="primary"
                 icon={<IconEye />}
-                sideIcon={<IconChevronDown />}
+                // Rotates with the picker so a click has an unmistakable open/closed response.
+                sideIcon={<IconChevronDown className={scannerPickerOpen ? 'rotate-180' : ''} />}
                 loading={observing}
                 disabledReason={quotaDisabledReason}
                 tooltip={quotaTooltip}
                 data-attr="vision-scan-recording"
             >
-                Scan this recording
+                Scan this recording…
             </LemonButton>
         </LemonDropdown>
     )
@@ -209,7 +210,9 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                     <LemonButton
                         className="ml-auto"
                         size="small"
-                        icon={<IconChevronDown className={dockOpen ? 'rotate-180' : ''} />}
+                        // Distinct expand/collapse glyph, not a second chevron: this reveals the
+                        // observation list, so it must not read as the scanner picker's trigger.
+                        icon={dockOpen ? <IconCollapse /> : <IconExpand />}
                         onClick={() => setDockOpen(!dockOpen)}
                         tooltip={dockOpen ? 'Collapse' : 'Expand'}
                         aria-label={dockOpen ? 'Collapse observations' : 'Expand observations'}
