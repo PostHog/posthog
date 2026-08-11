@@ -2,12 +2,16 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 
+import { signalsReportsBulkStateCreate } from '../../generated/api'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import type { DismissalReasonValue } from '../utils/dismissalReasons'
 
-/** Tally of a bulk operation that ran one request per selected report. */
+/** Matches `SIGNAL_REPORT_BULK_STATE_MAX_IDS` on the backend serializer. */
+const BULK_STATE_MAX_IDS = 100
+
+/** Tally of a bulk operation across every batch it took to cover the selection. */
 interface BulkActionResult {
     successCount: number
     failureCount: number
@@ -155,20 +159,38 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 bulkSize: reportIds.length,
                 extra: { dismissal_reason: reason },
             })
-            const results = await Promise.allSettled(
-                reportIds.map((id) =>
-                    api.signalReports.setState(id, {
+            // One request per batch rather than per report: the endpoint forwards a single scout note
+            // per targeted scout for everything in the call, so a per-report loop teaches the scout the
+            // same thing N times over.
+            const batches: string[][] = []
+            for (let start = 0; start < reportIds.length; start += BULK_STATE_MAX_IDS) {
+                batches.push(reportIds.slice(start, start + BULK_STATE_MAX_IDS))
+            }
+            const projectId = String(ApiConfig.getCurrentTeamId())
+            const responses = await Promise.allSettled(
+                batches.map((ids) =>
+                    signalsReportsBulkStateCreate(projectId, {
+                        ids,
                         state: 'suppressed',
                         dismissal_reason: reason,
                         ...(trimmedNote ? { dismissal_note: trimmedNote } : {}),
                     })
                 )
             )
-            const successCount = results.filter((r) => r.status === 'fulfilled').length
-            const result: BulkActionResult = {
-                successCount,
-                failureCount: results.length - successCount,
-            }
+            const result = responses.reduce<BulkActionResult>(
+                (tally, response, index) => {
+                    if (response.status !== 'fulfilled') {
+                        // The batch never landed, so every id in it is unaccounted for.
+                        return { ...tally, failureCount: tally.failureCount + batches[index].length }
+                    }
+                    const { transitioned_count, skipped_count, failed_count, not_found_count } = response.value
+                    return {
+                        successCount: tally.successCount + transitioned_count,
+                        failureCount: tally.failureCount + skipped_count + failed_count + not_found_count,
+                    }
+                },
+                { successCount: 0, failureCount: 0 }
+            )
 
             actions.clearSelection()
 
