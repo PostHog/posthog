@@ -759,8 +759,8 @@ export interface sessionRecordingsPlaylistLogicActions {
         propertyType: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
     ) => {
         propertyKey: string
-        propertyValue: string | undefined
         propertyType: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
+        propertyValue: string | undefined
     }
 }
 
