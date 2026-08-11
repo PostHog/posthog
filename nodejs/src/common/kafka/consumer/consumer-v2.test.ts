@@ -369,34 +369,29 @@ describe('KafkaConsumerV2', () => {
         ])
     })
 
-    it('empty polls behind a slow batch keep polling: they hold no backpressure slot and never strand a rebalance', async () => {
-        // Mirrors the CDP cyclotron worker: callEachBatchWhenEmpty on, a handful of background
-        // slots. An empty poll stores no offsets, so it must not queue behind the slow batch —
-        // enough of them doing that exhausts the budget and the loop stops polling, which strands
-        // every rebalance until the slow batch finishes.
-        ;(consumer as any).maxBackgroundTasks = 3
+    it('a failed batch blocks a later store even when an empty batch sits between them', async () => {
+        // The store chain is what keeps a later batch from advancing the committed offset past an
+        // earlier batch that failed. An empty poll (callEachBatchWhenEmpty, as the CDP cyclotron
+        // worker sets) still enters inFlight when it carries a backgroundTask, so excluding empty
+        // batches from the chain reopens that gap and offsets advance past failed work.
+        ;(consumer as any).maxBackgroundTasks = 10
         ;(consumer as any).config.callEachBatchWhenEmpty = true
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
 
-        const slow = triggerablePromise()
-        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], slow.promise)
+        const failing = triggerablePromise()
+        await dispatchBatch(eachBatch, [], failing.promise)
+        await dispatchBatch(eachBatch, [createMessage({ offset: 7, partition: 0 })], Promise.resolve())
+        await delay(10)
 
-        for (let i = 0; i < 5; i++) {
-            releaseConsume()
-            await delay(2)
-        }
+        // The later batch must not have stored yet: the empty batch ahead of it has not settled.
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
 
-        // Only the slow batch occupies a slot, and the loop armed another consume().
-        expect((consumer as any).inFlight.length).toBe(1)
-        expect(consumeCallback).toBeDefined()
-
-        // A revoke now reaches the loop, which drains and gives the partition up once the slow
-        // batch settles. Wedged, none of this would happen until the batch finished.
-        fireRevoke()
-        slow.resolve()
+        failing.reject(new Error('empty batch work failed'))
         await delay(30)
-        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+
+        // And once that batch fails, the store is abandoned rather than committed.
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
     })
 
     it('the fence is per partition: a laggard task still stores the partition it kept, never the one it lost', async () => {
