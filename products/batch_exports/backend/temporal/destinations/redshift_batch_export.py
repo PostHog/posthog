@@ -985,6 +985,13 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
             except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
                 table_fields = list(table_schemas.table_schema)
+            except psycopg.errors.QueryCanceled as e:
+                if "usage limit" in str(e):
+                    raise InsufficientSystemResourcesError(
+                        "A spending or usage quota was hit and the batch export cannot proceed. "
+                        "Consider raising the quota after identifying the one that fired."
+                    )
+                raise
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
             async with (

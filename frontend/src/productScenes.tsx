@@ -52,6 +52,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
     CustomerJourneyTemplates: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
+    WarehouseProperties: () =>
+        import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
     DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
@@ -91,6 +93,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
+    AIEnrichment: () => import('../../products/growth/frontend/aiEnrichment/AIEnrichmentScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
     Links: () => import('../../products/links/frontend/LinksScene'),
@@ -127,6 +130,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
+    Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),

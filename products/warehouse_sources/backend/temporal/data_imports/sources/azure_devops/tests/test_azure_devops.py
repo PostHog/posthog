@@ -5,7 +5,14 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
+    _FORBIDDEN_MESSAGE,
+    _INVALID_ORGANIZATION_MESSAGE,
+    _INVALID_PAT_MESSAGE,
+    _ORGANIZATION_NOT_FOUND_MESSAGE,
+    _UNREACHABLE_MESSAGE,
     AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
     AzureDevOpsAuthError,
@@ -88,11 +95,12 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
-            # An invalid PAT yields a 203 + HTML sign-in page, not a 401.
-            (203, False),
-            (401, False),
-            (404, False),
+            (200, (True, None)),
+            # An invalid or expired PAT yields a 203 + HTML sign-in page, not a 401.
+            (203, (False, _INVALID_PAT_MESSAGE)),
+            (401, (False, _INVALID_PAT_MESSAGE)),
+            (403, (False, _FORBIDDEN_MESSAGE)),
+            (404, (False, _ORGANIZATION_NOT_FOUND_MESSAGE)),
         ],
     )
     @mock.patch(
@@ -103,14 +111,29 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2) is expected
+        assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2) == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
     def test_validate_credentials_rejects_bad_org_without_request(self, mock_session):
-        assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_7_2) is False
+        assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_7_2) == (
+            False,
+            _INVALID_ORGANIZATION_MESSAGE,
+        )
         mock_session.return_value.get.assert_not_called()
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_validate_credentials_reports_unreachable_on_transport_error(self, mock_session):
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+
+        is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+
+        assert is_valid is False
+        assert error == _UNREACHABLE_MESSAGE
+        assert "boom" not in (error or "")
 
     @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
     @mock.patch(

@@ -23,6 +23,7 @@ import {
     MlMirrorConfig,
     getDefaultMlMirrorConfig,
     resolveMlAnonymizeMaxConcurrency,
+    resolveMlMirrorRedisConnection,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
@@ -116,7 +117,9 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
 
-        const pools = buildSessionReplayRedisPools(this.config)
+        // The restriction pool is deliberately not overridden: the event restriction list is
+        // configuration another system writes, so every lane has to read the same copy of it.
+        const pools = buildSessionReplayRedisPools(this.config, resolveMlMirrorRedisConnection(this.config))
         this.redisPool = pools.redisPool
         this.restrictionRedisPool = pools.restrictionRedisPool
 

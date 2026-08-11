@@ -38,6 +38,7 @@ import {
 } from "@posthog/ui/features/integrations/useIntegrations";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { ScoutsFleetSection } from "@posthog/ui/features/scouts/components/ScoutsFleetSection";
+import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { GitHubIntegrationSection } from "@posthog/ui/features/settings/sections/GitHubIntegrationSection";
 import { SlackInboxNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackInboxNotificationsSettings";
 import {
@@ -53,7 +54,7 @@ import { logger } from "@posthog/ui/shell/logger";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 const AUTONOMY_SETUP_PROMPT = `Set up PostHog Self-driving for this product.
 
@@ -122,7 +123,7 @@ export function ConfigureAgentsSection() {
     <Flex direction="column" gap="8">
       {showSetupTask ? <SetupTaskSection /> : null}
 
-      <Subsection
+      <SettingsSubsection
         title="Connections"
         description="Foundational integrations agents read from and write to."
       >
@@ -131,9 +132,9 @@ export function ConfigureAgentsSection() {
           isLoading={isLoadingIntegrations}
           showBottomBorder={false}
         />
-      </Subsection>
+      </SettingsSubsection>
 
-      <Subsection
+      <SettingsSubsection
         title="Scouts"
         description={
           <>
@@ -152,9 +153,9 @@ export function ConfigureAgentsSection() {
         }
       >
         <ScoutsFleetSection />
-      </Subsection>
+      </SettingsSubsection>
 
-      <Subsection
+      <SettingsSubsection
         title="Signal sources"
         description="Each source watches for signals and spins up work when something matters."
       >
@@ -192,9 +193,9 @@ export function ConfigureAgentsSection() {
             </Box>
           </Tooltip>
         )}
-      </Subsection>
+      </SettingsSubsection>
 
-      <Subsection
+      <SettingsSubsection
         title="Slack"
         description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
       >
@@ -203,9 +204,9 @@ export function ConfigureAgentsSection() {
           showHeader={false}
           showTopBorder={false}
         />
-      </Subsection>
+      </SettingsSubsection>
 
-      <Subsection
+      <SettingsSubsection
         title="MCP servers"
         description="External tools agents can read from. PostHog data is always available; this is everything else."
       >
@@ -233,7 +234,7 @@ export function ConfigureAgentsSection() {
           </Flex>
           <ArrowSquareOutIcon size={14} className="shrink-0 text-gray-10" />
         </Link>
-      </Subsection>
+      </SettingsSubsection>
     </Flex>
   );
 }
@@ -405,7 +406,7 @@ function SetupTaskSection() {
   ]);
 
   return (
-    <Subsection
+    <SettingsSubsection
       title="Setup"
       description="We'll run an agent to inspect your product and figure out what Self-driving should pay attention to first."
     >
@@ -447,36 +448,6 @@ function SetupTaskSection() {
           {isStartingSetupTask ? "Starting..." : "Run setup agent"}
         </Button>
       </Flex>
-    </Subsection>
-  );
-}
-
-interface SubsectionProps {
-  title: string;
-  description?: ReactNode;
-  children: ReactNode;
-}
-
-function Subsection({ title, description, children }: SubsectionProps) {
-  return (
-    <Flex
-      direction="column"
-      gap="4"
-      className="border-(--gray-5) border-t pt-8 first:border-t-0 first:pt-0"
-    >
-      <Flex direction="column" gap="1">
-        <Flex align="center" gap="2" wrap="wrap">
-          <Text className="font-semibold text-[13px] text-gray-12">
-            {title}
-          </Text>
-        </Flex>
-        {description ? (
-          <Text className="max-w-2xl text-[12.5px] text-gray-11 leading-snug">
-            {description}
-          </Text>
-        ) : null}
-      </Flex>
-      {children}
-    </Flex>
+    </SettingsSubsection>
   );
 }

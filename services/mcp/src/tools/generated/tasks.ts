@@ -16,6 +16,8 @@ import {
     LoopsRunsRetrieveQueryParams,
     TaskChannelsCreateBody,
     TaskChannelsInstructionsRetrieveParams,
+    TaskChannelsInstructionsUpdateBody,
+    TaskChannelsInstructionsUpdateParams,
     TaskChannelsListQueryParams,
     TaskChannelsRetrieveParams,
     TasksCreateBody,
@@ -27,6 +29,7 @@ import {
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
 } from '@/generated/tasks/api'
+import { ChannelInstructionsBaseVersionSchema } from '@/schema/tool-inputs'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -46,6 +49,9 @@ const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDT
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
             body['name'] = params.name
+        }
+        if (params.star !== undefined) {
+            body['star'] = params.star
         }
         const result = await context.api.request<Schemas.ChannelDTO>({
             method: 'POST',
@@ -71,6 +77,39 @@ const channelInstructionsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+        })
+        return result
+    },
+})
+
+const ChannelInstructionsUpdateSchema = TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
+    .extend(TaskChannelsInstructionsUpdateBody.shape)
+    .extend({
+        id: TaskChannelsInstructionsUpdateParams.shape['id'].describe(
+            'ID of the channel whose instructions to update.'
+        ),
+        base_version: ChannelInstructionsBaseVersionSchema,
+    })
+
+const channelInstructionsUpdate = (): ToolBase<
+    typeof ChannelInstructionsUpdateSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'channel-instructions-update',
+    schema: ChannelInstructionsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+            body,
         })
         return result
     },
@@ -642,6 +681,7 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'channel-create': channelCreate,
     'channel-instructions-retrieve': channelInstructionsRetrieve,
+    'channel-instructions-update': channelInstructionsUpdate,
     'channel-list': channelList,
     'channel-retrieve': channelRetrieve,
     'loops-create-prepare': loopsCreatePrepare,

@@ -1,0 +1,2 @@
+class ComputeBillingLimitExceeded(Exception):
+    pass
