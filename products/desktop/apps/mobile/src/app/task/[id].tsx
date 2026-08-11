@@ -24,6 +24,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { CaretRight, Tray } from "phosphor-react-native";
 import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
@@ -89,6 +90,7 @@ import {
   useActiveTaskAnalyticsContext,
   useAnalytics,
 } from "@/lib/analytics";
+import { paths } from "@/lib/deep-links";
 import { logger } from "@/lib/logger";
 import { modalTopOffset } from "@/lib/navigation";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
@@ -872,6 +874,29 @@ export default function TaskDetailScreen() {
     (task?.origin_product === "automation"
       ? "This run was started from a task automation."
       : null);
+  // A task raised from a signal report links back to it, so the report that
+  // justified the work is one tap away from the work itself.
+  const sourceReportId = task?.signal_report ?? null;
+
+  // ── Context banner stack ─────────────────────────────────────────────────
+  // Banners float over the top of the inverted session list, each 44pt tall
+  // including its gap. Their `top` offsets and the list's `paddingBottom` are
+  // derived from the same booleans so a banner can never shift one without the
+  // other. `showAutomationBanner` is the render condition, not just
+  // `showAutomationContext`: the offsets used to reserve a slot for a banner
+  // that renders nothing when the label is missing.
+  const BANNER_HEIGHT = 44;
+  const bannerStackTop = modalTopOffset(insets.top) + 52;
+  const showAutomationBanner =
+    showAutomationContext && !!automationContextLabel;
+  const sourceReportBannerTop =
+    bannerStackTop + (showAutomationBanner ? BANNER_HEIGHT : 0);
+  const localRunBannerTop =
+    sourceReportBannerTop + (sourceReportId ? BANNER_HEIGHT : 0);
+  const bannerStackHeight =
+    (showAutomationBanner ? BANNER_HEIGHT : 0) +
+    (sourceReportId ? BANNER_HEIGHT : 0) +
+    (localRunState ? BANNER_HEIGHT : 0);
 
   // Haptic pulse when connecting/thinking indicators dismiss
   const prevWaiting = useRef(false);
@@ -941,10 +966,10 @@ export default function TaskDetailScreen() {
           </View>
         )}
 
-        {showAutomationContext && automationContextLabel && (
+        {showAutomationBanner && (
           <View
             className="absolute inset-x-3 z-10 rounded-lg border border-accent-6 bg-accent-2 px-3 py-2"
-            style={{ top: modalTopOffset(insets.top) + 52 }}
+            style={{ top: bannerStackTop }}
           >
             <Text className="text-accent-11 text-xs">
               {automationName
@@ -954,15 +979,26 @@ export default function TaskDetailScreen() {
           </View>
         )}
 
+        {sourceReportId && (
+          <Pressable
+            onPress={() => router.push(paths.inboxReport(sourceReportId))}
+            accessibilityRole="link"
+            accessibilityLabel="Open the inbox report this task came from"
+            className="absolute inset-x-3 z-10 flex-row items-center gap-2 rounded-lg border border-gray-6 bg-gray-2 px-3 py-2 active:opacity-70"
+            style={{ top: sourceReportBannerTop }}
+          >
+            <Tray size={14} color={themeColors.gray[11]} weight="fill" />
+            <Text className="flex-1 text-gray-11 text-xs">
+              From inbox report
+            </Text>
+            <CaretRight size={12} color={themeColors.gray[10]} weight="bold" />
+          </Pressable>
+        )}
+
         {localRunState && (
           <View
             className="absolute inset-x-3 z-10"
-            style={{
-              top:
-                modalTopOffset(insets.top) +
-                52 +
-                (showAutomationContext ? 44 : 0),
-            }}
+            style={{ top: localRunBannerTop }}
           >
             <LocalRunBanner state={localRunState} />
           </View>
@@ -1002,11 +1038,7 @@ export default function TaskDetailScreen() {
           }
           contentContainerStyle={{
             paddingTop: 8,
-            paddingBottom:
-              modalTopOffset(insets.top) +
-              60 +
-              (showAutomationContext ? 44 : 0) +
-              (localRunState ? 44 : 0),
+            paddingBottom: modalTopOffset(insets.top) + 60 + bannerStackHeight,
           }}
         />
 
