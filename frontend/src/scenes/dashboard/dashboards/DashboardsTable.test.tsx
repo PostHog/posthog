@@ -16,7 +16,7 @@ jest.mock('./DashboardsFiltersBar', () => ({ DashboardsFiltersBar: () => null })
 jest.mock('lib/lemon-ui/LemonButton/More', () => ({ More: ({ overlay }: any) => <div>{overlay}</div> }))
 
 // Stubbed down to the bulk-action bar and each row's actions column.
-let mockCtx: { selectedKeys: number[]; clearSelection: jest.Mock }
+let mockCtx: { selectedKeys: number[]; clearSelection: jest.Mock; setSelectedKeys: jest.Mock }
 jest.mock('lib/lemon-ui/LemonTable', () => ({
     LemonTable: ({ bulkSelection, columns, dataSource }: any) => (
         <div>
@@ -31,6 +31,7 @@ jest.mock('lib/lemon-ui/LemonTable', () => ({
 describe('DashboardsTable move to folder', () => {
     const moveDashboardsToFolder = jest.fn()
     const clearSelection = jest.fn()
+    const setSelectedKeys = jest.fn()
 
     afterEach(cleanup)
 
@@ -52,7 +53,7 @@ describe('DashboardsTable move to folder', () => {
     })
 
     const renderTable = (rows: number[], selectedKeys: number[] = []): void => {
-        mockCtx = { selectedKeys, clearSelection }
+        mockCtx = { selectedKeys, clearSelection, setSelectedKeys }
         render(
             <DashboardsTable
                 dashboards={
@@ -76,8 +77,8 @@ describe('DashboardsTable move to folder', () => {
     it('offers the bulk move action and moves the whole selection', () => {
         renderTable([1, 2], [1, 2])
         fireEvent.click(screen.getByText('Move to folder'))
-        // The selection is cleared once the modal opens, so a failed lookup does not cost the user their ticks.
-        expect(moveDashboardsToFolder).toHaveBeenCalledWith([1, 2], 'bulk', clearSelection)
-        expect(clearSelection).not.toHaveBeenCalled()
+        // Rows lose their tick only as each move lands, so a failed move keeps its selection.
+        expect(moveDashboardsToFolder).toHaveBeenCalledWith([1, 2], 'bulk', setSelectedKeys)
+        expect(setSelectedKeys).not.toHaveBeenCalled()
     })
 })

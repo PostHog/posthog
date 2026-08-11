@@ -327,7 +327,7 @@ export function DashboardsTable({
                                 size="small"
                                 type="secondary"
                                 onClick={() =>
-                                    moveDashboardsToFolder([...ctx.selectedKeys], 'bulk', ctx.clearSelection)
+                                    moveDashboardsToFolder([...ctx.selectedKeys], 'bulk', ctx.setSelectedKeys)
                                 }
                                 loading={resolvingMoveTargets}
                                 disabledReason={resolvingMoveTargets ? 'Looking up where these are filed' : undefined}

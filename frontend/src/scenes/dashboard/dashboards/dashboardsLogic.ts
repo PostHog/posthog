@@ -130,11 +130,11 @@ export interface dashboardsLogicActions {
     moveDashboardsToFolder: (
         ids: number[],
         method: 'bulk' | 'single',
-        onOpened?: () => void
+        onStillSelected?: (ids: number[]) => void
     ) => {
         ids: number[]
         method: 'bulk' | 'single'
-        onOpened: (() => void) | undefined
+        onStillSelected: ((ids: number[]) => void) | undefined
     }
     moveDashboardsToFolderResolved: () => {
         value: true
@@ -211,11 +211,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         ],
     })),
     actions({
-        moveDashboardsToFolder: (ids: number[], method: 'single' | 'bulk', onOpened?: () => void) => ({
-            ids,
-            method,
-            onOpened,
-        }),
+        moveDashboardsToFolder: (
+            ids: number[],
+            method: 'single' | 'bulk',
+            onStillSelected?: (ids: number[]) => void
+        ) => ({ ids, method, onStillSelected }),
         moveDashboardsToFolderResolved: true,
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
         setSearch: (search: string) => ({ search }),
@@ -537,7 +537,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             }
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         movedItem: ({ item, oldPath, newPath }) => {
             if (item.type === 'folder') {
                 dashboardsModel.actions.reparentDashboardFolders(oldPath, newPath)
@@ -550,8 +550,13 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             dashboardsModel.actions.patchDashboardFolders({
                 [item.ref]: joinPath(splitPath(newPath).slice(0, -1)),
             })
+            // Only rows that actually landed lose their tick, so a failed move keeps its selection.
+            const awaiting = cache.awaitingMove
+            if (awaiting?.ids.delete(Number(item.ref))) {
+                awaiting.onStillSelected?.([...awaiting.ids])
+            }
         },
-        moveDashboardsToFolder: async ({ ids, method, onOpened }, breakpoint) => {
+        moveDashboardsToFolder: async ({ ids, method, onStillSelected }, breakpoint) => {
             if (ids.length === 0) {
                 actions.moveDashboardsToFolderResolved()
                 return
@@ -573,9 +578,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             }
             actions.reportDashboardMoveInitiated(method, entries.length)
             actions.openMoveToModal(entries)
-            if (entries.length === ids.length) {
-                onOpened?.()
-            }
+            cache.awaitingMove = { ids: new Set(ids), onStillSelected }
         },
         setSearch: ({ search }) => {
             actions.loadSearchedDashboards({

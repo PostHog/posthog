@@ -551,6 +551,45 @@ describe('dashboardsLogic', () => {
         expect(moveToLogic.values.movingItems).toEqual([expect.objectContaining({ id: 'fs-11' })])
     })
 
+    it('deselects a dashboard only once its move lands, leaving the rest ticked', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system': ({ request }) => {
+                    const refs = new URL(request.url).searchParams.getAll('ref')
+                    return [
+                        200,
+                        {
+                            count: 0,
+                            results: refs.map((ref) => ({
+                                id: `fs-${ref}`,
+                                ref,
+                                type: 'dashboard',
+                                path: 'Marketing',
+                            })),
+                        },
+                    ]
+                },
+            },
+        })
+        moveToLogic.mount()
+        const onStillSelected = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.moveDashboardsToFolder([11, 12], 'bulk', onStillSelected)
+        }).toFinishListeners()
+
+        // The modal is open; nothing has moved yet, so nothing is deselected.
+        expect(onStillSelected).not.toHaveBeenCalled()
+
+        projectTreeDataLogic.actions.movedItem(
+            { id: 'fs-11', type: 'dashboard', ref: '11', path: 'Marketing/A' } as any,
+            'Marketing/A',
+            'Revenue/A'
+        )
+
+        expect(onStillSelected).toHaveBeenCalledWith([12])
+    })
+
     it('keeps the selection when only part of it resolved', async () => {
         useMocks({
             get: {
@@ -564,13 +603,13 @@ describe('dashboardsLogic', () => {
             },
         })
         moveToLogic.mount()
-        const clearSelection = jest.fn()
+        const onStillSelected = jest.fn()
 
         await expectLogic(logic, () => {
-            logic.actions.moveDashboardsToFolder([11, 12], 'bulk', clearSelection)
+            logic.actions.moveDashboardsToFolder([11, 12], 'bulk', onStillSelected)
         }).toFinishListeners()
 
-        expect(clearSelection).not.toHaveBeenCalled()
+        expect(onStillSelected).not.toHaveBeenCalled()
     })
 
     it('does not refetch when toggling pinned while a search is active on the /dashboard URL', async () => {
