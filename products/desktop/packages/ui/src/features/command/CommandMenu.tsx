@@ -31,7 +31,7 @@ import {
   ANALYTICS_EVENTS,
   type CommandMenuAction,
 } from "@posthog/shared/analytics-events";
-import type { Task, TaskSearchResult } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
@@ -47,6 +47,11 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { taskSearchDelay } from "@posthog/ui/features/command/taskSearchQuery";
 import { useFileSearchContext } from "@posthog/ui/features/command/useFileSearchContext";
+import {
+  type Command,
+  type CommandSection,
+  useSearchSections,
+} from "@posthog/ui/features/command/useSearchSections";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
@@ -66,12 +71,9 @@ import {
   goForwardInHistory,
   navigateToArchived,
   navigateToChannel,
-  navigateToChannelArtifacts,
-  navigateToChannelTask,
   navigateToCommandCenter,
   navigateToInbox,
   navigateToLoops,
-  navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -97,24 +99,6 @@ interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-type Command = {
-  id: string;
-  label: string;
-  /** Muted trailing detail shown after a middot, e.g. a task's channel. */
-  detail?: string;
-  detailPrefix?: string;
-  keywords?: string;
-  icon: React.ReactNode;
-  action: CommandMenuAction;
-  /** Channel in scope for the bluebird open-channel / open-task actions. */
-  channelId?: string;
-  /** Hotkey string (e.g. "mod+b") shown right-aligned when present. */
-  shortcut?: string;
-  onRun: () => void;
-};
-
-type CommandSection = { label: string; items: Command[] };
 
 /**
  * Task icon for the command palette. Renders the same shared `TaskIcon` as
@@ -580,90 +564,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     ];
   }, [channels, closeSettingsDialog, spacesLayout]);
 
-  const searchSections = useMemo<CommandSection[]>(() => {
-    if (!remoteQuery || searchResults.length === 0) return [];
-    const tasksById = new Map(tasks.map((task) => [task.id, task]));
-    const visibleTaskIds = new Set(
-      taskSections.flatMap((section) =>
-        section.items.map((item) => item.id.replace(/^task-/, "")),
-      ),
-    );
-    const channelIds = new Set(channels.map((channel) => channel.id));
-    const items: Command[] = [];
-    for (const result of searchResults as TaskSearchResult[]) {
-      if (result.kind === "channel" && !bluebirdEnabled) {
-        continue;
-      }
-      if (
-        (result.kind === "task" &&
-          result.task_id &&
-          visibleTaskIds.has(result.task_id)) ||
-        (result.kind === "channel" &&
-          result.channel_id &&
-          channelIds.has(result.channel_id))
-      ) {
-        continue;
-      }
-      const task = result.task_id ? tasksById.get(result.task_id) : undefined;
-      const detail = result.subtitle || undefined;
-      items.push({
-        id: `search-${result.id}`,
-        label: result.title,
-        detail,
-        detailPrefix: "",
-        keywords: `${remoteQuery} ${result.subtitle} ${Object.values(result.metadata).join(" ")}`,
-        icon:
-          result.kind === "pull_request" ? (
-            <GitDiffIcon size={12} className="text-gray-11" />
-          ) : result.kind === "channel" ? (
-            channelGlyph(result.title, {
-              size: 12,
-              space: spacesLayout,
-              className: "text-muted-foreground",
-            })
-          ) : (
-            <FileTextIcon className="h-3 w-3 text-gray-11" />
-          ),
-        action: (result.kind === "channel"
-          ? "open-channel"
-          : result.kind === "pull_request"
-            ? "open-pull-request"
-            : result.kind === "artifact"
-              ? "open-artifact"
-              : "open-task") as CommandMenuAction,
-        channelId: bluebirdEnabled
-          ? (result.channel_id ?? undefined)
-          : undefined,
-        onRun: () => {
-          closeSettingsDialog();
-          if (
-            bluebirdEnabled &&
-            result.kind === "channel" &&
-            result.channel_id
-          ) {
-            navigateToChannel(result.channel_id);
-          } else if (
-            bluebirdEnabled &&
-            result.kind === "artifact" &&
-            result.channel_id &&
-            result.metadata.living === true
-          ) {
-            navigateToChannelArtifacts(result.channel_id);
-          } else if (task) {
-            void openTask(
-              task,
-              result.channel_id ? { channelId: result.channel_id } : undefined,
-            );
-          } else if (bluebirdEnabled && result.task_id && result.channel_id) {
-            navigateToChannelTask(result.channel_id, result.task_id);
-          } else if (result.task_id) {
-            navigateToTaskDetail(result.task_id);
-          }
-        },
-      });
-    }
-    return items.length > 0 ? [{ label: "Search results", items }] : [];
-  }, [
+  const searchSections = useSearchSections({
     remoteQuery,
     searchResults,
     tasks,
@@ -671,8 +572,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     channels,
     bluebirdEnabled,
     spacesLayout,
-    closeSettingsDialog,
-  ]);
+  });
 
   // Commands, channels, and tasks share a single filterable list.
   const sections = useMemo(

@@ -53,7 +53,7 @@ export type CommandMenuAction =
   | "go-back"
   | "go-forward"
   | "open-task"
-  | "open-pull-request"
+  | "open-task-from-pull-request"
   | "open-artifact"
   | "open-channel"
   | "open-command-center"

@@ -204,6 +204,10 @@ def backfill_task_search_documents(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # Each 1,000-document bulk insert commits independently. Avoid wrapping the
+    # complete historical scan in a deployment-long transaction.
+    atomic = False
+
     dependencies = [("tasks", "0087_tasksearchdocument")]
 
     operations = [migrations.RunPython(backfill_task_search_documents, migrations.RunPython.noop, elidable=True)]
