@@ -33,6 +33,10 @@ export function SlackCommentNotificationsSettings() {
       onSuccess: () => {
         void queryClient.invalidateQueries({ queryKey: ["me"] });
       },
+      onError: (error) =>
+        toast.error("Couldn't update Slack notifications", {
+          description: error.message,
+        }),
     },
   );
 
@@ -48,6 +52,11 @@ export function SlackCommentNotificationsSettings() {
       openExternalUrl(install_url);
     },
     {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["slack-user-integrations"],
+        });
+      },
       // The endpoint refuses when the project has no Slack app connected, or when the org is
       // outside the rollout. Without this the button does nothing, which reads as a broken build.
       onError: (error) =>

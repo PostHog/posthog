@@ -1756,7 +1756,9 @@ export class PostHogAPIClient {
       path: urlPath,
     });
     if (!response.ok) {
-      return [];
+      throw new Error(
+        `Failed to list Slack integrations: ${response.statusText}`,
+      );
     }
     const data = (await response.json()) as {
       results?: {
