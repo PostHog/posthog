@@ -35,12 +35,7 @@ export function TabContentRenderer({
   switch (data.type) {
     case "logs":
       return task.runtime === "pi" ? (
-        <PiSessionView
-          key={taskId}
-          taskId={taskId}
-          taskRunId={task.latest_run?.id}
-          isCloud={isCloud}
-        />
+        <PiSessionView key={taskId} task={task} isCloud={isCloud} />
       ) : (
         <TaskLogsPanel taskId={taskId} task={task} />
       );

@@ -188,6 +188,31 @@ vi.mock("@posthog/di/container", () => ({
     if (typeof token === "function" && token.name === "NotificationBus") {
       return mockNotificationService;
     }
+    if (token === Symbol.for("posthog.notification.agentSessionNotifier")) {
+      return {
+        notify: (notification: {
+          kind: "needs_input" | "turn_completed";
+          taskTitle: string;
+          taskId: string;
+          stopReason?: string;
+          durationMs?: number;
+        }) => {
+          if (notification.kind === "needs_input") {
+            mockNotificationService.notifyPermissionRequest(
+              notification.taskTitle,
+              notification.taskId,
+            );
+          } else {
+            mockNotificationService.notifyPromptComplete(
+              notification.taskTitle,
+              notification.stopReason,
+              notification.taskId,
+              notification.durationMs,
+            );
+          }
+        },
+      };
+    }
     throw new Error(`resolveService: unmocked token ${String(token)}`);
   },
 }));

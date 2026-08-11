@@ -26,7 +26,10 @@ import {
   isTerminalStatus,
   progressNotificationParams,
 } from "../cloud-task/schemas";
-import type { PiSession } from "./piSessionController";
+import type {
+  PiConversationEventContext,
+  PiSession,
+} from "./piSessionController";
 
 function createTerminalPiRpcClient(
   runId: string,
@@ -286,7 +289,10 @@ export class CloudPiSessionClient implements PiSession {
   }
 
   onConversationEvent(
-    onEvent: (event: AgentConversationEvent) => void,
+    onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void,
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): () => void {
@@ -332,7 +338,10 @@ export class CloudPiSessionClient implements PiSession {
 
   private handleUpdate(
     update: CloudTaskUpdatePayload,
-    onEvent: (event: AgentConversationEvent) => void,
+    onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void,
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): void {
@@ -377,7 +386,7 @@ export class CloudPiSessionClient implements PiSession {
       this.markSnapshotReady();
       for (const event of events) {
         if (!event.sourceId || !previousSourceIds.has(event.sourceId)) {
-          onEvent(event);
+          onEvent(event, { isLive: false });
         }
       }
     } else if (update.kind === "logs") {
@@ -397,7 +406,7 @@ export class CloudPiSessionClient implements PiSession {
       this.snapshotEvents = [...this.snapshotEvents, ...newEvents];
       this.markSnapshotReady();
       for (const event of newEvents) {
-        onEvent(event);
+        onEvent(event, { isLive: true });
       }
     }
 
@@ -413,7 +422,16 @@ export class CloudPiSessionClient implements PiSession {
       this.resolveTerminalStatus();
       if (!this.terminalEventSent) {
         this.terminalEventSent = true;
-        onEvent({ type: "turn_completed", timestamp: Date.now() });
+        const stopReason =
+          this.runStatus === "completed"
+            ? "end_turn"
+            : this.runStatus === "cancelled"
+              ? "cancelled"
+              : "failed";
+        onEvent(
+          { type: "turn_completed", timestamp: Date.now(), stopReason },
+          { isLive: update.kind === "status" },
+        );
       }
     }
 

@@ -238,6 +238,36 @@ const mockSpeechNotifier = vi.hoisted(() => ({
   speak: vi.fn(),
 }));
 
+const mockAgentSessionNotifier = vi.hoisted(() => ({
+  notify: vi.fn(
+    (notification: {
+      kind: "needs_input" | "turn_completed";
+      taskTitle: string;
+      taskId: string;
+      stopReason?: string;
+      durationMs?: number;
+      isTaskAuthor?: boolean;
+    }) => {
+      if (notification.isTaskAuthor === false) {
+        return;
+      }
+      if (notification.kind === "needs_input") {
+        mockNotificationService.notifyPermissionRequest(
+          notification.taskTitle,
+          notification.taskId,
+        );
+        return;
+      }
+      mockNotificationService.notifyPromptComplete(
+        notification.taskTitle,
+        notification.stopReason,
+        notification.taskId,
+        notification.durationMs,
+      );
+    },
+  ),
+}));
+
 const mockFeatureFlags = vi.hoisted(() => ({
   isEnabled: vi.fn(() => false),
   onFlagsLoaded: vi.fn(() => vi.fn()),
@@ -321,6 +351,9 @@ vi.mock("@posthog/di/container", () => ({
     }
     if (typeof token === "function" && token.name === "SpeechNotifier") {
       return mockSpeechNotifier;
+    }
+    if (token === Symbol.for("posthog.notification.agentSessionNotifier")) {
+      return mockAgentSessionNotifier;
     }
     if (token === Symbol.for("posthog.ui.featureFlags")) {
       return mockFeatureFlags;
