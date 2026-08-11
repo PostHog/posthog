@@ -2,6 +2,7 @@ import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Button, Flex, Switch, Text } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -41,10 +42,20 @@ export function SlackCommentNotificationsSettings() {
     void,
     Error,
     void
-  >(async (client) => {
-    const { install_url } = await client.startSlackUserIntegrationConnect();
-    openExternalUrl(install_url);
-  });
+  >(
+    async (client) => {
+      const { install_url } = await client.startSlackUserIntegrationConnect();
+      openExternalUrl(install_url);
+    },
+    {
+      // The endpoint refuses when the project has no Slack app connected, or when the org is
+      // outside the rollout. Without this the button does nothing, which reads as a broken build.
+      onError: (error) =>
+        toast.error("Couldn't start Slack linking", {
+          description: error.message,
+        }),
+    },
+  );
 
   return (
     <>
@@ -60,13 +71,13 @@ export function SlackCommentNotificationsSettings() {
         label="Slack account"
         description={
           linked
-            ? `Connected to ${links?.[0]?.slack_team_name ?? "Slack"}`
-            : "Connect your Slack account so we know who to message"
+            ? `Linked to ${links?.[0]?.slack_team_name ?? "Slack"}`
+            : "Only needed when your Slack email differs from your PostHog email. Otherwise we find you by email."
         }
       >
         {linked ? (
           <Text color="gray" className="text-[13px]">
-            Connected
+            Linked
           </Text>
         ) : (
           <Button
@@ -74,7 +85,7 @@ export function SlackCommentNotificationsSettings() {
             disabled={connecting || linksLoading}
             onClick={() => connect()}
           >
-            {connecting ? "Opening Slack…" : "Connect Slack"}
+            {connecting ? "Opening Slack…" : "Link Slack account"}
           </Button>
         )}
       </SettingRow>
@@ -85,10 +96,12 @@ export function SlackCommentNotificationsSettings() {
         noBorder
       >
         <Flex align="center" gap="2">
+          {/* Deliberately not gated on a link: an unlinked recipient is matched to Slack by
+              email, so gating here would hide a path that works. */}
           <Switch
             checked={enabled}
             onCheckedChange={(next) => mutate(next)}
-            disabled={isLoading || isPending || !linked}
+            disabled={isLoading || isPending}
             size="1"
           />
         </Flex>
