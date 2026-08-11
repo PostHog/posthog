@@ -40,6 +40,8 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   };
 }
 
+const NO_BLOCKED_TASKS: ReadonlySet<string> = new Set();
+
 describe("activityHeadline", () => {
   beforeEach(() => {
     commentsFlag.enabled = true;
@@ -137,6 +139,7 @@ describe("activityHeadline", () => {
         channelId="channel-1"
         onOpen={vi.fn()}
         onMarkRead={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );
     const activityButton = screen.getByText("mentioned you").closest("button");
@@ -153,6 +156,7 @@ describe("activityHeadline", () => {
       threadId: "comment-1",
       nonce: expect.any(Number),
       openCommentsTab: true,
+      intent: "navigate",
     });
   });
 
@@ -171,6 +175,7 @@ describe("activityHeadline", () => {
         channelId="channel-1"
         onOpen={vi.fn()}
         onMarkRead={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );
     const activityButton = screen

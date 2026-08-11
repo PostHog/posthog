@@ -1384,7 +1384,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         agent_server_output: StartAgentServerOutput,
         sandbox_id: str | None = None,
     ) -> None:
-        await workflow.execute_activity(
+        sandbox_gone = await workflow.execute_activity(
             relay_sandbox_events,
             RelaySandboxEventsInput(
                 run_id=self.context.run_id,
@@ -1415,6 +1415,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             ),
             cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
         )
+        if sandbox_gone and not self._task_completed:
+            self._sandbox_gone = True
 
     @staticmethod
     async def _cancel_relay(relay_task: "asyncio.Task[None]") -> None:

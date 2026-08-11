@@ -13,6 +13,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.notebooks.backend.kernel_runtime import (
+    NOTEBOOK_KERNEL_TTL_SECONDS,
     KernelRuntimeService,
     _KernelHandle,
     _NotebookBridgeParser,
@@ -105,7 +106,7 @@ class TestKernelRuntimeService(BaseTest):
             (
                 "memory_only",
                 {"kernel_memory_gb": 12.0},
-                {"memory_gb": 12.0},
+                {"memory_gb": 12.0, "ttl_seconds": NOTEBOOK_KERNEL_TTL_SECONDS},
             ),
         ]
     )

@@ -3,7 +3,6 @@ import {
   COMMENT_ACTION_BUTTON_THEMES,
   commentActionAnchorRect,
   commentActionButtonCss,
-  commentActionButtonCssVars,
   computeCommentActionPlacement,
   installSelectionSettleGate,
   type SelectionSettleGateCallbacks,
@@ -207,34 +206,25 @@ describe("selectionCommentAction", () => {
   });
 
   it("applies every theme variable the action button styles reference", () => {
+    const target = document.createElement("button");
     for (const theme of ["light", "dark"] as const) {
-      setCommentActionTheme(theme, COMMENT_ACTION_BUTTON_THEMES);
+      setCommentActionTheme(theme, COMMENT_ACTION_BUTTON_THEMES, target);
       const css = commentActionButtonCss();
       for (const match of css.matchAll(
         /var\((--ph-comment-action-[a-z-]+)\)/g,
       )) {
         expect(
-          document.documentElement.style.getPropertyValue(match[1]),
+          target.style.getPropertyValue(match[1]),
           `${theme} sets ${match[1]}`,
         ).toBe(COMMENT_ACTION_BUTTON_THEMES[theme][cssVarField(match[1])]);
       }
     }
-    document.documentElement.style.cssText = "";
   });
 
   it("falls back to the light palette for an unknown theme name", () => {
-    setCommentActionTheme("solarized", COMMENT_ACTION_BUTTON_THEMES);
-    expect(
-      document.documentElement.style.getPropertyValue("--ph-comment-action-bg"),
-    ).toBe(COMMENT_ACTION_BUTTON_THEMES.light.background);
-    document.documentElement.style.cssText = "";
-  });
-
-  it("bakes the requested theme into the :root variable declarations", () => {
-    expect(commentActionButtonCssVars("dark")).toContain(
-      COMMENT_ACTION_BUTTON_THEMES.dark.background,
-    );
-    expect(commentActionButtonCssVars("light")).toContain(
+    const target = document.createElement("button");
+    setCommentActionTheme("solarized", COMMENT_ACTION_BUTTON_THEMES, target);
+    expect(target.style.getPropertyValue("--ph-comment-action-bg")).toBe(
       COMMENT_ACTION_BUTTON_THEMES.light.background,
     );
   });

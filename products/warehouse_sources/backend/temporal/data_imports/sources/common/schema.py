@@ -29,8 +29,10 @@ class SourceSchema:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     row_count: int | None = None
     supports_webhooks: bool = False
-    # True for resources with no API list endpoint that can only be populated via webhooks
-    # (e.g. Stripe `Discount`). The UI should hide non-webhook sync methods for these.
+    # True for resources whose only valid sync method is webhooks: either no API list endpoint
+    # exists at all (e.g. Stripe `Discount`), or a non-webhook sync would destroy captured data
+    # (e.g. Stripe `CustomerPaymentMethodHistory`, which seeds once from an API sweep and then
+    # appends webhook events). The UI should hide non-webhook sync methods for these.
     webhook_only: bool = False
     supports_cdc: bool = False
     # Postgres-only: set by the Postgres source for heap tables / matviews (PG13+); all
