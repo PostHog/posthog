@@ -35,7 +35,7 @@ from products.tasks.backend.models import Task, TaskCommentActivity
 logger = structlog.get_logger(__name__)
 
 # Opt-in: having linked a Slack account is not consent to have your comments forwarded into it.
-SLACK_DM_SETTING = "code_comments_slack_dm"
+SLACK_DM_SETTING = "task_comments_slack_dm"
 
 # Slack allows 3000 characters per section; a DM that long is unreadable, and the link to the full
 # thread is right there in the heading.

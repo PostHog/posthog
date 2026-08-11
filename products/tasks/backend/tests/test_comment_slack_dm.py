@@ -45,7 +45,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
         )
 
     def _opt_in(self, user, enabled: bool = True) -> None:
-        user.partial_notification_settings = {"code_comments_slack_dm": enabled}
+        user.partial_notification_settings = {"task_comments_slack_dm": enabled}
         user.save()
 
     def _record_activity(self, comment: Comment, user_ids: list[int] | None = None) -> None:

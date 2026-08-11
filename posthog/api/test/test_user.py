@@ -1961,7 +1961,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
-                "code_comments_slack_dm": False,
+                "task_comments_slack_dm": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -1982,7 +1982,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
-                "code_comments_slack_dm": False,
+                "task_comments_slack_dm": False,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2251,7 +2251,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
-                "code_comments_slack_dm": False,  # Default value
+                "task_comments_slack_dm": False,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
