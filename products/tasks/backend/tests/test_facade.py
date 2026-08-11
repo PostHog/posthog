@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
+from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
     contracts,
@@ -466,6 +467,57 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+
+    @parameterized.expand(
+        [
+            # The inbox "Create PR" button sends no branch, so the team's configured base branch is
+            # the only thing that can keep the PR off the repo's GitHub default branch. Repo casing
+            # differs from the stored key because GitHub preserves it while the serializer lowercases.
+            ("configured_branch_applied", {"acme/web": "dev"}, {}, "dev"),
+            # A caller that picked a branch already decided; re-resolving would discard that choice.
+            ("explicit_branch_wins", {"acme/web": "dev"}, {"branch": "hotfix"}, "hotfix"),
+            # Another repo's entry must never be borrowed, because that lands the PR on a
+            # branch belonging to a different repository.
+            ("other_repo_not_borrowed", {"acme/api": "staging"}, {}, None),
+        ]
+    )
+    def test_run_task_applies_configured_base_branch(
+        self, _name: str, overrides: dict, extra_validated_data: dict, expected_branch: str | None
+    ):
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_base_branches": overrides})
+        task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.SIGNAL_REPORT)
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": "signal_report", **extra_validated_data},
+            )
+
+        assert result is not None and result.error is None
+        run = task.runs.get()
+        self.assertEqual(run.branch, expected_branch)
+        self.assertEqual((run.state or {}).get("pr_base_branch"), expected_branch)
+
+    def test_run_task_leaves_branch_unset_for_user_created_tasks(self):
+        # The override is scoped to self-driving tasks. A user-created task keeps targeting the repo
+        # default, so broadening the resolution would silently redirect unrelated task runs.
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team, defaults={"autostart_base_branches": {"acme/web": "dev"}}
+        )
+        task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.USER_CREATED)
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": "signal_report"},
+            )
+
+        assert result is not None and result.error is None
+        self.assertIsNone(task.runs.get().branch)
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()

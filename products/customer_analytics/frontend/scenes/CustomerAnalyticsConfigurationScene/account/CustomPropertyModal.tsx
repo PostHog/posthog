@@ -31,6 +31,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
+    ColumnPropertyMapping,
     CustomPropertySourceMode,
     CustomPropertyTargetType,
     customPropertyDefinitionsLogic,
@@ -54,6 +55,81 @@ const TARGET_TYPE_OPTIONS: { value: CustomPropertyTargetType; label: string }[] 
     { value: 'group', label: 'Group' },
 ]
 
+// The table an existing source reads, shown as text because the binding is create-only. Links to the
+// table's own page, where its sync history and import errors are.
+function ReadOnlyWarehouseTable({
+    entityPlural,
+    tableName,
+    schemaUrl,
+}: {
+    entityPlural: string
+    tableName: string | null
+    schemaUrl: string | null
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonLabel>Warehouse table</LemonLabel>
+            {tableName ? (
+                schemaUrl ? (
+                    <Link to={schemaUrl} target="_blank" targetBlankIcon>
+                        <code>{tableName}</code>
+                    </Link>
+                ) : (
+                    <code>{tableName}</code>
+                )
+            ) : (
+                <span className="text-secondary">
+                    This table isn't available. It may have been deleted, or you may not have access to the source it
+                    belongs to.
+                </span>
+            )}
+            <span className="text-secondary text-xs">
+                Rows from this table update matching {entityPlural} on every sync. You can't change the table after the
+                property is created.
+            </span>
+        </div>
+    )
+}
+
+// An existing source's column mappings. Create-only on the backend, so they're listed rather than
+// edited: what a property reads is the thing you open the modal to check.
+function ReadOnlyColumnMappings({
+    entityLabel,
+    mappings,
+}: {
+    entityLabel: string
+    mappings: ColumnPropertyMapping[]
+}): JSX.Element {
+    const mapped = mappings.filter((mapping) => mapping.column && mapping.property)
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonLabel>Column mappings</LemonLabel>
+            {mapped.length ? (
+                <div className="flex flex-col gap-1">
+                    {mapped.map((mapping) => (
+                        <div key={mapping.column} className="flex flex-col border rounded px-2 py-1">
+                            <span className="flex items-center gap-2">
+                                <code>{mapping.column}</code>
+                                <span className="text-secondary">→</span>
+                                <code>{mapping.property}</code>
+                            </span>
+                            {mapping.description && (
+                                <span className="text-secondary text-xs">{mapping.description}</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <span className="text-secondary">This source has no column mappings.</span>
+            )}
+            <span className="text-secondary text-xs">
+                Which warehouse column sets which {entityLabel} property. You can't change the mappings after the
+                property is created. To change them, delete this property and create a new one.
+            </span>
+        </div>
+    )
+}
+
 // Warehouse-profile editor (person or group target): pick a synced warehouse table, the key column
 // (a person's distinct_id or a group's key), and the column → property mappings. For group targets it
 // also picks which group type. The binding + mappings are create-only on the backend, so they're
@@ -75,7 +151,9 @@ function PersonSourceEditor(): JSX.Element {
 
     const isGroup = customPropertyForm.targetType === 'group'
     const entityLabel = isGroup ? 'group' : 'person'
-    const hasExistingSource = !!editingDefinition?.source
+    const entityPlural = isGroup ? 'groups' : 'people'
+    const existingSource = editingDefinition?.source
+    const hasExistingSource = !!existingSource
     // Deliberately not derived from `warehouseTables` — the picker's search narrows that list, and a
     // search with no matches would otherwise collapse the whole editor into the empty-state banner,
     // taking the search box with it. The picker shows its own "no options matching" instead.
@@ -127,11 +205,18 @@ function PersonSourceEditor(): JSX.Element {
                 </LemonField>
             )}
             {hasExistingSource ? (
-                <LemonBanner type="info">
-                    The warehouse table and column mappings are fixed once a source is created. To change them, delete
-                    this property and create a new one. You can still update the {isGroup ? 'group key' : 'distinct ID'}{' '}
-                    column and toggle syncing.
-                </LemonBanner>
+                <ReadOnlyWarehouseTable
+                    entityPlural={entityPlural}
+                    tableName={existingSource?.table_name ?? null}
+                    schemaUrl={
+                        existingSource?.external_data_source && existingSource.external_data_schema
+                            ? urls.dataWarehouseSourceSchema(
+                                  existingSource.external_data_source,
+                                  existingSource.external_data_schema
+                              )
+                            : null
+                    }
+                />
             ) : (
                 <LemonField
                     name="warehouseTable"
@@ -185,7 +270,9 @@ function PersonSourceEditor(): JSX.Element {
                     />
                 )}
             </LemonField>
-            {!hasExistingSource && (
+            {hasExistingSource ? (
+                <ReadOnlyColumnMappings entityLabel={entityLabel} mappings={mappings} />
+            ) : (
                 <div className="flex flex-col gap-2">
                     <LemonLabel>Column mappings</LemonLabel>
                     <span className="text-secondary text-xs">

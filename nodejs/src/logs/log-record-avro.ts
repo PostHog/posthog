@@ -364,15 +364,18 @@ export const processLogMessageBuffer = instrumented({
 
         const { kept, stats } = await runPipelineStages(records, stages)
 
-        if (!mustReencode) {
-            // Only a visitor ran — the buffer is unchanged, so forward it without re-encoding.
-            return { value: buffer, pii, drops: stats }
-        }
-        if (kept.length === 0 && stats.droppedBy) {
-            // A filter stage emptied the batch — signal the caller to suppress it. A batch that was
-            // *already* empty (nothing dropped) still re-encodes to a schema-only buffer, matching the
-            // pre-pipeline behavior; suppressing those is a separate change.
+        if (kept.length === 0) {
+            // No surviving records — signal the caller to suppress the message rather than forward or
+            // re-encode an empty batch downstream. Checked before the visitor-only shortcut below so a
+            // zero-record batch decoded solely for metric-rule tallying is suppressed too.
+            // `stats.droppedBy` distinguishes a filter drop (sampling / transformations) from an
+            // already-empty batch so the caller can attribute it correctly.
             return { value: null, pii, drops: stats }
+        }
+        if (!mustReencode) {
+            // Only a visitor ran and records survive — the buffer is unchanged, so forward it without
+            // re-encoding.
+            return { value: buffer, pii, drops: stats }
         }
 
         const value = await encodeLogRecordsInstrumented(logRecordType, codec, kept)

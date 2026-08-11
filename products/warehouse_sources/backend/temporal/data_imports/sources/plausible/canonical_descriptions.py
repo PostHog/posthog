@@ -1,6 +1,7 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import EVENT_SCOPED_METRICS
 
 _DOCS_URL = "https://plausible.io/docs/stats-api"
 
@@ -13,6 +14,11 @@ _STANDARD_METRIC_COLUMNS = {
     "bounce_rate": "Percentage of visits with a single page interaction (0-100).",
     "visit_duration": "Average visit duration in seconds.",
     "events": "Number of events (pageviews plus custom events).",
+}
+
+# Entry/exit page breakdowns are session-scoped, so they carry no event-scoped metric columns.
+_SESSION_METRIC_COLUMNS = {
+    name: description for name, description in _STANDARD_METRIC_COLUMNS.items() if name not in EVENT_SCOPED_METRICS
 }
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
@@ -64,12 +70,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "entry_pages": {
         "description": "Daily traffic metrics broken down by the first page of each visit.",
         "docs_url": _DOCS_URL,
-        "columns": {**_STANDARD_METRIC_COLUMNS, "entry_page": "The first page path visited in a session."},
+        "columns": {**_SESSION_METRIC_COLUMNS, "entry_page": "The first page path visited in a session."},
     },
     "exit_pages": {
         "description": "Daily traffic metrics broken down by the last page of each visit.",
         "docs_url": _DOCS_URL,
-        "columns": {**_STANDARD_METRIC_COLUMNS, "exit_page": "The last page path visited in a session."},
+        "columns": {**_SESSION_METRIC_COLUMNS, "exit_page": "The last page path visited in a session."},
     },
     "countries": {
         "description": "Daily traffic metrics broken down by visitor country.",
