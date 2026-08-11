@@ -337,6 +337,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP custom event",
             "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
         },
+        "$mcp_auth_failed": {
+            "label": "MCP auth failed",
+            "description": "Fires when an MCP request is refused before a session is established, because the credential was rejected or lacked a required scope. Emitted by PostHog's own MCP server rather than the SDK, so it is absent for customer-instrumented servers. Carries `$mcp_auth_failure_reason`, `$mcp_auth_method`, and the client identity, so connectors stuck re-authorizing are visible instead of appearing as an absence of traffic. Not a tool-call failure: it never sets `$mcp_is_error`.",
+            "primary_property": "$mcp_auth_failure_reason",
+        },
         "$mcp_missing_capability": {
             "label": "MCP missing capability",
             "description": "Fires when an agent reports functionality it couldn't find via the `get_more_tools` virtual tool (when `reportMissing` is enabled). Carries the agent's reasoning in `$mcp_intent` — a capability gap, not a tool invocation.",
@@ -2749,6 +2754,27 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP error field",
             "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
+        },
+        "$mcp_auth_method": {
+            "label": "MCP auth method",
+            "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection — for example when a user works around a broken OAuth flow by switching to a personal API key.",
+            "examples": ["oauth", "personal_api_key"],
+        },
+        "$mcp_auth_failure_reason": {
+            "label": "MCP auth failure reason",
+            "description": "Why an MCP request was refused, on $mcp_auth_failed: insufficient_scope (the credential is valid but the API denied the call), inactive_oauth_token, invalid_api_key, or unknown. insufficient_scope also carries $mcp_missing_scope when the API named a scope.",
+            "examples": ["insufficient_scope", "invalid_api_key", "inactive_oauth_token"],
+        },
+        "$mcp_auth_status": {
+            "label": "MCP auth status",
+            "description": "HTTP status returned to the client when an MCP request was refused (401 for a rejected credential, 403 for a denied scope). Distinct from $mcp_error_status, which is the upstream status of a failed tool call. Only set on $mcp_auth_failed.",
+            "type": "Numeric",
+            "examples": [401, 403],
+        },
+        "$mcp_missing_scope": {
+            "label": "MCP missing scope",
+            "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
+            "examples": ["insight:read", "query:read"],
         },
         "$mcp_error_message": {
             "label": "MCP error message",

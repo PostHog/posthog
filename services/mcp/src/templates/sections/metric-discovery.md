@@ -1,6 +1,6 @@
 #### Metric discovery (semantic layer)
 
-Catalog-first for any named, reusable measure: business KPIs (revenue-, growth-, engagement-, conversion-shaped numbers, e.g. MRR, activation, retention) and operational telemetry computed for monitoring or reporting (cost-, reliability-, latency-, throughput-shaped numbers, e.g. cost per run, failure rate), including rankings/breakdowns/comparisons. Synonyms and derived forms (e.g. an annualized variant of a stored metric) still route here; label derivations noncanonical. Raw event/property exploration and one-off debugging aggregates that name no reusable measure stay schema-first.
+Catalog-first for any named, reusable measure, business or operational: KPIs (MRR, activation, retention) and monitored telemetry (cost per run, failure or error rate, latency), including rankings/breakdowns/comparisons. Synonyms and derived forms (e.g. an annualized variant of a stored metric) still route here; label derivations noncanonical. One-off exploration and debugging aggregates stay schema-first.
 
 This takes precedence over 'Retrieving data' below: for metric questions, check the catalog before any `query-*` or `execute-sql` call, even when the question maps to a supported insight type.
 

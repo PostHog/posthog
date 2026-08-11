@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -470,8 +471,10 @@ async def _handle_import_error(
     # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
     # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
     # customer data or config problem. Same classification already used for app-DB blips in
-    # delta_table_ref.is_transient_maintenance_error.
-    if isinstance(error, OperationalError | InterfaceError):
+    # delta_table_ref.is_transient_maintenance_error. PostHogInternalDatabaseError is the same
+    # condition already reclassified by shared pipeline code (e.g. cdp_producer's should_run check)
+    # specifically so it wouldn't be mistaken for a customer-side failure here — honor that by type.
+    if isinstance(error, OperationalError | InterfaceError | PostHogInternalDatabaseError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error

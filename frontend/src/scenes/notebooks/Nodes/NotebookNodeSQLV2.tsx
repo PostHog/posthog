@@ -19,7 +19,7 @@ import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamB
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { outputHeightForShape } from './notebookNodeOutputHeight'
+import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
@@ -99,10 +99,40 @@ const inferTypes = (result: NotebookNodeSQLV2Result): [string, string][] =>
         return [column, typeof sample === 'number' ? 'Float64' : 'String']
     })
 
-const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
+// A notebook stores the whole result envelope, and a cell the sandbox kernel ran can hold raw
+// pandas dtypes ('float64', 'str'). The chart layer reads ClickHouse names to decide which
+// columns can go on a numeric axis, so map those over rather than make a saved cell re-run.
+const PANDAS_DTYPE_NAMES: Record<string, string> = {
+    bool: 'Bool',
+    boolean: 'Bool',
+    category: 'String',
+    object: 'String',
+    str: 'String',
+}
+
+const toClickhouseTypeName = (type: string): string => {
+    const dtype = type.toLowerCase()
+    if (PANDAS_DTYPE_NAMES[dtype]) {
+        return PANDAS_DTYPE_NAMES[dtype]
+    }
+    if (dtype.startsWith('datetime64')) {
+        return 'DateTime'
+    }
+    if (/^u?int(8|16|32|64)$/.test(dtype)) {
+        return 'Int64'
+    }
+    if (/^float(16|32|64)$/.test(dtype)) {
+        return 'Float64'
+    }
+    return type
+}
+
+export const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
     results: result.first_page ?? [],
     columns: result.columns ?? [],
-    types: result.types?.length ? result.types : inferTypes(result),
+    types: result.types?.length
+        ? result.types.map(([column, type]): [string, string] => [column, toClickhouseTypeName(type)])
+        : inferTypes(result),
 })
 
 const Component = ({
@@ -110,7 +140,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage, isEditable } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
@@ -179,11 +209,15 @@ const Component = ({
     // Grow a still-too-short node to fit the result each run lands, so output is readable without
     // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result
     // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
-    // resize (or a reload of an already-sized cell) is left untouched.
-    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
+    // resize is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(
+        initialSizedRunId({ hasResult: !!result, height: attributes.height, runId: attributes.runId ?? null })
+    )
     useEffect(() => {
         const runId = attributes.runId ?? null
-        if (!result || runId === sizedRunIdRef.current) {
+        // A read-only notebook lays the node out from its content, so there is no fixed height to
+        // outgrow — and no editor to persist one into.
+        if (!result || !isEditable || runId === sizedRunIdRef.current) {
             return
         }
         sizedRunIdRef.current = runId
@@ -195,7 +229,7 @@ const Component = ({
             updateAttributes({ height: target })
         }
         // oxlint-disable-next-line exhaustive-deps
-    }, [result, attributes.runId])
+    }, [result, attributes.runId, isEditable])
 
     if (!expanded) {
         return null

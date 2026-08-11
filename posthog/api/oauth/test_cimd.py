@@ -27,6 +27,7 @@ from posthog.api.oauth.cimd import (
     _resolve_scopes,
     _update_cimd_application,
     apply_provisioning_defaults,
+    enqueue_cimd_refresh_if_stale,
     fetch_and_upsert_cimd_application,
     fetch_cimd_metadata,
     get_application_by_client_id,
@@ -452,6 +453,15 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
             result = get_or_create_cimd_application(VALID_CIMD_URL)
             self.assertEqual(result.pk, app.pk)
             self.assertEqual(result.name, "Original Name")
+            mock_task.delay.assert_called_once_with(VALID_CIMD_URL)
+
+    def test_stale_refresh_enqueues_one_task_while_pending(self, _url_mock):
+        real_cache.clear()
+        # The staleness check runs before any client authentication, so a burst of requests
+        # against a stale document must coalesce into one queued task, not one per request.
+        with patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task") as mock_task:
+            enqueue_cimd_refresh_if_stale(VALID_CIMD_URL)
+            enqueue_cimd_refresh_if_stale(VALID_CIMD_URL)
             mock_task.delay.assert_called_once_with(VALID_CIMD_URL)
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")

@@ -12,6 +12,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import deltalake as deltalake
@@ -113,6 +114,13 @@ def _is_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
     try:
         team = retry_on_db_connection_drop(lambda: Team.objects.only("uuid", "organization_id").get(id=schema.team_id))
     except Team.DoesNotExist:
+        return False
+    except (OperationalError, InterfaceError) as e:
+        # retry_on_db_connection_drop already retried once; a second failure is a genuinely degraded
+        # DB, not a bug here. Some callers (repartition_table.py) evaluate this flag with no enclosing
+        # try/except, so this function's contract of "never raises, defaults to disabled" must hold on
+        # its own.
+        capture_exception(e)
         return False
     try:
         return bool(
