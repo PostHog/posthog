@@ -1,6 +1,5 @@
 import { Text } from "@components/text";
 import { isRestorableReport } from "@posthog/core/inbox/reportMembership";
-import { inboxStatusLabel } from "@posthog/core/inbox/reportPresentation";
 import { dismissalReasonLabel } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
@@ -16,6 +15,7 @@ import {
 import { formatRelativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme";
 import { useArchivedReports, useRestoreReport } from "../hooks/useInboxReports";
+import { PriorityBadge, StatusBadge } from "./ReportBadges";
 
 interface ArchivedReportListProps {
   onReportPress?: (report: SignalReport) => void;
@@ -58,14 +58,16 @@ const ArchivedRow = memo(function ArchivedRow({
           {report.title ?? "Untitled report"}
         </Text>
 
-        <View className="mt-1 flex-row flex-wrap items-center gap-2">
+        {/* Same badge trio as the list and the swipe card. The status pill used
+            to be hand-rolled in success green, which painted `failed` and
+            `deleted` reports as if they had resolved cleanly. */}
+        <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5">
+          {report.priority && <PriorityBadge priority={report.priority} />}
           {restorable ? (
             <Text className="text-[11px] text-gray-9">Archived {when}</Text>
           ) : (
             <>
-              <Text className="rounded bg-status-success/20 px-1.5 py-0.5 font-medium text-[11px] text-status-success">
-                {inboxStatusLabel(report.status)}
-              </Text>
+              <StatusBadge status={report.status} />
               <Text className="text-[11px] text-gray-9">{when}</Text>
             </>
           )}
