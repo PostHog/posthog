@@ -5,7 +5,8 @@ from products.ai_observability.backend.dashboard_templates import get_ai_observa
 
 class TestAIObservabilityDefaultTemplate(unittest.TestCase):
     def setUp(self) -> None:
-        self.tiles = {tile["name"]: tile["query"]["source"] for tile in get_ai_observability_default_template().tiles}
+        tiles = get_ai_observability_default_template().tiles or []
+        self.tiles = {tile["name"]: tile["query"]["source"] for tile in tiles}
 
     def test_trace_and_user_tiles_count_the_whole_ai_event_family(self) -> None:
         # A project sending spans and traces but no generations must still see rows on these
