@@ -31,6 +31,10 @@ Three sibling skills carry the mechanics — reach for them when a workflow belo
 | `exploring-scouts`  | Read-only observability: the fleet roster, run history, scratchpad memory, health assessment        |
 | `inbox-exploration` | The inbox itself: triaging, drilling into, acting on, and resolving / dismissing / snoozing reports |
 
+> **Before delegating: is this actually a scout job?**
+> If the user wants the key numbers from an **existing dashboard or insight** posted to a channel on a fixed schedule ("have a scout post the top-line from this dashboard in #launch once a day"), a **dashboard (or insight) subscription with the AI summary enabled** is usually the better fit — scouts are for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
+> Respect a user who's certain they want a scout; when it's ambiguous, suggest the subscription and confirm first ("A dashboard subscription is a better fit for a recurring message — want me to set that up?"), and route to `managing-subscriptions`.
+
 ## First: is the fleet running?
 
 Don't delegate to a fleet that isn't there.
@@ -125,7 +129,7 @@ Some feedback loops run on their own — knowing they exist changes how you work
 
 - **Scratchpad memory.** Scouts write durable per-team memory (baselines, noise patterns, dedupe gates, allowlists) and get quieter and sharper across runs.
   When a scout stops flagging something, check the scratchpad (`posthog:scout-scratchpad-search` for `noise:` / `addressed:` / `dedupe:` / `allowlist:` entries) before assuming it's broken — it may have deliberately learned to suppress it.
-- **Auto-pause.** A scout whose reports nobody acts on is warned (`status=pending_pause`) and then paused (`paused_by_system`, `pause_reason=ignored`).
+- **Auto-pause.** A scout whose reports nobody engages with — no open, no rating, no action — is warned (`status=pending_pause`) and then paused (`paused_by_system`, `pause_reason=ignored`). Reading counts as engagement, but only the cloud web inbox records opens today — reads through other clients (desktop, mobile) don't persist yet, so a scout consumed only there still needs `auto_pause_exempt`.
   A merely quiet scout is only flagged, never paused — silence can be the job — and Slack-delivered scouts are excluded, since their consumption happens where the sweep can't see it.
   Re-enabling a scout this sweep paused marks it `auto_pause_exempt`, so the sweep never overrules a person twice (resuming a `repeated_failures` pause or a user pause grants no such exemption).
 - **Self-improvement suggestions.** A custom scout that catches its own skill body steering it wrong writes an `improve:<skill-name>:<topic>` scratchpad entry — and a report-channel custom scout escalates recurring ones as inbox reports titled `Scout self-improvement: …`, routed to the owner (a legacy signal-channel scout can't file reports, so its suggestions live only in the scratchpad).

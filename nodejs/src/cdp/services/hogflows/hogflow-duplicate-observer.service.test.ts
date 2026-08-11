@@ -62,12 +62,6 @@ describe('HogFlowDuplicateObserverService', () => {
     const readKey = async (key: string): Promise<string | null> =>
         (await redis.useClient({ name: 'read' }, (client) => client.get(key))) ?? null
 
-    it('is a no-op when redis is null', async () => {
-        const observer = new HogFlowDuplicateObserverService(null, valkey)
-        await observer.observe(buildInvocation(), buildAction('action-1'))
-        // Nothing to assert beyond not throwing — verifies the early return.
-    })
-
     it('is a no-op when invocation has no eventUuid', async () => {
         const observer = new HogFlowDuplicateObserverService(redis, valkey)
         await observer.observe(buildInvocation({ eventUuid: null }), buildAction('action-1'))

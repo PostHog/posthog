@@ -14,7 +14,7 @@ rules:
     - match: '/cohortmembership/'
       owners: team-feature-flags
     - match: '/comment/'
-      owners: team-platform-features
+      owners: conversations
     - match: '/messaging.py'
       owners: team-workflows
     - match: '/person/'

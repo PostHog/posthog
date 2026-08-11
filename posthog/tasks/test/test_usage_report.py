@@ -50,6 +50,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
+    MCP_ANALYTICS_EVENT_METRICS,
     OrgReport,
     UsageReportCounters,
     _add_team_report_to_org_reports,
@@ -58,6 +59,7 @@ from posthog.tasks.usage_report import (
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
     _get_full_org_usage_report_as_dict,
+    _get_mcp_analytics_event_metric_counts,
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
@@ -667,6 +669,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_lite_events_count_in_period": 1,
                     "node_events_count_in_period": 1,
                     "mcp_tool_call_events_count_in_period": 0,
+                    "mcp_missing_capability_events_count_in_period": 0,
+                    "mcp_initialize_events_count_in_period": 0,
+                    "mcp_tools_list_events_count_in_period": 0,
+                    "mcp_resource_read_events_count_in_period": 0,
+                    "mcp_resources_list_events_count_in_period": 0,
+                    "mcp_prompt_get_events_count_in_period": 0,
+                    "mcp_prompts_list_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 1,
                     "posthog_pi_events_count_in_period": 1,
                     "posthog_ai_events_count_in_period": 1,
@@ -748,6 +757,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_lite_events_count_in_period": 1,
                             "node_events_count_in_period": 1,
                             "mcp_tool_call_events_count_in_period": 0,
+                            "mcp_missing_capability_events_count_in_period": 0,
+                            "mcp_initialize_events_count_in_period": 0,
+                            "mcp_tools_list_events_count_in_period": 0,
+                            "mcp_resource_read_events_count_in_period": 0,
+                            "mcp_resources_list_events_count_in_period": 0,
+                            "mcp_prompt_get_events_count_in_period": 0,
+                            "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 1,
                             "posthog_pi_events_count_in_period": 1,
                             "posthog_ai_events_count_in_period": 1,
@@ -823,6 +839,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
+                            "mcp_missing_capability_events_count_in_period": 0,
+                            "mcp_initialize_events_count_in_period": 0,
+                            "mcp_tools_list_events_count_in_period": 0,
+                            "mcp_resource_read_events_count_in_period": 0,
+                            "mcp_resources_list_events_count_in_period": 0,
+                            "mcp_prompt_get_events_count_in_period": 0,
+                            "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
@@ -921,6 +944,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_lite_events_count_in_period": 0,
                     "node_events_count_in_period": 0,
                     "mcp_tool_call_events_count_in_period": 0,
+                    "mcp_missing_capability_events_count_in_period": 0,
+                    "mcp_initialize_events_count_in_period": 0,
+                    "mcp_tools_list_events_count_in_period": 0,
+                    "mcp_resource_read_events_count_in_period": 0,
+                    "mcp_resources_list_events_count_in_period": 0,
+                    "mcp_prompt_get_events_count_in_period": 0,
+                    "mcp_prompts_list_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 0,
                     "posthog_pi_events_count_in_period": 0,
                     "posthog_ai_events_count_in_period": 0,
@@ -1002,6 +1032,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
+                            "mcp_missing_capability_events_count_in_period": 0,
+                            "mcp_initialize_events_count_in_period": 0,
+                            "mcp_tools_list_events_count_in_period": 0,
+                            "mcp_resource_read_events_count_in_period": 0,
+                            "mcp_resources_list_events_count_in_period": 0,
+                            "mcp_prompt_get_events_count_in_period": 0,
+                            "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
@@ -1477,7 +1514,7 @@ class TestQueryUsageReportSQL:
 
     @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report._execute_split_query")
-    @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 4)])
+    @patch("posthog.tasks.usage_report.sync_execute")
     @patch("posthog.tasks.usage_report.get_property_string_expr")
     def test_get_all_event_metrics_splits_ai_breakdown_out_of_main_scan(
         self,
@@ -1492,6 +1529,13 @@ class TestQueryUsageReportSQL:
         mock_execute_split_query.side_effect = [
             {"node_events": [(1, 10)], "openclaw_events": [], "posthog_pi_events": [], "posthog_ai_events": []},
             [(1, "posthog-ai", 2), (1, "posthog-openclaw", 3)],
+        ]
+        # Both MCP scans are calendar-aligned, so they reach sync_execute directly: 1st is
+        # `$mcp_tool_call`, 2nd is the grouped (team_id, event, count) scan over the other 7 events.
+        # A single day spans one calendar-aligned split, hence one call each.
+        mock_sync_execute.side_effect = [
+            [(1, 4)],
+            [(1, "$mcp_missing_capability", 6), (1, "$mcp_initialize", 7)],
         ]
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
         end = begin + timedelta(days=1)
@@ -1518,15 +1562,33 @@ class TestQueryUsageReportSQL:
         assert "ai_lib_expr IN (" in ai_query
         assert "'posthog-ai'" in ai_query
 
-        mcp_query = mock_sync_execute.call_args.args[0]
+        dedup_expression = "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))"
+
+        mcp_query = mock_sync_execute.call_args_list[0].args[0]
         assert "event = '$mcp_tool_call'" in mcp_query
-        assert "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))" in mcp_query
+        assert dedup_expression in mcp_query
         assert result["mcp_tool_call_events"] == [(1, 4)]
+
+        # The other 7 MCP Analytics events share one grouped query, and reuse `$mcp_tool_call`'s
+        # dedup expression and table so every MCP metric is counted the same way.
+        mcp_analytics_query = mock_sync_execute.call_args_list[1].args[0]
+        assert dedup_expression in mcp_analytics_query
+        assert "GROUP BY team_id, event" in mcp_analytics_query
+        assert "FROM events" in mcp_analytics_query
+        # `$mcp_tool_call` keeps its own untouched query; `$mcp_custom` is never emitted verbatim.
+        assert "'$mcp_tool_call'" not in mcp_analytics_query
+        assert "'$mcp_custom'" not in mcp_analytics_query
+        # One grouped query for the 7, not one query each.
+        assert mock_sync_execute.call_count == 2
 
         # AI counts are folded back in and subtracted from node_events (10 - 2 - 3 = 5).
         assert result["posthog_ai_events"] == [(1, 2)]
         assert result["openclaw_events"] == [(1, 3)]
         assert result["node_events"] == [(1, 5)]
+
+        # New MCP Analytics metrics are merged straight into the returned dict.
+        assert result["mcp_missing_capability_events"] == [(1, 6)]
+        assert result["mcp_initialize_events"] == [(1, 7)]
 
     @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
     @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
@@ -5482,6 +5544,27 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
             ],
         )
 
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_mcp_analytics_counts_sum_per_metric_across_splits_and_teams(self, mock_sync_execute: MagicMock) -> None:
+        # A period spanning 3 days splits 3 ways, so a team's count for one event arrives in
+        # pieces that must be added, not overwritten, and kept separate per team and per event.
+        mock_sync_execute.side_effect = [
+            [(1, "$mcp_initialize", 2), (2, "$mcp_initialize", 5)],
+            [(1, "$mcp_initialize", 3), (1, "$mcp_tools_list", 7)],
+            [(1, "$mcp_initialize", 4), ("unexpected", "$mcp_not_a_real_event", 9)],
+        ]
+
+        result = _get_mcp_analytics_event_metric_counts(
+            begin=datetime(2023, 1, 1, 12, 0), end=datetime(2023, 1, 3, 12, 0)
+        )
+
+        self.assertEqual(sorted(result["mcp_initialize_events"]), [(1, 9), (2, 5)])
+        self.assertEqual(result["mcp_tools_list_events"], [(1, 7)])
+        # Every metric key is present even when no row mentioned it, so `_get_all_usage_data`
+        # never KeyErrors on a quiet event.
+        self.assertEqual(result["mcp_prompts_list_events"], [])
+        self.assertEqual(set(result), set(MCP_ANALYTICS_EVENT_METRICS.values()))
+
 
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
     def setUp(self) -> None:
@@ -5815,6 +5898,33 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertEqual(dict(event_metrics["python_events"]).get(self.team.id), 1)
+
+    @parameterized.expand(
+        [
+            ("$mcp_missing_capability", "mcp_missing_capability_events"),
+            ("$mcp_initialize", "mcp_initialize_events"),
+            ("$mcp_tools_list", "mcp_tools_list_events"),
+            ("$mcp_resource_read", "mcp_resource_read_events"),
+            ("$mcp_resources_list", "mcp_resources_list_events"),
+            ("$mcp_prompt_get", "mcp_prompt_get_events"),
+            ("$mcp_prompts_list", "mcp_prompts_list_events"),
+        ]
+    )
+    def test_mcp_analytics_events_are_counted_per_team(self, event_name: str, metric_name: str) -> None:
+        _create_event(
+            event=event_name,
+            team=self.team,
+            distinct_id="mcp_analytics_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$lib": "posthog-node-mcp"},
+        )
+        flush_persons_and_events()
+
+        event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
+
+        self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 1)
+        # `$mcp_tool_call` stays untouched by every other MCP Analytics event.
+        self.assertIsNone(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id))
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(
         self,
