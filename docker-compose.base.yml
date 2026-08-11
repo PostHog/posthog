@@ -848,15 +848,17 @@ services:
         # Session recording encryption keys live in DynamoDB on Cloud (see getKeyStore in
         # nodejs/src/ingestion/pipelines/sessionreplay/shared/keystore), so the keystore
         # integration test needs a real DynamoDB API to exercise its composite key and
-        # conditional writes. -inMemory keeps runs from inheriting each other's tables, and
-        # -sharedDb makes every credential and region pair address the same tables, which the
-        # test relies on because it creates the table with one client and reads it with another.
+        # conditional writes. -inMemory holds the tables in the JVM rather than in a file inside
+        # the container, so a restart cannot resurrect a table from an interrupted run. -sharedDb
+        # puts every credential and region pair in one table namespace, so anything pointed at the
+        # port sees the same tables the test created.
         image: amazon/dynamodb-local:3.3.1
         command: ['-jar', 'DynamoDBLocal.jar', '-inMemory', '-sharedDb']
         healthcheck:
-            # The image ships neither curl nor wget, so open the port from bash instead. Without a
-            # healthcheck `docker compose up --wait` returns as soon as the JVM process starts,
-            # which is before it accepts connections.
+            # Opening the port from bash rather than curling it: DynamoDB answers GET / with a 400,
+            # so an HTTP probe has to be written to accept a non-2xx status, and healthchecks that
+            # fetch an http:// URL trip the unencrypted-URL semgrep rule. Without a healthcheck,
+            # `docker compose up --wait` returns as soon as the JVM starts, before it listens.
             test: ['CMD-SHELL', 'exec 3<>/dev/tcp/localhost/8000']
             interval: 5s
             timeout: 3s

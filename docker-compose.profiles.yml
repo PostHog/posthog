@@ -49,6 +49,10 @@ services:
         profiles: [replay]
 
     # Cloud provider emulators
+    # Gated here rather than in docker-compose.dev.yml, against the rule above, because the cloud
+    # task image bake warms images from `docker compose -f docker-compose.dev.yml config --images`
+    # and deliberately leaves profile-gated services cold. Declaring the profile in dev.yml drops
+    # dynamodb-local out of the prebaked image, so every task run pays the pull instead.
     dynamodb:
         profiles: [dynamodb]
     objectstorage-azure:

@@ -11,8 +11,8 @@
  *
  * The encryption contract runs against MemoryKeyStore and always runs. The DynamoDBKeyStore
  * block covers what only a real DynamoDB can show: the composite key, the conditional writes,
- * and the tombstones behind crypto shredding. It needs dynamodb-local and SeaweedFS from the
- * dev stack, so it skips with:
+ * and the tombstones behind crypto shredding. It needs the dynamodb and objectstorage services
+ * from the dev stack, so it skips with:
  *   DYNAMODB_TESTS_DISABLED=1 pnpm jest tests/session-replay/recording-api/recording-api.integration.test.ts
  */
 import {
@@ -49,7 +49,7 @@ const mockOutputs = {
 } as unknown as IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
 
 // Dev-stack services backing the DynamoDBKeyStore block
-const DYNAMODB_ENDPOINT = 'http://127.0.0.1:18000'
+const DYNAMODB_ENDPOINT = 'http://127.0.0.1:18010'
 const S3_ENDPOINT = 'http://127.0.0.1:19000'
 const S3_BUCKET = 'posthog'
 const S3_PREFIX = 'session_recordings_recording_api_test'
@@ -561,10 +561,20 @@ describe('Recording API encryption integration', () => {
                 const teamId = 4
 
                 await keyStore.generateKey(sessionId, teamId, 30)
+                const beforeDelete = Math.floor(Date.now() / 1000)
                 await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
+                const afterDelete = Math.floor(Date.now() / 1000) + 1
 
                 const result = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
                 expect(result.status).toBe('already_deleted')
+                expect(result.deletedAt).toBeGreaterThanOrEqual(beforeDelete)
+                expect(result.deletedAt).toBeLessThanOrEqual(afterDelete)
+            })
+
+            it('should write a tombstone when deleting a session that has no key', async () => {
+                const result = await keyStore.deleteKey(`never-generated-${Date.now()}`, 999, 'test@example.com')
+
+                expect(result.status).toBe('deleted')
                 expect(result.deletedAt).toBeDefined()
             })
 
