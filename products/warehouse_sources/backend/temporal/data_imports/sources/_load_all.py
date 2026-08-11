@@ -437,6 +437,7 @@ from .fly_io.source import FlyIoSource
 from .formbricks.source import FormbricksSource
 from .fortnox.source import FortnoxSource
 from .fourthwall.source import FourthwallSource
+from .framer.source import FramerSource
 from .fred.source import FredSource
 from .freeagent.source import FreeAgentSource
 from .freightview.source import FreightviewSource
@@ -580,6 +581,7 @@ from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
 from .imf_data.source import ImfDataSource
 from .impact.source import ImpactSource
+from .impact_partner.source import ImpactPartnerSource
 from .imperva.source import ImpervaSource
 from .incident_io.source import IncidentIoSource
 from .infisical.source import InfisicalSource
@@ -887,7 +889,8 @@ from .pivotal_tracker.source import PivotalTrackerSource
 from .piwik.source import PiwikSource
 from .plaid.source import PlaidSource
 from .plain.source import PlainSource
-from .planetscale.source import PlanetScaleSource
+from .planetscale_mysql.source import PlanetScaleMySQLSource
+from .planetscale_postgres.source import PlanetScalePostgresSource
 from .planhat.source import PlanhatSource
 from .planning_center.source import PlanningCenterSource
 from .platform_sh.source import PlatformShSource

@@ -25,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
     MALFORMED_JSON_MAX_ATTEMPTS,
     MAX_AD_ACCOUNT_PAGES,
+    META_ADS_API_VERSION_V25,
+    META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
@@ -1427,6 +1429,7 @@ class TestTimeRangeClamping:
             config=config,
             team_id=1,
             resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
             **source_kwargs,
         )
         list(cast(Any, response.items()))
@@ -1774,6 +1777,7 @@ class TestBreakdownStatsRequests:
             config=config or _source_config(),
             team_id=1,
             resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
         )
         list(cast(Any, response.items()))
         return captured
@@ -1845,6 +1849,7 @@ class TestSingleObjectEndpoint:
             config=_source_config(),
             team_id=1,
             resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
         )
         return list(cast(Any, source.items()))
 
@@ -1869,3 +1874,41 @@ class TestSingleObjectEndpoint:
         field_names = get_meta_ads_schemas()[MetaAdsResource.AdAccount].field_names
         assert "business" not in field_names
         assert {"business_name", "business_country_code"} <= set(field_names)
+
+
+class TestApiVersionDispatch:
+    """The resolved source pin must reach the request URL — otherwise a pinned source silently
+    syncs against the wrong Graph API version, the drift the pinning framework exists to prevent."""
+
+    def _capture_url(self, monkeypatch, api_version: str) -> str:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        captured: dict[str, str] = {}
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            captured["url"] = url
+            yield from ()
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        response = meta_ads_source(
+            resource_name=MetaAdsResource.Campaigns,
+            config=_source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            api_version=api_version,
+        )
+        list(cast(Any, response.items()))
+        return captured["url"]
+
+    @pytest.mark.parametrize("api_version", list(MetaAdsSource.supported_versions))
+    def test_resolved_version_reaches_request_url(self, monkeypatch, api_version: str) -> None:
+        assert (
+            self._capture_url(monkeypatch, api_version) == f"https://graph.facebook.com/{api_version}/act_123/campaigns"
+        )
+
+    def test_new_sources_default_to_latest_while_previous_stays_supported(self) -> None:
+        assert MetaAdsSource.default_version == META_ADS_API_VERSION_V26
+        assert set(MetaAdsSource.supported_versions) == {META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26}

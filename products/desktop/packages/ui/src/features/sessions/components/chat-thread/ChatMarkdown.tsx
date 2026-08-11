@@ -109,8 +109,10 @@ const components: Components = {
   ul: ({ children }) => (
     <ul className="list-disc space-y-0.5 ps-4">{children}</ul>
   ),
-  ol: ({ children }) => (
-    <ol className="list-decimal space-y-0.5 ps-5">{children}</ol>
+  ol: ({ children, start }) => (
+    <ol start={start} className="list-decimal space-y-0.5 ps-5">
+      {children}
+    </ol>
   ),
   li: ({ children }) => <li className="text-sm">{children}</li>,
   code: ({ className, children }) => {

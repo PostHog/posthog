@@ -215,13 +215,11 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             if should_query_incrementally:
                 query.date_from = existing_value["refreshed_at"]
 
-            (recordings, more_recordings_available, _, _) = list_recordings_from_query(
-                query, user=None, team=playlist.team
-            )
+            listing_result = list_recordings_from_query(query, user=None, team=playlist.team)
 
             counted_at_date = timezone.now()
             new_sessions: dict[str, str | None] = {
-                r.session_id: r.expiry_time.isoformat() if r.expiry_time else None for r in recordings
+                r.session_id: r.expiry_time.isoformat() if r.expiry_time else None for r in listing_result.recordings
             }
 
             if should_query_incrementally:
@@ -237,7 +235,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                     "version": 2,
                     "session_ids": list(new_sessions.keys()),
                     "sessions_with_expiry": new_sessions,
-                    "has_more": more_recordings_available,
+                    "has_more": listing_result.more_recordings_available,
                     "previous_ids": existing_value.get("session_ids", None),
                     "refreshed_at": counted_at_date.isoformat(),
                     "error_count": 0,

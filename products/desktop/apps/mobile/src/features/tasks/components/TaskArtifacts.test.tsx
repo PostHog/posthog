@@ -33,20 +33,32 @@ vi.mock("@/lib/theme", () => ({
   useThemeColors: () => ({ gray: { 9: "#777", 11: "#555" } }),
 }));
 
+function element() {
+  return createElement(TaskArtifacts, {
+    taskId: "t1",
+    runId: "r1",
+    enabled: true,
+  });
+}
+
 function mount(artifacts: TaskRunArtifact[] | undefined) {
   mockUseTaskArtifacts.mockReturnValue({ data: artifacts });
   let renderer: ReturnType<typeof create> | null = null;
   act(() => {
-    renderer = create(
-      createElement(TaskArtifacts, {
-        taskId: "t1",
-        runId: "r1",
-        enabled: true,
-      }),
-    );
+    renderer = create(element());
   });
   if (!renderer) throw new Error("Renderer not created");
   return renderer as ReturnType<typeof create>;
+}
+
+function update(
+  renderer: ReturnType<typeof create>,
+  artifacts: TaskRunArtifact[] | undefined,
+) {
+  mockUseTaskArtifacts.mockReturnValue({ data: artifacts });
+  act(() => {
+    renderer.update(element());
+  });
 }
 
 function json(renderer: ReturnType<typeof create>) {
@@ -95,5 +107,33 @@ describe("TaskArtifacts", () => {
 
     pressHeader(renderer);
     expect(json(renderer)).toContain("report.md");
+  });
+
+  it("stays collapsed across a re-render with the same files", () => {
+    const files: TaskRunArtifact[] = [
+      { id: "a1", name: "report.md", type: "output", size: 2_400 },
+    ];
+    const renderer = mount(files);
+    pressHeader(renderer);
+    expect(json(renderer)).not.toContain("report.md");
+
+    update(renderer, [...files]);
+    expect(json(renderer)).not.toContain("report.md");
+  });
+
+  it("re-expands when the file list changes", () => {
+    const renderer = mount([
+      { id: "a1", name: "report.md", type: "output", size: 2_400 },
+    ]);
+    pressHeader(renderer);
+    expect(json(renderer)).not.toContain("report.md");
+
+    update(renderer, [
+      { id: "a1", name: "report.md", type: "output", size: 2_400 },
+      { id: "a2", name: "chart.png", type: "output", size: 512 },
+    ]);
+    const shown = json(renderer);
+    expect(shown).toContain("report.md");
+    expect(shown).toContain("chart.png");
   });
 });

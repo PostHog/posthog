@@ -9,6 +9,7 @@ import asyncio
 import builtins
 from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, Literal, cast
 from urllib.parse import urlparse
@@ -583,20 +584,28 @@ class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
-def list_recordings_response(
-    listing_result: tuple[list[SessionRecording], bool, str, str | None], context: dict[str, Any]
-) -> Response:
-    (recordings, more_recordings_available, timings_header, next_cursor) = listing_result
+@dataclass(frozen=True, kw_only=True, slots=True)
+class RecordingsListingResult:
+    recordings: list[SessionRecording]
+    more_recordings_available: bool
+    timings_header: str
+    next_cursor: str | None
 
-    session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
+
+def list_recordings_response(listing_result: RecordingsListingResult, context: dict[str, Any]) -> Response:
+    session_recording_serializer = SessionRecordingSerializer(listing_result.recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    response_data: dict[str, Any] = {"results": results, "has_next": more_recordings_available, "version": 4}
-    if next_cursor is not None:
-        response_data["next_cursor"] = next_cursor
+    response_data: dict[str, Any] = {
+        "results": results,
+        "has_next": listing_result.more_recordings_available,
+        "version": 4,
+    }
+    if listing_result.next_cursor is not None:
+        response_data["next_cursor"] = listing_result.next_cursor
 
     response = Response(response_data)
-    response.headers["Server-Timing"] = timings_header
+    response.headers["Server-Timing"] = listing_result.timings_header
 
     return response
 
@@ -1184,12 +1193,12 @@ class SessionRecordingViewSet(
             "limit": len(session_recording_ids),
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
+        listing_result = list_recordings_from_query(query, None, self.team)
 
         user_access_control = self.user_access_control
         accessible_recordings = [
             recording
-            for recording in recordings
+            for recording in listing_result.recordings
             if user_access_control.check_access_level_for_object(recording, required_level="editor")
         ]
 
@@ -2068,7 +2077,7 @@ def list_recordings_from_query(
     team: Team,
     allow_event_property_expansion: bool = False,
     bypass_date_window_for_session_ids: bool = False,
-) -> tuple[list[SessionRecording], bool, str, str | None]:
+) -> RecordingsListingResult:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -2228,7 +2237,12 @@ def list_recordings_from_query(
             if matched_person:
                 recording.person = matched_person
 
-    return recordings, more_recordings_available, timer.to_header_string(hogql_timings), next_cursor
+    return RecordingsListingResult(
+        recordings=recordings,
+        more_recordings_available=more_recordings_available,
+        timings_header=timer.to_header_string(hogql_timings),
+        next_cursor=next_cursor,
+    )
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:
