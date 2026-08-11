@@ -7,7 +7,7 @@ from slack_sdk import WebClient
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_message_footer_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_model_classifier_enabled
 from products.slack_app.backend.services.blocks import context_block
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.run_footer import RunFooter, reply_footer_block
@@ -140,11 +140,15 @@ class SlackThreadHandler:
         return self._client
 
     def footer_enabled(self) -> bool:
-        """Whether this workspace shows run provenance. Public so a caller can skip the
+        """Whether this workspace shows run provenance.
+
+        Shares the model-classifier flag: choosing a model in a mention and being told
+        which model ran are two halves of one feature. Public so a caller can skip the
         work of describing a run nobody will be shown, and memoized because that caller
-        and the footer builder both ask."""
+        and the footer builder both ask.
+        """
         if self._footer_flag is None:
-            self._footer_flag = is_slack_app_message_footer_enabled(self._get_integration())
+            self._footer_flag = is_slack_app_model_classifier_enabled(self._get_integration())
         return bool(self._footer_flag)
 
     def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:

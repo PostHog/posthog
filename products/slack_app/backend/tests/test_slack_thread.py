@@ -356,7 +356,7 @@ class TestReplyFooterGate(SimpleTestCase):
         mock_get_integration.return_value = Integration(config={}, integration_id="T1")
 
         with patch(
-            "products.slack_app.backend.slack_thread.is_slack_app_message_footer_enabled",
+            "products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled",
             return_value=flag_enabled,
         ):
             self._handler().stop_status_stream(ts="1.0", final_markdown="Done.")
@@ -380,7 +380,7 @@ class TestRelayedAnswerFooter(SimpleTestCase):
         ]
     )
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_message_footer_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_footer_rides_the_last_chunk_only(
