@@ -28,9 +28,21 @@ describe('aiRegexHelperLogic', () => {
         })
 
         logic.actions.setInput('urls under /auth')
-        await expectLogic(logic, () => logic.actions.handleGenerateRegex()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.handleGenerateRegex('javascript')).toFinishAllListeners()
 
         expectLogic(logic).toMatchValues({ generatedRegex: '^/auth/.*$', error: '', isLoading: false })
+    })
+
+    it('forwards the target engine to the API so the prompt targets the right regex dialect', async () => {
+        const aiRegex = jest.spyOn(api.recordings, 'aiRegex').mockResolvedValue({
+            result: 'success',
+            data: { output: '/users/\\d+/profile' },
+        })
+
+        logic.actions.setInput('the id in /users/123/profile')
+        await expectLogic(logic, () => logic.actions.handleGenerateRegex('re2')).toFinishAllListeners()
+
+        expect(aiRegex).toHaveBeenCalledWith('the id in /users/123/profile', 're2')
     })
 
     const errorCases: {
@@ -78,7 +90,7 @@ describe('aiRegexHelperLogic', () => {
         mock()
 
         logic.actions.setInput('something')
-        await expectLogic(logic, () => logic.actions.handleGenerateRegex()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.handleGenerateRegex('javascript')).toFinishAllListeners()
 
         expectLogic(logic).toMatchValues({ error: expectedError, generatedRegex: '', isLoading: false })
     })

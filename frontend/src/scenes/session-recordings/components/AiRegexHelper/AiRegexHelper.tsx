@@ -11,13 +11,16 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { aiRegexHelperLogic } from './aiRegexHelperLogic'
+import { AiRegexEngine, aiRegexHelperLogic } from './aiRegexHelperLogic'
 
 type AiRegexHelperProps = {
     onApply: (regex: string) => void
+    // Path cleaning regexes run in ClickHouse (RE2), replay triggers in posthog-js (JavaScript).
+    // Lookahead is legal in one and not the other, so tell the model which engine to target.
+    engine?: AiRegexEngine
 }
 
-export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
+export function AiRegexHelper({ onApply, engine = 'javascript' }: AiRegexHelperProps): JSX.Element {
     const { isOpen, input, generatedRegex, error, isLoading } = useValues(aiRegexHelperLogic)
     const { setInput, handleGenerateRegex, onClose, handleCopyToClipboard } = useActions(aiRegexHelperLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -40,7 +43,11 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
             <LemonModal isOpen={isOpen} onClose={onClose} title="Max AI Regex Helper">
                 Explain your regex in natural language:
                 <LemonTextArea
-                    placeholder="I want a regex that covers all urls that include 'app.posthog.com/auth/*'"
+                    placeholder={
+                        engine === 're2'
+                            ? 'Match the numeric id in /users/123/profile'
+                            : 'Match any page that is not the login page and not the signup page'
+                    }
                     className="w-full my-2"
                     maxRows={4}
                     minRows={2}
@@ -75,7 +82,7 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
                         <AIConsentPopoverWrapper>
                             <LemonButton
                                 type={generatedRegex ? 'secondary' : 'primary'}
-                                onClick={handleGenerateRegex}
+                                onClick={() => handleGenerateRegex(engine)}
                                 disabledReason={disabledReason}
                                 loading={isLoading}
                             >

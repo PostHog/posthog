@@ -99,7 +99,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                     </div>
 
                     <div className="flex space-between mt-3">
-                        <AiRegexHelper onApply={setRegex} />
+                        <AiRegexHelper onApply={setRegex} engine="re2" />
                         <AiRegexHelperButton />
 
                         <div className="flex flex-1 justify-end gap-2">

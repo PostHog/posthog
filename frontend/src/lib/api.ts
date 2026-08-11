@@ -4742,8 +4742,11 @@ const api = {
                 .delete()
         },
 
-        async aiRegex(regex: string): Promise<{ result: string; data: any }> {
-            return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
+        async aiRegex(
+            regex: string,
+            engine: 'javascript' | 're2' = 'javascript'
+        ): Promise<{ result: string; data: any }> {
+            return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex, engine } })
         },
 
         async bulkDeleteRecordings(

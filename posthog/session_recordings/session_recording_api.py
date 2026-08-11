@@ -95,7 +95,11 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
+from posthog.session_recordings.ai_data.ai_regex_prompts import (
+    AI_REGEX_ENGINE_JAVASCRIPT,
+    AI_REGEX_ENGINE_RE2,
+    build_ai_regex_prompt,
+)
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -1973,13 +1977,26 @@ class SessionRecordingViewSet(
         if "regex" not in request.data:
             raise exceptions.ValidationError("Missing required field: regex")
 
+        # Path cleaning rules run through ClickHouse (RE2), replay triggers run through posthog-js
+        # (JavaScript). Lookahead is legal in one engine and not the other, so the prompt needs to
+        # know which surface asked. Default to JavaScript, the more permissive engine.
+        engine = AI_REGEX_ENGINE_RE2 if request.data.get("engine") == AI_REGEX_ENGINE_RE2 else AI_REGEX_ENGINE_JAVASCRIPT
+
         messages = create_openai_messages(
-            system_content=clean_prompt_whitespace(AI_REGEX_PROMPTS),
+            system_content=clean_prompt_whitespace(build_ai_regex_prompt(engine)),
             user_content=clean_prompt_whitespace(request.data["regex"]),
         )
 
         client = get_openai_client()
 
+        # The model still refuses now and then. Retry once before handing the refusal to the user.
+        response_data = self._request_ai_regex(client, messages, request)
+        if response_data.get("result") == "error":
+            response_data = self._request_ai_regex(client, messages, request)
+
+        return Response(response_data)
+
+    def _request_ai_regex(self, client: Any, messages: Any, request: Request) -> dict:
         completion = client.beta.chat.completions.parse(
             model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
@@ -1997,11 +2014,9 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("Invalid response from OpenAI")
 
         try:
-            response_data = json.loads(completion.choices[0].message.content)
+            return json.loads(completion.choices[0].message.content)
         except JSONDecodeError:
             raise exceptions.ValidationError("Invalid JSON response from OpenAI")
-
-        return Response(response_data)
 
 
 @tracer.start_as_current_span("load_recording_if_matches_filters")
