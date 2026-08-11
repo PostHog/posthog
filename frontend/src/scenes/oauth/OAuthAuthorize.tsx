@@ -166,12 +166,13 @@ export const OAuthAuthorize = (): JSX.Element => {
     const { guardAvailableFeature, hasAvailableFeature } = useValues(upgradeModalLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
-    // A free plan allows one project. When that allowance is spent, the create button must look
-    // unavailable here. Otherwise a click opens the upgrade modal in the middle of authorization.
-    const projectLimitReached = !hasAvailableFeature(
-        AvailableFeature.ORGANIZATIONS_PROJECTS,
-        currentOrganization?.teams?.length
-    )
+    // Disable the create button when the plan project allowance is spent, so a stray click no
+    // longer opens the upgrade modal mid-authorization. Only the current organization carries plan
+    // features and team counts on the client, so gate locally only when the picker still points at
+    // it. For any other picked org, leave the button to guardAvailableFeature at click time.
+    const projectLimitReached =
+        selectedOrganization === currentOrganization?.id &&
+        !hasAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, currentOrganization?.teams?.length)
 
     const handleShowCreateProject = (): void => {
         guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => setShowCreateProject(true), {
