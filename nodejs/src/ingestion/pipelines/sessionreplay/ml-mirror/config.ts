@@ -55,6 +55,26 @@ export type MlMirrorConfig = {
      * URLs and how many distinct hosts real traffic carries.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
+
+    /**
+     * Send the collected URLs to the fetch topic.
+     *
+     * This flag is separate from the collection flag, because the two steps have different risks.
+     * Collection changes only the mirrored data. A produce puts original, unscrubbed URLs onto a
+     * Kafka topic, so the fetch topic is as sensitive as the raw replay topic. Turn this flag on
+     * only after the topic exists with the retention that section 2.5 of the plan gives it.
+     *
+     * The flag does nothing unless SESSION_RECORDING_ML_URL_COLLECTION_ENABLED is also on, because
+     * the anonymizer collects no URLs until then.
+     */
+    SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
+
+    /**
+     * Capacity of the mirror's produced-URL ref cache, which bounds re-produces onto the fetch
+     * topic. Tunable for the same reason as its image-lane twin below: it trades memory for topic
+     * volume, so a mirror memory incident must be able to shed it without a code deploy.
+     */
+    SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
@@ -123,6 +143,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_REDIS_PORT: 6379,
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
+        SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.
