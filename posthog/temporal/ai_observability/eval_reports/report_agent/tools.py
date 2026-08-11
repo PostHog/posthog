@@ -66,6 +66,16 @@ logger = structlog.get_logger(__name__)
 # so they use bounded validation and always flow through AST constants instead.
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
+# A canonical UUID wrapped in backticks inside section prose. The renderer links a
+# backticked ID only when a matching add_citation call exists; a backticked UUID
+# with no citation behind it — most often a run_id from list_recent_report_runs,
+# which is not citable — renders as dead text. add_section flags it so the agent
+# fixes it in-loop rather than shipping a dead identifier.
+_BACKTICKED_UUID_RE = re.compile(
+    r"`+\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*`+",
+    re.IGNORECASE,
+)
+
 _TARGET_ID_EXPRESSION = "coalesce(nullIf(properties.$ai_target_id, ''), properties.$ai_target_event_id)"
 _MAX_OPAQUE_ID_LENGTH = 255
 _MAX_TRACE_SAMPLE_IDS = 10
@@ -1466,6 +1476,17 @@ def set_title(
     return f"Title set: {clean!r}"
 
 
+def _uncited_backticked_uuids(content: str, citations: list[Citation]) -> list[str]:
+    """Return backticked canonical UUIDs in `content` that no citation will link."""
+    cited_ids = {citation.cited_id().lower() for citation in citations}
+    uncited: list[str] = []
+    for match in _BACKTICKED_UUID_RE.finditer(content):
+        uuid_value = match.group(1)
+        if uuid_value.lower() not in cited_ids and uuid_value not in uncited:
+            uncited.append(uuid_value)
+    return uncited
+
+
 @tool
 def add_section(
     state: Annotated[dict, InjectedState],
@@ -1501,6 +1522,16 @@ def add_section(
         return (
             f"Error: maximum of {MAX_REPORT_SECTIONS} sections reached. "
             "Merge your content into existing sections rather than fragmenting further."
+        )
+    uncited = _uncited_backticked_uuids(clean_content, state["report"].citations)
+    if uncited:
+        preview = ", ".join(f"`{uuid_value}`" for uuid_value in uncited[:3])
+        pronoun = "them" if len(uncited) > 1 else "it"
+        return (
+            f"Error: this section backticks {preview}, but no citation links {pronoun}. "
+            "A backticked ID renders as a link only when you cite it with add_citation. "
+            "Cite a generation, trace, or session first, then re-add this section. "
+            "Run IDs from list_recent_report_runs are not citable — name a prior run by its period and drop the backticks."
         )
     state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
     return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"
