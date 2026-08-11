@@ -211,6 +211,7 @@ pub struct ServerHandle {
     pub addr: SocketAddr,
     shutdown: tokio_util::sync::CancellationToken,
     client: reqwest::Client,
+    event_restriction_service: Option<capture::event_restrictions::EventRestrictionService>,
 }
 
 impl ServerHandle {
@@ -331,6 +332,7 @@ impl ServerHandle {
         let handles = setup::register_components(&mut manager, &config);
         let _monitor = manager.monitor_background();
         let components = setup::build_components(config, sink_env, handles).await;
+        let event_restriction_service = components.event_restriction_service.clone();
 
         tokio::spawn(async move { serve(listener, components).await });
 
@@ -343,6 +345,26 @@ impl ServerHandle {
             addr,
             shutdown: shutdown_token,
             client,
+            event_restriction_service,
+        }
+    }
+
+    /// Wait for the event restriction service's first successful load. Entries
+    /// written to Redis before boot are guaranteed visible after this returns,
+    /// because a refresh fetches every restriction type and swaps the manager
+    /// atomically.
+    pub async fn wait_for_restrictions_loaded(&self) {
+        let service = self
+            .event_restriction_service
+            .as_ref()
+            .expect("server booted without event restrictions enabled");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !service.has_loaded() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "event restrictions not loaded within 10s"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -593,6 +615,19 @@ impl EphemeralTopic {
     pub fn next_message_with_headers(
         &self,
     ) -> anyhow::Result<(serde_json::Value, std::collections::HashMap<String, String>)> {
+        let (_key, event, headers) = self.next_message_full()?;
+        Ok((event, headers))
+    }
+
+    /// Like `next_message_with_headers`, also returning the partition key, so
+    /// one consumed message can assert key, payload, and headers together.
+    pub fn next_message_full(
+        &self,
+    ) -> anyhow::Result<(
+        Option<String>,
+        serde_json::Value,
+        std::collections::HashMap<String, String>,
+    )> {
         use std::collections::HashMap;
 
         // Retry on transient Kafka errors like NotCoordinator
@@ -602,11 +637,14 @@ impl EphemeralTopic {
         loop {
             match self.consumer.poll(self.read_timeout) {
                 Some(Ok(message)) => {
-                    // Parse the payload
+                    let key = match message.key() {
+                        Some(key) => Some(String::from_str(std::str::from_utf8(key)?)?),
+                        None => None,
+                    };
+
                     let body = message.payload().expect("empty kafka message");
                     let event = serde_json::from_slice(body)?;
 
-                    // Parse the headers
                     let mut headers = HashMap::new();
                     if let Some(message_headers) = message.headers() {
                         for header in message_headers.iter() {
@@ -618,7 +656,7 @@ impl EphemeralTopic {
                         }
                     }
 
-                    return Ok((event, headers));
+                    return Ok((key, event, headers));
                 }
                 Some(Err(err)) => {
                     // Check if it's a transient error that should be retried
