@@ -610,6 +610,42 @@ class TestTags:
         assert response.partition_keys is None
 
 
+class TestAdminLogs:
+    def test_incremental_walk_sends_iso_start_and_pages_on_offset(self) -> None:
+        # `start` takes a different value format from the exports' epoch min_timestamp;
+        # sending an epoch here is the cross-endpoint confusion the spec warns about.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"admin_logs": [{"id": "a1"}, {"id": "a2"}], "total": 3}),
+            _make_response({"admin_logs": [{"id": "a3"}], "total": 3}),
+        ]
+        sent_params, batches = _drive_rows(
+            manager,
+            responses,
+            endpoint="admin_logs",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, 12, 0, 5, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
+        assert sent_params == [
+            {"offset": "0", "limit": "100", "start": "2026-01-15T12:00:05+00:00"},
+            {"offset": "2", "limit": "100", "start": "2026-01-15T12:00:05+00:00"},
+        ]
+        assert [len(b) for b in batches] == [2, 1]
+
+    def test_response_merges_on_id_partitioned_by_created_at(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="admin_logs",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created_at"]
+        assert response.sort_mode == "desc"
+
+
 class TestToEpochSeconds:
     # The pipeline hands the DateTime watermark back as a datetime, a date, or an epoch
     # number depending on how it round-tripped through storage; the request boundary must
