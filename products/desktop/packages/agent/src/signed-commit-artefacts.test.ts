@@ -15,6 +15,7 @@ import {
   parseSandboxEnv,
   reportCommitArtefacts,
   reportTaskRunBranch,
+  reportTaskRunCommits,
   resolveSandboxPosthogApi,
 } from "./signed-commit-artefacts";
 
@@ -435,5 +436,105 @@ describe("reportTaskRunBranch", () => {
         },
       }),
     });
+  });
+});
+
+describe("reportTaskRunCommits", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const push = {
+    branch: "posthog-code/fix-foo",
+    repository: "PostHog/PostHog",
+    commits: [
+      {
+        sha: "a41c9e2",
+        url: "https://github.com/PostHog/PostHog/commit/a41c9e2",
+      },
+      {
+        sha: "7d0be55",
+        url: "https://github.com/PostHog/PostHog/commit/7d0be55",
+      },
+    ],
+  };
+
+  it("reports the push, because nothing else observes it", () => {
+    // The commits are created through GitHub's API from inside the sandbox, so no webhook
+    // on the PostHog side sees them.
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    return reportTaskRunCommits({
+      taskId: "task-1",
+      taskRunId: "run-1",
+      result: push,
+      message: "feat: one",
+      env: ENV,
+      envFilePath: NO_ENV_FILE,
+      oauthEnvFilePath: TEST_OAUTH_ENV_FILE,
+    }).then(() => {
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(String(url)).toBe(
+        "https://us.posthog.com/api/projects/7/tasks/task-1/runs/run-1/commits/",
+      );
+      expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+        branch: push.branch,
+        repository: push.repository,
+        commits: push.commits.map((commit) => ({
+          sha: commit.sha,
+          subject: "feat: one",
+          url: commit.url,
+        })),
+      });
+    });
+  });
+
+  it("stays quiet when the push carried nothing, or the run is unknown", async () => {
+    await reportTaskRunCommits({
+      taskId: "task-1",
+      taskRunId: "run-1",
+      result: { ...push, commits: [] },
+      message: "feat: one",
+      env: ENV,
+      envFilePath: NO_ENV_FILE,
+      oauthEnvFilePath: TEST_OAUTH_ENV_FILE,
+    });
+    await reportTaskRunCommits({
+      taskId: undefined,
+      taskRunId: undefined,
+      result: push,
+      message: "feat: one",
+      env: ENV,
+      envFilePath: NO_ENV_FILE,
+      oauthEnvFilePath: TEST_OAUTH_ENV_FILE,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never throws, so a commit that landed is not undone by a failed report", async () => {
+    fetchMock.mockRejectedValue(new Error("network down"));
+
+    await expect(
+      reportTaskRunCommits({
+        taskId: "task-1",
+        taskRunId: "run-1",
+        result: push,
+        message: "feat: one",
+        env: ENV,
+        envFilePath: NO_ENV_FILE,
+        oauthEnvFilePath: TEST_OAUTH_ENV_FILE,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

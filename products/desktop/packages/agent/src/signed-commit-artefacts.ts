@@ -138,6 +138,52 @@ export async function reportCommitArtefacts(opts: {
   }
 }
 
+/**
+ * Announce a push on the task's timeline.
+ *
+ * The signed-commit tool is the only actor that sees this push: the commits are created
+ * through GitHub's API from inside the sandbox, so no webhook on the PostHog side observes
+ * them. The backend keys the event on the head SHA, so a retried tool call records it once.
+ *
+ * Best-effort like the reporters beside it — a commit that landed must not fail because its
+ * announcement didn't.
+ */
+export async function reportTaskRunCommits(opts: {
+  taskId: string | undefined;
+  taskRunId: string | undefined;
+  result: SignedCommitResult;
+  /** Commit headline — the same for every chunk of a split payload. */
+  message: string;
+  env?: Record<string, string | undefined>;
+  envFilePath?: string;
+  oauthEnvFilePath?: string;
+}): Promise<void> {
+  if (!opts.taskId || !opts.taskRunId || opts.result.commits.length === 0) {
+    return;
+  }
+  try {
+    const client = createSandboxPosthogClient(
+      opts.env,
+      opts.envFilePath,
+      opts.oauthEnvFilePath,
+    );
+    if (!client) {
+      return;
+    }
+    await client.recordTaskRunCommits(opts.taskId, opts.taskRunId, {
+      branch: opts.result.branch,
+      repository: opts.result.repository,
+      commits: opts.result.commits.map((commit) => ({
+        sha: commit.sha,
+        subject: opts.message,
+        url: commit.url,
+      })),
+    });
+  } catch (err) {
+    warn(`failed to record push on ${opts.result.branch}: ${err}`);
+  }
+}
+
 export async function reportTaskRunBranch(opts: {
   taskId: string | undefined;
   taskRunId: string | undefined;

@@ -209,6 +209,9 @@ function eventIdentity(event: ActivityEvent): string {
     case "run_failed":
     case "awaiting_input":
       return event.payload.runId;
+    case "commits_pushed":
+      // The head SHA identifies the push, the way the backend keys it.
+      return event.payload.commits.at(-1)?.sha ?? event.payload.runId;
     case "artifact_created":
     case "artifact_revised":
       return `${event.payload.artifactId}:${event.payload.version}`;

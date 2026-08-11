@@ -269,6 +269,9 @@ describe("activity events", () => {
 
   it("matches the backend vocabulary", async () => {
     // The two lists are one contract: adding an event on one side only is a silent gap.
+    // `commits_pushed` is emitted by the layer below this one (#81070), so it is expected
+    // ahead of the enum until that layer is in this branch.
+    const pendingBackendEvents = new Set(["commits_pushed"]);
     const { readFile } = await import("node:fs/promises");
     const models = await readFile(
       new URL("../../../../../tasks/backend/models.py", import.meta.url)
@@ -284,6 +287,70 @@ describe("activity events", () => {
         .matchAll(/^\s{4}[A-Z_]+ = "([a-z_]+)"/gm),
     ].map((match) => match[1]);
 
-    expect([...ACTIVITY_EVENTS].sort()).toEqual(backendEvents.sort());
+    expect(
+      [...ACTIVITY_EVENTS]
+        .filter((event) => !pendingBackendEvents.has(event))
+        .sort(),
+    ).toEqual(backendEvents.sort());
+  });
+});
+
+describe("commits pushed", () => {
+  it("reads a push into a row with its commits", () => {
+    expect(
+      parseActivityEvent({
+        event: "commits_pushed",
+        payload: {
+          run_id: "run-1",
+          branch: "shy/x",
+          repository: "PostHog/posthog",
+          total: 3,
+          commits: [
+            { sha: "a41c9e2", subject: "feat: one", url: "https://x/1" },
+            { sha: "7d0be55", subject: "feat: two", url: null },
+          ],
+        },
+      }),
+    ).toEqual({
+      kind: "commits_pushed",
+      payload: {
+        runId: "run-1",
+        branch: "shy/x",
+        repository: "PostHog/posthog",
+        total: 3,
+        commits: [
+          { sha: "a41c9e2", subject: "feat: one", url: "https://x/1" },
+          { sha: "7d0be55", subject: "feat: two", url: null },
+        ],
+      },
+    });
+  });
+
+  it("drops a push with no readable commit, which cannot be drawn", () => {
+    expect(
+      parseActivityEvent({
+        event: "commits_pushed",
+        payload: { run_id: "run-1", commits: [{ subject: "no sha" }] },
+      }),
+    ).toBeNull();
+  });
+
+  it("keys a push on its head SHA, so a retried report is one row", () => {
+    const push = (id: string) =>
+      eventMessage(
+        id,
+        "commits_pushed",
+        {
+          run_id: "run-1",
+          branch: "shy/x",
+          total: 1,
+          commits: [{ sha: "head1", subject: "feat: one" }],
+        },
+        "2026-08-01T10:30:00Z",
+      );
+
+    const rows = build({ messages: [push("m1"), push("m2")] });
+
+    expect(rows.filter((row) => row.kind === "event")).toHaveLength(1);
   });
 });

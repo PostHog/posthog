@@ -291,6 +291,27 @@ export class PostHogAPIClient {
     );
   }
 
+  /** Announce a push the signed-commit tool made, for the task's activity timeline. The
+   *  backend keys it on the head SHA, so a retried call records the push once. */
+  async recordTaskRunCommits(
+    taskId: string,
+    runId: string,
+    push: {
+      branch: string;
+      repository: string;
+      commits: { sha: string; subject: string; url: string }[];
+    },
+  ): Promise<void> {
+    const teamId = this.getTeamId();
+    await this.apiRequest<void>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/commits/`,
+      {
+        method: "POST",
+        body: JSON.stringify(push),
+      },
+    );
+  }
+
   async setTaskRunOutput(
     taskId: string,
     runId: string,

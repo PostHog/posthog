@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
   reportCommitArtefacts,
   reportTaskRunBranch,
+  reportTaskRunCommits,
 } from "../signed-commit-artefacts";
 import { qualifiedLocalToolName } from "./local-tools/registry";
 
@@ -199,6 +200,14 @@ export function runSignedCommitTool(
       // try/catch-free success path — reportCommitArtefacts never throws, so a failed
       // artefact post can't fail a commit that already landed. git_signed_rewrite is
       // intentionally not hooked (it republishes existing history).
+      // The timeline's own record of the push: one row per call, carrying the SHAs and
+      // subjects it renders, so loading the timeline stays a read.
+      await reportTaskRunCommits({
+        taskId: ctx.taskId,
+        taskRunId: ctx.taskRunId,
+        result,
+        message: a.message,
+      });
       await reportCommitArtefacts({
         taskId: c.taskId,
         result,

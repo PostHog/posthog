@@ -9,6 +9,7 @@
 export const ACTIVITY_EVENTS = [
   "run_started",
   "run_failed",
+  "commits_pushed",
   "awaiting_input",
   "artifact_created",
   "artifact_revised",
@@ -32,6 +33,15 @@ export interface RunStartedPayload {
 export interface RunFailedPayload {
   runId: string;
   errorSummary: string;
+}
+
+export interface CommitsPushedPayload {
+  runId: string;
+  branch: string;
+  repository: string | null;
+  commits: { sha: string; subject: string; url: string | null }[];
+  /** How many the push carried; `commits` is capped, so this can be larger. */
+  total: number;
 }
 
 export interface AwaitingInputPayload {
@@ -65,6 +75,7 @@ export interface MessageForwardedPayload {
 export type ActivityEvent =
   | { kind: "run_started"; payload: RunStartedPayload }
   | { kind: "run_failed"; payload: RunFailedPayload }
+  | { kind: "commits_pushed"; payload: CommitsPushedPayload }
   | { kind: "awaiting_input"; payload: AwaitingInputPayload }
   | { kind: "artifact_created"; payload: ArtifactPayload }
   | { kind: "artifact_revised"; payload: ArtifactPayload }
@@ -137,6 +148,36 @@ export function parseActivityEvent(message: {
           errorSummary: str(payload.error_summary),
         },
       };
+    case "commits_pushed": {
+      const raw = Array.isArray(payload.commits) ? payload.commits : [];
+      const commits = raw.flatMap((entry) => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const commit = entry as Record<string, unknown>;
+        const sha = str(commit.sha);
+        return sha
+          ? [
+              {
+                sha,
+                subject: str(commit.subject),
+                url: optionalStr(commit.url),
+              },
+            ]
+          : [];
+      });
+      // A push with no readable commit can't be drawn, so it isn't a row.
+      return commits.length
+        ? {
+            kind: event,
+            payload: {
+              runId: str(payload.run_id),
+              branch: str(payload.branch),
+              repository: optionalStr(payload.repository),
+              commits,
+              total: num(payload.total, commits.length),
+            },
+          }
+        : null;
+    }
     case "awaiting_input":
       return { kind: event, payload: { runId: str(payload.run_id) } };
     case "artifact_created":

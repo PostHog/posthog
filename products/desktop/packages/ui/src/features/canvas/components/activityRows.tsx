@@ -12,6 +12,7 @@ import {
   CaretRightIcon,
   CheckCircleIcon,
   FileTextIcon,
+  GitCommitIcon,
   GitPullRequestIcon,
   PlayIcon,
   WarningCircleIcon,
@@ -168,6 +169,7 @@ function IconBubble({
 const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
   run_started: "blue",
   run_failed: "red",
+  commits_pushed: "neutral",
   awaiting_input: "amber",
   artifact_created: "violet",
   artifact_revised: "violet",
@@ -181,6 +183,7 @@ const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
 const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
   run_started: <PlayIcon size={10} weight="fill" />,
   run_failed: <XCircleIcon size={12} weight="fill" />,
+  commits_pushed: <GitCommitIcon size={11} />,
   awaiting_input: <WarningIcon size={11} weight="fill" />,
   artifact_created: <FileTextIcon size={11} />,
   artifact_revised: <ArrowsClockwiseIcon size={12} />,
@@ -206,6 +209,17 @@ function eventLabel(
         : "Agent started work";
     case "run_failed":
       return "Run failed";
+    case "commits_pushed": {
+      const { total, branch } = event.payload;
+      const count = `${total} commit${total === 1 ? "" : "s"} pushed`;
+      return branch ? (
+        <>
+          {count} <span className="text-muted-foreground">to {branch}</span>
+        </>
+      ) : (
+        count
+      );
+    }
     case "awaiting_input":
       return "Agent needs input";
     case "artifact_created":
@@ -289,6 +303,31 @@ function eventDetail(event: ActivityEvent): ReactNode {
           </span>
         </DetailBlock>
       );
+    case "commits_pushed": {
+      const { commits, total } = event.payload;
+      return (
+        <DetailBlock>
+          <div className="space-y-1">
+            {commits.map((commit) => (
+              <div
+                key={commit.sha}
+                className="flex min-w-0 items-baseline gap-2"
+              >
+                <span className="shrink-0 font-mono text-[11.5px] text-muted-foreground">
+                  {commit.sha.slice(0, 7)}
+                </span>
+                <span className="min-w-0 truncate">{commit.subject}</span>
+              </div>
+            ))}
+            {total > commits.length && (
+              <div className="text-muted-foreground">
+                and {total - commits.length} more
+              </div>
+            )}
+          </div>
+        </DetailBlock>
+      );
+    }
     case "pr_created":
     case "pr_merged":
     case "pr_closed":
