@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import type { IDisposable, editor } from 'monaco-editor'
+import { useCallback, useRef, useState } from 'react'
 
 import { IconCode, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
@@ -8,6 +9,36 @@ import {
     CyclotronJobTemplateOption,
     cyclotronJobTemplateSuggestionsLogic,
 } from './cyclotronJobTemplateSuggestionsLogic'
+
+export type TemplateEditorCursor = {
+    /** Hand to the Monaco editor's `onMount` */
+    onEditorMount: (editor: editor.IStandaloneCodeEditor) => void
+    /** Offset the caret last sat at, or null while it has never been placed in this editor */
+    cursorOffset: () => number | null
+}
+
+/**
+ * Records where the caret sits in a Monaco editor so a picked suggestion lands there. Opening the
+ * suggestions dropdown moves focus out of the editor, so the position has to be tracked as it
+ * changes rather than read at the moment an option is picked.
+ */
+export function useTemplateEditorCursor(): TemplateEditorCursor {
+    const offsetRef = useRef<number | null>(null)
+    const listenerRef = useRef<IDisposable | null>(null)
+
+    const onEditorMount = useCallback((editorInstance: editor.IStandaloneCodeEditor): void => {
+        // A remount hands us a fresh editor, so drop the old listener before it can report a
+        // position from an editor the user is no longer typing in
+        listenerRef.current?.dispose()
+        offsetRef.current = null
+
+        listenerRef.current = editorInstance.onDidChangeCursorPosition((event) => {
+            offsetRef.current = editorInstance.getModel()?.getOffsetAt(event.position) ?? null
+        })
+    }, [])
+
+    return { onEditorMount, cursorOffset: () => offsetRef.current }
+}
 
 export type CyclotronJobTemplateSuggestionsProps = {
     templating: 'hog' | 'liquid'
