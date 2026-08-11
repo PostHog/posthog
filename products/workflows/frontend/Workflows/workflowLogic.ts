@@ -183,6 +183,7 @@ export interface workflowLogicValues {
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
+    deferredResourceEdited: ResourceEditedEvent | null
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
     externallyEdited: boolean
@@ -2157,6 +2158,9 @@ export interface workflowLogicActions {
     publishDraft: () => {
         value: true
     }
+    replayDeferredResourceEdited: () => {
+        value: true
+    }
     resetWorkflow: (values?: HogFlow) => {
         values?: HogFlow
     }
@@ -2180,6 +2184,9 @@ export interface workflowLogicActions {
     }
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
+    }
+    setDeferredResourceEdited: (event: ResourceEditedEvent | null) => {
+        event: ResourceEditedEvent | null
     }
     setDraftActionPending: (pending: 'discard' | 'publish' | null) => {
         pending: 'discard' | 'publish' | null
@@ -2792,6 +2799,8 @@ export const workflowLogic = kea<workflowLogicType>([
         discardDraft: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
+        setDeferredResourceEdited: (event: ResourceEditedEvent | null) => ({ event }),
+        replayDeferredResourceEdited: true,
     }),
     loaders(({ props, values, actions }) => ({
         originalWorkflow: [
@@ -3066,6 +3075,15 @@ export const workflowLogic = kea<workflowLogicType>([
             null as 'publish' | 'discard' | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
+            },
+        ],
+        // A resource_edited event parked while our own save/reload was in flight. Replayed once the
+        // flight settles, so a genuine external edit landing in that window is reconciled instead of
+        // dropped. Latest event wins: the comparison is against timestamps, so older ones are moot.
+        deferredResourceEdited: [
+            null as ResourceEditedEvent | null,
+            {
+                setDeferredResourceEdited: (_, { event }) => event,
             },
         ],
     }),
@@ -3407,9 +3425,11 @@ export const workflowLogic = kea<workflowLogicType>([
             // Our own save/reload is mid-flight (originalWorkflowLoading covers both, they share a
             // loader), or a publish/discard is about to reload: the emit for our own write can beat
             // its HTTP response back to us, and reacting to that echo against the stale baseline
-            // flashes the conflict banner at ourselves. The landing response re-baselines us, and a
-            // genuine concurrent write is still caught by the 409 backstop on the next save.
+            // flashes the conflict banner at ourselves. Park the event instead of reacting; once the
+            // flight settles it replays against the fresh baseline, where our own echo compares equal
+            // (ignored) and a genuine concurrent edit is still strictly newer (reconciled).
             if (values.originalWorkflowLoading || values.draftActionPending) {
+                actions.setDeferredResourceEdited(event)
                 return
             }
             // Draft writes don't bump the live updated_at (the emit broadcasts the newer of the two
@@ -3543,6 +3563,7 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
+            actions.replayDeferredResourceEdited()
             const triggerType = originalWorkflow.trigger?.type
             if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
                 try {
@@ -3551,6 +3572,19 @@ export const workflowLogic = kea<workflowLogicType>([
                 } catch {
                     // Schedules are non-critical, don't block workflow loading
                 }
+            }
+        },
+        loadWorkflowFailure: () => {
+            actions.replayDeferredResourceEdited()
+        },
+        saveWorkflowFailure: () => {
+            actions.replayDeferredResourceEdited()
+        },
+        replayDeferredResourceEdited: () => {
+            const deferred = values.deferredResourceEdited
+            if (deferred) {
+                actions.setDeferredResourceEdited(null)
+                actions.resourceEdited(deferred)
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
@@ -3644,6 +3678,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
+            actions.replayDeferredResourceEdited()
         },
         discardChanges: () => {
             if (!values.originalWorkflow) {

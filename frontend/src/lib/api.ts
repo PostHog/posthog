@@ -252,13 +252,13 @@ import type {
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
     HogFlow,
     HogFlowAction,
     HogFlowBatchJob,
-    HogFlowPublishResponse,
     HogFlowSchedule,
     HogFlowTemplate,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -6728,7 +6728,7 @@ const api = {
             // Without `confirm` this only previews the impact and returns a `confirm_token`; a confirmed
             // publish must send that token back.
             data: { confirm: boolean; confirm_token?: string }
-        ): Promise<HogFlowPublishResponse> {
+        ): Promise<HogFlowPublishResponseApi> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create({ data })
         },
         async discardHogFlowDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {

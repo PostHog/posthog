@@ -89,31 +89,6 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     draft_updated_at?: string | null
 }
 
-export interface HogFlowPublishImpactDeletedStep {
-    action_id: string
-    name: string
-    // People currently at this step. null when the counting service was unavailable, never 0.
-    runs: number | null
-    moves_to: { action_id: string; name: string } | null
-    exits: boolean
-}
-
-export interface HogFlowPublishImpact {
-    deleted_steps: HogFlowPublishImpactDeletedStep[]
-    position_unknown: number | null
-    empty_variables: { variable: string; set_by: string | null; referenced_by: string[] }[]
-    schedule_conflicts: { schedule_id: string; variables: string[] }[]
-}
-
-export interface HogFlowPublishResponse {
-    published: boolean
-    in_flight_runs: number | null
-    draft_updated_at: string | null
-    // Signed preview token; a confirmed publish must send it back so the promoted draft is the one previewed.
-    confirm_token: string | null
-    impact: HogFlowPublishImpact | null
-    workflow?: HogFlow
-}
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}
 

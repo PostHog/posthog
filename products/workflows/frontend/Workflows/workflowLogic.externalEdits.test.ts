@@ -129,8 +129,9 @@ describe('workflowLogic external edits', () => {
 
     // The server emits resource_edited during our own PATCH/reload, and the SSE echo can land
     // before the HTTP response does. Reacting to it against the stale baseline flashed the
-    // conflict banner at the user on every staged auto-save.
-    it('ignores events while our own save or reload is in flight', async () => {
+    // conflict banner at the user on every staged auto-save - but plain dropping would lose a
+    // genuine concurrent edit arriving in the same window.
+    it('defers events during our own flight, then reconciles genuine edits against the fresh baseline', async () => {
         logic.actions.setAutoSaveEnabled(false)
         logic.actions.setWorkflowValue('name', 'My local edit')
         expect(logic.values.hasUnsavedChanges).toBe(true)
@@ -139,9 +140,20 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.originalWorkflowLoading).toBe(true)
         resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
 
+        // No banner while our own flight is up.
         expect(logic.values.externallyEdited).toBe(false)
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        // Once the flight settles, the parked event replays. The loaded baseline is still older
+        // than the event, so the (now clean) editor silently syncs with a fresh load - the event
+        // is reconciled, not dropped.
+        await expectLogic(logic).toDispatchActions([
+            'loadWorkflowSuccess',
+            'replayDeferredResourceEdited',
+            'setSyncingExternalEdit',
+            'loadWorkflowSuccess',
+        ])
         expect(logic.values.externallyEdited).toBe(false)
+        expect(getCalls).toBe(3)
     })
 
     it('ignores the echo of our own staged draft save', async () => {

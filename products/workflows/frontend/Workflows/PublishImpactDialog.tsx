@@ -1,13 +1,13 @@
 import { IconArrowRight } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import type { HogFlowPublishImpact, HogFlowPublishImpactDeletedStep } from './hogflows/types'
+import type { HogFlowPublishImpactApi, HogFlowPublishImpactDeletedStepApi } from '../generated/api.schemas'
 
 function PublishImpactContent({
     impact,
     inFlightRuns,
 }: {
-    impact: HogFlowPublishImpact | null
+    impact: HogFlowPublishImpactApi | null
     inFlightRuns: number | null
 }): JSX.Element {
     const deletedSteps = impact?.deleted_steps ?? []
@@ -27,7 +27,7 @@ function PublishImpactContent({
             {deletedSteps.length > 0 && (
                 <div className="flex flex-col gap-1">
                     <span className="font-semibold">Removed steps</span>
-                    <LemonTable<HogFlowPublishImpactDeletedStep>
+                    <LemonTable<HogFlowPublishImpactDeletedStepApi>
                         dataSource={deletedSteps}
                         rowKey="action_id"
                         size="small"
@@ -96,7 +96,7 @@ export function openPublishConfirmDialog({
     inFlightRuns,
     onConfirm,
 }: {
-    impact: HogFlowPublishImpact | null
+    impact: HogFlowPublishImpactApi | null
     inFlightRuns: number | null
     onConfirm: () => void
 }): void {
