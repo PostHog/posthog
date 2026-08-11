@@ -5,7 +5,7 @@ import { logger } from '@/lib/logging'
 import { scheduleJittered } from '@/lib/schedule'
 import { register, servingStaleSeconds } from '@/metrics'
 import { SnapshotManager } from '@/snapshot'
-import type { SecretStore } from '@/store/types'
+import type { SecretStore } from '@/store/fileStore'
 import type { SecretsSnapshot } from '@/types'
 
 const NOW = Date.parse('2026-08-10T12:00:00.000Z')

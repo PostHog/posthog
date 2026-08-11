@@ -30,7 +30,6 @@ function config(secrets: string, prestopDelayMs: number): Config {
     return {
         port: 0,
         host: '127.0.0.1',
-        isProduction: false,
         shutdownGraceMs: 2000,
         shutdownPrestopDelayMs: prestopDelayMs,
         env: 'test',
@@ -39,7 +38,6 @@ function config(secrets: string, prestopDelayMs: number): Config {
         reloadSeconds: 3600,
         usageFlushMs: 3_600_000,
         retentionDays: 9,
-        retireQuietHours: 24,
         metricsToken: '',
     }
 }

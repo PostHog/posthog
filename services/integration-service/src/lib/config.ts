@@ -1,13 +1,11 @@
 // Configuration, read from the environment once at boot. Anything missing or malformed
 // that the service cannot safely run without fails the boot rather than a request later.
 
-import { getEnv } from './env'
 import { logger } from './logging'
 
 export interface Config {
     port: number
     host: string
-    isProduction: boolean
     shutdownGraceMs: number
     shutdownPrestopDelayMs: number
 
@@ -23,13 +21,12 @@ export interface Config {
     reloadSeconds: number
     usageFlushMs: number
     retentionDays: number
-    retireQuietHours: number
 
     metricsToken: string
 }
 
-function intFromEnv(key: Parameters<typeof getEnv>[0], fallback: number): number {
-    const raw = getEnv(key)
+function intFromEnv(key: string, fallback: number): number {
+    const raw = process.env[key]
     if (!raw) {
         return fallback
     }
@@ -43,33 +40,29 @@ function intFromEnv(key: Parameters<typeof getEnv>[0], fallback: number): number
 }
 
 export function loadConfig(): Config {
-    const isProduction = getEnv('NODE_ENV') === 'production'
-
     const config: Config = {
         port: intFromEnv('PORT', 8004),
-        host: getEnv('HOST') ?? '0.0.0.0',
-        isProduction,
+        host: process.env.HOST ?? '0.0.0.0',
         shutdownGraceMs: intFromEnv('SHUTDOWN_GRACE_MS', 15000),
         shutdownPrestopDelayMs: intFromEnv('SHUTDOWN_PRESTOP_DELAY_MS', 5000),
 
-        env: getEnv('INTEGRATION_SERVICE_ENV') ?? 'dev',
+        env: process.env.INTEGRATION_SERVICE_ENV ?? 'dev',
 
-        secretsDir: getEnv('INTEGRATION_SERVICE_SECRETS_DIR') ?? '/etc/integration-secrets',
-        databaseUrl: getEnv('INTEGRATION_SERVICE_DATABASE_URL'),
+        secretsDir: process.env.INTEGRATION_SERVICE_SECRETS_DIR ?? '/etc/integration-secrets',
+        databaseUrl: process.env.INTEGRATION_SERVICE_DATABASE_URL,
 
         // Shorter than kubelet's own sync so a rotation is visible within about a minute
         // of the mount changing.
         reloadSeconds: intFromEnv('INTEGRATION_SERVICE_RELOAD_SECONDS', 30),
         usageFlushMs: intFromEnv('INTEGRATION_SERVICE_USAGE_FLUSH_MS', 10000),
         retentionDays: intFromEnv('INTEGRATION_SERVICE_RETENTION_DAYS', 9),
-        retireQuietHours: intFromEnv('INTEGRATION_SERVICE_RETIRE_QUIET_HOURS', 24),
 
-        metricsToken: getEnv('INTEGRATION_SERVICE_METRICS_TOKEN') ?? '',
+        metricsToken: process.env.INTEGRATION_SERVICE_METRICS_TOKEN ?? '',
     }
 
-    if (isProduction) {
+    if (process.env.NODE_ENV === 'production') {
         const missing: string[] = []
-        if (!getEnv('INTEGRATION_SERVICE_ENV')) {
+        if (!process.env.INTEGRATION_SERVICE_ENV) {
             missing.push('INTEGRATION_SERVICE_ENV')
         }
         // Without it the usage rollup silently stops, and the rollup is what decides when

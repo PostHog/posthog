@@ -1,21 +1,19 @@
-// Leveled logger backed by pino, mirroring services/agent-proxy/src/lib/logging.ts.
+// Leveled logger backed by pino.
 //
-// Never constructs a pino transport: dev and prod both run the esbuild bundle, and a transport spawns
+// Never constructs a pino transport: prod runs the esbuild bundle, and a transport spawns
 // a worker needing lib/worker.js + __dirname, neither of which exists in a single-file ESM
 // bundle. Dev pipes this JSON through the pino-pretty CLI instead.
 
 import pino from 'pino'
 
-import { getEnv } from './env'
-
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 function resolveLevel(): LogLevel {
-    const explicit = getEnv('INTEGRATION_SERVICE_LOG_LEVEL')?.toLowerCase()
+    const explicit = process.env.INTEGRATION_SERVICE_LOG_LEVEL?.toLowerCase()
     if (explicit === 'debug' || explicit === 'info' || explicit === 'warn' || explicit === 'error') {
         return explicit
     }
-    switch (getEnv('NODE_ENV')) {
+    switch (process.env.NODE_ENV) {
         case 'production':
             return 'info'
         case 'test':
@@ -26,7 +24,7 @@ function resolveLevel(): LogLevel {
 }
 
 const pinoOptions: pino.LoggerOptions = { level: resolveLevel() }
-if (getEnv('NODE_ENV') === 'production') {
+if (process.env.NODE_ENV === 'production') {
     pinoOptions.formatters = { level: (label) => ({ level: label }) }
 }
 const pinoLogger = pino(pinoOptions)

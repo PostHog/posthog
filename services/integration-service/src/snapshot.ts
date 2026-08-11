@@ -9,7 +9,7 @@
 import type { Lifecycle } from './http/app'
 import { logger } from './lib/logging'
 import { secretAgeSeconds, servingStaleSeconds, storeErrorsTotal } from './metrics'
-import type { SecretStore } from './store/types'
+import type { SecretStore } from './store/fileStore'
 import type { SecretsSnapshot } from './types'
 
 export interface SnapshotManagerOptions {
