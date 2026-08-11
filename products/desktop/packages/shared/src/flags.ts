@@ -1,4 +1,6 @@
 export const BILLING_FLAG = "posthog-code-billing";
+export const CLOUD_COMPUTE_BILLING_FLAG =
+  "posthog-desktop-cloud-compute-billing";
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
@@ -51,3 +53,6 @@ export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates anchored comments across task, artifact, and Activity surfaces. */
 export const COMMENTS_FLAG = "posthog-code-comments";
+
+/** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
+export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";

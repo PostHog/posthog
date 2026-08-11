@@ -9,9 +9,11 @@ Tests cover:
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
+from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.storage.hypercache_verifier import TeamBatchFetchError
 from posthog.tasks.hypercache_verification import (
@@ -20,6 +22,30 @@ from posthog.tasks.hypercache_verification import (
     verify_and_fix_team_metadata_cache_task,
 )
 from posthog.tasks.test.utils import PushGatewayTaskTestMixin
+
+
+def _incomplete_runs(cache_type: str, reason: str) -> float:
+    """Current value of the incomplete-runs counter in the default registry."""
+    return (
+        REGISTRY.get_sample_value(
+            "posthog_hypercache_verification_incomplete_runs_total",
+            {"cache_type": cache_type, "reason": reason},
+        )
+        or 0.0
+    )
+
+
+class TestIncompleteRunsCounterSeries(SimpleTestCase):
+    def test_every_label_pair_is_pre_created_at_import(self) -> None:
+        for cache_type in ("flags", "team_metadata", "flag_definitions"):
+            for reason in ("db_unreachable", "error", "soft_time_limit"):
+                assert (
+                    REGISTRY.get_sample_value(
+                        "posthog_hypercache_verification_incomplete_runs_total",
+                        {"cache_type": cache_type, "reason": reason},
+                    )
+                    is not None
+                ), f"series not pre-created: cache_type={cache_type}, reason={reason}"
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -39,22 +65,31 @@ class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
     def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
         error = Exception("flags verification failed")
         mock_run_verification.side_effect = error
+        before = _incomplete_runs("flags", "error")
 
         with self.assertRaises(Exception) as context:
             verify_and_fix_flags_cache_task()
 
         mock_capture.assert_called_once_with(error)
         assert context.exception is error
+        assert _incomplete_runs("flags", "error") == before + 1
 
+    @parameterized.expand(
+        [
+            ("soft_time_limit", SoftTimeLimitExceeded()),
+            ("db_unreachable", TeamBatchFetchError("db unreachable")),
+        ]
+    )
     @patch("posthog.tasks.hypercache_verification.capture_exception")
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_soft_time_limit_exceeded_winds_down_without_capturing(
-        self, mock_run_verification: MagicMock, mock_capture: MagicMock
+    def test_wind_down_completes_cleanly_without_capturing(
+        self, reason: str, error: Exception, mock_run_verification: MagicMock, mock_capture: MagicMock
     ) -> None:
-        """A run that hits the soft time limit winds down cleanly: unlike a real
-        verification failure, it is not captured as an error or re-raised, and the
-        task's success metric reflects a clean finish."""
-        mock_run_verification.side_effect = SoftTimeLimitExceeded()
+        """A run that winds down early (time budget spent, or database unreachable after
+        retries) is not captured as an error or re-raised, and the task's success metric
+        reflects a clean finish."""
+        mock_run_verification.side_effect = error
+        before = _incomplete_runs("flags", reason)
 
         # Should not raise
         verify_and_fix_flags_cache_task()
@@ -62,20 +97,7 @@ class TestVerifyAndFixFlagsCacheTask(PushGatewayTaskTestMixin, TestCase):
         mock_capture.assert_not_called()
         success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flags_cache_task_success")
         assert success == 1
-
-    @patch("posthog.tasks.hypercache_verification.capture_exception")
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_team_batch_fetch_error_winds_down_without_capturing(
-        self, mock_run_verification: MagicMock, mock_capture: MagicMock
-    ) -> None:
-        mock_run_verification.side_effect = TeamBatchFetchError("db unreachable")
-
-        # Should not raise
-        verify_and_fix_flags_cache_task()
-
-        mock_capture.assert_not_called()
-        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flags_cache_task_success")
-        assert success == 1
+        assert _incomplete_runs("flags", reason) == before + 1
 
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_does_not_raise_when_succeeds(self, mock_run_verification: MagicMock) -> None:
@@ -124,12 +146,14 @@ class TestVerifyAndFixTeamMetadataCacheTask(PushGatewayTaskTestMixin, TestCase):
     def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
         error = Exception("team_metadata verification failed")
         mock_run_verification.side_effect = error
+        before = _incomplete_runs("team_metadata", "error")
 
         with self.assertRaises(Exception) as context:
             verify_and_fix_team_metadata_cache_task()
 
         mock_capture.assert_called_once_with(error)
         assert context.exception is error
+        assert _incomplete_runs("team_metadata", "error") == before + 1
 
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_does_not_raise_when_succeeds(self, mock_run_verification: MagicMock) -> None:
@@ -182,22 +206,31 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
         error = Exception("flag_definitions verification failed")
         mock_run_verification.side_effect = error
+        before = _incomplete_runs("flag_definitions", "error")
 
         with self.assertRaises(Exception) as context:
             verify_and_fix_flag_definitions_cache_task()
 
         mock_capture.assert_called_once_with(error)
         assert context.exception is error
+        assert _incomplete_runs("flag_definitions", "error") == before + 1
 
+    @parameterized.expand(
+        [
+            ("soft_time_limit", SoftTimeLimitExceeded()),
+            ("db_unreachable", TeamBatchFetchError("db unreachable")),
+        ]
+    )
     @patch("posthog.tasks.hypercache_verification.capture_exception")
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_soft_time_limit_exceeded_winds_down_without_capturing(
-        self, mock_run_verification: MagicMock, mock_capture: MagicMock
+    def test_wind_down_completes_cleanly_without_capturing(
+        self, reason: str, error: Exception, mock_run_verification: MagicMock, mock_capture: MagicMock
     ) -> None:
-        """A run that hits the soft time limit winds down cleanly: unlike a real
-        verification failure, it is not captured as an error or re-raised, and the
-        task's success metric reflects a clean finish."""
-        mock_run_verification.side_effect = SoftTimeLimitExceeded()
+        """A run that winds down early (time budget spent, or database unreachable after
+        retries) is not captured as an error or re-raised, and the task's success metric
+        reflects a clean finish."""
+        mock_run_verification.side_effect = error
+        before = _incomplete_runs("flag_definitions", reason)
 
         # Should not raise
         verify_and_fix_flag_definitions_cache_task()
@@ -205,20 +238,7 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
         mock_capture.assert_not_called()
         success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flag_definitions_cache_task_success")
         assert success == 1
-
-    @patch("posthog.tasks.hypercache_verification.capture_exception")
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_team_batch_fetch_error_winds_down_without_capturing(
-        self, mock_run_verification: MagicMock, mock_capture: MagicMock
-    ) -> None:
-        mock_run_verification.side_effect = TeamBatchFetchError("db unreachable")
-
-        # Should not raise
-        verify_and_fix_flag_definitions_cache_task()
-
-        mock_capture.assert_not_called()
-        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flag_definitions_cache_task_success")
-        assert success == 1
+        assert _incomplete_runs("flag_definitions", reason) == before + 1
 
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_releases_lock_after_error(self, mock_run_verification: MagicMock) -> None:
