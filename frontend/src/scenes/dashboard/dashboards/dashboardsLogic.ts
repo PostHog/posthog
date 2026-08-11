@@ -201,7 +201,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], tagsModel, ['tags']],
-        // Connecting mounts these: an unmounted moveToLogic breaks the move outright.
         actions: [
             moveToLogic,
             ['openMoveToModal'],
@@ -212,7 +211,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         ],
     })),
     actions({
-        // `method` is the affordance used: a bulk bar acting on one dashboard is still a bulk move.
         moveDashboardsToFolder: (ids: number[], method: 'single' | 'bulk', onOpened?: () => void) => ({
             ids,
             method,
@@ -540,7 +538,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        // The list's Folder column reads the dashboards model, which a move never touched.
         movedItem: ({ item, oldPath, newPath }) => {
             if (item.type === 'folder') {
                 dashboardsModel.actions.reparentDashboardFolders(oldPath, newPath)
@@ -576,7 +573,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             }
             actions.reportDashboardMoveInitiated(method, entries.length)
             actions.openMoveToModal(entries)
-            onOpened?.()
+            if (entries.length === ids.length) {
+                onOpened?.()
+            }
         },
         setSearch: ({ search }) => {
             actions.loadSearchedDashboards({

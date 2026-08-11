@@ -27,7 +27,7 @@ async function resolveOne({ type, ref }: ProjectTreeRef): Promise<FileSystemEntr
     } catch (error) {
         // Callers run this from async listeners rather than kea-loaders, so initKea's global onFailure
         // never sees it.
-        posthog.captureException(error)
+        posthog.captureException(error, { ref, type })
         return null
     }
 }

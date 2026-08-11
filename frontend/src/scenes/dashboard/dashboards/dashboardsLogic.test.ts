@@ -541,6 +541,26 @@ describe('dashboardsLogic', () => {
         expect(moveToLogic.values.movingItems).toEqual([expect.objectContaining({ id: 'fs-11' })])
     })
 
+    it('keeps the selection when only part of it resolved', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system': ({ request }) => {
+                    const ref = new URL(request.url).searchParams.get('ref')
+                    const results = ref === '11' ? [{ id: 'fs-11', ref, type: 'dashboard', path: 'Marketing' }] : []
+                    return [200, { count: 0, results }]
+                },
+            },
+        })
+        moveToLogic.mount()
+        const clearSelection = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.moveDashboardsToFolder([11, 12], 'bulk', clearSelection)
+        }).toFinishListeners()
+
+        expect(clearSelection).not.toHaveBeenCalled()
+    })
+
     it('does not refetch when toggling pinned while a search is active on the /dashboard URL', async () => {
         // Toggling pinned writes ?pinned=true to the URL, which round-trips back through
         // urlToAction. The guard there must not re-dispatch setSearch and trigger a redundant
