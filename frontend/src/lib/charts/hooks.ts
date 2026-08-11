@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { type DependencyList, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { DEFAULT_CHART_CONFIG } from '@posthog/quill-charts'
@@ -79,7 +80,7 @@ export function useDateRangeZoom(
     return enabled && dates?.length && onZoom ? handler : undefined
 }
 
-/** Builds a chart's config object, memoized on `deps`, applying `CHART_CONFIG_DEFAULTS` for any
+/** Builds a chart's config object, memoized on `deps`, applying `DEFAULT_CHART_CONFIG` for any
  *  key the factory leaves undefined. Keys the factory sets explicitly always win over the defaults.
  *  `tooltip` merges key by key instead of being replaced wholesale. */
 export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
