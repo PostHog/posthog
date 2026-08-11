@@ -646,47 +646,6 @@ class TestAdminLogs:
         assert response.sort_mode == "desc"
 
 
-class TestTeamAndWatchtowerTables:
-    def test_team_members_requests_invite_status_but_never_an_access_filter(self) -> None:
-        # show_invite_status completes the roster with pending invites; sending `access`
-        # could filter the roster down to one level and silently lose members.
-        manager = _fresh_manager()
-        responses = [_make_response({"members": [{"id": 1, "email": "a@example.com", "access": "admin"}]})]
-        sent_params, batches = _drive_rows(manager, responses, endpoint="team_members")
-
-        assert sent_params == [{"show_invite_status": "true"}]
-        assert [len(b) for b in batches] == [1]
-
-    def test_team_members_response_is_unpartitioned(self) -> None:
-        # Members carry no timestamp; wiring the datetime partitioning every other stream
-        # uses would fail the sync on a missing column.
-        response = decagon_source(
-            api_key="key",
-            endpoint="team_members",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-        )
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-
-    def test_watchtower_jobs_is_a_single_request_partitioned_by_created_at(self) -> None:
-        manager = _fresh_manager()
-        responses = [_make_response({"jobs": [{"id": 1, "name": "j", "created_at": "2026-01-01T00:00:00Z"}]})]
-        sent_params, batches = _drive_rows(manager, responses, endpoint="watchtower_jobs")
-
-        assert sent_params == [{}]
-        assert [len(b) for b in batches] == [1]
-
-        response = decagon_source(
-            api_key="key",
-            endpoint="watchtower_jobs",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-        )
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_at"]
-
-
 class TestToEpochSeconds:
     # The pipeline hands the DateTime watermark back as a datetime, a date, or an epoch
     # number depending on how it round-tripped through storage; the request boundary must

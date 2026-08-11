@@ -90,7 +90,7 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@dataclass(frozen=True)
 class ClickHouseCredentials:
     user: str
     password: str = field(repr=False)

@@ -867,7 +867,7 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .default(tasksListQueryAllTeamTasksDefault)
         .describe(
-            'Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.'
+            'Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.'
         ),
     archived: zod
         .enum(['true', 'false', 'all'])

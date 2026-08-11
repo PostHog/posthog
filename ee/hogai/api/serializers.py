@@ -235,7 +235,10 @@ class TaskSerializer(DataclassSerializer):
 class ConversationTaskSerializer(TaskSerializer):
     """Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
     run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
-    avoids presigning a log URL per conversation. Task data follows the task's space visibility."""
+    avoids presigning a log URL per conversation.
+
+    Read access here follows the conversation (the share-by-link unit), not per-creator task
+    visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``."""
 
     latest_run = serializers.UUIDField(  # type: ignore[assignment]  # intentional narrowing of the base nested-run field to its id
         source="latest_run_id",
@@ -263,12 +266,12 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
             return None
 
         task_dtos = self.context.get("conversation_task_dtos_by_id")
-        if isinstance(task_dtos, dict):
-            task_dto: TaskDetailDTO | None = task_dtos.get(str(conversation.task_id))
-        else:
+        task_dto: TaskDetailDTO | None = (
+            task_dtos.get(str(conversation.task_id)) if isinstance(task_dtos, dict) else None
+        )
+        if task_dto is None:
             team = self.context["team"]
-            user = self.context["user"]
-            task_dto = tasks_facade.get_conversation_task_dtos([conversation.task_id], team.id, user.id).get(
+            task_dto = tasks_facade.get_conversation_task_dtos([conversation.task_id], team.id).get(
                 conversation.task_id
             )
         if task_dto is None:
