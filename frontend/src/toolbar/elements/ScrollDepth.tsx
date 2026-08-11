@@ -59,6 +59,7 @@ export function ScrollDepth(): JSX.Element | null {
 
     // We want to have a fading color from red to orange to green to blue to grey, fading from the highest count to the lowest
     const maxCount = heatmapElements[0]?.count ?? 0
+    const minCount = heatmapElements.length ? Math.min(...heatmapElements.map(({ count }) => count)) : 0
 
     return (
         <div className="fixed inset-0 overflow-hidden">
@@ -72,12 +73,12 @@ export function ScrollDepth(): JSX.Element | null {
                 {heatmapElements.map(({ y, count }, i) => (
                     <div
                         key={y}
-                        className="absolute left-0 w-full opacity-50"
+                        className="absolute left-0 w-full opacity-30 mix-blend-multiply"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             top: heatmapElements[i - 1]?.y ?? 0,
                             height: y - (heatmapElements[i - 1]?.y ?? 0),
-                            backgroundColor: scrollDepthColor(count, maxCount, heatmapColorPalette),
+                            backgroundColor: scrollDepthColor(count, maxCount, minCount, heatmapColorPalette),
                         }}
                     />
                 ))}

@@ -150,7 +150,7 @@ export function FilterPanel({
     // for some reason our wait for loading to finish can't see it
     // this is ugly but better than stopping taking visual snapshots of it
     return (
-        <>
+        <div className="relative">
             {debouncedLoading && !inStorybook() && !inStorybookTestRunner() && (
                 <LoadingBar
                     wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
@@ -263,6 +263,6 @@ export function FilterPanel({
                     settings. A high value can hide data on pages with less traffic.
                 </LemonBanner>
             ) : null}
-        </>
+        </div>
     )
 }

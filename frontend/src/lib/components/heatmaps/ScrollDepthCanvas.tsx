@@ -8,18 +8,26 @@ import { cn } from 'lib/utils/css-classes'
 
 import { HeatmapElement } from '~/toolbar/types'
 
-export const scrollDepthColor = (count: number, maxCount: number, heatmapColorPalette: string | null): string => {
-    const value = 1 - count / maxCount
+export const scrollDepthColor = (
+    count: number,
+    maxCount: number,
+    minCount: number,
+    heatmapColorPalette: string | null
+): string => {
+    // Normalize over the range of counts we actually render, not the page-wide top bucket.
+    // Cumulative reach barely drops across the first screen, so scaling against the top bucket
+    // paints every visible band the same color; scaling against the visible range keeps a gradient.
+    const range = maxCount - minCount
+    const reach = range > 0 ? (count - minCount) / range : 1
 
     if (heatmapColorPalette === 'default') {
-        const safeValue = Math.max(0, Math.min(1, value))
-        const hue = Math.round(260 * safeValue)
+        const hue = Math.round(260 * (1 - reach))
 
         // Return hsl color. You can adjust saturation and lightness to your liking
         return `hsl(${hue}, 100%, 50%)`
     }
 
-    const rgba = [0, 0, 0, count / maxCount]
+    const rgba = [0, 0, 0, reach]
 
     switch (heatmapColorPalette) {
         case 'red':
@@ -135,6 +143,7 @@ export function ScrollDepthCanvas({
     const { heatmapElements, heatmapColorPalette, isReady } = useValues(heatmapDataLogic({ context, exportToken }))
     const { innerRef } = useScrollSync(context === 'toolbar')
     const maxCount = heatmapElements[0]?.count ?? 0
+    const minCount = heatmapElements.length ? Math.min(...heatmapElements.map(({ count }) => count)) : 0
 
     if (!heatmapElements.length) {
         return null
@@ -156,12 +165,12 @@ export function ScrollDepthCanvas({
                 {heatmapElements.map(({ y, count }, i) => (
                     <div
                         key={y}
-                        className="absolute left-0 w-full opacity-50"
+                        className="absolute left-0 w-full opacity-30 mix-blend-multiply"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             top: heatmapElements[i - 1]?.y ?? 0,
                             height: y - (heatmapElements[i - 1]?.y ?? 0),
-                            backgroundColor: scrollDepthColor(count, maxCount, heatmapColorPalette),
+                            backgroundColor: scrollDepthColor(count, maxCount, minCount, heatmapColorPalette),
                         }}
                     />
                 ))}
