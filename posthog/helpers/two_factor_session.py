@@ -125,6 +125,15 @@ LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out
 )
 
+# Counts logins that skipped an interactive second factor because a remembered-device cookie
+# validated, sliced by factor. Makes a bypassed login distinguishable from a login by a user with
+# no second factor at all, which the request path alone cannot tell apart.
+SECOND_FACTOR_SKIPPED_COUNTER = Counter(
+    "login_second_factor_skipped_total",
+    "Logins where an interactive second factor was skipped via a remembered-device cookie.",
+    labelnames=["factor"],
+)
+
 
 # Enforce Two-Factor Authentication only on sessions created after this date
 TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 9, day=22, hour=13)

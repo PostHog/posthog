@@ -51,7 +51,7 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import SecondFactor, report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
@@ -59,6 +59,7 @@ from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
+    SECOND_FACTOR_SKIPPED_COUNTER,
     clear_two_factor_session_flags,
     code_based_verifier,
     has_passkeys,
@@ -231,48 +232,29 @@ class LoginSerializer(serializers.Serializer):
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
 
-    def _check_if_2fa_required(self, user: User) -> bool:
-        from posthog.helpers.two_factor_session import has_passkeys
-
-        device = default_device(user)
-        user_has_passkeys = has_passkeys(user)
-        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
-
-        # If user has neither TOTP nor passkeys enabled for 2FA, check for code-based verification remember cookie
+    def _check_if_2fa_required(self, user: User, device: Any, passkeys_enabled_for_2fa: bool) -> bool:
+        # TOTP and passkey 2FA no longer honor a remembered-device cookie: a control the user
+        # explicitly enabled must be re-checked on every login. Only the automatic email step-up
+        # (code-based verification) keeps a trusted-device cookie, and only for accounts that have
+        # neither TOTP nor a passkey enabled for 2FA.
         if not device and not passkeys_enabled_for_2fa:
             for key, value in self.context["request"].COOKIES.items():
                 if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
                     try:
                         if validate_remember_device_cookie(value, user=user, otp_device_id="code_based_verification"):
+                            SECOND_FACTOR_SKIPPED_COUNTER.labels(factor="code_based_verification").inc()
+                            mfa_logger.info(
+                                "Second factor skipped via remembered device",
+                                user_id=user.pk,
+                                factor="code_based_verification",
+                            )
                             return False
                     except BadSignature:
-                        pass
+                        # An invalid or tampered remember cookie must not pass silently. Log it and
+                        # keep scanning; if none validate we fall through and require the second
+                        # factor, which is the safe outcome.
+                        mfa_logger.warning("Ignoring invalid remember-device cookie", user_id=user.pk)
 
-        # Has TOTP device - check for TOTP remember cookie
-        if device:
-            for key, value in self.context["request"].COOKIES.items():
-                if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
-                    try:
-                        if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
-                            user.otp_device = device  # type: ignore
-                            device.throttle_reset()
-                            return False
-                    except BadSignature:
-                        # Workaround for signature mismatches due to Django upgrades.
-                        # See https://github.com/PostHog/posthog/issues/19350
-                        pass
-
-        # Has passkeys enabled for 2FA but no TOTP - 2FA still required (passkey will be used)
-        if passkeys_enabled_for_2fa:
-            for key, value in self.context["request"].COOKIES.items():
-                if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
-                    try:
-                        if validate_remember_device_cookie(value, user=user, otp_device_id="passkey_2fa"):
-                            return False
-                    except BadSignature:
-                        pass
-
-        # No device and no passkeys enabled for 2FA - should have been handled above, but fallback to code-based verification
         return True
 
     def create(self, validated_data: dict[str, str]) -> Any:
@@ -343,42 +325,45 @@ class LoginSerializer(serializers.Serializer):
 
         clear_two_factor_session_flags(request)
 
-        if self._check_if_2fa_required(user):
+        totp_device = default_device(user)
+        passkeys_enabled_for_2fa = has_passkeys(user) and bool(user.passkeys_enabled_for_2fa)
+
+        two_factor_required = self._check_if_2fa_required(user, totp_device, passkeys_enabled_for_2fa)
+        if two_factor_required:
             request.session["user_authenticated_but_no_2fa"] = user.pk
             request.session["user_authenticated_time"] = time.time()
-
-            # Check if user has TOTP device or passkeys enabled for 2FA
-            from posthog.helpers.two_factor_session import has_passkeys
-
-            totp_device = default_device(user)
-            user_has_passkeys = has_passkeys(user)
-            passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
             if totp_device or passkeys_enabled_for_2fa:
                 # TOTP or passkey flow
                 raise TwoFactorRequired()
-            else:
+            elif not was_authenticated_before_login_attempt:
                 # Code-based verification - skip if this is a reauth (user already authenticated)
-                if not was_authenticated_before_login_attempt:
-                    code_based_verification_sent = code_based_verifier.create_and_send_code_based_verification(
-                        request, user
-                    )
-                    if code_based_verification_sent:
-                        # Increment the resend throttle counter so the initial send counts towards the limit
-                        resend_throttle = CodeBasedVerificationResendThrottle()
-                        resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
-                        raise CodeBasedVerificationRequired(user.email)
-                    else:
-                        # if we failed to send the email, we should fall through to allow login without code-based verification
-                        pass
+                code_based_verification_sent = code_based_verifier.create_and_send_code_based_verification(
+                    request, user
+                )
+                if code_based_verification_sent:
+                    # Increment the resend throttle counter so the initial send counts towards the limit
+                    resend_throttle = CodeBasedVerificationResendThrottle()
+                    resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
+                    raise CodeBasedVerificationRequired(user.email)
+                # If the email could not be sent, fall through and log in without code-based verification.
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
         # Log successful authentication with axes
         handler.user_logged_in(None, user=user, request=axes_request)
 
-        if not self._check_if_2fa_required(user):
+        # Reaching login() here means no interactive second factor ran in this request: either a
+        # remembered device cleared it, a reauth skipped it, or the account has none. Record which,
+        # so a bypassed login is auditable rather than indistinguishable from a no-2FA login.
+        second_factor: SecondFactor
+        if not two_factor_required:
             set_two_factor_verified_in_session(request)
+            second_factor = "remembered_device"
+        elif was_authenticated_before_login_attempt:
+            second_factor = "reauth"
+        else:
+            second_factor = "none"
 
         # This is auto-handled for social auth providers, but we need to handle it manually for user/pass logins
         request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
@@ -393,7 +378,7 @@ class LoginSerializer(serializers.Serializer):
                 user.id, timezone.now(), short_user_agent, ip_address, backend_name
             )
 
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, social_provider="", second_factor=second_factor)
         return user
 
 
@@ -684,31 +669,20 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     permission_classes = (permissions.AllowAny,)
     throttle_classes = [TwoFactorThrottle]
 
-    def _token_is_valid(self, request, user: User, device) -> Response:
+    def _token_is_valid(self, request, user: User, device, second_factor: SecondFactor) -> Response:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         otp_login(request, device)
         set_two_factor_verified_in_session(request)
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, social_provider="", second_factor=second_factor)
         device.throttle_reset()
 
         # Clean up pre-2FA session keys to prevent reuse
         request.session.pop("user_authenticated_but_no_2fa", None)
         request.session.pop("user_authenticated_time", None)
 
-        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-        cookie_value = get_remember_device_cookie(user=user, otp_device_id=device.persistent_id)
-        response = Response({"success": True})
-        response.set_cookie(
-            cookie_key,
-            cookie_value,
-            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
-            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-        )
-        return response
+        # No remembered-device cookie: TOTP is a control the user explicitly enabled, so it is
+        # re-checked on every login rather than silently skipped for 30 days.
+        return Response({"success": True})
 
     def _handle_passkey_2fa(self, request: Request, user: User, credential_id: str, response_data: dict) -> Response:
         """
@@ -770,27 +744,15 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             # Complete 2FA verification
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             set_two_factor_verified_in_session(request)
-            report_user_logged_in(user, social_provider="")
+            report_user_logged_in(user, social_provider="", second_factor="passkey")
 
             # Clean up pre-2FA session keys to prevent reuse
             request.session.pop("user_authenticated_but_no_2fa", None)
             request.session.pop("user_authenticated_time", None)
 
-            # Set remember device cookie for passkey 2FA
-            cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-            cookie_value = get_remember_device_cookie(user=user, otp_device_id="passkey_2fa")
-            response = Response({"success": True})
-            response.set_cookie(
-                cookie_key,
-                cookie_value,
-                max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
-                domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-                path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-                secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-                httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-                samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-            )
-            return response
+            # No remembered-device cookie: passkey 2FA is a control the user explicitly enabled, so
+            # it is re-checked on every login rather than silently skipped for 30 days.
+            return Response({"success": True})
         except serializers.ValidationError:
             raise
         except Exception as e:
@@ -822,7 +784,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
                 if not is_allowed[0]:
                     raise serializers.ValidationError(detail="Too many attempts.", code="2fa_too_many_attempts")
                 if totp_device.verify_token(token):
-                    return self._token_is_valid(request, user, totp_device)
+                    return self._token_is_valid(request, user, totp_device, second_factor="totp")
                 totp_device.throttle_increment()
 
             # Then try backup codes
@@ -833,7 +795,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             if static_device and static_device.verify_token(token):
                 # Send email notification when backup code is used
                 send_two_factor_auth_backup_code_used_email.delay(user.id)
-                return self._token_is_valid(request, user, static_device)
+                return self._token_is_valid(request, user, static_device, second_factor="backup_code")
 
         raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
 
@@ -1061,7 +1023,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         code_based_verifier.clear_pending(request)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(request)
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, social_provider="", second_factor="email_code")
         mfa_logger.info("Code-based verification successful", user_id=user.pk)
         LOGIN_CODE_VERIFICATION_COUNTER.labels(result="success").inc()
 

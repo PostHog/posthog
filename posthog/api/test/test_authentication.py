@@ -863,15 +863,19 @@ class TestTwoFactorAPI(APIBaseTest):
 
         response = self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # A control the user explicitly enabled must not be silently remembered: no remember-device
+        # cookie is set for TOTP.
+        self.assertFalse(any(name.startswith("remember-cookie_") for name in response.cookies))
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], self.user.email)
 
-        # Test remembering cookie
+        # A return visit re-checks the second factor rather than passing on password alone.
         self.client.post("/logout", follow=True)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "2fa_required")
 
     def test_2fa_expired(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
@@ -1248,6 +1252,9 @@ class TestTwoFactorAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["success"])
+        # A control the user explicitly enabled must not be silently remembered: no remember-device
+        # cookie is set for passkey 2FA.
+        self.assertFalse(any(name.startswith("remember-cookie_") for name in response.cookies))
 
         # Verify we're logged in
         response = self.client.get("/api/users/@me/")

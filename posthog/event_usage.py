@@ -4,7 +4,7 @@ Module to centralize event reporting on the server-side.
 
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
+from typing import TYPE_CHECKING, Literal, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
 
 from django.contrib.auth.models import AnonymousUser
@@ -118,9 +118,13 @@ def report_user_joined_organization(organization: Organization, current_user: Us
     )
 
 
+SecondFactor = Literal["totp", "passkey", "backup_code", "email_code", "remembered_device", "reauth", "none"]
+
+
 def report_user_logged_in(
     user: User,
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
+    second_factor: SecondFactor | None = None,  # factor that gated this login (None = not recorded for this path)
 ) -> None:
     """
     Reports that a user has logged in to PostHog.
@@ -131,7 +135,7 @@ def report_user_logged_in(
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="user logged in",
-        properties={"social_provider": social_provider},
+        properties={"social_provider": social_provider, "second_factor": second_factor},
         groups=groups(user.current_organization, user.current_team),
     )
 
