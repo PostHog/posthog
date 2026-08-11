@@ -44,7 +44,7 @@ import {
 } from '~/types'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { FLAG_DEPENDENCY_ESTIMATE_TOOLTIP, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -53,6 +53,7 @@ import {
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
 import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
+import { conditionHasFlagDependency, conditionOnlyFlagDependencies } from './releaseConditionEstimateUtils'
 
 function PropertyValueComponent({
     property,
@@ -487,22 +488,43 @@ export function FeatureFlagReleaseConditions({
                                             </div>
                                         )
                                     }
+                                    // Flag dependencies are evaluated per user at serve time, so the estimate
+                                    // can't account for them and would count everyone.
+                                    if (conditionOnlyFlagDependencies(group.properties)) {
+                                        return (
+                                            <div className="basis-full flex flex-col mt-1 text-secondary">
+                                                <span>
+                                                    Depends on another feature flag, so the match estimate isn't shown.
+                                                    <Tooltip title={FLAG_DEPENDENCY_ESTIMATE_TOOLTIP} interactive>
+                                                        <IconInfo className="text-muted text-xs ml-0.5" />
+                                                    </Tooltip>
+                                                </span>
+                                            </div>
+                                        )
+                                    }
                                     const rolloutPct = Number.isNaN(group.rollout_percentage)
                                         ? 0
                                         : (group.rollout_percentage ?? 100)
+                                    const hasFlagDependency = conditionHasFlagDependency(group.properties)
+                                    const atMost = hasFlagDependency ? 'at most ' : ''
+                                    const estimateTooltip = hasFlagDependency
+                                        ? FLAG_DEPENDENCY_ESTIMATE_TOOLTIP
+                                        : MATCHING_ESTIMATE_TOOLTIP
                                     const receivingFlag = Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
                                     return (
                                         <div className="basis-full flex flex-col mt-1 text-secondary tabular-nums">
                                             <span>
-                                                Filters match: <b>~{pluralize(affected, singularName, pluralName)}</b>
-                                                {filters.aggregation_group_type_index == null && (
-                                                    <Tooltip title={MATCHING_ESTIMATE_TOOLTIP} interactive>
+                                                Filters match: {atMost}
+                                                <b>~{pluralize(affected, singularName, pluralName)}</b>
+                                                {(hasFlagDependency ||
+                                                    filters.aggregation_group_type_index == null) && (
+                                                    <Tooltip title={estimateTooltip} interactive>
                                                         <IconInfo className="text-muted text-xs ml-0.5" />
                                                     </Tooltip>
                                                 )}
                                             </span>
                                             <span>
-                                                Rollout will be to{' '}
+                                                Rollout will be to {atMost}
                                                 <b>~{pluralize(receivingFlag, singularName, pluralName)}</b> -{' '}
                                                 <b>{rolloutPct}%</b>
                                             </span>

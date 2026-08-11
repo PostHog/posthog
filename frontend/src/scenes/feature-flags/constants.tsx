@@ -20,3 +20,14 @@ export const MATCHING_ESTIMATE_TOOLTIP = (
         </div>
     </>
 )
+
+export const FLAG_DEPENDENCY_ESTIMATE_TOOLTIP = (
+    <>
+        <div>This condition depends on another feature flag.</div>
+        <div className="mt-1">
+            Flag dependencies are evaluated for each user when the flag is served, so they aren't included in this
+            estimate. The real audience is usually smaller than the total shown. Check the Usage tab for the number of
+            users actually served each value.
+        </div>
+    </>
+)

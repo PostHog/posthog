@@ -73,7 +73,7 @@ import {
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { FLAG_DEPENDENCY_ESTIMATE_TOOLTIP, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
@@ -87,6 +87,7 @@ import {
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
+import { conditionHasFlagDependency, conditionOnlyFlagDependencies } from './releaseConditionEstimateUtils'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -208,7 +209,14 @@ function ConditionHeader({
             ? Math.floor((affectedCount * clamp(rollout, 0, 100)) / 100)
             : null
 
-    const countSummary = actualCount !== null ? `${humanFriendlyNumber(actualCount)} ${aggregationTargetName}` : null
+    // Flag dependencies are evaluated per user at serve time, so the estimate can't account
+    // for them: drop the count when it's the only filter, and mark it an upper bound otherwise.
+    const countSummary =
+        actualCount !== null && !conditionOnlyFlagDependencies(group.properties)
+            ? `${conditionHasFlagDependency(group.properties) ? 'at most ' : ''}${humanFriendlyNumber(
+                  actualCount
+              )} ${aggregationTargetName}`
+            : null
 
     return (
         <div className="flex items-center justify-between w-full gap-2">
@@ -717,13 +725,39 @@ const ConditionContent = ({
                                                         return null
                                                     }
 
+                                                    // Flag dependencies are evaluated per user at serve time, so the
+                                                    // estimate can't account for them and would count everyone.
+                                                    if (conditionOnlyFlagDependencies(group.properties)) {
+                                                        return (
+                                                            <div className="flex flex-col">
+                                                                <span>
+                                                                    Depends on another feature flag, so the match
+                                                                    estimate isn't shown.
+                                                                    <Tooltip
+                                                                        title={FLAG_DEPENDENCY_ESTIMATE_TOOLTIP}
+                                                                        interactive
+                                                                    >
+                                                                        <IconInfo className="text-muted text-xs ml-0.5" />
+                                                                    </Tooltip>
+                                                                </span>
+                                                            </div>
+                                                        )
+                                                    }
+
+                                                    const hasFlagDependency = conditionHasFlagDependency(
+                                                        group.properties
+                                                    )
+                                                    const atMost = hasFlagDependency ? 'at most ' : ''
+                                                    const estimateTooltip = hasFlagDependency
+                                                        ? FLAG_DEPENDENCY_ESTIMATE_TOOLTIP
+                                                        : MATCHING_ESTIMATE_TOOLTIP
                                                     const receivingFlag = Math.floor(
                                                         (affected * clamp(rolloutPct, 0, 100)) / 100
                                                     )
                                                     return (
                                                         <div className="flex flex-col">
                                                             <span>
-                                                                Filters match:{' '}
+                                                                Filters match: {atMost}
                                                                 <b className="tabular-nums">
                                                                     ~
                                                                     {pluralize(
@@ -732,20 +766,18 @@ const ConditionContent = ({
                                                                         resolvedTargetName
                                                                     )}
                                                                 </b>
-                                                                {resolveAggregationGroupTypeIndex(
-                                                                    group.aggregation_group_type_index,
-                                                                    releaseFilters.aggregation_group_type_index
-                                                                ) == null && (
-                                                                    <Tooltip
-                                                                        title={MATCHING_ESTIMATE_TOOLTIP}
-                                                                        interactive
-                                                                    >
+                                                                {(hasFlagDependency ||
+                                                                    resolveAggregationGroupTypeIndex(
+                                                                        group.aggregation_group_type_index,
+                                                                        releaseFilters.aggregation_group_type_index
+                                                                    ) == null) && (
+                                                                    <Tooltip title={estimateTooltip} interactive>
                                                                         <IconInfo className="text-muted text-xs ml-0.5" />
                                                                     </Tooltip>
                                                                 )}
                                                             </span>
                                                             <span>
-                                                                Rollout will be to{' '}
+                                                                Rollout will be to {atMost}
                                                                 <b className="tabular-nums">
                                                                     ~
                                                                     {pluralize(
