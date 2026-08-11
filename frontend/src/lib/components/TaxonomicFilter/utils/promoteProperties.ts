@@ -8,33 +8,35 @@ export const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
 }
 
 /**
- * Generic promotion helper: partitions `items` so any item whose name (as
- * returned by `getName`) appears in `PROMOTED_PROPERTIES_BY_SEARCH_TERM` for
- * the given `searchQuery` floats to the front. Returns `items` unchanged when
- * the query is empty, there are no promoted names for the query, or nothing in
- * the list matches the promoted set.
+ * Generic promotion helper: partitions `items` so the most relevant matches for
+ * `searchQuery` float to the front, in this order:
+ *   1. names mapped from the query in `PROMOTED_PROPERTIES_BY_SEARCH_TERM`
+ *      (e.g. `email` -> `$email`),
+ *   2. names that exactly equal the query, so a short generic term like `id`
+ *      beats substring-only matches such as `organization_id` or `device_id`.
+ * Everything else keeps its order below. Returns `items` unchanged when the
+ * query is empty or nothing floats.
  */
 export function promoteMatchingBy<T>(items: T[], searchQuery: string, getName: (item: T) => string | undefined): T[] {
     const query = searchQuery.toLowerCase().trim()
     if (!query) {
         return items
     }
-    const promotedNames = PROMOTED_PROPERTIES_BY_SEARCH_TERM[query]
-    if (!promotedNames?.length) {
-        return items
-    }
-    const promotedSet = new Set(promotedNames)
+    const promotedSet = new Set(PROMOTED_PROPERTIES_BY_SEARCH_TERM[query] ?? [])
     const promoted: T[] = []
+    const exact: T[] = []
     const rest: T[] = []
     for (const item of items) {
         const name = getName(item)
         if (name && promotedSet.has(name)) {
             promoted.push(item)
+        } else if (name && name.toLowerCase() === query) {
+            exact.push(item)
         } else {
             rest.push(item)
         }
     }
-    return promoted.length > 0 ? [...promoted, ...rest] : items
+    return promoted.length > 0 || exact.length > 0 ? [...promoted, ...exact, ...rest] : items
 }
 
 /**

@@ -23,6 +23,19 @@ describe('promoteMatchingBy', () => {
         }
     )
 
+    it('floats exact key matches above substring-only matches', () => {
+        const idItems = [{ name: 'organization_id' }, { name: 'device_id' }, { name: 'id' }, { name: 'team_id' }]
+        const result = promoteMatchingBy(idItems, 'id', getName)
+        expect(getName(result[0])).toBe('id')
+        expect(result).toHaveLength(idItems.length)
+    })
+
+    it('keeps mapped promotions ahead of exact key matches', () => {
+        const mixed = [{ name: 'url' }, { name: '$current_url' }]
+        const result = promoteMatchingBy(mixed, 'url', getName)
+        expect(result.map(getName)).toEqual(['$current_url', 'url'])
+    })
+
     it('returns items unchanged when the promoted property is absent from the list', () => {
         const withoutUrl = [{ name: '$browser' }, { name: '$os' }]
         expect(promoteMatchingBy(withoutUrl, 'url', getName)).toEqual(withoutUrl)
