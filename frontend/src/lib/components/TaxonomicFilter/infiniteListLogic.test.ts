@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -21,7 +22,7 @@ import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, P
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { clearApiCache, infiniteListLogic } from './infiniteListLogic'
+import { clearApiCache, infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { hasPinnedContext, taxonomicFilterPinnedPropertiesLogic } from './taxonomicFilterPinnedPropertiesLogic'
 
@@ -109,6 +110,49 @@ describe('infiniteListLogic', () => {
             await expectLogic(logicWith({ selectFirstItem: false })).toMatchValues({
                 index: -1,
             })
+        })
+    })
+
+    describe('highlight grace period', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('clears the highlighted row once the grace period elapses after the cursor leaves', () => {
+            logic = logicWith({})
+            logic.actions.setIndex(2)
+            logic.actions.scheduleClearHighlight()
+            expect(logic.values.index).toEqual(2)
+            jest.advanceTimersByTime(1000)
+            expect(logic.values.index).toEqual(NO_ITEM_SELECTED)
+        })
+
+        it('keeps the highlight when the cursor reaches the popover before the grace elapses', () => {
+            logic = logicWith({})
+            logic.actions.setIndex(2)
+            logic.actions.scheduleClearHighlight()
+            logic.actions.cancelClearHighlight()
+            jest.advanceTimersByTime(1000)
+            expect(logic.values.index).toEqual(2)
+        })
+
+        it('cancels a pending grace clear when another row is hovered', () => {
+            logic = logicWith({})
+            logic.actions.setIndex(2)
+            logic.actions.scheduleClearHighlight()
+            logic.actions.setIndex(4)
+            jest.advanceTimersByTime(1000)
+            expect(logic.values.index).toEqual(4)
+        })
+
+        it('clears a highlighted row on navigation so the popover cannot outlive the page', () => {
+            logic = logicWith({})
+            logic.actions.setIndex(2)
+            router.actions.push('/insights')
+            expect(logic.values.index).toEqual(NO_ITEM_SELECTED)
         })
     })
 

@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
-import { Fragment, useEffect, useMemo } from 'react'
+import { Fragment, MouseEventHandler, useEffect, useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInputSelect, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
@@ -709,6 +709,8 @@ interface ControlledDefinitionPopoverContentsProps {
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    onMouseEnter?: MouseEventHandler<HTMLDivElement>
+    onMouseLeave?: MouseEventHandler<HTMLDivElement>
 }
 
 export function ControlledDefinitionPopover({
@@ -717,6 +719,8 @@ export function ControlledDefinitionPopover({
     group,
     highlightedItemElement,
     definitionPopoverRenderer,
+    onMouseEnter,
+    onMouseLeave,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
@@ -749,6 +753,8 @@ export function ControlledDefinitionPopover({
         <Popover
             visible={visible}
             referenceElement={highlightedItemElement}
+            onMouseEnterInside={onMouseEnter}
+            onMouseLeaveInside={onMouseLeave}
             className={cn('click-outside-block hotkey-block', {
                 'definition-popover--data-warehouse-funnel-wide': isDataWarehouseFunnelWidePopover,
             })}

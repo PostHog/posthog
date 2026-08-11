@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import posthog from 'posthog-js'
@@ -481,6 +481,37 @@ describe('TaxonomicFilter', () => {
             })
 
             expectActiveTab('taxonomic-tab-events')
+        })
+    })
+
+    describe('definition popover dismissal', () => {
+        it('dismisses the definition popover shortly after the cursor leaves the row', async () => {
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-1')).toBeInTheDocument()
+            })
+
+            const row = screen.getByTestId('prop-filter-events-1')
+            fireEvent.mouseOver(row)
+
+            await waitFor(() => {
+                expect(document.querySelector('.definition-popover')).toBeInTheDocument()
+            })
+
+            jest.useFakeTimers()
+            try {
+                fireEvent.mouseLeave(row)
+                act(() => {
+                    jest.advanceTimersByTime(1000)
+                })
+            } finally {
+                jest.useRealTimers()
+            }
+
+            await waitFor(() => {
+                expect(document.querySelector('.definition-popover')).not.toBeInTheDocument()
+            })
         })
     })
 

@@ -398,6 +398,7 @@ interface InfiniteListRowProps {
         meta?: SelectItemMeta
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
+    scheduleClearHighlight: () => void
 }
 
 function InfiniteListSkeletonItem({
@@ -460,6 +461,7 @@ export const InfiniteListRow = ({
     expand,
     selectItem,
     setHighlightedItemElement,
+    scheduleClearHighlight,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
@@ -573,8 +575,18 @@ export const InfiniteListRow = ({
             }
             setIndex(rowIndex)
         },
-        onMouseLeave: () =>
-            mouseInteractionsEnabled && !showPopover && !isPinnedToAnotherRow ? setIndex(NO_ITEM_SELECTED) : null,
+        onMouseLeave: () => {
+            if (!mouseInteractionsEnabled || isPinnedToAnotherRow) {
+                return
+            }
+            // With a popover, don't clear the highlight immediately — let the cursor reach the
+            // popover within the grace period. Without one, there's nowhere to travel to, so clear now.
+            if (showPopover) {
+                scheduleClearHighlight()
+            } else {
+                setIndex(NO_ITEM_SELECTED)
+            }
+        },
         style: style,
         ref: isHighlighted
             ? (element) => {
@@ -881,7 +893,15 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         trimmedSearchQuery,
         showSuggestedFiltersEmptyState,
     } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem } = useActions(infiniteListLogic)
+    const {
+        onRowsRendered,
+        setIndex,
+        togglePinnedRow,
+        expand,
+        updateRemoteItem,
+        scheduleClearHighlight,
+        cancelClearHighlight,
+    } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const listRef = useListRef(null)
 
@@ -954,6 +974,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     expand,
                                     selectItem,
                                     setHighlightedItemElement,
+                                    scheduleClearHighlight,
                                 }}
                                 onRowsRendered={(visibleRows, allRows) =>
                                     onRowsRendered({
@@ -985,6 +1006,8 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                         item={selectedItem}
                         group={selectedItemGroup}
                         highlightedItemElement={highlightedItemElement}
+                        onMouseEnter={cancelClearHighlight}
+                        onMouseLeave={scheduleClearHighlight}
                         definitionPopoverRenderer={
                             selectedItemIsQuickFilter
                                 ? ({ item }) => quickFilterPopoverContents(item as QuickFilterItem)
