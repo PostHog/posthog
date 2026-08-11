@@ -111,10 +111,11 @@ export function autoCaptureEventToDescription(
     }
 
     const getVerb = (): string => eventTypeToVerb[event.properties.$event_type] || 'interacted with'
+    const targetElement = event.elements?.[0]
     const describedElement =
-        event.properties.$event_type === 'click'
-            ? (event.elements?.find(({ tag_name }) => tag_name === 'a' || tag_name === 'button') ?? event.elements?.[0])
-            : event.elements?.[0]
+        event.properties.$event_type === 'click' && targetElement?.tag_name === 'svg'
+            ? (event.elements?.find(({ tag_name }) => tag_name === 'a' || tag_name === 'button') ?? targetElement)
+            : targetElement
 
     const getTag = (): string => {
         if (describedElement?.tag_name === 'a') {
@@ -132,6 +133,10 @@ export function autoCaptureEventToDescription(
             return `${shortForm ? '' : 'with text '}"${describedElement.text}"`
         } else if (describedElement?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${describedElement.attributes['attr__aria-label']}"`
+        } else if (describedElement !== targetElement && targetElement?.text) {
+            return `${shortForm ? '' : 'with text '}"${targetElement.text}"`
+        } else if (describedElement !== targetElement && targetElement?.attributes?.['attr__aria-label']) {
+            return `${shortForm ? '' : 'with aria label '}"${targetElement.attributes['attr__aria-label']}"`
         }
         return null
     }

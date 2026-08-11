@@ -221,12 +221,12 @@ describe('events utils', () => {
 
         it.each([
             [
-                'link text',
+                'SVG using link text',
                 [{ tag_name: 'svg' } as ElementType, { tag_name: 'a', text: 'View documentation' } as ElementType],
                 'clicked link with text "View documentation"',
             ],
             [
-                'button aria-label',
+                'SVG using button aria-label',
                 [
                     { tag_name: 'svg' } as ElementType,
                     {
@@ -236,7 +236,29 @@ describe('events utils', () => {
                 ],
                 'clicked button with aria label "Play video"',
             ],
-        ])('uses the containing %s when an SVG is clicked', (_, elements, expected) => {
+            [
+                'labeled SVG inside an unlabeled link',
+                [
+                    {
+                        tag_name: 'svg',
+                        attributes: { 'attr__aria-label': 'Documentation' },
+                    } as ElementType,
+                    { tag_name: 'a' } as ElementType,
+                ],
+                'clicked link with aria label "Documentation"',
+            ],
+            [
+                'labeled image inside an unlabeled button',
+                [
+                    {
+                        tag_name: 'img',
+                        attributes: { 'attr__aria-label': 'Delete' },
+                    } as ElementType,
+                    { tag_name: 'button' } as ElementType,
+                ],
+                'clicked image with aria label "Delete"',
+            ],
+        ])('describes a clicked %s', (_, elements, expected) => {
             expect(
                 autoCaptureEventToDescription({
                     ...baseEvent,
