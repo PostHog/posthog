@@ -47,7 +47,6 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     }
     const isMergeTombstoneTeam = buildIntegerMatcher(options.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST, true)
 
-
     return async function processPersonsStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonsOutput, AsyncOutput>> {
