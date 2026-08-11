@@ -546,6 +546,8 @@ class TestCheckFreeTierModelAccess:
             # Unbilled org on the Code surface: premium blocked, open model allowed
             ("posthog_code", "claude-fable-5", False, False, False),
             ("posthog_code", "@cf/zai-org/glm-5.2", False, False, True),
+            ("posthog_code", "deepseek-ai/deepseek-v4-flash-0731", False, False, True),
+            ("posthog_code", "moonshotai/kimi-k3", False, False, True),
             # The alias routes are the same surface - a URL spelling must not bypass
             ("array", "claude-fable-5", False, False, False),
             ("twig", "gpt-5.5", False, False, False),
