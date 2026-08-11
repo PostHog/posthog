@@ -773,3 +773,80 @@ async fn attach_works_on_a_configured_table_set() {
 
     ctx.cleanup().await.ok();
 }
+
+#[tokio::test]
+async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
+    // A deletion overlapping an attach: the delete saga's destructive
+    // transaction sweeps the person's distinct id rows, then tombstones
+    // the person row, then commits. An attach whose liveness join runs
+    // mid-transaction still reads the live person version, so without a
+    // further guard it inserts a mapping the sweep already missed — a
+    // live distinct id pointing at a tombstoned person, which can never
+    // resolve and never gets cleaned up. The saga commits its mark before
+    // any destructive statement, so an attach that could land in that
+    // window always observes the mark; refusing marked persons closes it.
+    let ctx = TestContext::new().await;
+    let victim = ctx.insert_person_with_distinct_id("marked-victim").await;
+
+    // The saga's claim, committed before the fence and the destructive TX.
+    let op_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, lease_expires_at, request) \
+         VALUES ($1, 'delete', $2, 'marked', now() + interval '1 hour', '{}'::jsonb)",
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("seed op row");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(victim)
+    .execute(&ctx.pool)
+    .await
+    .expect("seed mark row");
+
+    // The destructive transaction, mid-flight: distinct ids swept, person
+    // not yet tombstoned, nothing committed.
+    let mut destroying_tx = ctx.pool.begin().await.expect("begin destroying tx");
+    sqlx::query("UPDATE posthog_persondistinctid SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND person_id = $2")
+        .bind(ctx.team_id as i32)
+        .bind(victim)
+        .execute(&mut *destroying_tx)
+        .await
+        .expect("sweep distinct ids");
+
+    // The overlapping attach must refuse: the person is mark-held.
+    let outcomes = ctx
+        .storage
+        .attach_distinct_ids(ctx.team_id, victim, &["zombie-did".to_string()])
+        .await
+        .expect("attach call succeeds");
+    assert!(
+        outcomes.is_empty(),
+        "attach must not touch a mark-held person, got {outcomes:?}"
+    );
+
+    // The deletion finishes.
+    sqlx::query("UPDATE posthog_person SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND id = $2")
+        .bind(ctx.team_id as i32)
+        .bind(victim)
+        .execute(&mut *destroying_tx)
+        .await
+        .expect("tombstone person");
+    destroying_tx.commit().await.expect("commit deletion");
+
+    // No zombie: nothing maps the distinct id to the dead person.
+    assert_eq!(ctx.distinct_id_state("zombie-did").await, None);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&ctx.pool)
+        .await
+        .expect("cleanup op");
+    ctx.cleanup().await.ok();
+}
