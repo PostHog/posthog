@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import {
     captureInboxQueryChanged,
     captureInboxReportAction,
+    captureInboxReportClosed,
     captureInboxReportsImpressed,
     captureInboxSettingsChanged,
     captureInboxViewed,
@@ -217,6 +218,16 @@ describe('inboxAnalytics', () => {
             success: true,
         })
         expect(JSON.stringify(props)).not.toContain('acme-alerts')
+    })
+
+    it('sends an unload close instantly so the dwell time leaves before the page does', () => {
+        captureInboxReportClosed(
+            { report: makeReport(), timeSpentMs: 4200, closeMethod: 'page_unload' },
+            { send_instantly: true }
+        )
+        const call = (posthog.capture as jest.Mock).mock.calls.find(([name]) => name === INBOX_EVENTS.REPORT_CLOSED)
+        expect(call?.[1]).toMatchObject({ close_method: 'page_unload', time_spent_ms: 4200 })
+        expect(call?.[2]).toEqual({ send_instantly: true })
     })
 
     it('records a connected source with first-connection and wizard flags', () => {
