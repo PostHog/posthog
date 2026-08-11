@@ -1196,6 +1196,18 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=False)
+    def test_admin_usage_access_allowed_when_owner_only_billing_is_off(self, mock_feature_enabled, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+        mock_feature_enabled.assert_called_once()
+        self.assertEqual(mock_feature_enabled.call_args.args[0], "owner-only-billing")
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_allows_owner_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
