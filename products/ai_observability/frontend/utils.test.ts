@@ -2160,8 +2160,8 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
         })
 
         it.each([
-            ['the semconv response key', { response: 'Sunny, 25°C' }],
-            ['the pre-rename result key', { result: 'Sunny, 25°C' }],
+            ['the schema response key', { response: 'Sunny, 25°C' }],
+            ['the spec example result key', { result: 'Sunny, 25°C' }],
             ['both keys, preferring response', { response: 'Sunny, 25°C', result: 'stale' }],
         ])('normalizes tool_call_response parts into tool messages from %s', (_label, resultFields) => {
             const message = {

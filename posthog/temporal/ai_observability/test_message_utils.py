@@ -368,8 +368,8 @@ class TestExtractTextFromMessages:
     @pytest.mark.parametrize(
         "response_part",
         [
-            pytest.param({"type": "tool_call_response", "id": "call_1", "response": "-10C"}, id="semconv_response_key"),
-            pytest.param({"type": "tool_call_response", "id": "call_1", "result": "-10C"}, id="pre_rename_result_key"),
+            pytest.param({"type": "tool_call_response", "id": "call_1", "response": "-10C"}, id="schema_response_key"),
+            pytest.param({"type": "tool_call_response", "id": "call_1", "result": "-10C"}, id="example_result_key"),
             pytest.param(
                 {"type": "tool_call_response", "id": "call_1", "response": "-10C", "result": "stale"},
                 id="response_wins_over_result",

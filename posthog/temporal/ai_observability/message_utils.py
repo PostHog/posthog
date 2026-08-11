@@ -64,8 +64,9 @@ def _flatten_parts_message(msg: dict) -> list[dict]:
     - `{"type": "tool_call", "id", "name", "arguments"}` parts become `tool_calls`
     - each `{"type": "tool_call_response", "id", "response"}` part becomes its own
       follow-up `role: "tool"` message so the existing `tool[<id>]:` correlation applies.
-      The GenAI semconv renamed this field from `result` to `response`, and producers on
-      either version are in the wild, so both keys are read with `response` winning
+      `response` is the field the GenAI semconv schema requires. The spec's own example
+      showed `result` for its first ten months, so producers that followed the example
+      are in the wild too, and both keys are read with `response` winning
     - `reasoning` and other non-text parts are dropped, matching the trace view
 
     Like the recipe, this only applies to dicts with a string `role` alongside the
