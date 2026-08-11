@@ -43,18 +43,22 @@ export async function resolveProjectTreeRefs(refs: ProjectTreeRef[]): Promise<Fi
 
     // Keyed on the requested type, not the row's own: a prefix query returns rows whose type is the
     // full internal one, and two types can share a ref value.
+    // Batches run together, so wall-clock stays one round trip however large the selection is.
+    const batches = [...byType].flatMap(([type, typeRefs]) =>
+        chunk(typeRefs, BATCH_SIZE).map((batch) => ({ type, batch }))
+    )
+    const results = await Promise.all(batches.map(({ type, batch }) => resolveBatch(type, batch)))
+
     const found = new Map<string, FileSystemEntry>()
-    for (const [type, typeRefs] of byType) {
-        for (const batch of chunk(typeRefs, BATCH_SIZE)) {
-            for (const entry of await resolveBatch(type, batch)) {
-                const key = `${type}::${entry.ref}`
-                // A shortcut shares the ref of the row it points at; moving it would leave the object where it was.
-                if (entry.ref && !entry.shortcut && !found.has(key)) {
-                    found.set(key, entry)
-                }
+    results.forEach((entries, index) => {
+        for (const entry of entries) {
+            const key = `${batches[index].type}::${entry.ref}`
+            // A shortcut shares the ref of the row it points at; moving it would leave the object where it was.
+            if (entry.ref && !entry.shortcut && !found.has(key)) {
+                found.set(key, entry)
             }
         }
-    }
+    })
 
     return wanted
         .map(({ type, ref }) => found.get(`${type}::${ref}`))
