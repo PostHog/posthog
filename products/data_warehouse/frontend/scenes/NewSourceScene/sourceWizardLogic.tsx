@@ -994,6 +994,7 @@ export interface sourceWizardLogicActions {
             | 'Formbricks'
             | 'Fortnox'
             | 'Fourthwall'
+            | 'Framer'
             | 'Fred'
             | 'FreeAgent'
             | 'Freightview'
@@ -1137,6 +1138,7 @@ export interface sourceWizardLogicActions {
             | 'Imagga'
             | 'ImfData'
             | 'Impact'
+            | 'ImpactPartner'
             | 'Imperva'
             | 'IncidentIo'
             | 'Infisical'
@@ -1444,7 +1446,8 @@ export interface sourceWizardLogicActions {
             | 'Piwik'
             | 'Plaid'
             | 'Plain'
-            | 'PlanetScale'
+            | 'PlanetScaleMySQL'
+            | 'PlanetScalePostgres'
             | 'Planhat'
             | 'PlanningCenter'
             | 'PlatformSh'
@@ -3921,7 +3924,7 @@ export const getErrorsForFields = (
 
             if (!hasOptionFields) {
                 if (field.required && !valueObj[field.name]) {
-                    errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
+                    errorsObj[field.name] = `${field.label} is required`
                 }
             } else {
                 errorsObj[field.name] = {}
@@ -3949,7 +3952,7 @@ export const getErrorsForFields = (
         if ('required' in field && field.required && valueMissing) {
             errorsObj[field.name] = Array.isArray(fieldValue)
                 ? `Please enter at least one of your ${field.label.toLowerCase()}`
-                : `Please enter a ${field.label.toLowerCase()}`
+                : `${field.label} is required`
         }
     }
 
