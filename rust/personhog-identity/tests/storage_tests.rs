@@ -6,7 +6,7 @@ use chrono::{TimeZone, Utc};
 use common::TestContext;
 
 use personhog_common::persons::person_uuid;
-use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
+use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
@@ -671,6 +671,105 @@ async fn resolve_returns_only_existing_keys() {
 
     assert_eq!(resolved.len(), 1);
     assert_eq!(resolved[&(ctx.team_id, "known".to_string())].id, person_id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn attach_covers_fresh_revived_and_live_mappings_per_row() {
+    let ctx = TestContext::new().await;
+    let owner = ctx.insert_person_with_distinct_id("attach-owner").await;
+    let target = ctx.insert_person_with_distinct_id("attach-target").await;
+    ctx.insert_tombstoned_distinct_id("attach-tomb", owner, 5)
+        .await;
+
+    let outcomes = ctx
+        .storage
+        .attach_distinct_ids(
+            ctx.team_id,
+            target,
+            &[
+                "attach-fresh".to_string(),
+                "attach-tomb".to_string(),
+                "attach-owner".to_string(),
+            ],
+        )
+        .await
+        .expect("attach should succeed");
+
+    assert_eq!(
+        outcomes.get("attach-fresh"),
+        Some(&AttachOutcome::Attached { version: 1 })
+    );
+    assert_eq!(
+        outcomes.get("attach-tomb"),
+        Some(&AttachOutcome::Attached { version: 6 })
+    );
+    assert_eq!(
+        outcomes.get("attach-owner"),
+        Some(&AttachOutcome::AlreadyMapped { person_id: owner })
+    );
+    assert_eq!(
+        ctx.distinct_id_state("attach-fresh").await,
+        Some((target, false, Some(1)))
+    );
+    assert_eq!(
+        ctx.distinct_id_state("attach-tomb").await,
+        Some((target, false, Some(6)))
+    );
+    assert_eq!(
+        ctx.distinct_id_state("attach-owner").await,
+        Some((owner, false, Some(0)))
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn attach_to_a_dead_person_attaches_nothing() {
+    let ctx = TestContext::new().await;
+    let corpse = ctx.insert_tombstoned_person(uuid::Uuid::new_v4(), 3).await;
+
+    let outcomes = ctx
+        .storage
+        .attach_distinct_ids(ctx.team_id, corpse, &["attach-corpse".to_string()])
+        .await
+        .expect("attach should succeed");
+
+    assert!(outcomes.is_empty());
+    assert_eq!(ctx.distinct_id_state("attach-corpse").await, None);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn attach_works_on_a_configured_table_set() {
+    // Runs attach against the tmp namespace — a leftover hardcoded posthog_
+    // table in its interpolated queries would pass silently on the default
+    // set. Asserted through table-aware storage reads, not the raw-SQL
+    // helpers above (those assume the default set).
+    let ctx = TestContext::new_with_tables(common::tmp_tables()).await;
+    let target = ctx
+        .insert_person_with_distinct_id("tmp-attach-target")
+        .await;
+
+    let outcomes = ctx
+        .storage
+        .attach_distinct_ids(ctx.team_id, target, &["tmp-attach-fresh".to_string()])
+        .await
+        .expect("attach should succeed");
+
+    assert_eq!(
+        outcomes.get("tmp-attach-fresh"),
+        Some(&AttachOutcome::Attached { version: 1 })
+    );
+    let key = (ctx.team_id, "tmp-attach-fresh".to_string());
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(std::slice::from_ref(&key))
+        .await
+        .expect("resolve should succeed");
+    assert_eq!(resolved.get(&key).map(|p| p.id), Some(target));
 
     ctx.cleanup().await.ok();
 }
