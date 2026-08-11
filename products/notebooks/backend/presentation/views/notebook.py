@@ -558,10 +558,6 @@ def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
     return response_payload
 
 
-# Detail actions that resolve a notebook only to authorize the caller and read its identity
-# (team_id / short_id), never its document. They sit on the collab hot path (one presence POST per
-# caret move, one lookup per opened SSE stream), so loading content/text_content for them holds a
-# whole document in memory per in-flight request for fields the handler never reads.
 IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "activity"})
 
 
