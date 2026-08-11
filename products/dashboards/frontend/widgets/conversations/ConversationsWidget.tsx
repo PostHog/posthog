@@ -91,19 +91,22 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
             to={urls.supportTicketDetail(ticket.ticket_number)}
             target="_blank"
             subtle
-            className="flex items-center gap-3 border-b border-primary px-3 py-2 text-current hover:bg-fill-highlight-100 hover:text-current"
+            className="flex items-start gap-3 border-b border-primary px-3 py-2.5 text-current hover:bg-fill-highlight-100 hover:text-current"
         >
             <Tooltip title={channelLabel}>
-                <span className="size-4 shrink-0 text-muted [&>svg]:size-4">{channelIcon[ticket.channel_source]}</span>
+                <span className="mt-1 size-4 shrink-0 text-muted [&>svg]:size-4">
+                    {channelIcon[ticket.channel_source]}
+                </span>
             </Tooltip>
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                    <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
+            <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex min-w-0 items-center gap-2">
                     <span className="truncate font-semibold" title={requesterName(ticket)}>
                         {requesterName(ticket)}
                     </span>
+                    <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
+                    <TZLabel time={ticket.updated_at} className="ml-auto shrink-0 text-xs text-muted" />
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted">
+                <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
                     <span
                         className={cn('truncate', ticket.unread_team_count > 0 && 'font-medium text-primary')}
                         title={ticketTitle(ticket)}
@@ -113,18 +116,19 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
                     {ticket.unread_team_count > 0 ? (
                         <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
                     ) : null}
-                    {assignee ? <span className="truncate">{assignee}</span> : null}
-                    <TZLabel time={ticket.updated_at} />
                 </div>
-            </div>
-            <div className="flex shrink-0 flex-col items-end gap-1">
-                <div className="flex items-center gap-1">
-                    {ticket.priority ? (
-                        <LemonTag type={priorityTagType(ticket.priority)}>{ticket.priority}</LemonTag>
-                    ) : null}
-                    <LemonTag type={statusTagType(ticket.status)}>{ticket.status.replace('_', ' ')}</LemonTag>
+                <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+                    {assignee ? <span className="truncate">Assigned to {assignee}</span> : <span>Unassigned</span>}
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                        {ticket.priority ? (
+                            <LemonTag type={priorityTagType(ticket.priority)}>{ticket.priority}</LemonTag>
+                        ) : null}
+                        <LemonTag type={statusTagType(ticket.status)}>{ticket.status.replace('_', ' ')}</LemonTag>
+                        {ticket.sla_due_at ? (
+                            <SlaDisplay slaDueAt={ticket.sla_due_at} className="ml-1 text-xs" />
+                        ) : null}
+                    </div>
                 </div>
-                {ticket.sla_due_at ? <SlaDisplay slaDueAt={ticket.sla_due_at} className="text-xs" /> : null}
             </div>
         </Link>
     )
