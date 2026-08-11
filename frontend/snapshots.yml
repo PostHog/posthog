@@ -5987,9 +5987,9 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.f92ae3b1acfa8fc4f98babb18e7c944e30b5749400dd382d43fa702b1bc0727b.v7qRnZU8furIdj048Ap7rBb0QbVoNS88_de-FqorlF8
     scenes-app-experiments--experiment-with-funnel-metric--dark:
-        hash: v1.k794b7964.96b1395012157c8db6f8b7c202fde3bc61fe5eac1ffc69e94e6aa7555d7aa761.Li7ufJd8K-fsREg0jONxzGhDJuDnuWcatmvY5cvdJRI
+        hash: v1.k794b7964.f33abe58d4dc3c42ee0aa09fb9cec2a8d0b4e17a0642164ed913c6b4b87691a4.iDS3IMV59UC7uXmUOJUd8j-NXLUiLeN8j4D6YndOszg
     scenes-app-experiments--experiment-with-funnel-metric--light:
-        hash: v1.k794b7964.251dc04d7466461679393d7cad275a9afb66b3d3b562c86078e25db37349150e.laYWvinsU-fNhfqh4ZAewzsgi6u563HDsMVraFRbXMw
+        hash: v1.k794b7964.2879d4616c2be606f1ecd3fa9725dab0afa286eb1c2c3fa5641f2d80312acb12.Pq3YUGkLgF7JQpGYIx2ESbALZux5B7X_IfH764vLVK8
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
         hash: v1.k794b7964.6503cdfd33ae5f9d525d14dc8d43b047e8469beca7e5e489534347904efe1dec.2CtGz-wQvIwr_SQDthwlGJI5bVcJ7bFpetJricY-Lps
     scenes-app-experiments--experiment-with-legacy-funnels-query--light:
@@ -6002,6 +6002,10 @@ snapshots:
         hash: v1.k794b7964.3e78a41658e9e1b76cb2428cbb32582077b1b43f820744966285c0862ff7f556.0t5TdyC6dx2nKUFHy-DqEyw4L-07MqrloiHmOD5bo4Y
     scenes-app-experiments--experiment-with-mean-metric--light:
         hash: v1.k794b7964.2bd044c1fb951cc5280c8befc03b7534774e703e92aa268f228ab20bd2522411.AFij815dd9946fOpsJgW7T2G_FjYM3Njr7LJ87amVrQ
+    scenes-app-experiments--experiment-with-multi-step-funnel-metric--dark:
+        hash: v1.k794b7964.feb19120fcb35db2a44666c4e20b7728f8b9bb5d0c1bc38d41b7698f5722c181.Hw40iUldn70Z33rYE-zitkjrvytX-vhUGY03V3ycXNk
+    scenes-app-experiments--experiment-with-multi-step-funnel-metric--light:
+        hash: v1.k794b7964.9d7dfffb7317f37caea4ad6a4492ab88a74944025164c8985ae09d4598998dce.LTVbWdIGOWozyPbgjbbSanV3cqEaLuHls5Da2LEvzRw
     scenes-app-experiments--experiment-with-multiple-metrics--dark:
         hash: v1.k794b7964.c2b2dfac0dcf77fefa7bfcd55ad0022ee6a8f461f3c03d74448bab270ba7dd7b.DgmRBGi8wUsgVlPWENMllouOKXKtCawcdVWsU6Srd5U
     scenes-app-experiments--experiment-with-multiple-metrics--light:
