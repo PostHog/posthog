@@ -270,6 +270,12 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         setFocused(false)
                         onBlur?.(event)
                     }}
+                    onWheel={(event) => {
+                        // Prevent native number inputs from changing value on scroll
+                        if (type === 'number') {
+                            event.currentTarget.blur()
+                        }
+                    }}
                     onKeyDown={(event) => {
                         if (stopPropagation) {
                             event.stopPropagation()
