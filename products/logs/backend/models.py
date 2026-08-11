@@ -460,27 +460,42 @@ class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         return f"{self.name} (team={self.team_id})"
 
 
+# Grid constants for the logs_volume_buckets ClickHouse rollup and its commit records.
+# Single source of truth for the writer, the detector, this model, and the retention
+# sweep. The rollup's 42-day TTL in posthog/clickhouse/logs/logs_volume_buckets.py bakes
+# READ_HORIZON_DAYS into DDL — changing the horizon needs a ClickHouse migration too.
+LOGS_VOLUME_BUCKET_SECONDS = 300
+LOGS_VOLUME_READ_HORIZON_DAYS = 42
+# Commit rows must outlive the data they vouch for, so the sweep trails the horizon.
+LOGS_VOLUME_SWEEP_AFTER_DAYS = LOGS_VOLUME_READ_HORIZON_DAYS + 3
+
+
 class LogsVolumeBucketCompletion(UUIDModel):
-    """Commit record for the logs_volume_buckets ClickHouse rollup: one row per
-    (team, bucket_start, generation) insert attempt. A set `committed_at` means every
-    required partition INSERT succeeded and detection may read that generation; null
-    means in-flight or abandoned. Abandoned attempts are only marked here: their
-    uncommitted ClickHouse rows are invisible to readers and age out with the table TTL.
-    A bucket's committed generation is the max committed `generation` for it, so
-    commits only ever advance the pointer — a late-committing older generation
-    (backfill under tick overlap) never becomes it."""
+    """Commit register for the logs_volume_buckets ClickHouse rollup: one row per
+    (team, UTC day), holding the committed generation for each bucket of that day as
+    an array slot (index i covers [date + i*bucket_seconds, +bucket_seconds); NULL =
+    never committed). The commit unit is (team, bucket) — a slot vouches for every
+    series the team has in that bucket. Readers pair-filter ClickHouse rows to these
+    generations, so an uncommitted or superseded generation is invisible and ages out
+    with the rollup's TTL; abandoned attempts leave no record here at all.
+
+    Slots only ever advance (commits apply GREATEST(slot, generation) under the row
+    lock), mirroring the cohort version pattern: a late-committing older generation
+    never becomes the visible one. The array length is 86400 / bucket_seconds — a
+    cadence change starts a new day at a new length, and readers take each row's own
+    grid from bucket_seconds rather than assuming 288."""
 
     # db_constraint=False keeps the CreateModel migration lock-free on posthog_team
     # (enforcement stays at the ORM level).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    # Start of the fixed 5-minute UTC wall-clock window this row commits (never sliding).
-    bucket_start = models.DateTimeField()
-    # Unix-millis start of the insert attempt that wrote the ClickHouse rows, allocated
-    # here before the INSERT is issued. A generation that has had any INSERT issued is
-    # never inserted into again — retries allocate a fresh one.
-    generation = models.PositiveBigIntegerField()
+    # UTC day of the fixed bucket grid this row commits (never a local calendar day).
+    date = models.DateField()
+    bucket_seconds = models.PositiveSmallIntegerField(default=LOGS_VOLUME_BUCKET_SECONDS)
+    # Kept unindexed on purpose: slot commits then update the tuple HOT, page-locally,
+    # with no index churn despite ~288 updates per row per day.
+    completed_generations = ArrayField(models.PositiveBigIntegerField(null=True))
     created_at = models.DateTimeField(auto_now_add=True)
-    committed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     # Environment-scoped, not TeamScopedRootMixin: team_id here must equal the ClickHouse
     # rollup's team_id (the ingesting environment's team). The root mixin's canonical-team
@@ -494,10 +509,10 @@ class LogsVolumeBucketCompletion(UUIDModel):
         db_table = "logs_logsvolumebucketcompletion"
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "bucket_start", "generation"],
-                name="logs_volume_completion_pair_uniq",
+                fields=["team", "date"],
+                name="logs_volume_completion_day_uniq",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"logs_volume_buckets ({self.bucket_start}, {self.generation}) team={self.team_id}"
+        return f"logs_volume_buckets completions {self.date} team={self.team_id}"
