@@ -223,6 +223,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     }
     if data.idempotency_key:
         event, created = NotificationEvent.objects.get_or_create(
+            team_id=data.team_id,
             idempotency_key=data.idempotency_key,
             defaults=event_data,
         )
