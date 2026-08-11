@@ -14,6 +14,11 @@ export function scoreRangeLabel(min: number | null, max: number | null): string 
     return 'Score'
 }
 
+/** LemonInput type="number" reports an empty field as NaN, so treat anything non-finite as unset. */
+export function toScoreBound(raw: number | undefined): number | null {
+    return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
+}
+
 /**
  * Bounds filter for a scorer's numeric result. Two open-ended inputs rather than an operator
  * dropdown, because that covers "at least", "at most", and a range without a mode to pick first.
@@ -32,7 +37,6 @@ export function ScoreRangeFilterPill({
     scaleMax?: number
     onChange: (min: number | null, max: number | null) => void
 }): JSX.Element {
-    const toValue = (raw: number | undefined): number | null => (typeof raw === 'number' ? raw : null)
     return (
         <LemonButtonWithDropdown
             type="secondary"
@@ -51,7 +55,7 @@ export function ScoreRangeFilterPill({
                                 max={scaleMax}
                                 placeholder={scaleMin !== undefined ? String(scaleMin) : undefined}
                                 value={min ?? undefined}
-                                onChange={(value) => onChange(toValue(value), max)}
+                                onChange={(value) => onChange(toScoreBound(value), max)}
                                 className="flex-1"
                             />
                         </div>
@@ -64,7 +68,7 @@ export function ScoreRangeFilterPill({
                                 max={scaleMax}
                                 placeholder={scaleMax !== undefined ? String(scaleMax) : undefined}
                                 value={max ?? undefined}
-                                onChange={(value) => onChange(min, toValue(value))}
+                                onChange={(value) => onChange(min, toScoreBound(value))}
                                 className="flex-1"
                             />
                         </div>
