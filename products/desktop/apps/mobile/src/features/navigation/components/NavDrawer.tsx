@@ -19,8 +19,6 @@ import {
   useState,
 } from "react";
 import {
-  Animated,
-  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -374,65 +372,40 @@ export function NavDrawer() {
   const drawerTop = isConnected ? 0 : insets.top + OFFLINE_BANNER_HEIGHT;
   const drawerPaddingTop = isConnected ? insets.top + 12 : 12;
 
-  // Core RN Animated (JS-driven), deliberately not Reanimated: on some dev
-  // builds the worklets runtime silently fails to initialize, and every
-  // Reanimated style no-ops — which left this drawer permanently translated
-  // off-screen while its state said "open". The JS driver has no such
-  // dependency and animating opacity/transform stays on the native driver.
-  const progress = useRef(new Animated.Value(0)).current;
-
+  // No animation at all — deliberately. Two animation systems in a row
+  // (Reanimated worklets, then core Animated) have produced an invisible
+  // drawer on the iPad dev build while reporting success. Static rendering
+  // cannot fail that way: open renders at final position, closed renders
+  // nothing. Reinstate a slide only after the static form is verified on
+  // the affected device.
   useEffect(() => {
-    progress.setValue(useNavDrawerStore.getState().isOpen ? 1 : 0);
     return useNavDrawerStore.subscribe((state, prev) => {
-      if (state.isOpen === prev.isOpen) return;
-      log.debug("drawer state change", { isOpen: state.isOpen });
-      Animated.timing(progress, {
-        toValue: state.isOpen ? 1 : 0,
-        duration: state.isOpen ? OPEN_DURATION : CLOSE_DURATION,
-        easing: state.isOpen
-          ? Easing.out(Easing.cubic)
-          : Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
+      if (state.isOpen !== prev.isOpen) {
+        log.debug("drawer state change", { isOpen: state.isOpen });
+      }
     });
-  }, [progress]);
+  }, []);
 
-  const drawerStyle = {
-    transform: [
-      {
-        translateX: progress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [-drawerWidth, 0],
-        }),
-      },
-    ],
-  };
-
-  const backdropStyle = { opacity: progress };
+  if (!isOpen) return null;
 
   return (
-    <View
-      pointerEvents={isOpen ? "auto" : "none"}
-      style={StyleSheet.absoluteFillObject}
-    >
-      <Animated.View
-        pointerEvents={isOpen ? "auto" : "none"}
+    <View style={StyleSheet.absoluteFillObject}>
+      <View
         style={[
           StyleSheet.absoluteFillObject,
           { backgroundColor: "rgba(0,0,0,0.4)" },
-          backdropStyle,
         ]}
       >
         {/* Touch-down close so the dismiss starts the moment the finger lands. */}
         <Pressable className="flex-1" onPressIn={close} />
-      </Animated.View>
+      </View>
 
-      <Animated.View
+      <View
         className="absolute bottom-0 left-0 border-gray-6 border-r bg-gray-2"
-        style={[{ top: drawerTop, width: drawerWidth }, drawerStyle]}
+        style={{ top: drawerTop, width: drawerWidth }}
       >
         <NavDrawerContent paddingTop={drawerPaddingTop} />
-      </Animated.View>
+      </View>
     </View>
   );
 }
