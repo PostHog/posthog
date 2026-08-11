@@ -46,7 +46,7 @@ const canvasBuildsRetrieve = (): ToolBase<typeof CanvasBuildsRetrieveSchema, Sch
 
 const CanvasCreateSchema = CanvasesCreateBody.extend({
     channel_id: CanvasesCreateBody.shape['channel_id'].describe(
-        'Id of the channel to create the canvas in (resolve it with channel-list).'
+        "Id of the channel to create the canvas in — the channel the task was created in, from the task's context. Use channel-list only to resolve a channel the user named; never pick a channel from the listing yourself (the personal #me channel is not a default)."
     ),
 })
 

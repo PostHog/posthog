@@ -44,7 +44,10 @@ tools:
             intended target — list them with canvas-list first.
         param_overrides:
             channel_id:
-                description: Id of the channel to create the canvas in (resolve it with channel-list).
+                description: >-
+                    Id of the channel to create the canvas in — the channel the task was created in, from the task's
+                    context. Use channel-list only to resolve a channel the user named; never pick a channel from the
+                    listing yourself (the personal #me channel is not a default).
     canvas-draft-create:
         operation: canvases_draft_create
         enabled: true
@@ -58,8 +61,9 @@ tools:
         description: >
             Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is
             validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so
-            viewers keep seeing the current version. Use this instead of canvas-publish-create when a change should be
-            reviewed before it goes live. Returns the draft's `version_id`, its queued build, and `capability_widening`
+            viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT
+            way to save a change — the user previews and promotes it; use canvas-publish-create only for a first
+            version or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued build, and `capability_widening`
             — how the draft's declared capabilities grow the live version's (insights, capture events, inline queries,
             network origins) — so added access is visible before shipping. Poll canvas-builds-retrieve until the draft's
             build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`, then
@@ -100,7 +104,9 @@ tools:
             operation sets a file's complete content, or deletes it when `content` is null.
             `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published
             canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again.
-            The edited project is validated first; error diagnostics reject the whole edit atomically.
+            The edited project is validated first; error diagnostics reject the whole edit atomically. Edits go live
+            like a publish — for a canvas with a live version, default to staging the complete project as a draft with
+            canvas-draft-create instead, unless the user asked for an immediate live change.
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
@@ -151,7 +157,9 @@ tools:
             idempotent: false
         title: Publish canvas source project
         description: >
-            Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. The
+            Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build.
+            Publishing goes live immediately: use it for a canvas's first version, or when the user explicitly asked to
+            make a change live — otherwise stage the change with canvas-draft-create for the user to promote. The
             project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass
             `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
             version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
