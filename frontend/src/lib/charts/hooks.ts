@@ -1,33 +1,12 @@
-import { useValues } from 'kea'
 import { type DependencyList, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { QUILL_CHART_CHROME } from '@posthog/quill-charts'
 import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { themeLogic } from 'lib/logic/themeLogic'
 
 import { buildTheme } from './utils/theme'
-
-const CHART_CONFIG_DEFAULTS = {
-    curve: 'monotone',
-    showAxisLines: true,
-    showTickMarks: true,
-    showCrosshair: true,
-    showGrid: true,
-    barCornerRadius: 4,
-    tooltip: { placement: 'cursor' },
-} as const
-
-function chartThemeDefaults(isDarkModeOn: boolean): Partial<ChartTheme> {
-    return {
-        gridColor: isDarkModeOn ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-        gridDashPattern: [3, 3],
-        axisLineColor: isDarkModeOn ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)',
-        crosshairColor: isDarkModeOn ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
-        crosshairDashPattern: [3, 3],
-    }
-}
 
 /** `buildTheme()` reads CSS variables, so it can't be keyed on `isDarkModeOn`: `useThemedHtml` applies
  *  the theme by writing `document.body[theme]` from an effect, which runs after the render that
@@ -58,14 +37,11 @@ function useCssVarTheme(): ChartTheme {
 }
 
 /** Theme for app quill charts. Pass a stable (memoized or module-level) `overrides` object — a fresh
- *  object every render defeats the memo. */
+ *  object every render defeats the memo. The chrome (dashed grid, axis-line color, crosshair) comes
+ *  with the css-var theme, so charts reading it straight from the library look the same as these. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
-    const { isDarkModeOn } = useValues(themeLogic)
     const cssVarTheme = useCssVarTheme()
-    return useMemo(
-        () => ({ ...cssVarTheme, ...chartThemeDefaults(isDarkModeOn), ...overrides }),
-        [cssVarTheme, isDarkModeOn, overrides]
-    )
+    return useMemo(() => ({ ...cssVarTheme, ...overrides }), [cssVarTheme, overrides])
 }
 
 /** The single rollout gate for chart drag-to-zoom, applied inside `useDateRangeZoom` so every
@@ -117,7 +93,7 @@ export function useChartConfig<T extends object>(factory: () => T | undefined, d
         }
         const defined = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))
         // Nested, so a chart that sets any tooltip field would otherwise replace the whole default.
-        const tooltip = { ...CHART_CONFIG_DEFAULTS.tooltip, ...defined.tooltip }
-        return { ...CHART_CONFIG_DEFAULTS, ...defined, tooltip } as T
+        const tooltip = { ...QUILL_CHART_CHROME.tooltip, ...defined.tooltip }
+        return { ...QUILL_CHART_CHROME, ...defined, tooltip } as T
     }, deps)
 }

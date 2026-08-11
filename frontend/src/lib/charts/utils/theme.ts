@@ -1,3 +1,5 @@
+import { chartChromeFromCssVars } from '@posthog/quill-charts'
+
 import { getGraphColors, getSeriesColorPalette } from 'lib/colors'
 
 import type { ChartTheme } from '../types'
@@ -6,12 +8,13 @@ export function buildTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const graphColors = getGraphColors()
 
     const base: ChartTheme = {
+        // Grid/axis-line/crosshair styling comes from the library, so a chart on `useChartTheme`
+        // here and one reading the library's own theme render the same chrome.
+        ...chartChromeFromCssVars(),
         colors: getSeriesColorPalette(),
         backgroundColor:
             getComputedStyle(document.body).getPropertyValue('--color-bg-surface-primary').trim() || '#ffffff',
         axisColor: graphColors.axisLabel ?? undefined,
-        gridColor: graphColors.axisLine ?? undefined,
-        crosshairColor: graphColors.crosshair ?? undefined,
         tooltipBackground: graphColors.tooltipBackground ?? undefined,
         tooltipColor: graphColors.tooltipTitle ?? undefined,
         tooltipZIndex: 'var(--z-chart-tooltip)',

@@ -1,6 +1,6 @@
 import { dataColorPalette } from '@posthog/quill-tokens'
 
-import { DEFAULT_CHART_COLORS, themeFromCssVars } from './theme'
+import { chartChromeFromCssVars, DEFAULT_CHART_COLORS, themeFromCssVars } from './theme'
 
 describe('chart theme', () => {
     afterEach(() => {
@@ -35,8 +35,40 @@ describe('chart theme', () => {
 
         expect(theme.colors).toEqual(['#111111', '#222222'])
         expect(theme.axisColor).toBe('#aaaaaa')
+        // No ink color on this root, so the grid falls back to the graph token.
         expect(theme.gridColor).toBe('#bbbbbb')
         expect(theme.backgroundColor).toBe('#f0f0f0')
+    })
+
+    describe('chrome', () => {
+        // The grid, the axis line and the crosshair are three different weights of the same ink.
+        // Collapsing any two of them — or dropping `axisLineColor`, which no token supplies — makes
+        // the axis indistinguishable from the grid it frames.
+        it('derives three distinct ink shares from the foreground color', () => {
+            const root = rootWithVars({ '--foreground': 'rgb(0, 0, 0)' })
+
+            const chrome = chartChromeFromCssVars({ root })
+
+            expect(chrome.gridColor).toBe('color-mix(in oklab, rgb(0, 0, 0) 6%, transparent)')
+            expect(chrome.axisLineColor).toBe('color-mix(in oklab, rgb(0, 0, 0) 35%, transparent)')
+            expect(chrome.crosshairColor).toBe('color-mix(in oklab, rgb(0, 0, 0) 22%, transparent)')
+        })
+
+        it('dashes the grid and the crosshair even with no ink color to mix', () => {
+            // A host with no tokens loaded still gets the dashes: they are mode-independent, so
+            // there is nothing to resolve and no reason to fall back.
+            const chrome = chartChromeFromCssVars({ root: rootWithVars({}) })
+
+            expect(chrome.gridDashPattern).toEqual([3, 3])
+            expect(chrome.crosshairDashPattern).toEqual([3, 3])
+        })
+
+        it('ships with the full theme, so a host reading it needs no chrome of its own', () => {
+            const theme = themeFromCssVars({ root: rootWithVars({ '--foreground': 'rgb(0, 0, 0)' }) })
+
+            expect(theme.axisLineColor).toBe('color-mix(in oklab, rgb(0, 0, 0) 35%, transparent)')
+            expect(theme.gridDashPattern).toEqual([3, 3])
+        })
     })
 
     it.each<{ name: string; vars: Record<string, string>; expected: string }>([

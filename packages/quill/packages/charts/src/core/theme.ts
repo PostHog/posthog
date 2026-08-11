@@ -31,6 +31,26 @@ export const DEFAULT_CHART_COLORS: readonly string[] = [
     '#30d5c8',
 ]
 
+/** Quill's chart chrome, as a share of the host's ink color.
+ *
+ *  The graph tokens cover the three chrome *colors* but carry no dash pattern, and nothing
+ *  distinguishes the faint interior grid from the axis line that frames it — `--color-graph-axis-line`
+ *  is one value doing both jobs. So the proportions live here, mixed against `--foreground` at read
+ *  time: they flip with light/dark for free, and every host inherits one look instead of restating it.
+ *  Promoting them to real tokens is a design call, not a mechanical one. */
+const CHROME_INK_SHARE = { grid: 6, axisLine: 35, crosshair: 22 } as const
+
+/** Dash pattern for the interior grid lines and the hover crosshair. Mode-independent, so unlike
+ *  the colors above there is nothing to resolve — plot-edge frame strokes stay solid regardless. */
+const CHROME_DASH: readonly number[] = [3, 3]
+
+/** `color-mix` rather than a JS blend: the mixed inputs are `oklch()` from the token set, which
+ *  `d3.color` can't parse, and these three land on `ctx.strokeStyle` where the browser resolves
+ *  them. Returns undefined without an ink color so the caller can fall back to a token. */
+function inkShare(foreground: string | undefined, percent: number): string | undefined {
+    return foreground ? `color-mix(in oklab, ${foreground} ${percent}%, transparent)` : undefined
+}
+
 export interface ThemeFromCssOptions {
     /**
      * Element whose computed styles are read. Token vars defined on `:root`
@@ -45,6 +65,31 @@ export interface ThemeFromCssOptions {
 
 function readCssVar(style: CSSStyleDeclaration, name: string): string | undefined {
     return style.getPropertyValue(name).trim() || undefined
+}
+
+/**
+ * Quill's chart chrome as a partial theme: the grid and axis-line colors, the crosshair, and their
+ * dash patterns. {@link themeFromCssVars} already includes it — reach for this directly only when a
+ * host reads the palette through its own token reader and wants the same chrome on top.
+ *
+ * Safe without a DOM: returns the dash patterns and leaves the colors to the caller's fallbacks.
+ */
+export function chartChromeFromCssVars(options: ThemeFromCssOptions = {}): Partial<ChartTheme> {
+    const dashes = { gridDashPattern: [...CHROME_DASH], crosshairDashPattern: [...CHROME_DASH] }
+    if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') {
+        return dashes
+    }
+    const style = getComputedStyle(options.root ?? document.body)
+    const foreground = readCssVar(style, '--foreground') ?? readCssVar(style, '--color-text-primary')
+    return {
+        ...dashes,
+        // The ink shares are the intended look; the graph tokens are the fallback for a host that
+        // ships them without an ink color.
+        gridColor: inkShare(foreground, CHROME_INK_SHARE.grid) ?? readCssVar(style, '--color-graph-axis-line'),
+        axisLineColor: inkShare(foreground, CHROME_INK_SHARE.axisLine),
+        crosshairColor:
+            inkShare(foreground, CHROME_INK_SHARE.crosshair) ?? readCssVar(style, '--color-graph-crosshair'),
+    }
 }
 
 /**
@@ -73,11 +118,10 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
     // Prefer quill's own tokens; the app's `--color-*` names are a compat
     // fallback only, so the design-system package never depends on app naming.
     return {
+        ...chartChromeFromCssVars({ root }),
         colors,
         backgroundColor: readCssVar(style, '--background') ?? readCssVar(style, '--color-bg-surface-primary'),
         axisColor: readCssVar(style, '--color-graph-axis-label'),
-        gridColor: readCssVar(style, '--color-graph-axis-line'),
-        crosshairColor: readCssVar(style, '--color-graph-crosshair'),
         // Surface-styled like quill's popover, not its inverse hint tooltip — stays dark in dark mode.
         // Compat fallback matches the app's buildTheme() (--color-bg-surface-popover in lib/colors.ts).
         tooltipBackground: readCssVar(style, '--card') ?? readCssVar(style, '--color-bg-surface-popover'),
