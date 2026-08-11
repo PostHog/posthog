@@ -6,6 +6,8 @@ import {
   CaretDown,
   GitBranch,
   Plus,
+  PushPin,
+  PushPinSlash,
   Sparkle,
   X,
 } from "phosphor-react-native";
@@ -28,6 +30,7 @@ import {
   View,
 } from "react-native";
 import { useThemeColors } from "@/lib/theme";
+import { usePinnedTasks } from "../hooks/usePinnedTasks";
 import { useTasks } from "../hooks/useTasks";
 import { useUserIntegrations } from "../hooks/useUserIntegrations";
 import { useArchivedTasksStore } from "../stores/archivedTasksStore";
@@ -176,6 +179,7 @@ export function TaskList({
   const themeColors = useThemeColors();
   const { archivedTasks, archive, archiveMany, unarchive } =
     useArchivedTasksStore();
+  const { isPinned, togglePin } = usePinnedTasks();
   const organizeMode = useTaskStore((s) => s.organizeMode);
   const sortMode = useTaskStore((s) => s.sortMode);
   const collapsedGroups = useTaskStore((s) => s.collapsedGroups);
@@ -229,6 +233,20 @@ export function TaskList({
     archiveMany(Array.from(selectedIds));
     exitSelection();
   }, [selectedIds, archiveMany, exitSelection]);
+
+  // A mixed selection pins rather than unpins, so the action is only
+  // destructive to existing pins once everything selected is already pinned.
+  const bulkPinWouldPin = Array.from(selectedIds).some((id) => !isPinned(id));
+
+  const handleBulkPin = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    for (const taskId of selectedIds) {
+      if (isPinned(taskId) !== bulkPinWouldPin) continue;
+      togglePin(taskId);
+    }
+    exitSelection();
+  }, [selectedIds, isPinned, bulkPinWouldPin, togglePin, exitSelection]);
 
   const handleRefresh = async () => {
     await Promise.all([refetch(), refetchIntegrations()]);
@@ -368,6 +386,7 @@ export function TaskList({
               onLongPress={handleTaskLongPress}
               selectionMode={selectionMode}
               selected={selectedIds.has(item.task.id)}
+              pinned={isPinned(item.task.id)}
               onSwipeStart={() => setScrollEnabled(false)}
               onSwipeEnd={() => setScrollEnabled(true)}
             />
@@ -405,6 +424,26 @@ export function TaskList({
           >
             {selectedIds.size} selected
           </Text>
+          <Pressable
+            onPress={handleBulkPin}
+            className="flex-row items-center gap-2 rounded-full bg-gray-3 px-4 py-2.5 active:bg-gray-4"
+            accessibilityLabel={
+              bulkPinWouldPin ? "Pin selected tasks" : "Unpin selected tasks"
+            }
+          >
+            {bulkPinWouldPin ? (
+              <PushPin size={16} color={themeColors.gray[11]} weight="fill" />
+            ) : (
+              <PushPinSlash
+                size={16}
+                color={themeColors.gray[11]}
+                weight="fill"
+              />
+            )}
+            <Text className="font-semibold text-[14px] text-gray-12">
+              {bulkPinWouldPin ? "Pin" : "Unpin"}
+            </Text>
+          </Pressable>
           <Pressable
             onPress={handleBulkArchive}
             className="flex-row items-center gap-2 rounded-full px-4 py-2.5 active:opacity-80"

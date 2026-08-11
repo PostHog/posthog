@@ -100,6 +100,8 @@ vi.mock("phosphor-react-native", async () => {
     PencilSimple: icon("PencilSimple"),
     Play: icon("Play"),
     Plus: icon("Plus"),
+    PushPin: icon("PushPin"),
+    PushPinSlash: icon("PushPinSlash"),
     PuzzlePiece: icon("PuzzlePiece"),
     Question: icon("Question"),
     RadioButton: icon("RadioButton"),

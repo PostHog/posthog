@@ -8,11 +8,12 @@ vi.mock("phosphor-react-native", () => ({
   Check: (props: Record<string, unknown>) => createElement("Check", props),
   GitPullRequest: (props: Record<string, unknown>) =>
     createElement("GitPullRequest", props),
+  PushPin: (props: Record<string, unknown>) => createElement("PushPin", props),
 }));
 
 vi.mock("@/lib/theme", () => ({
   useThemeColors: () => ({
-    gray: { 11: "#444444" },
+    gray: { 9: "#888888", 11: "#444444" },
     accent: { 9: "#ff5500" },
   }),
 }));
@@ -58,10 +59,12 @@ function makeTask(run?: Partial<NonNullable<Task["latest_run"]>>): Task {
   };
 }
 
-function render(task: Task) {
+function render(task: Task, pinned = false) {
   let renderer!: ReturnType<typeof create>;
   act(() => {
-    renderer = create(createElement(TaskItem, { task, onPress: () => {} }));
+    renderer = create(
+      createElement(TaskItem, { task, pinned, onPress: () => {} }),
+    );
   });
   return renderer;
 }
@@ -133,4 +136,18 @@ describe("TaskItem", () => {
   ])("does not show the PR badge when %s", (_label, task) => {
     expect(prIcons(render(task))).toHaveLength(0);
   });
+
+  function pinIcons(renderer: ReturnType<typeof create>) {
+    return renderer.root.findAll((node) => String(node.type) === "PushPin");
+  }
+
+  it.each([
+    { pinned: true, expected: 1 },
+    { pinned: false, expected: 0 },
+  ])(
+    "renders $expected pin indicator(s) when pinned is $pinned",
+    ({ pinned, expected }) => {
+      expect(pinIcons(render(makeTask(), pinned))).toHaveLength(expected);
+    },
+  );
 });

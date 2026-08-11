@@ -49,6 +49,7 @@ interface SwipeableTaskItemProps {
   onLongPress?: (task: Task) => void;
   selectionMode?: boolean;
   selected?: boolean;
+  pinned?: boolean;
   onSwipeStart?: () => void;
   onSwipeEnd?: () => void;
 }
@@ -62,6 +63,7 @@ export function SwipeableTaskItem({
   onLongPress,
   selectionMode = false,
   selected = false,
+  pinned = false,
   onSwipeStart,
   onSwipeEnd,
 }: SwipeableTaskItemProps) {
@@ -193,6 +195,7 @@ export function SwipeableTaskItem({
           onLongPress={onLongPress}
           selectionMode={selectionMode}
           selected={selected}
+          pinned={pinned}
         />
       </Animated.View>
     </View>

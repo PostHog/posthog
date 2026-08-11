@@ -1,7 +1,7 @@
 import { Text } from "@components/text";
 import { readPrUrls, type Task } from "@posthog/shared";
 import { differenceInHours, format, formatDistanceToNow } from "date-fns";
-import { Check, GitPullRequest } from "phosphor-react-native";
+import { Check, GitPullRequest, PushPin } from "phosphor-react-native";
 import { memo } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { parseGithubIssueUrl } from "@/lib/githubIssueUrl";
@@ -30,6 +30,7 @@ interface TaskItemProps {
   onLongPress?: (task: Task) => void;
   selectionMode?: boolean;
   selected?: boolean;
+  pinned?: boolean;
 }
 
 function TaskItemComponent({
@@ -38,6 +39,7 @@ function TaskItemComponent({
   onLongPress,
   selectionMode = false,
   selected = false,
+  pinned = false,
 }: TaskItemProps) {
   const themeColors = useThemeColors();
   const createdAt = new Date(task.created_at);
@@ -80,6 +82,9 @@ function TaskItemComponent({
           >
             {task.title}
           </Text>
+          {pinned ? (
+            <PushPin size={11} weight="fill" color={themeColors.gray[9]} />
+          ) : null}
           {prRef?.kind === "pr" ? (
             <PrBadge prUrl={prRef.normalizedUrl} number={prRef.number} />
           ) : (
