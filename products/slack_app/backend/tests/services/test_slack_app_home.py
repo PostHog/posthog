@@ -24,8 +24,10 @@ from django.core.exceptions import ValidationError
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
@@ -45,6 +47,8 @@ from products.slack_app.backend.services.slack_app_home import (
     MODAL_BLOCK_REASONING_EFFORT,
     MODAL_BLOCK_RUNTIME_ADAPTER,
     AccountState,
+    GitHubAccount,
+    GitHubState,
     PreferenceSource,
     ProjectChoice,
     ProjectState,
@@ -472,6 +476,95 @@ class TestRenderHomeView:
         assert (
             resolve_source(_make_row(runtime_adapter="claude", model="claude-opus-4-7")) == PreferenceSource.personal()
         )
+
+
+class TestLinkedAccountsCard:
+    def _view(self, *, account_state=None, github_state=None) -> dict:
+        return render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            account_state=account_state,
+            github_state=github_state,
+        )
+
+    def _fields(self, view: dict) -> list[str]:
+        for block in view["blocks"]:
+            if block.get("type") == "section" and block.get("fields"):
+                return [field["text"] for field in block["fields"]]
+        return []
+
+    def _url_buttons(self, view: dict) -> list[dict]:
+        return [
+            element for block in view["blocks"] for element in block.get("elements", []) or [] if element.get("url")
+        ]
+
+    @pytest.mark.parametrize(
+        "user_resolved,accounts,expected_button",
+        [
+            (
+                True,
+                (GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),),
+                "Manage GitHub",
+            ),
+            (True, (), "Connect GitHub"),
+            (False, (), None),
+        ],
+    )
+    def test_github_button_matches_connection_state(self, user_resolved, accounts, expected_button):
+        view = self._view(
+            github_state=GitHubState(
+                user_resolved=user_resolved,
+                accounts=accounts,
+                settings_url="https://app/project/1/settings/user-personal-integrations",
+            )
+        )
+        buttons = self._url_buttons(view)
+        if expected_button is None:
+            # Without a resolved PostHog user we can't say anything about their
+            # GitHub, so the card points at account linking instead.
+            assert buttons == []
+            assert "Link your PostHog account first" in _all_text(view)
+        else:
+            assert [b["text"]["text"] for b in buttons] == [expected_button]
+            assert buttons[0]["url"] == "https://app/project/1/settings/user-personal-integrations"
+            assert buttons[0].get("style") == (None if accounts else "primary")
+
+    def test_every_connected_installation_is_listed(self):
+        view = self._view(
+            github_state=GitHubState(
+                user_resolved=True,
+                accounts=(
+                    GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),
+                    GitHubAccount(installation_id="2", login="octocat", account_name="PostHog"),
+                ),
+                settings_url="https://app/settings",
+            )
+        )
+        github_field = next(field for field in self._fields(view) if field.startswith("*GitHub*"))
+        assert "`octocat`" in github_field
+        # Installation on an org the login differs from names both sides.
+        assert "`octocat` on *PostHog*" in github_field
+
+    def test_posthog_and_github_render_as_two_columns(self):
+        view = self._view(
+            account_state=AccountState(enabled=True, linked_email="user@posthog.com"),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
+        )
+        fields = self._fields(view)
+        assert len(fields) == 2
+        assert fields[0].startswith("*PostHog*")
+        assert fields[1].startswith("*GitHub*")
+
+    def test_github_column_stands_alone_when_account_linking_is_off(self):
+        view = self._view(
+            account_state=AccountState(enabled=False),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
+        )
+        fields = self._fields(view)
+        assert len(fields) == 1
+        assert fields[0].startswith("*GitHub*")
+        assert ACTION_UNLINK_ACCOUNT not in _action_ids(view)
 
 
 _TASK_TITLES = ("Fix flaky retention test", "Refactor mention dispatcher")
@@ -951,6 +1044,31 @@ class TestHandleAppHomeOpened:
     def test_noop_when_user_missing(self, slack_integration, mock_slack_client, flag_on):
         handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
+
+    def test_github_card_lists_only_the_opening_users_installations(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        organization = slack_integration.team.organization
+        opener = User.objects.create_and_join(organization, "opener@posthog.com", None)
+        colleague = User.objects.create_and_join(organization, "colleague@posthog.com", None)
+        for user, login in ((opener, "opener-gh"), (colleague, "colleague-gh")):
+            UserIntegration.objects.create(
+                user=user,
+                kind=UserIntegration.IntegrationKind.GITHUB,
+                integration_id=f"install-{login}",
+                config={"github_user": {"login": login}, "account": {"name": login}},
+            )
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            email=opener.email,
+        )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert "opener-gh" in text
+        assert "colleague-gh" not in text
 
 
 # ---------------------------------------------------------------------------
