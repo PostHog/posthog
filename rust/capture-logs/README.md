@@ -118,6 +118,25 @@ Requirements:
 2. Include your PostHog project token in the Authorization header or as a query parameter
 3. Use standard OTLP log format (JSON, JSONL, or Protobuf)
 
+### Vercel Drains
+
+Vercel can send logs, traces, and metrics to any OTLP endpoint through an OpenTelemetry drain.
+This is the supported way to send Vercel data to PostHog, and it keeps every record in a batch
+— unlike the alpha `Vercel logs` CDP source, which speaks Vercel's own log-drain format.
+
+Configure the drain to point at PostHog:
+
+- **Endpoint**: `<your-posthog-host>/otlp/v1/logs` for logs (use `/otlp/v1/traces` or
+  `/otlp/v1/metrics` for traces or metrics).
+- **Protocol**: HTTP (both `application/x-protobuf` and `application/json` are accepted). gRPC
+  is not supported.
+- **Headers**: add `Authorization: Bearer <your-project-token>`. The token is your PostHog
+  project token, the same value used by every OTLP client above.
+
+Vercel exports standard OTLP records, so its resource and log attributes (for example
+`service.name` and Vercel's `vercel.*` fields) arrive as searchable log attributes in PostHog.
+No attribute rewriting is needed on either side.
+
 ## Endpoints
 
 ### Log Ingestion

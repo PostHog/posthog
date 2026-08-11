@@ -26,6 +26,9 @@ export interface HogExecutorConfig {
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
+// Source webhooks can turn one request into many events (e.g. a batched log drain).
+// Other function types stay capped at a single capture to guard against feedback loops.
+export const MAX_CAPTURED_EVENTS = 1000
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -241,10 +244,20 @@ export class HogExecutorService {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
                             }
 
-                            if (result.capturedPostHogEvents.length > 0) {
+                            const allowsMultiple = invocation.hogFunction.type === 'source_webhook'
+
+                            if (result.capturedPostHogEvents.length > 0 && !allowsMultiple) {
                                 throw new Error(
                                     'postHogCapture was called more than once. Only one call is allowed per function'
                                 )
+                            }
+
+                            if (result.capturedPostHogEvents.length >= MAX_CAPTURED_EVENTS) {
+                                addLog(
+                                    'warn',
+                                    `postHogCapture reached the limit of ${MAX_CAPTURED_EVENTS} events per invocation. Additional events were dropped.`
+                                )
+                                return
                             }
 
                             if (globals.event) {

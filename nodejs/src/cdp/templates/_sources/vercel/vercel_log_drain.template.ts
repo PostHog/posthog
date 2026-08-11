@@ -94,17 +94,6 @@ if (empty(logs)) {
     }
 }
 
-// Technical limitation: Hog functions can only call postHogCapture once per invocation.
-// If Vercel batches multiple logs in one request, we emit only one (the first, or the
-// first page-route log when page_routes_only is enabled — see the selection below).
-// Configure Vercel to send logs individually for complete coverage.
-let droppedCount := length(logs) - 1
-if (droppedCount > 0) {
-    print(f'Warning: Dropped {droppedCount} additional log(s). Hog functions can only emit one event per invocation.')
-}
-
-let log := logs[1]
-
 let limit := toInt(inputs.max_message_len ?? 262144)
 
 fun truncateIfNeeded(s) {
@@ -185,27 +174,9 @@ fun logPathname(l) {
     return extractPathname(p.path ?? l.path ?? '')
 }
 
-// With page_routes_only enabled, emit the first page-route log in the batch, so a page
-// view is not lost when an asset request happens to come first in the same batch. Vercel
-// can send several logs per request but only one event can be emitted per invocation.
-if (inputs.page_routes_only) {
-    let selected := null
-    for (let _, candidate in logs) {
-        if (selected == null and isPageRoute(logPathname(candidate))) {
-            selected := candidate
-        }
-    }
-    if (selected == null) {
-        // No page-route request in this batch — ack with 200 so Vercel does not retry.
-        return {
-            'httpResponse': {
-                'status': 200,
-                'body': 'OK'
-            }
-        }
-    }
-    log := selected
-}
+// One event per Vercel log. Vercel batches several logs per request by default, and
+// each is emitted as its own $http_log event.
+fun emitLog(log) {
 let proxy := log.proxy ?? {}
 
 // Distinct ID: configurable strategy. Default is a fixed salted hash of (ip, host, ua) —
@@ -367,6 +338,16 @@ postHogCapture({
     'distinct_id': distinctId,
     'properties': props
 })
+}
+
+// Emit one event per log. With page_routes_only enabled, sub-resource requests
+// (JS, CSS, images, fonts, JSON, source maps) are skipped and only top-level
+// document requests are captured.
+for (let _, log in logs) {
+    if (not inputs.page_routes_only or isPageRoute(logPathname(log))) {
+        emitLog(log)
+    }
+}
 
 return {
     'httpResponse': {
