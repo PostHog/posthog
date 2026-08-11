@@ -4961,6 +4961,14 @@ class ExperimentExposureQueryResponse(BaseModel):
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
+    test_account_filter_hiding_exposures: bool | None = Field(
+        default=None,
+        description=(
+            "True when the experiment has zero exposures, the test-account filter is"
+            " on, and the project has test-account filters configured — the filter is"
+            " likely hiding the user's own test traffic. Absent otherwise."
+        ),
+    )
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
     warnings: list[DataWarehouseSyncWarning] | None = Field(
@@ -6304,6 +6312,14 @@ class QueryResponseAlternative19(BaseModel):
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
+    test_account_filter_hiding_exposures: bool | None = Field(
+        default=None,
+        description=(
+            "True when the experiment has zero exposures, the test-account filter is"
+            " on, and the project has test-account filters configured — the filter is"
+            " likely hiding the user's own test traffic. Absent otherwise."
+        ),
+    )
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
     warnings: list[DataWarehouseSyncWarning] | None = Field(
@@ -11177,6 +11193,14 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
+    test_account_filter_hiding_exposures: bool | None = Field(
+        default=None,
+        description=(
+            "True when the experiment has zero exposures, the test-account filter is"
+            " on, and the project has test-account filters configured — the filter is"
+            " likely hiding the user's own test traffic. Absent otherwise."
+        ),
+    )
     timeseries: list[ExperimentExposureTimeSeries]
     timezone: str
     total_exposures: dict[str, float]

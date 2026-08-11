@@ -5384,6 +5384,12 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    /**
+     * True when the experiment has zero exposures, the test-account filter is on, and the
+     * project has test-account filters configured — the filter is likely hiding the user's
+     * own test traffic. Absent otherwise.
+     */
+    test_account_filter_hiding_exposures?: boolean
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }

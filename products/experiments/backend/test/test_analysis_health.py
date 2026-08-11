@@ -4,7 +4,11 @@ from parameterized import parameterized
 
 from posthog.schema import BiasRisk, MultipleVariantHandling
 
-from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
+from products.experiments.backend.analysis_health import (
+    MULTIPLE_VARIANT_BIAS_THRESHOLD,
+    evaluate_bias_risk,
+    is_test_account_filter_hiding_exposures,
+)
 
 UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
 EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
@@ -102,3 +106,49 @@ class TestEvaluateBiasRisk(TestCase):
         )
         assert result is not None
         self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)
+
+
+class TestTestAccountFilterHidesExposures(TestCase):
+    def test_fires_on_zero_exposures_with_filter_and_configured_filters(self):
+        result = is_test_account_filter_hiding_exposures(
+            total_exposures={"control": 0, "test": 0},
+            filter_test_accounts=True,
+            team_has_test_account_filters=True,
+        )
+        self.assertTrue(result)
+
+    @parameterized.expand(
+        [
+            (
+                "has_exposures",
+                {"control": 5, "test": 0},
+                True,
+                True,
+            ),
+            (
+                "filter_off",
+                {"control": 0, "test": 0},
+                False,
+                True,
+            ),
+            (
+                "no_configured_filters",
+                {"control": 0, "test": 0},
+                True,
+                False,
+            ),
+            (
+                "empty_exposures_dict",
+                {},
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_does_not_fire(self, _name, total_exposures, filter_test_accounts, team_has_test_account_filters):
+        result = is_test_account_filter_hiding_exposures(
+            total_exposures=total_exposures,
+            filter_test_accounts=filter_test_accounts,
+            team_has_test_account_filters=team_has_test_account_filters,
+        )
+        self.assertFalse(result)

@@ -35,6 +35,7 @@ type ChecklistItemProps = {
     metric: any
     variants: MultivariateFlagVariant[]
     getInsightType: (metric: any) => InsightType
+    testAccountFilterHidingExposures: boolean
 }
 
 function ChecklistItem({
@@ -44,6 +45,7 @@ function ChecklistItem({
     metric,
     variants,
     getInsightType,
+    testAccountFilterHidingExposures,
 }: ChecklistItemProps): JSX.Element {
     const failureText: Record<ResultErrorCode, string> = {
         [ResultErrorCode.NO_CONTROL_VARIANT]: 'Events with the control variant not received',
@@ -109,34 +111,48 @@ function ChecklistItem({
         showPersistentColumnConfigurator: true,
     }
 
+    const showTestAccountHint = hasMissingExposure && value !== false && testAccountFilterHidingExposures
+
     return (
-        <div className="flex items-center deprecated-space-x-2">
-            {value === false ? (
-                <span className="flex items-center deprecated-space-x-2">
-                    <IconCheck className="text-success" fontSize={16} />
-                    <span className="text-secondary">{successText[errorCode]}</span>
-                </span>
-            ) : (
-                <span className="flex items-center deprecated-space-x-2">
-                    <IconX className="text-danger" fontSize={16} />
-                    <span>{failureText[errorCode]}</span>
-                    <Tooltip title="Verify missing events in the Activity tab">
-                        <Link
-                            target="_blank"
-                            className="font-semibold"
-                            to={combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url}
-                        >
-                            <IconOpenInNew fontSize="16" className="-ml-1" />
-                        </Link>
-                    </Tooltip>
-                </span>
+        <div className="flex flex-col deprecated-space-y-1">
+            <div className="flex items-center deprecated-space-x-2">
+                {value === false ? (
+                    <span className="flex items-center deprecated-space-x-2">
+                        <IconCheck className="text-success" fontSize={16} />
+                        <span className="text-secondary">{successText[errorCode]}</span>
+                    </span>
+                ) : (
+                    <span className="flex items-center deprecated-space-x-2">
+                        <IconX className="text-danger" fontSize={16} />
+                        <span>{failureText[errorCode]}</span>
+                        <Tooltip title="Verify missing events in the Activity tab">
+                            <Link
+                                target="_blank"
+                                className="font-semibold"
+                                to={combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url}
+                            >
+                                <IconOpenInNew fontSize="16" className="-ml-1" />
+                            </Link>
+                        </Tooltip>
+                    </span>
+                )}
+            </div>
+            {showTestAccountHint && (
+                <p className="text-xs text-secondary m-0 ml-6">
+                    The exposure criteria filters out internal and test users. If your own traffic matches the project's{' '}
+                    <Link to={urls.settings('environment-customization', 'internal-user-filtering')}>
+                        test-account filters
+                    </Link>
+                    , your exposures are dropped even though the events show up.
+                </p>
             )}
         </div>
     )
 }
 
 export function ErrorChecklist({ error, metric }: ErrorChecklistProps): JSX.Element | null {
-    const { experiment, variants, getInsightType } = useValues(experimentLogic)
+    const { experiment, variants, getInsightType, exposures } = useValues(experimentLogic)
+    const testAccountFilterHidingExposures = !!exposures?.test_account_filter_hiding_exposures
 
     /**
      * bail if no error or no diagnostics
@@ -160,6 +176,7 @@ export function ErrorChecklist({ error, metric }: ErrorChecklistProps): JSX.Elem
                 metric={metric}
                 variants={variants}
                 getInsightType={getInsightType}
+                testAccountFilterHidingExposures={testAccountFilterHidingExposures}
             />
         )
     }

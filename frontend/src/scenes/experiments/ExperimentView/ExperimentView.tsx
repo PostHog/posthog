@@ -42,6 +42,7 @@ import { PageHeaderCustom } from './PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
+import { TestAccountFilterExposureWarning } from './TestAccountFilterExposureWarning'
 
 const MetricsTab = (): JSX.Element => {
     const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
@@ -60,6 +61,7 @@ const MetricsTab = (): JSX.Element => {
                 <div>
                     <Exposures />
                     <MultiVariantBiasWarning />
+                    <TestAccountFilterExposureWarning />
                 </div>
             </div>
 

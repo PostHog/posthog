@@ -32,7 +32,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.experiments.backend.analysis_health import evaluate_bias_risk, is_test_account_filter_hiding_exposures
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -289,6 +289,16 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             total_exposures=total_exposures,
         )
 
+    def _evaluate_test_account_filter_risk(self, total_exposures: dict[str, int]) -> bool:
+        exposure_params = get_exposure_config_params_for_builder(
+            self.exposure_criteria, self.team, self.experiment.start_date
+        )
+        return is_test_account_filter_hiding_exposures(
+            total_exposures=total_exposures,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            team_has_test_account_filters=bool(self.team.test_account_filters),
+        )
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
         # Adding experiment specific tags to the tag collection
@@ -362,6 +372,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures)
+        test_account_filter_hiding_exposures = self._evaluate_test_account_filter_risk(total_exposures)
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
@@ -369,6 +380,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range=self.date_range,
             sample_ratio_mismatch=sample_ratio_mismatch,
             bias_risk=bias_risk,
+            test_account_filter_hiding_exposures=test_account_filter_hiding_exposures,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -415,7 +427,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        payload["experiment_exposures_response_version"] = 2
+        payload["experiment_exposures_response_version"] = 3
         return payload
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:

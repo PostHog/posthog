@@ -7823,6 +7823,10 @@
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
                 },
+                "test_account_filter_hiding_exposures": {
+                    "description": "True when the experiment has zero exposures, the test-account filter is on, and the project has test-account filters configured — the filter is likely hiding the user's own test traffic. Absent otherwise.",
+                    "type": "boolean"
+                },
                 "timeseries": {
                     "items": {
                         "$ref": "#/definitions/ExperimentExposureTimeSeries"
@@ -22870,6 +22874,10 @@
                 },
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
+                },
+                "test_account_filter_hiding_exposures": {
+                    "description": "True when the experiment has zero exposures, the test-account filter is on, and the project has test-account filters configured — the filter is likely hiding the user's own test traffic. Absent otherwise.",
+                    "type": "boolean"
                 },
                 "timeseries": {
                     "items": {
@@ -39583,6 +39591,10 @@
                         },
                         "sample_ratio_mismatch": {
                             "$ref": "#/definitions/SampleRatioMismatch"
+                        },
+                        "test_account_filter_hiding_exposures": {
+                            "description": "True when the experiment has zero exposures, the test-account filter is on, and the project has test-account filters configured — the filter is likely hiding the user's own test traffic. Absent otherwise.",
+                            "type": "boolean"
                         },
                         "timeseries": {
                             "items": {

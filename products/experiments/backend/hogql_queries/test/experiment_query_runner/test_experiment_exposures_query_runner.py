@@ -669,6 +669,55 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 6)
 
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_test_account_filter_hiding_exposures_flag(self):
+        # Only traffic is an internal user the filter drops, so exposures are zero while
+        # filterTestAccounts is on and the team has filters configured.
+        ff_property = f"$feature/{self.feature_flag.key}"
+        _create_person(distinct_ids=["user_internal_1"], properties={"email": "test@posthog.com"}, team=self.team)
+        _create_event(
+            distinct_id="user_internal_1",
+            event="$feature_flag_called",
+            timestamp="2024-01-02",
+            properties={
+                "$feature_flag_response": "test",
+                ff_property: "test",
+                "$feature_flag": self.feature_flag.key,
+            },
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+
+        def run_with_filter(filter_test_accounts: bool) -> ExperimentExposureQuery:
+            self.experiment.exposure_criteria = {"filterTestAccounts": filter_test_accounts}
+            self.experiment.save()
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=self.experiment.id,
+                experiment_name=self.experiment.name,
+                feature_flag=model_to_dict(self.feature_flag),
+                holdout=None,
+                start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+                end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+                exposure_criteria=self.experiment.exposure_criteria,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        # Filter on: exposures hidden, warning fires.
+        filtered = run_with_filter(True)
+        self.assertEqual(sum(filtered.total_exposures.values()), 0)
+        self.assertTrue(filtered.test_account_filter_hiding_exposures)
+
+        # Filter off: the same user is now exposed, so the warning does not fire.
+        unfiltered = run_with_filter(False)
+        self.assertEqual(unfiltered.total_exposures["test"], 1)
+        self.assertFalse(unfiltered.test_account_filter_hiding_exposures)
+
     @parameterized.expand(
         [
             ("pageview_direct", "$pageview", False),

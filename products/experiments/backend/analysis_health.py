@@ -1,9 +1,9 @@
 """
 Analysis-health signals for experiments. Pure functions — no I/O.
 
-Currently evaluates one signal: asymmetric `$multiple`-exclusion bias on uneven
-splits. Designed to grow (SRM, low exposures, variant drift, ...) as additional
-pure evaluators when needed.
+Evaluates two signals today: asymmetric `$multiple`-exclusion bias on uneven splits,
+and a test-account filter that hides every exposure. Designed to grow (SRM, variant
+drift, ...) as additional pure evaluators when needed.
 """
 
 from posthog.schema import BiasRisk, MultipleVariantHandling
@@ -48,3 +48,20 @@ def evaluate_bias_risk(
         return None
 
     return BiasRisk(multiple_variant_percentage=multiple_variant_percentage)
+
+
+def is_test_account_filter_hiding_exposures(
+    total_exposures: dict[str, int],
+    filter_test_accounts: bool,
+    team_has_test_account_filters: bool,
+) -> bool:
+    """
+    Zero exposures while the test-account filter is on and the project has test-account
+    filters configured. In that state the filter is the most likely reason exposures are
+    missing: a person testing their own flag often matches the project's internal-user
+    filters — typically their email domain — so their exposures drop out while the flag
+    still evaluates and still fires events. Returns True only when all three hold.
+    """
+    if not filter_test_accounts or not team_has_test_account_filters:
+        return False
+    return sum(total_exposures.values()) == 0
