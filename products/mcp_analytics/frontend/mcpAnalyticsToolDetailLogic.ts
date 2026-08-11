@@ -707,8 +707,12 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             if (intervalChanged) {
                 actions.setPinnedInterval(interval)
             }
-            if (dateChanged || intervalChanged || !cache.hasLoaded) {
+            if (dateChanged || !cache.hasLoaded) {
                 actions.loadAllSections()
+            } else if (intervalChanged) {
+                // Only the trend series buckets by interval; every other section is a single-window
+                // aggregate that a grouping change cannot move.
+                actions.loadDailyStats()
             }
             cache.hasLoaded = true
         },
