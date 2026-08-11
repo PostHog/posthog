@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -429,6 +430,15 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         results = self._template(query=query, start=5, end=6, database=database)
         assert len(results.suggestions) == 0
+
+    def test_autocomplete_template_strings_skip_the_schema_build(self):
+        query = "this isn't a string {concat(eve)} <- this is"
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            results = self._template(query=query, start=28, end=31)
+
+        create_for.assert_not_called()
+        assert "event" in [suggestion.label for suggestion in results.suggestions]
 
     def test_autocomplete_template_json(self):
         database = Database.create_for(team=self.team)

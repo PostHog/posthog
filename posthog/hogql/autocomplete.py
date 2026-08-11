@@ -454,12 +454,20 @@ def get_hogql_autocomplete(
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
-    if database_arg is not None:
-        database = database_arg
-    else:
-        database = Database.create_for(team=team, user=user, timings=timings)
+    built_database: Optional[Database] = database_arg
+    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database_arg, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database, timings=timings)
+    def get_database() -> Database:
+        """`Database.create_for` walks every warehouse table, join and view for the team, which
+        dominates the latency of an autocomplete request. Template languages (Hog, Hog templates,
+        Liquid) answer from `query.globals` and the STL alone, so they must never reach it.
+        """
+        nonlocal built_database
+        if built_database is None:
+            built_database = Database.create_for(team=team, user=user, timings=timings)
+            context.database = built_database
+        return built_database
+
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
@@ -572,6 +580,10 @@ def get_hogql_autocomplete(
 
             if select_ast is None:
                 break
+
+            # Everything below resolves against the team's schema, so this is the first point
+            # where the database has to exist.
+            database = get_database()
 
             if query.filters:
                 try:
