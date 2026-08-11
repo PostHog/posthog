@@ -2184,7 +2184,10 @@ class TestHasNonZeroUsage(TestCase):
     def _zeroed_counters(self) -> UsageReportCounters:
         zero_values: dict[str, Any] = {}
         for field in dataclasses.fields(UsageReportCounters):
-            zero_values[field.name] = 0.0 if field.type is float else 0
+            if getattr(field.type, "__origin__", None) is dict:
+                zero_values[field.name] = {}
+            else:
+                zero_values[field.name] = 0.0 if field.type is float else 0
         return UsageReportCounters(**zero_values)
 
     @parameterized.expand(
@@ -4757,7 +4760,10 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
 
-        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+        zero: dict[str, Any] = {
+            field.name: ({} if getattr(field.type, "__origin__", None) is dict else 0)
+            for field in dataclasses.fields(UsageReportCounters)
+        }
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "signals_credits_used_in_period": 5})))
@@ -4906,7 +4912,10 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
 
-        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+        zero: dict[str, Any] = {
+            field.name: ({} if getattr(field.type, "__origin__", None) is dict else 0)
+            for field in dataclasses.fields(UsageReportCounters)
+        }
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_credits_used_in_period": 5})))
@@ -4964,7 +4973,10 @@ class TestTaskSandboxUsageReport(APIBaseTest):
 
         from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
 
-        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+        zero: dict[str, Any] = {
+            field.name: ({} if getattr(field.type, "__origin__", None) is dict else 0)
+            for field in dataclasses.fields(UsageReportCounters)
+        }
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "task_sandbox_seconds_in_period": 5})))
