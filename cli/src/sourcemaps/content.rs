@@ -27,11 +27,15 @@ fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String
         .replace(RELEASE_ID_PLACEHOLDER, &serde_json::to_string(release_id)?))
 }
 
-/// When `source` carries the release-variant snippet, return it with the snippet removed.
-/// The injected release id changes on every release even when the chunk's code didn't, so
-/// content hashes must be computed over the stripped bytes or the server would never skip
-/// an unchanged chunk. Returns `None` for sources without a release-variant snippet.
-pub fn strip_release_snippet(source: &str, chunk_id: &str) -> Option<String> {
+struct ReleaseSnippetSpan {
+    start: usize,
+    end: usize,
+    release_id_start: usize,
+    release_id_end: usize,
+}
+
+/// Locate the release-variant snippet for `chunk_id` in `source`, if present.
+fn find_release_snippet(source: &str, chunk_id: &str) -> Option<ReleaseSnippetSpan> {
     let (prefix, suffix) = CODE_SNIPPET_WITH_RELEASE_TEMPLATE
         .split_once(RELEASE_ID_PLACEHOLDER)
         .expect("release template has a release id placeholder");
@@ -45,12 +49,32 @@ pub fn strip_release_snippet(source: &str, chunk_id: &str) -> Option<String> {
     if release_id_len > 256 {
         return None;
     }
+    let release_id_end = release_id_start + release_id_len;
 
-    let end = release_id_start + release_id_len + suffix.len();
-    let mut stripped = String::with_capacity(source.len() - (end - start));
-    stripped.push_str(&source[..start]);
-    stripped.push_str(&source[end..]);
+    Some(ReleaseSnippetSpan {
+        start,
+        end: release_id_end + suffix.len(),
+        release_id_start,
+        release_id_end,
+    })
+}
+
+/// When `source` carries the release-variant snippet, return it with the snippet removed.
+/// The injected release id changes on every release even when the chunk's code didn't, so
+/// content hashes must be computed over the stripped bytes or the server would never skip
+/// an unchanged chunk. Returns `None` for sources without a release-variant snippet.
+pub fn strip_release_snippet(source: &str, chunk_id: &str) -> Option<String> {
+    let span = find_release_snippet(source, chunk_id)?;
+    let mut stripped = String::with_capacity(source.len() - (span.end - span.start));
+    stripped.push_str(&source[..span.start]);
+    stripped.push_str(&source[span.end..]);
     Some(stripped)
+}
+
+/// Read the release id embedded in the source's release-variant snippet, if any.
+pub fn get_injected_release_id(source: &str, chunk_id: &str) -> Option<String> {
+    let span = find_release_snippet(source, chunk_id)?;
+    serde_json::from_str(&source[span.release_id_start..span.release_id_end]).ok()
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -353,6 +377,10 @@ impl MinifiedSourceFile {
                 let code_snippet_end = code_snippet_start as i64 + code_snippet.len() as i64;
                 magic_source
                     .remove(code_snippet_start as i64, code_snippet_end)
+                    .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
+            } else if let Some(span) = find_release_snippet(source_content, &chunk_id) {
+                magic_source
+                    .remove(span.start as i64, span.end as i64)
                     .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
             }
 

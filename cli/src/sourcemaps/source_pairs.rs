@@ -1,6 +1,8 @@
 use crate::{
     api::symbol_sets::SymbolSetUpload,
-    sourcemaps::content::{strip_release_snippet, MinifiedSourceFile, SourceMapFile},
+    sourcemaps::content::{
+        get_injected_release_id, strip_release_snippet, MinifiedSourceFile, SourceMapFile,
+    },
     utils::files::content_hash,
 };
 use anyhow::{anyhow, Context, Result};
@@ -32,6 +34,13 @@ impl SourcePair {
 
     pub fn get_release_id(&self) -> Option<String> {
         self.sourcemap.get_release_id()
+    }
+
+    /// The release id embedded in the source's injected snippet (no-release-bind mode),
+    /// as opposed to `get_release_id`, which reads the one stamped into the sourcemap.
+    pub fn get_injected_release_id(&self) -> Option<String> {
+        let chunk_id = self.get_chunk_id()?;
+        get_injected_release_id(&self.source.inner.content, &chunk_id)
     }
 
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<()> {

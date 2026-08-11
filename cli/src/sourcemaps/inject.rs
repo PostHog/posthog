@@ -114,13 +114,26 @@ pub fn inject_pairs(
     release_id: Option<&str>,
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
-        // Chunk ids are content-addressed and stable, so a chunk that already carries one is
-        // already injected — leave it untouched (idempotent re-injection).
-        if pair.get_chunk_id().is_none() {
+        let Some(chunk_id) = pair.get_chunk_id() else {
             let sourcemap_json = serde_json::to_string(&pair.sourcemap.inner.content)?;
             let chunk_id = stable_chunk_id(&pair.source.inner.content, &sourcemap_json);
             pair.add_chunk_id(chunk_id, release_id)?;
+            continue;
+        };
+
+        // Already injected: the chunk id is content-addressed and the content didn't change,
+        // so keep it — but refresh the embedded release id when a different release resolved,
+        // or a re-run over an existing dist would keep reporting the old release on every
+        // event. When no release resolves, leave the pair untouched: failing to resolve is
+        // missing information (e.g. no git context), not evidence the embedded id is stale.
+        let Some(release_id) = release_id else {
+            continue;
+        };
+        if pair.get_injected_release_id().as_deref() == Some(release_id) {
+            continue;
         }
+        pair.remove_chunk_id(chunk_id.clone())?;
+        pair.add_chunk_id(chunk_id, Some(release_id))?;
     }
 
     Ok(pairs)

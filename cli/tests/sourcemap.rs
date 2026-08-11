@@ -241,6 +241,100 @@ fn test_reinject_is_idempotent() {
 }
 
 #[test]
+fn test_pair_remove_strips_release_variant_snippet() {
+    // Removal must strip the release-carrying snippet too, or updating a chunk would stack
+    // a second snippet on top of the old one.
+    let case_path = get_case_path("inject");
+    let mut pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let current_pair = pairs.first_mut().expect("Failed to get first pair");
+    let chunk_id = "00000-00000-00000";
+    current_pair
+        .add_chunk_id(
+            chunk_id.to_string(),
+            Some("0199f7c2-1c4e-7c3a-9f8b-2d6e4a1b7c05"),
+        )
+        .expect("Failed to set chunk ID");
+
+    current_pair
+        .remove_chunk_id(chunk_id.to_string())
+        .expect("Failed to remove chunk ID");
+
+    assert_file_eq(&case_path, "chunk.js", &current_pair.source.inner.content);
+
+    let expected_val: SourceMapContent =
+        serde_json::from_str(include_str!(case!("inject/chunk.js.map"))).unwrap();
+    assert_eq!(expected_val, current_pair.sourcemap.inner.content);
+}
+
+#[test]
+fn test_reinject_refreshes_stale_release_id() {
+    // Re-running inject over an already-injected dist with a new release must swap the
+    // embedded release id while keeping the content-addressed chunk id.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected = inject_pairs(pairs, Some("release-a")).expect("Failed to inject pairs");
+    let chunk_id = injected
+        .first()
+        .and_then(|p| p.get_chunk_id())
+        .expect("chunk id");
+
+    let refreshed = inject_pairs(injected, Some("release-b")).expect("Failed to re-inject pairs");
+    let pair = refreshed.first().expect("Failed to get first pair");
+
+    assert_eq!(pair.get_chunk_id().as_deref(), Some(chunk_id.as_str()));
+    let source = &pair.source.inner.content;
+    assert!(
+        source.contains(r#"_posthogReleaseId||"release-b""#),
+        "source: {source}"
+    );
+    assert!(!source.contains("release-a"), "source: {source}");
+}
+
+#[test]
+fn test_reinject_without_release_keeps_embedded_release_id() {
+    // A run that can't resolve a release has no information — it must not clear the
+    // release id a previous run embedded.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected = inject_pairs(pairs, Some("release-a")).expect("Failed to inject pairs");
+    let source_before = injected.first().unwrap().source.inner.content.clone();
+
+    let reinjected = inject_pairs(injected, None).expect("Failed to re-inject pairs");
+
+    assert_eq!(
+        reinjected.first().unwrap().source.inner.content,
+        source_before
+    );
+}
+
+#[test]
+fn test_reinject_adds_release_to_releaseless_chunk() {
+    // A chunk injected while no release was resolvable must pick the release up on a later
+    // run, keeping its content-addressed chunk id.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected = inject_pairs(pairs, None).expect("Failed to inject pairs");
+    let chunk_id = injected
+        .first()
+        .and_then(|p| p.get_chunk_id())
+        .expect("chunk id");
+
+    let refreshed = inject_pairs(injected, Some("release-a")).expect("Failed to re-inject pairs");
+    let pair = refreshed.first().expect("Failed to get first pair");
+
+    assert_eq!(pair.get_chunk_id().as_deref(), Some(chunk_id.as_str()));
+    assert!(pair
+        .source
+        .inner
+        .content
+        .contains(r#"_posthogReleaseId||"release-a""#));
+}
+
+#[test]
 fn test_inject_with_release_embeds_id_in_source() {
     // Injecting with a release must embed its id into the JS chunk itself — that global is the
     // SDK's only source of the release — and must leave the release out of the sourcemap, so
