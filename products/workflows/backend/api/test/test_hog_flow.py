@@ -655,10 +655,10 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("null", None),
             ("no_unit", "5"),
             ("unsupported_unit", "10x"),
-            ("empty_string", ""),
+            ("iso_8601", "P30D"),
+            ("numeric", 1800),
         ]
     )
     def test_hog_flow_wait_validation_rejects_malformed_max_wait_duration(self, _name, max_wait_duration):
@@ -681,6 +681,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("seconds", "30s"),
             ("minutes", "30m"),
             ("fractional_days", "1.5d"),
+            # A falsy timeout is honoured as "wait indefinitely", so it stays valid to send
+            ("null", None),
+            ("empty_string", ""),
         ]
     )
     def test_hog_flow_wait_validation_accepts_canonical_max_wait_duration(self, _name, max_wait_duration):
