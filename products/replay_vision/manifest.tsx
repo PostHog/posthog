@@ -109,7 +109,6 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
             href: urls.replayVision(),
-            tags: ['beta'],
             flag: FEATURE_FLAGS.REPLAY_VISION,
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],

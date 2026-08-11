@@ -24,6 +24,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
     CyclotronJobInputsValidationResult,
@@ -1005,7 +1006,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         return null
                     }
 
-                    return await api.hogFunctions.get(props.id)
+                    try {
+                        return await api.hogFunctions.get(props.id)
+                    } catch (e) {
+                        // A missing id, or one from another project reached via a cross-project deep
+                        // link, 404s here. Fall back to null so the scene renders its not-found state
+                        // instead of filing the rejection in error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
                 },
 
                 upsertHogFunction: async ({ configuration }) => {
@@ -1957,7 +1968,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         upsertHogFunctionFailure: ({ errorObject }) => {
             const maybeValidationError = errorObject.data
 
-            if (maybeValidationError?.type === 'validation_error') {
+            if (maybeValidationError?.type === 'validation_error' && maybeValidationError.attr) {
+                // Errors on `type` (the feature gate and the enabled-function cap reject there)
+                // have no rendered form field, so a toast is the only way the user sees them.
+                if (maybeValidationError.attr === 'type') {
+                    lemonToast.error(maybeValidationError.detail)
+                }
                 setTimeout(() => {
                     // TRICKY: We want to run on the next tick otherwise the errors don't show (possibly because of the async wait in the submit)
                     if (maybeValidationError.attr.includes('inputs__')) {
@@ -1974,7 +1990,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }, 1)
             } else {
                 console.error(errorObject)
-                lemonToast.error('Error submitting configuration')
+                lemonToast.error(maybeValidationError?.detail ?? 'Error submitting configuration')
             }
         },
 

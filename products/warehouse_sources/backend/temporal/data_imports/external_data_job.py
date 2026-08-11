@@ -22,14 +22,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
-    DataImportsDuckLakeCopyInputs,
-    DuckLakeCopyDataImportsWorkflow,
-)
-from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
-    DuckLakeRegisterDataImportsInputs,
-    DuckLakeRegisterDataImportsWorkflow,
-)
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -37,6 +29,12 @@ from products.data_warehouse.backend.facade.api import (
     a_unpause_external_data_schedule,
     create_warehouse_templates_for_source,
     update_external_job_status,
+)
+from products.managed_warehouse.backend.facade.temporal import (
+    DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsInputs,
+    DuckLakeRegisterDataImportsWorkflow,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
@@ -190,9 +188,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
-        msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
-        logger.debug(msg)
-        capture_exception(Exception(msg))
+        # `rows_tracked` is decremented by rows actually written, but incremented by
+        # `resource.rows_to_sync`, a pre-extraction COUNT(*) probe (see e.g. `_get_rows_to_sync`)
+        # that can race with concurrent changes on a live source table. A small positive leftover
+        # here is an expected consequence of that estimate rather than a pipeline bug, so log it
+        # instead of capture_exception; finish_row_tracking below clears the key regardless.
+        logger.warning(f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}")
 
     await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -595,6 +596,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 **timeout_params,
             )  # type: ignore
 
+            # Run-finalization ownership (terminal status write, v3 lock release, post-import
+            # start) — the full contract lives on the PipelineResult docstring. False on every
+            # failure path by construction: a raising activity returns no result, so this line
+            # is never reached and the workflow finalizes in `finally`.
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
 

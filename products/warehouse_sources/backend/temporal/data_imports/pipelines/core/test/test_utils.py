@@ -320,6 +320,25 @@ def test_table_from_py_list_with_null_filled_binary_column():
 
 
 @pytest.mark.parametrize(
+    "value, expected_type",
+    [
+        (datetime.datetime(2024, 1, 2, 3, 4, 5), pa.timestamp("us")),
+        (datetime.datetime(2024, 1, 2, 3, 4, 5, tzinfo=datetime.UTC), pa.timestamp("us", tz="UTC")),
+        (datetime.date(2024, 1, 2), pa.date32()),
+        (datetime.time(3, 4, 5), pa.time64("us")),
+    ],
+)
+def test_table_from_py_list_schema_missing_temporal_column(value, expected_type):
+    # A column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must handle temporal values.
+    schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
+    table = table_from_py_list([{"id": 1, "ts": value}], schema)
+
+    assert table.schema.field("ts").type == expected_type
+    assert table.column("ts").to_pylist() == [value]
+
+
+@pytest.mark.parametrize(
     "error_msg, large_type, values",
     [
         (

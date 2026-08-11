@@ -4,6 +4,8 @@ from uuid import UUID
 
 from django.db import transaction
 
+from structlog.contextvars import bind_contextvars
+
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.facade.api import (
@@ -25,6 +27,7 @@ from products.data_modeling.backend.facade.models import (
 # API and DAG-sync paths that clear it. Re-exported so the activities keep importing from here.
 __all__ = [
     "CONSECUTIVE_FAILURES_TO_SUSPEND",
+    "bind_data_modeling_log_context",
     "clear_node_suspension",
     "clear_node_suspension_for_engine",
     "is_node_suspended",
@@ -36,6 +39,17 @@ __all__ = [
 
 # Consecutive failed jobs (per engine) before a node is suspended from future DAG runs.
 CONSECUTIVE_FAILURES_TO_SUSPEND = 5
+
+
+def bind_data_modeling_log_context(team_id: int, saved_query_id: UUID | str) -> None:
+    """Route this activity's log lines to `log_entries` under the saved query's id.
+
+    The v2 workflow types aren't mapped in `resolve_log_source` (their workflow ids carry a node
+    id, not the saved query id the UI queries by), so without this event-level override every
+    produced line lands with a NULL log_source and the run-history modal shows no logs.
+    """
+    bind_contextvars(team_id=team_id, log_source="data_modeling_run", log_source_id=str(saved_query_id))
+
 
 # Regex patterns for stripping hostnames from ClickHouse error messages
 # Matches patterns like: "(from chi-xxx.svc.cluster.local:9000)" or "(from 10.0.0.1:9000)"
@@ -88,7 +102,11 @@ def update_node_system_properties(
 
 
 def _count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | None = None) -> int:
-    jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine))
+    jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine)).exclude(
+        # a skipped node never ran, so it is evidence of neither health nor failure. Counting it
+        # either way lets an upstream outage decide whether a broken node ever gets suspended.
+        status=DataModelingJobStatus.SKIPPED
+    )
     if since is not None:
         # Otherwise the failures that caused the suspension are still the most recent jobs, and one
         # new failure re-suspends the node we just resumed.

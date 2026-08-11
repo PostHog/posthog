@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "category_key": {
+            "description": "Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.",
+            "type": "string"
+        },
+        "page": {
+            "type": "number"
+        },
+        "page_size": {
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

@@ -973,6 +973,18 @@ export function rekeyNotebookNodes(nodes: NotebookBlockNode[], seed: string): No
             }
         }
 
+        // A component node's `nodeId` prop is its per-instance identity: it keys the node's
+        // logic and cached results. If it survives a paste unchanged, the pasted copy shares
+        // that logic with the original, so editing one edits the other. Refresh it to match the
+        // fresh block id (the same fallback a node with no persisted nodeId already uses).
+        if (clonedNode.type === 'component' && typeof clonedNode.props.nodeId === 'string') {
+            return {
+                ...clonedNode,
+                id,
+                props: { ...clonedNode.props, nodeId: id },
+            }
+        }
+
         return {
             ...clonedNode,
             id,

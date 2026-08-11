@@ -40,6 +40,8 @@ from products.data_catalog.evals.constants import (
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
     DEPRECATED_SOURCE_NAME,
+    DEPRECATION_CANONICAL_SOURCE_NAME,
+    DEPRECATION_STALE_SOURCE_NAME,
     DRIFTED_INSIGHT_MUTATED_QUERY,
     DRIFTED_INSIGHT_ORIGINAL_QUERY,
     DRIFTED_METRIC_DESCRIPTION,
@@ -73,6 +75,7 @@ __all__ = [
     "seed_approved_metric",
     "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
+    "seed_deprecation_candidate_sources",
     "seed_drifted_metric",
     "seed_failing_top_customers_metric",
     "seed_instruction_like_relationship_context",
@@ -284,6 +287,22 @@ def seed_certification_trust_sources(context: CustomPromptSandboxContext) -> dic
         "certification_sources": {
             "preferred": CERTIFIED_SOURCE_NAME,
             "deprecated": DEPRECATED_SOURCE_NAME,
+        }
+    }
+
+
+def seed_deprecation_candidate_sources(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    canonical_source = _warehouse_table(
+        team, DEPRECATION_CANONICAL_SOURCE_NAME, ("payment_id", "amount_usd", "account_id")
+    )
+    stale_source = _warehouse_table(team, DEPRECATION_STALE_SOURCE_NAME, ("payment_id", "amount_usd", "account_id"))
+    return {
+        "deprecation_candidate": {
+            "stale_table_name": DEPRECATION_STALE_SOURCE_NAME,
+            "stale_table_id": str(stale_source.id),
+            "canonical_table_name": DEPRECATION_CANONICAL_SOURCE_NAME,
+            "canonical_table_id": str(canonical_source.id),
         }
     }
 

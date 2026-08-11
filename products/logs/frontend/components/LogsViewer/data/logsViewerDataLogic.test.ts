@@ -9,6 +9,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import { logsViewerDataLogic, shouldSkipFilterGroupChange } from './logsViewerDataLogic'
 
@@ -182,6 +183,20 @@ describe('logsViewerDataLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.sparklineData).toEqual(expected)
+        })
+
+        it('renders the collapsed bucket as a muted trailing series, not as a literal sentinel', async () => {
+            // The sentinel starts with '$', so without special-casing it would sort ahead of every
+            // real value and be drawn as a breakdown value named "$$_posthog_breakdown_other_$$".
+            logic.actions.setSparkline([
+                { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
+                { time: '2024-01-01T00:00:00Z', severity: OTHER_BREAKDOWN_VALUE, count: 7 },
+            ] as any[])
+            await expectLogic(logic).toFinishAllListeners()
+
+            const { data } = logic.values.sparklineData
+            expect(data.map((series: { name: string }) => series.name)).toEqual(['info', OTHER_BREAKDOWN_LABEL])
+            expect(data[1]).toEqual(expect.objectContaining({ color: 'muted', values: [7] }))
         })
     })
 

@@ -61,7 +61,13 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
+from posthog.api.utils import (
+    ClassicBehaviorBooleanFieldSerializer,
+    action,
+    canonicalize_encoded_url,
+    strip_url_userinfo,
+    unparsed_hostname_in_allowed_url_list,
+)
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -81,6 +87,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -534,6 +541,12 @@ class UserSerializer(serializers.ModelSerializer):
         try:
             organization = Organization.objects.get(id=value)
             if organization.memberships.filter(user=self.context["request"].user).exists():
+                # A member the org no longer admits can't point their session back at it — this
+                # endpoint is on the enforcement whitelist, so it must refuse on its own.
+                if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+                    self.context["request"].user.email, organization
+                ):
+                    raise serializers.ValidationError(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
                 return organization
         except Organization.DoesNotExist:
             pass
@@ -1135,6 +1148,10 @@ class UserViewSet(
         # must not become a password-backend login path around the IdP. The user logs in via SSO.
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
             return Response({"success": True, "token": token, "requires_sso": True})
+
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            return Response({"success": True, "token": token, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
@@ -1828,8 +1845,12 @@ def redirect_to_site(request):
 
     if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        parsed_app_url = urllib.parse.urlparse(app_url)
-        hostname = parsed_app_url.hostname or app_url
+        try:
+            hostname = urllib.parse.urlparse(app_url).hostname or app_url
+        except ValueError:
+            # A URL too malformed to parse is still a rejection, so report it back as typed
+            # rather than failing the request with a 500.
+            hostname = app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
@@ -1851,6 +1872,10 @@ def redirect_to_site(request):
             },
             status_code=403,
         )
+
+    # Redirect to the form that was approved, not the caller's raw string.
+    app_url = strip_url_userinfo(canonicalize_encoded_url(app_url))
+
     params = {
         "action": "ph_authorize",
         "token": team.api_token,

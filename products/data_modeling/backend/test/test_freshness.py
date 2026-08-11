@@ -139,6 +139,28 @@ class TestValidateFrequencyTarget(TestCase):
         with self.assertRaises(UnsupportedFrequencyTargetError):
             validate_declared_target(node_id="a", target=target, edges=[], declared_targets={}, source_intervals={})
 
+    @parameterized.expand(
+        [
+            # rejected on the ceiling: the message must name the consumer's demand, not just the refusal
+            ("ceiling", DAY, [("a", "ep")], {"ep": M15}, {}, "15 minutes"),
+            # rejected on the floor: the message must name what the sources can actually deliver
+            ("floor", M15, [("src", "a")], {}, {"src": H6}, "6 hours"),
+        ]
+    )
+    def test_rejection_names_the_frequency_to_pick_instead(
+        self, _name, target, edges, targets, source_intervals, expected
+    ):
+        with self.assertRaises(UnsatisfiableFrequencyError) as raised:
+            validate_declared_target(
+                node_id="a", target=target, edges=edges, declared_targets=targets, source_intervals=source_intervals
+            )
+        message = str(raised.exception)
+        assert expected in message
+        # A direction promises cadences the picker may not offer: nothing is faster than a 15min
+        # ceiling, and nothing is slower than a 30day floor.
+        assert "or faster" not in message
+        assert "or slower" not in message
+
     def test_supported_targets_are_canonical_sync_frequency_buckets(self):
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415 - keeps Django off this pure test module's import path
             sync_frequency_interval_to_sync_frequency,

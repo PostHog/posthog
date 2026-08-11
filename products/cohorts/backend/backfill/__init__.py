@@ -4,7 +4,11 @@ from products.cohorts.backend.backfill.pinning import (
     pin_conditions_for_cohorts,
     pin_person_conditions_for_cohorts,
 )
-from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash, stamp_events_readiness
+from products.cohorts.backend.backfill.readiness import (
+    ensure_filters_shape_hash,
+    stamp_events_readiness,
+    stamp_person_properties_readiness,
+)
 from products.cohorts.backend.backfill.runs import (
     check_person_run_preconditions,
     check_run_preconditions,
@@ -31,5 +35,6 @@ __all__ = [
     "pin_conditions_for_cohorts",
     "pin_person_conditions_for_cohorts",
     "stamp_events_readiness",
+    "stamp_person_properties_readiness",
     "supersede_active_runs",
 ]

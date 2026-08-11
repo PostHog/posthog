@@ -568,13 +568,13 @@ class TestAnthropicMessagesEndpoint:
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
 
         with patch(
-            "llm_gateway.glm_routing.make_cloudflare_anthropic_call",
+            "llm_gateway.inference_routing.make_cloudflare_anthropic_call",
         ) as mock_make_call:
             mock_llm_call = AsyncMock(return_value=mock_response)
             mock_make_call.return_value = mock_llm_call
 
             with patch(
-                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
@@ -607,10 +607,10 @@ class TestAnthropicMessagesEndpoint:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
 
-        with patch("llm_gateway.glm_routing.make_cloudflare_anthropic_call") as mock_make_call:
+        with patch("llm_gateway.inference_routing.make_cloudflare_anthropic_call") as mock_make_call:
             mock_make_call.return_value = AsyncMock(return_value=mock_response)
             with patch(
-                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
@@ -655,12 +655,12 @@ class TestAnthropicMessagesEndpoint:
             yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
 
         with patch(
-            "llm_gateway.glm_routing.make_cloudflare_anthropic_call",
+            "llm_gateway.inference_routing.make_cloudflare_anthropic_call",
         ) as mock_make_call:
             mock_make_call.return_value = AsyncMock(return_value=fake_stream())
 
             with patch(
-                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 with authenticated_client.stream(
@@ -689,8 +689,8 @@ class TestAnthropicMessagesEndpoint:
         self,
         authenticated_client: TestClient,
     ) -> None:
-        with patch("llm_gateway.glm_routing.ensure_cloudflare_configured") as mock_ensure_configured:
-            with patch("llm_gateway.glm_routing.make_cloudflare_anthropic_call") as mock_make_call:
+        with patch("llm_gateway.inference_routing.ensure_cloudflare_configured") as mock_ensure_configured:
+            with patch("llm_gateway.inference_routing.make_cloudflare_anthropic_call") as mock_make_call:
                 response = authenticated_client.post(
                     "/v1/messages",
                     json={

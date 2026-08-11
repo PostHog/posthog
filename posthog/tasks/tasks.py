@@ -23,7 +23,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
@@ -405,6 +405,7 @@ def process_query_task(
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ) -> None:
     """
     Kick off query
@@ -427,6 +428,7 @@ def process_query_task(
         limit_context=limit_context,
         is_query_service=is_query_service,
         analytics_props=analytics_props,
+        sharing_configuration_id=sharing_configuration_id,
     )
 
 
@@ -980,12 +982,15 @@ def find_flags_with_enriched_analytics() -> None:
 
     try:
         find_flags_with_enriched_analytics(begin, end)
+    except CHQueryErrorUnknownTable as e:
+        # Expected on self-hosted instances with an incomplete ClickHouse schema (e.g. missing
+        # migrations) - not worth capturing as an exception, just skip this run.
+        logger.warning("Find flags with enriched analytics skipped, table missing", error=e)
     except Exception as e:
         logger.exception("Find flags with enriched analytics failed", error=e)
         capture_exception(
             e, additional_properties={"feature": "feature_flags", "task": "find_flags_with_enriched_analytics"}
         )
-        raise
 
 
 @shared_task(ignore_result=True)

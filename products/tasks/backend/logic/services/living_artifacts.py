@@ -24,10 +24,9 @@ from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
 
-# Both scopes are still in Slack app review (see posthog/helpers/slack_scopes.py), so the canvas
-# and file adapters are additionally gated behind the slack-app-canvas-file-artifacts flag: scope
-# checks alone would force the feature on for any install whose manifest grants the scopes (DEV
-# today, every prod workspace the moment Slack approves them) with no rollout control.
+# Both scopes are approved (see posthog/helpers/slack_scopes.py), so the canvas and file adapters
+# stay behind the slack-app-canvas-file-artifacts flag: scope checks alone would turn the feature
+# on for every install that has them, with no rollout control.
 SLACK_CANVAS_SCOPE = "canvases:write"
 SLACK_FILE_SCOPE = "files:write"
 LIVING_ARTIFACT_TTL_DAYS = "30"
@@ -100,6 +99,7 @@ def create_living_artifact(
     source_artifact_id: str | None = None,
     source_storage_path: str | None = None,
     metadata: dict[str, Any] | None = None,
+    export_asset_id: int | None = None,
 ) -> TaskArtifact:
     _require_living_artifacts_enabled(run)
     content_payload = resolve_artifact_content(
@@ -143,6 +143,7 @@ def create_living_artifact(
             },
             versions=[commit.version],
             current_version=1,
+            export_asset_id=export_asset_id,
         )
     return artifact
 
@@ -202,6 +203,9 @@ def edit_living_artifact(
         locked.adapter = commit.adapter
         locked.location = commit.location
         locked.metadata = {**(locked.metadata or {}), **(metadata or {}), **commit.metadata}
+        # The export only depicts the version it was rendered from, and an edit replaces the
+        # content — so drop the link rather than let the new version deliver the old picture.
+        locked.export_asset_id = None
         locked.versions = versions
         locked.current_version = next_version
         locked.status = TaskArtifact.Status.ACTIVE
@@ -211,6 +215,7 @@ def edit_living_artifact(
                 "adapter",
                 "location",
                 "metadata",
+                "export_asset_id",
                 "versions",
                 "current_version",
                 "status",

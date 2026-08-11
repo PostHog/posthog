@@ -263,6 +263,80 @@ class TestPostSlackUpdate(TestCase):
         mock_delete_progress.assert_called_once()
         mock_post_completion.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ({"state": {"timed_out_wall_clock": True}, "error_message": None},),
+            ({"state": {"timed_out_inactivity": True}, "error_message": None},),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "post_error")
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_failed_timeout_run_stays_quiet_instead_of_posting_an_error_card(
+        self,
+        run_kwargs,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_delete_progress,
+        mock_post_error,
+    ):
+        # Timeouts can now land as FAILED, but they carry a state marker and no error_message, so
+        # the thread clears its progress marker rather than posting an error card with no reason.
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.FAILED,
+            output={},
+            **run_kwargs,
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_delete_progress.assert_called_once()
+        mock_post_error.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("PostHog setup wizard timed out after 30 minutes",),
+            ("Sandbox request timed out",),
+            ("Execution timed out after 600 seconds",),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "post_error")
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_failed_run_whose_message_mentions_a_timeout_still_posts_an_error_card(
+        self,
+        error_message,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_delete_progress,
+        mock_post_error,
+    ):
+        # Only the workflow's own state markers make a FAILED run quiet. Several genuine failures
+        # carry "timed out" in their message (wizard deadline, sandbox request, agent command), and
+        # swallowing those would leave the thread silent on a real error.
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.FAILED,
+            output={},
+            state={},
+            error_message=error_message,
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_update_reaction.assert_called_once_with("x")
+        mock_post_error.assert_called_once()
+        assert mock_post_error.call_args.args[0] == error_message
+        mock_delete_progress.assert_not_called()
+
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)

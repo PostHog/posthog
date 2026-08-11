@@ -52,9 +52,13 @@ pub struct StackConfig {
     pub writer_flush_interval_ms: u64,
     /// The table the writer upserts into.
     pub pg_target_table: String,
-    /// Leader in-memory cache capacity (entries). Lower it below the seeded
-    /// person count to put the cache under eviction pressure.
+    /// Leader per-partition cache budget in bytes (entries are weighed
+    /// by serialized size). Lower it below the seeded pool's footprint
+    /// to put the cache under eviction pressure.
     pub cache_memory_capacity: usize,
+    /// Extra environment for spawned leaders, appended after the
+    /// standard set (so it can override any of it).
+    pub extra_leader_env: Vec<(String, String)>,
     pub recovery_pool_size: usize,
     /// etcd lease TTL for leaders, in seconds. Bounds how long a crashed
     /// (unrevoked) leader stays the registered owner.
@@ -279,7 +283,7 @@ impl Stack {
         // Heartbeats must land well inside the lease window or a healthy
         // pod's lease expires between renewals.
         let heartbeat_secs = (self.config.leader_lease_ttl / 3).max(1);
-        let proc = ServiceProcess::spawn(
+        let proc = ServiceProcess::spawn_with_extra(
             &format!("leader-{index}"),
             &self.config.bin_dir.join("personhog-leader"),
             &[
@@ -288,7 +292,7 @@ impl Stack {
                 ("LEASE_TTL", self.config.leader_lease_ttl.to_string()),
                 ("HEARTBEAT_INTERVAL_SECS", heartbeat_secs.to_string()),
                 (
-                    "CACHE_MEMORY_CAPACITY",
+                    "CACHE_MEMORY_CAPACITY_BYTES",
                     self.config.cache_memory_capacity.to_string(),
                 ),
                 (
@@ -316,6 +320,7 @@ impl Stack {
                     (LEADER_METRICS_BASE_PORT + index as u16).to_string(),
                 ),
             ],
+            &self.config.extra_leader_env,
             &self.log_dir,
         )?;
 

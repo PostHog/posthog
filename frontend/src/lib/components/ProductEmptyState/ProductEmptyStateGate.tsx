@@ -54,7 +54,14 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
         // until data lands, so there's always a way back to setup.
         const needsSetup = status === 'needs-setup' || status === 'waiting-for-data'
         const reminder = needsSetup ? (
-            <LemonBanner type="info" action={{ children: `Set up ${config.productName}`, onClick: unskipEmptyState }}>
+            <LemonBanner
+                type="info"
+                action={{
+                    children: `Set up ${config.productName}`,
+                    onClick: unskipEmptyState,
+                    'data-attr': 'product-empty-state-setup-banner',
+                }}
+            >
                 {config.productName} isn't receiving data yet.
             </LemonBanner>
         ) : null

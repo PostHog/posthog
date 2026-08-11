@@ -1,8 +1,11 @@
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
+import { DataWarehouseViewLink } from '~/types'
 
 import {
     dataCatalogRelationshipProposalsAcceptCreate,
@@ -11,6 +14,7 @@ import {
 } from './generated/api'
 import type { DataCatalogRelationshipProposalApi } from './generated/api.schemas'
 import { relationshipsLogic } from './relationshipsLogic'
+import type { RelationshipsFilters } from './relationshipsLogic'
 
 jest.mock('lib/api', () => {
     class ApiError extends Error {
@@ -38,6 +42,10 @@ jest.mock('./generated/api', () => ({
     dataCatalogRelationshipProposalsList: jest.fn(),
     dataCatalogRelationshipProposalsAcceptCreate: jest.fn(),
     dataCatalogRelationshipProposalsRejectCreate: jest.fn(),
+}))
+
+jest.mock('lib/utils/deleteWithUndo', () => ({
+    deleteWithUndo: jest.fn().mockResolvedValue(undefined),
 }))
 
 function buildProposal(overrides: Partial<DataCatalogRelationshipProposalApi>): DataCatalogRelationshipProposalApi {
@@ -124,8 +132,68 @@ describe('relationshipsLogic', () => {
         const manual = rows.find((row) => row.key === 'join-join-2')
         expect(manual?.viaCatalog).toEqual(false)
         expect(manual?.rowStatus).toEqual('active')
+        expect(manual?.joinId).toEqual('join-2')
 
-        expect(rows.find((row) => row.proposalId === 'pending')?.rowStatus).toEqual('pending')
+        const pending = rows.find((row) => row.proposalId === 'pending')
+        expect(pending?.rowStatus).toEqual('pending')
+        expect(pending?.joinId).toBeNull()
+    })
+
+    it.each<[Partial<RelationshipsFilters>, string[]]>([
+        [{ status: 'pending' }, ['proposal-pending-1']],
+        [{ search: 'customers' }, ['proposal-rejected-1']],
+        [{ status: 'active', search: 'persons' }, []],
+    ])('narrows filteredRows with filters %o', async (filters, expectedKeys) => {
+        await mountWith(
+            [
+                buildProposal({ id: 'pending-1', status: 'proposed' }),
+                buildProposal({
+                    id: 'rejected-1',
+                    status: 'rejected',
+                    source_table_name: 'orders',
+                    source_table_key: 'customer_id',
+                    joining_table_name: 'customers',
+                    joining_table_key: 'id',
+                    field_name: 'customer',
+                }),
+            ],
+            [{ id: 'join-1', source_table_name: 'sessions' }]
+        )
+
+        logic.actions.setFilters(filters)
+
+        expect(logic.values.filteredRows.map((row) => row.key)).toEqual(expectedKeys)
+    })
+
+    it('reloads joins when the shared join modal saves', async () => {
+        await mountWith([], [])
+        ;(api.dataWarehouseViewLinks.list as jest.Mock).mockClear()
+
+        viewLinkLogic.build().actions.submitViewLinkSuccess({} as any)
+
+        await expectLogic(logic).toDispatchActions(['loadJoins', 'loadJoinsSuccess'])
+        expect(api.dataWarehouseViewLinks.list).toHaveBeenCalledTimes(1)
+    })
+
+    it('deletes a join against the singular view-link endpoint and reloads', async () => {
+        await mountWith([], [{ id: 'join-1', source_table_name: 'events' }])
+
+        logic.actions.deleteJoin({
+            id: 'join-1',
+            field_name: 'person',
+            source_table_name: 'events',
+        } as DataWarehouseViewLink)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(deleteWithUndo).toHaveBeenCalledWith(
+            expect.objectContaining({
+                endpoint: 'environments/1/warehouse_view_link',
+                object: expect.objectContaining({ id: 'join-1' }),
+            })
+        )
+        ;(api.dataWarehouseViewLinks.list as jest.Mock).mockClear()
+        ;(deleteWithUndo as jest.Mock).mock.calls[0][0].callback()
+        await expectLogic(logic).toDispatchActions(['loadJoins', 'loadJoinsSuccess'])
     })
 
     it('passes the rejection reason through when rejecting', async () => {

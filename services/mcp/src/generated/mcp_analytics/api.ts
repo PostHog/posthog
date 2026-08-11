@@ -112,6 +112,15 @@ export const McpAnalyticsIntentClustersRetrieveParams = /* @__PURE__ */ zod.obje
         ),
 })
 
+export const McpAnalyticsIntentClustersRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    tool: zod
+        .string()
+        .optional()
+        .describe(
+            "Narrow the response to one tool: its pivot entry, the clusters it serves or switches with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use this for single-tool views so they don't download every cluster and pivot to render one row. An unknown tool returns empty sections, not a 404."
+        ),
+})
+
 /**
  * Trigger an asynchronous recompute of the intent cluster snapshot. The task runs in the background; poll the GET endpoint for progress (status transitions to 'idle' or 'error').
  */

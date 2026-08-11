@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 
 import pydantic
@@ -48,16 +49,21 @@ CONVERSATION_TYPE_MAP: dict[
 }
 
 
-async def aget_conversation_state(
-    conversation: Conversation, team: Any, user: Any
-) -> tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ConversationStateResult:
+    state: AssistantMaxGraphState | None
+    has_unsupported_content: bool
+    interrupt_payloads: dict[str, dict[str, Any]]
+
+
+async def aget_conversation_state(conversation: Conversation, team: Any, user: Any) -> ConversationStateResult:
     """Compile the LangGraph graph, replay the checkpoint, and validate the typed state.
 
     Single source of truth for the LangGraph history read path — both the conversation
     serializer (history-load) and the legacy-history converter (products/posthog_ai) call this so
     the graph-compile + checkpoint-replay logic is never duplicated.
 
-    Returns (state, has_unsupported_content, interrupt_payloads). `state` is None for born-sandbox
+    Returns a ConversationStateResult. `state` is None for born-sandbox
     conversations (no checkpoint) and on any read/validation error — errors degrade gracefully
     and are captured rather than raised so a bad checkpoint can't 500 a conversation load.
     """
@@ -67,7 +73,7 @@ async def aget_conversation_state(
     if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
         has_checkpoint = await sync_to_async(conversation.checkpoints.exists)()
         if not has_checkpoint:
-            return None, False, {}
+            return ConversationStateResult(state=None, has_unsupported_content=False, interrupt_payloads={})
 
     try:
         graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]  # type: ignore[index]
@@ -84,7 +90,9 @@ async def aget_conversation_state(
                     if proposal_id:
                         interrupt_payloads[proposal_id] = interrupt.value
 
-        return state, False, interrupt_payloads
+        return ConversationStateResult(
+            state=state, has_unsupported_content=False, interrupt_payloads=interrupt_payloads
+        )
     except pydantic.ValidationError as e:
         capture_exception(
             e,
@@ -94,7 +102,7 @@ async def aget_conversation_state(
                 "conversation_id": str(conversation.id),
             },
         )
-        return None, True, {}
+        return ConversationStateResult(state=None, has_unsupported_content=True, interrupt_payloads={})
     except Exception as e:
         # Broad exception handler to gracefully degrade UI instead of 500s.
         # Captures all errors (context access, graph compilation, validation, etc.) to PostHog.
@@ -106,7 +114,7 @@ async def aget_conversation_state(
                 "conversation_id": str(conversation.id),
             },
         )
-        return None, False, {}
+        return ConversationStateResult(state=None, has_unsupported_content=False, interrupt_payloads={})
 
 
 class TaskUserBasicInfoSerializer(DataclassSerializer):
@@ -310,14 +318,12 @@ class ConversationSerializer(ConversationMinimalSerializer):
         # (rendered above the conversion divider). LangGraph conversations use the cached
         # `messages_json` when present, else compile + replay the checkpoint.
         if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
-            state, _, _ = self._get_cached_state(conversation)
-            return self._render_state_messages(state)
+            return self._render_state_messages(self._get_cached_state(conversation).state)
 
         if conversation.messages_json is not None:
             return conversation.messages_json
 
-        state, _, _ = self._get_cached_state(conversation)
-        return self._render_state_messages(state)
+        return self._render_state_messages(self._get_cached_state(conversation).state)
 
     def _render_state_messages(self, state: AssistantMaxGraphState | None) -> list[dict[str, Any]]:
         if state is None:
@@ -333,13 +339,12 @@ class ConversationSerializer(ConversationMinimalSerializer):
             return []
 
     def get_has_unsupported_content(self, conversation: Conversation) -> bool:
-        _, has_unsupported_content, _ = self._get_cached_state(conversation)
-        return has_unsupported_content
+        return self._get_cached_state(conversation).has_unsupported_content
 
     def get_agent_mode(self, conversation: Conversation) -> str | None:
-        state, _, _ = self._get_cached_state(conversation)
-        if state:
-            return state.agent_mode_or_default
+        result = self._get_cached_state(conversation)
+        if result.state:
+            return result.state.agent_mode_or_default
         return None
 
     def get_is_sandbox(self, conversation: Conversation) -> bool:
@@ -352,7 +357,7 @@ class ConversationSerializer(ConversationMinimalSerializer):
         Combines metadata from conversation.approval_decisions with payload from checkpoint
         interrupts (single source of truth for payload data).
         """
-        _, _, interrupt_payloads = self._get_cached_state(conversation)
+        cached_state = self._get_cached_state(conversation)
 
         result: list[dict[str, Any]] = []
         for proposal_id, decision_data in conversation.approval_decisions.items():
@@ -366,7 +371,7 @@ class ConversationSerializer(ConversationMinimalSerializer):
                 continue
 
             # Get payload from checkpoint interrupts (single source of truth)
-            payload = interrupt_payloads.get(proposal_id, {}).get("payload", {})
+            payload = cached_state.interrupt_payloads.get(proposal_id, {}).get("payload", {})
 
             result.append(
                 {
@@ -382,11 +387,9 @@ class ConversationSerializer(ConversationMinimalSerializer):
 
         return result
 
-    def _get_cached_state(
-        self, conversation: Conversation
-    ) -> tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]:
+    def _get_cached_state(self, conversation: Conversation) -> ConversationStateResult:
         if not hasattr(self, "_state_cache"):
-            self._state_cache: dict[str, tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]] = {}
+            self._state_cache: dict[str, ConversationStateResult] = {}
 
         cache_key = str(conversation.id)
         if cache_key not in self._state_cache:
@@ -394,13 +397,11 @@ class ConversationSerializer(ConversationMinimalSerializer):
 
         return self._state_cache[cache_key]
 
-    async def _aget_state(
-        self, conversation: Conversation
-    ) -> tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]:
+    async def _aget_state(self, conversation: Conversation) -> ConversationStateResult:
         """Async implementation of state fetching with validation error detection.
 
         Returns:
-            Tuple of (state, has_unsupported_content, interrupt_payloads).
-            interrupt_payloads is a dict mapping proposal_id to the interrupt value (including payload).
+            A ConversationStateResult; its interrupt_payloads maps proposal_id to the
+            interrupt value (including payload).
         """
         return await aget_conversation_state(conversation, self.context["team"], self.context["user"])

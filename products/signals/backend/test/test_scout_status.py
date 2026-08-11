@@ -58,10 +58,28 @@ class TestScoutStatusTransitions(BaseTest):
             (
                 "other_writer_cannot_overwrite_pause",
                 Status.PAUSED_BY_SYSTEM,
-                Reason.NO_OUTPUT,
+                Reason.REPEATED_FAILURES,
                 Status.PAUSED_BY_SYSTEM,
                 Reason.IGNORED,
                 False,
+            ),
+            # The sweep owns both inactivity reasons, so reclassifying its own warning is not a
+            # foreign write. Reclassification restarts the grace clock via `status_changed_at`.
+            (
+                "sweep_reclassifies_its_own_warning",
+                Status.PENDING_PAUSE,
+                Reason.NO_OUTPUT,
+                Status.PENDING_PAUSE,
+                Reason.IGNORED,
+                True,
+            ),
+            (
+                "sweep_resumes_either_of_its_own_reasons",
+                Status.PENDING_PAUSE,
+                Reason.IGNORED,
+                Status.ACTIVE,
+                Reason.NO_OUTPUT,
+                True,
             ),
             (
                 "other_writer_cannot_resume",

@@ -1165,6 +1165,11 @@ class DockerSandbox(SandboxBase):
     def create_directory_snapshot(self, path: str) -> str:
         return self.create_snapshot()
 
+    def prune_snapshot_heavy_dirs(self, path: str) -> None:
+        # Docker snapshots the whole container image, not a directory subtree, so there is no
+        # targeted prune to do here (and local dev never approaches Modal's file-count cap).
+        return None
+
     @staticmethod
     def delete_snapshot(external_id: str) -> None:
         logger.info(f"Deleting snapshot {external_id}")
