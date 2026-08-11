@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
@@ -13,11 +13,13 @@ export const AssigneeSelect = ({
     onChange,
     children,
     disabledReason,
+    loadOnOpen = false,
 }: {
     assignee: TicketAssignee
     onChange: (assignee: TicketAssignee) => void
     children: (assignee: Assignee, isOpen: boolean) => JSX.Element
     disabledReason?: string
+    loadOnOpen?: boolean
 }): JSX.Element => {
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -27,6 +29,12 @@ export const AssigneeSelect = ({
         setShowPopover(false)
         onChange(value)
     }
+
+    useEffect(() => {
+        if (!loadOnOpen) {
+            ensureAssigneeTypesLoaded()
+        }
+    }, [ensureAssigneeTypesLoaded, loadOnOpen])
 
     if (disabledReason) {
         return (
@@ -45,7 +53,7 @@ export const AssigneeSelect = ({
             matchWidth={false}
             onVisibilityChange={(visible) => {
                 setShowPopover(visible)
-                if (visible) {
+                if (visible && loadOnOpen) {
                     ensureAssigneeTypesLoaded()
                 }
             }}

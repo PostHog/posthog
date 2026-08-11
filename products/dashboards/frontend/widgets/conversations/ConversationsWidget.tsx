@@ -177,6 +177,7 @@ function ConversationsWidgetRow({
                             assignee={assignee}
                             onChange={(nextAssignee) => assignTicket(ticket.id, nextAssignee)}
                             disabledReason={isAssignmentLoading ? 'Updating assignee...' : undefined}
+                            loadOnOpen
                         >
                             {(resolvedAssignee, isOpen) => (
                                 <LemonButton
