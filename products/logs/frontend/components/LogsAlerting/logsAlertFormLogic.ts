@@ -10,6 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { quietHoursFormError } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
+import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import {
     logsAlertsCreate,
     logsAlertsPartialUpdate,
@@ -43,6 +45,7 @@ export interface LogsAlertFormType {
     evaluationPeriods: number
     datapointsToAlarm: number
     cooldownMinutes: number
+    scheduleRestriction: ScheduleRestriction | null
 }
 
 export interface LogsAlertFormLogicProps {
@@ -74,6 +77,7 @@ export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): Logs
         evaluationPeriods: alert?.evaluation_periods ?? 1,
         datapointsToAlarm: alert?.datapoints_to_alarm ?? 1,
         cooldownMinutes: alert?.cooldown_minutes ?? 0,
+        scheduleRestriction: alert?.schedule_restriction ?? null,
     }
 }
 
@@ -309,8 +313,9 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
         alertForm: {
             // Provides typed shape for kea-forms; afterMount resets with fresh values on every remount
             defaults: buildFormDefaults(props.alert),
-            errors: ({ name }) => ({
+            errors: ({ name, scheduleRestriction }) => ({
                 name: !name?.trim() ? 'Name is required' : undefined,
+                scheduleRestriction: quietHoursFormError(scheduleRestriction),
             }),
             submit: async (form) => {
                 if (!form.name?.trim()) {
@@ -331,6 +336,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     evaluation_periods: form.evaluationPeriods,
                     datapoints_to_alarm: form.datapointsToAlarm,
                     cooldown_minutes: form.cooldownMinutes,
+                    schedule_restriction: form.scheduleRestriction,
                 }
 
                 try {

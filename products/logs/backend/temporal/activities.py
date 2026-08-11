@@ -60,7 +60,12 @@ from products.logs.backend.alert_state_machine import (
     apply_outcome,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds, due_alerts_q
+from products.logs.backend.alert_utils import (
+    advance_next_check_at,
+    compute_shard_offset_seconds,
+    due_alerts_q,
+    next_allowed_check_at,
+)
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
@@ -1048,11 +1053,15 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
     # (the per-alert fallback's `alert.save()` would honour `auto_now`, but the
     # happy path is bulk_update).
     alert.updated_at = now
-    alert.next_check_at = advance_next_check_at(
-        alert.next_check_at,
-        alert.check_interval_minutes,
-        now,
-        shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
+    alert.next_check_at = next_allowed_check_at(
+        advance_next_check_at(
+            alert.next_check_at,
+            alert.check_interval_minutes,
+            now,
+            shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
+        ),
+        team_timezone=alert.team.timezone,
+        schedule_restriction=alert.schedule_restriction,
     )
     update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
@@ -1110,25 +1119,29 @@ def _save_cohort_outcomes(
 
     save_start = time.perf_counter()
 
-    # Stage every alert exactly once: mutates the in-memory alert (apply_outcome,
-    # advance_next_check_at, etc.) and produces the (update_fields, event) tuple
-    # needed to write it. We keep the staged tuples so the IntegrityError
-    # fallback can save each alert individually without re-staging — calling
-    # `advance_next_check_at` twice would otherwise skip a cycle slot.
-    staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
-    for d in dispatched:
-        update_fields, event = _stage_alert_for_save(d, now)
-        staged.append((d, update_fields, event))
-
-    events = [event for _, _, event in staged if event is not None]
-    alerts = [d.evaluation.alert for d, _, _ in staged]
-
     event_insert_ms: int | None = None
     update_ms: int | None = None
     saved: list[_DispatchedAlert] = list(dispatched)
     failed: list[_DispatchedAlert] = []
     try:
         with transaction.atomic():
+            current_restrictions = dict(
+                LogsAlertConfiguration.objects.select_for_update()
+                .filter(id__in=[d.evaluation.alert.id for d in dispatched])
+                .values_list("id", "schedule_restriction")
+            )
+
+            # The worker can evaluate an alert while a user saves quiet hours. Locking
+            # before staging makes either write order safe: this worker uses the saved
+            # restriction, or the API waits and then reschedules after this check.
+            staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
+            for d in dispatched:
+                d.evaluation.alert.schedule_restriction = current_restrictions.get(d.evaluation.alert.id)
+                update_fields, event = _stage_alert_for_save(d, now)
+                staged.append((d, update_fields, event))
+
+            events = [event for _, _, event in staged if event is not None]
+            alerts = [d.evaluation.alert for d, _, _ in staged]
             if events:
                 event_insert_start = time.perf_counter()
                 LogsAlertEvent.objects.bulk_create(events)

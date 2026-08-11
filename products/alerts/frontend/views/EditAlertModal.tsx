@@ -262,17 +262,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         ) {
             n += 1
         }
-        if ((alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
-            n += 1
-        }
         return n
-    }, [
-        alertForm.calculation_interval,
-        alertForm.config,
-        alertForm.schedule_restriction?.blocked_windows?.length,
-        alertForm.skip_weekend,
-        can_check_ongoing_interval,
-    ])
+    }, [alertForm.calculation_interval, alertForm.config, alertForm.skip_weekend, can_check_ongoing_interval])
 
     const subscribedCount = alertForm.subscribed_users?.length ?? 0
     const destinationCount = existingHogFunctions.length + pendingNotifications.length

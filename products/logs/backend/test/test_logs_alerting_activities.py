@@ -796,6 +796,54 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert.refresh_from_db()
         assert alert.next_check_at is not None and alert.next_check_at > now
 
+    @freeze_time("2025-01-01T21:58:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.alerts.backend.destinations.produce_internal_event")
+    def test_advances_next_check_at_past_quiet_hours(self, _mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [5])
+        alert = self._make_alert(
+            next_check_at=datetime(2025, 1, 1, 21, 55, tzinfo=UTC),
+            schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+        )
+        now = datetime(2025, 1, 1, 21, 58, tzinfo=UTC)
+
+        _evaluate_and_save_one(alert, now, _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
+
+    @freeze_time("2025-01-01T21:58:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.alerts.backend.destinations.produce_internal_event")
+    def test_uses_quiet_hours_saved_after_the_alert_loaded(self, _mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [5])
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 21, 55, tzinfo=UTC))
+        stale_alert = LogsAlertConfiguration.objects.get(id=alert.id)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
+        )
+
+        _evaluate_and_save_one(stale_alert, datetime(2025, 1, 1, 21, 58, tzinfo=UTC), _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
+
+    @freeze_time("2025-01-02T06:56:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.alerts.backend.destinations.produce_internal_event")
+    def test_advances_last_quiet_hours_check_to_the_window_end(self, _mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [5])
+        alert = self._make_alert(
+            next_check_at=datetime(2025, 1, 2, 6, 55, tzinfo=UTC),
+            schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+        )
+        now = datetime(2025, 1, 2, 6, 56, tzinfo=UTC)
+
+        _evaluate_and_save_one(alert, now, _make_stats())
+
+        alert.refresh_from_db()
+        assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
+
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")

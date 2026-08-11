@@ -33,7 +33,8 @@ If the change crosses rows, update each row deliberately. Do not hide a cross-la
 - Keep fixed-grid and calendar contracts explicit instead of branching on product names.
 - Make scheduler interval assumptions explicit.
 - Preserve deterministic UUID-based sharding and stable steady-state cadence.
-- Preserve local wall-clock anchors across DST changes and evaluate restrictions in the team's timezone.
+- Preserve local wall-clock anchors across DST changes and evaluate quiet-hour restrictions in the team's timezone.
+- Reuse the normalized schedule-restriction contract for each product that supports quiet hours. Product adapters own due queries and persistence.
 - Test missed intervals, drift healing, cadence changes, DST transitions, overnight windows, and boundary times.
 - Keep due eligibility with the product unless a real cross-product model contract exists.
 

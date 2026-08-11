@@ -84,6 +84,7 @@ const VALID_FORM_VALUES: LogsAlertFormType = {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     cooldownMinutes: 0,
+    scheduleRestriction: null,
 }
 
 describe('logsAlertFormLogic', () => {
@@ -141,6 +142,26 @@ describe('logsAlertFormLogic', () => {
 
             expect(logic.values.alertFormValidationErrors.name).toBeUndefined()
 
+            logic.unmount()
+        })
+
+        it('rejects invalid quiet hours before submitting', async () => {
+            const logic = logsAlertFormLogic({ alert: null })
+            logic.mount()
+
+            logic.actions.setAlertFormValues({
+                name: 'My Alert',
+                severityLevels: ['error'],
+                scheduleRestriction: { blocked_windows: [{ start: '10:00', end: '10:00' }] },
+            })
+
+            expect(logic.values.alertFormValidationErrors.scheduleRestriction).toBe('Start and end must differ.')
+
+            await expectLogic(logic, () => {
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(mockLogsAlertsCreate).not.toHaveBeenCalled()
             logic.unmount()
         })
 
