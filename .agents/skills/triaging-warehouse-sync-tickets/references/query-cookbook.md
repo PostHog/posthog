@@ -45,6 +45,11 @@ every team's production data, not just the `team_id` you filtered on.
 - Free-text placeholders (`<fragment>`, `<token>`, `<email>`) must not contain `'`, `;`, `--`, `/*`,
   `*/`, or a backslash. If the ticket text contains any of those, strip them before substituting, or ask
   the reporter for a cleaner value. Do not pass ticket text through unmodified.
+- `<fragment>` is additionally used inside `LIKE`/`ILIKE` patterns, where `%` and `_` are wildcards, not
+  literal characters. Stripping the characters above is not enough there: a fragment of `%` matches every
+  row, and `_` lets an attacker extract a name character by character. Strip `%` and `_` from `<fragment>`
+  before substitution, or avoid the wildcard entirely — the queries below use
+  `position(lower('<fragment>') in lower(column))` for exactly this reason.
 - If you cannot produce a validated value, do not run the query.
 
 ---
@@ -115,13 +120,14 @@ ORDER BY last_synced_at DESC
 
 **Find a schema by the table name in the ticket.** The customer's table name is usually the source
 prefix plus the schema name, so match on the schema name alone. Validate `<fragment>` per the note
-above before substituting it — this is ticket-derived text going straight into a `LIKE` pattern.
+above before substituting it — this is ticket-derived text, and the query below avoids `LIKE` wildcards
+entirely rather than relying on stripping `%`/`_`.
 
 ```sql
 SELECT id, name, source_id, status, sync_type, last_synced_at, table_id
 FROM public.posthog_externaldataschema
 WHERE team_id = <team_id>
-  AND name ILIKE '%<fragment>%'
+  AND position(lower('<fragment>') in lower(name)) > 0
 ```
 
 **Sync configuration for one schema.** `sync_type_config` holds the incremental field, its type, the
@@ -242,7 +248,8 @@ LIMIT 50
 
 **Search the message text.** The logger appends `[resource]` and `#batch_index` to warehouse import
 messages, so never match with equality. Validate `<fragment>` per the note at the top of this file
-before substituting it.
+before substituting it. This is ClickHouse, not Postgres, so the wildcard-free substring match is
+`positionCaseInsensitive`, not the `position(... in ...)` form used above.
 
 ```sql
 SELECT timestamp, level, instance_id, message
@@ -251,7 +258,7 @@ WHERE team_id = <team_id>
   AND log_source = 'external_data_jobs'
   AND log_source_id = '<schema_id>'
   AND timestamp > now() - INTERVAL 3 DAY
-  AND message ILIKE '%<fragment>%'
+  AND positionCaseInsensitive(message, '<fragment>') > 0
 ORDER BY timestamp DESC
 LIMIT 100
 ```
