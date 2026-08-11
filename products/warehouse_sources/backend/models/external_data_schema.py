@@ -77,7 +77,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # ignored by version-migration tooling — only the user changes it. Not available for
     # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
     api_version = models.CharField(max_length=128, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -485,6 +485,22 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def repartition_rewrite(self) -> dict[str, Any] | None:
+        """Checkpoint of a rewrite that ran out of activity budget before finishing streaming.
+
+        Its temp table holds a scan-ordered prefix of the live table's rows. The next attempt resumes
+        appending from that offset instead of re-streaming from row 0, so a table too large to rewrite
+        in one activity converges across attempts rather than giving up terminally. Cleared once temp
+        is fully built (a swap is staged) or when the controller gives up. Shape:
+        {"temp_uri": str, "rows_written": int, "target": dict}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("repartition_rewrite", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    @property
     def repartition_claim(self) -> dict[str, Any] | None:
         """The fencing claim of the newest repartition attempt: {"token", "job_id", "claimed_at"}.
 
@@ -535,6 +551,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
+        self._save_sync_type_config()
+
+    def set_repartition_rewrite(self, checkpoint: dict[str, Any]) -> None:
+        self.sync_type_config["repartition_rewrite"] = checkpoint
+        self._save_sync_type_config()
+
+    def clear_repartition_rewrite(self) -> None:
+        self.sync_type_config.pop("repartition_rewrite", None)
         self._save_sync_type_config()
 
     @property

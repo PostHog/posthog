@@ -1951,7 +1951,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             relay_activity = (
                 relay_sandbox_events_deferred_completion if _defer_run_stream_completion() else relay_sandbox_events
             )
-            await workflow.execute_activity(
+            sandbox_gone = await workflow.execute_activity(
                 relay_activity,
                 relay_input,
                 start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
@@ -1974,6 +1974,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ),
                 cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
             )
+            if sandbox_gone is True and not self._task_completed:
+                workflow.logger.warning(
+                    "relay_sandbox_events_reported_sandbox_gone",
+                    extra={"run_id": self.context.run_id},
+                )
+                self._sandbox_gone = True
         except asyncio.CancelledError:
             raise
         except Exception as e:

@@ -150,6 +150,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     onRecordingDeleted?: () => void
     autoPlay?: boolean
     withSidebar?: boolean
+    noMeta?: boolean
+    noDock?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
