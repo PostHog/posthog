@@ -1037,18 +1037,10 @@
                                                 "type": "array"
                                             },
                                             "channel": {
-                                                "anyOf": [
-                                                    {
-                                                        "enum": ["widget", "email", "slack", "teams", "github"],
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "const": "all",
-                                                        "type": "string"
-                                                    }
-                                                ],
                                                 "default": "all",
-                                                "description": "Ticket channel filter."
+                                                "description": "Ticket channel filter.",
+                                                "enum": ["widget", "email", "slack", "teams", "github", "all"],
+                                                "type": "string"
                                             },
                                             "limit": {
                                                 "default": 10,
@@ -1084,18 +1076,10 @@
                                                 "type": "string"
                                             },
                                             "status": {
-                                                "anyOf": [
-                                                    {
-                                                        "enum": ["new", "open", "pending", "on_hold", "resolved"],
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "const": "all",
-                                                        "type": "string"
-                                                    }
-                                                ],
                                                 "default": "all",
-                                                "description": "Ticket status filter."
+                                                "description": "Ticket status filter.",
+                                                "enum": ["new", "open", "pending", "on_hold", "resolved", "all"],
+                                                "type": "string"
                                             }
                                         },
                                         "type": "object"
