@@ -5,6 +5,8 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import Team
 
 from products.conversations.backend.models import Ticket, TicketAssignment, TicketView
@@ -14,6 +16,17 @@ from products.dashboards.backend.widget_specs.registry import get_widget_registr
 
 @freeze_time("2026-08-10 12:00:00")
 class TestConversationsRecentTicketsWidget(BaseTest):
+    @parameterized.expand(
+        [
+            ("invalid_user", {"type": "user", "id": "not-a-user-id"}),
+            ("invalid_role", {"type": "role", "id": "not-a-role-id"}),
+            ("boolean", {"type": "user", "id": True}),
+        ]
+    )
+    def test_rejects_invalid_assignee_ids(self, _name: str, assignee: dict[str, str | bool]) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config("conversations_recent_tickets", {"assignees": [assignee]})
+
     def test_saved_view_id_validation_matches_ticket_view_short_id(self) -> None:
         validated = validate_widget_config("conversations_recent_tickets", {"savedViewId": "123456789012"})
         assert validated["savedViewId"] == "123456789012"

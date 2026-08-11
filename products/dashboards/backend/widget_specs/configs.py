@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -70,6 +71,28 @@ class WidgetAssigneeFilter(BaseModel):
 
     id: str | int
     type: WidgetAssigneeType
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_id(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+
+        assignee_id = value.get("id")
+        assignee_type = value.get("type")
+        if isinstance(assignee_id, bool) or not isinstance(assignee_id, str | int):
+            raise ValueError("Assignee id must be a user ID or role UUID.")
+        if assignee_type == "user":
+            try:
+                int(assignee_id)
+            except ValueError as err:
+                raise ValueError("User assignee id must be an integer.") from err
+        if assignee_type == "role":
+            try:
+                UUID(str(assignee_id))
+            except ValueError as err:
+                raise ValueError("Role assignee id must be a UUID.") from err
+        return value
 
 
 ConversationsAssigneeFilter = Literal["me", "unassigned"] | WidgetAssigneeFilter

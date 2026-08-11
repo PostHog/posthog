@@ -4,6 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AssigneeMultiSelect, type AssigneeFilterEntry } from 'products/conversations/frontend/components/Assignee'
 import { clearFilterButtonProps } from 'products/conversations/frontend/components/clearFilterButtonProps'
@@ -90,10 +91,11 @@ export function ConversationsWidgetTileFilters({
     const priorities = parsedConfig.priorities ?? []
     const assignees = (parsedConfig.assignees ?? []) as AssigneeFilterEntry[]
     const savedViewId = parsedConfig.savedViewId ?? null
-    const { savedViewOptions, savedViewsLoading, savedViewsError, savedViewLabelById } = useValues(
-        conversationsWidgetSavedViewsLogic
-    )
-    const { loadSavedViews } = useActions(conversationsWidgetSavedViewsLogic)
+    const { currentProjectId } = useValues(teamLogic)
+    const savedViewsLogic = conversationsWidgetSavedViewsLogic({ projectId: currentProjectId })
+    const { savedViewOptions, savedViews, savedViewsLoading, savedViewsError, savedViewLabelById } =
+        useValues(savedViewsLogic)
+    const { loadSavedViews } = useActions(savedViewsLogic)
     const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
     const statusLabel = CONVERSATIONS_TICKET_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status
     const prioritiesLabel = priorities.length === 0 ? 'All priorities' : `${priorities.length} selected`
@@ -125,8 +127,19 @@ export function ConversationsWidgetTileFilters({
                     disabled={!!savedViewsError}
                     disabledReason={savedViewsError ? 'Could not load saved views.' : undefined}
                     options={[{ value: NO_SAVED_VIEW, label: 'No saved view' }, ...savedViewOptions]}
+                    menu={{
+                        onVisibilityChange: (visible) => {
+                            if (visible && savedViews.length === 0 && !savedViewsLoading) {
+                                loadSavedViews()
+                            }
+                        },
+                    }}
                     renderButtonContent={(option) =>
-                        option?.value === NO_SAVED_VIEW ? 'Saved view' : (option?.label ?? 'Saved view')
+                        option?.value === NO_SAVED_VIEW ? (
+                            'Saved view'
+                        ) : (
+                            <span className="block max-w-32 truncate">{option?.label ?? 'Saved view'}</span>
+                        )
                     }
                     onChange={(value) => {
                         const nextConfig = patchConversationsWidgetFilterFields(getLatestConfig(), {

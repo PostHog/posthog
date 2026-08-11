@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
@@ -28,10 +28,6 @@ export const AssigneeSelect = ({
         onChange(value)
     }
 
-    useEffect(() => {
-        ensureAssigneeTypesLoaded()
-    }, [ensureAssigneeTypesLoaded])
-
     if (disabledReason) {
         return (
             <div>
@@ -47,7 +43,12 @@ export const AssigneeSelect = ({
             closeOnClickInside={false}
             visible={showPopover}
             matchWidth={false}
-            onVisibilityChange={(visible) => setShowPopover(visible)}
+            onVisibilityChange={(visible) => {
+                setShowPopover(visible)
+                if (visible) {
+                    ensureAssigneeTypesLoaded()
+                }
+            }}
             overlay={<AssigneeDropdown assignee={assignee} onChange={_onChange} />}
         >
             <div>
