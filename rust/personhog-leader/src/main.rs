@@ -590,21 +590,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Periodic sweep of idle per-key locks, refilled warning-throttle
-    // keys, and parked fence connections nothing consumed (a cancelled
-    // inbound handoff leaves no convergence behind to discard them).
+    // Periodic sweep of idle per-key locks and refilled warning-throttle keys
     let sweep_locks = Arc::clone(&locks);
     let sweep_warnings = warnings.clone();
-    let sweep_fenced = fenced.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             sweep_idle_locks(&sweep_locks);
             sweep_warnings.sweep_throttle();
-            if let Some(fenced) = &sweep_fenced {
-                fenced.sweep_prepared();
-            }
         }
     });
 
