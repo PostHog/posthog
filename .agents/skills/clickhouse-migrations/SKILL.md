@@ -22,16 +22,22 @@ operations = [
 ]
 ```
 
-### Node roles (choose based on table type)
+### Node roles (choose by the cluster that owns the object)
 
 Only the members of `NodeRole` in `posthog/clickhouse/client/connection.py` are valid: `ALL`, `DATA`,
 `INGESTION_EVENTS`, `INGESTION_SMALL`, `INGESTION_MEDIUM`, `ENDPOINTS`, `LOGS`, `AI_EVENTS`, `AUX`,
 `OPS`, `SESSIONS`. A name that is not in that enum fails at import, which aborts migration discovery
 and takes every job that runs migrations down with it.
 
-- `[NodeRole.DATA]`: sharded tables, non-sharded replicated tables, distributed read tables, views,
-  dictionaries — the default, and correct for almost everything on the main cluster
-- `[NodeRole.INGESTION_SMALL]`: writable tables, Kafka tables, materialized views on ingestion layer
+Pick the role by **which cluster owns the object**, not by its type alone:
+
+- `[NodeRole.DATA]`: anything on the main cluster — sharded tables, non-sharded replicated tables,
+  distributed read tables, views, dictionaries. The default, and right for most migrations.
+- `[NodeRole.INGESTION_SMALL]`: writable tables, Kafka tables, materialized views on the ingestion layer
+- `[NodeRole.OPS]`, `[NodeRole.LOGS]`, `[NodeRole.AUX]`, `[NodeRole.AI_EVENTS]`, `[NodeRole.SESSIONS]`:
+  objects that live on a satellite cluster. A table for one of those on `DATA` lands on the wrong
+  nodes and leaves the intended cluster without it, so check where the object is read and written
+  before defaulting to `DATA`.
 - `[NodeRole.ALL]`: rarely used
 
 ### Table engines quick reference
