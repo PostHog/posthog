@@ -61,10 +61,28 @@ class RESTClientNonRetryableError(NonReportableError):
 # number, or one of the literals true/false/null.
 _JSON_START_BYTES = frozenset(b'{["-tfn0123456789')
 
+# Enough for an API's error object (code, message, docs link); short enough that a stray HTML
+# error page doesn't fill `latest_error`.
+_ERROR_BODY_LIMIT = 500
+
 
 def _looks_like_json(content: bytes) -> bool:
     stripped = content.lstrip()
     return bool(stripped) and stripped[0] in _JSON_START_BYTES
+
+
+def _error_body_excerpt(response: Response) -> str:
+    """A short, single-line excerpt of an error response body, or "" if there's nothing to show."""
+    try:
+        text = response.text
+    except Exception:
+        return ""
+    excerpt = " ".join(text.split())
+    if not excerpt:
+        return ""
+    if len(excerpt) > _ERROR_BODY_LIMIT:
+        excerpt = f"{excerpt[:_ERROR_BODY_LIMIT]}…"
+    return excerpt
 
 
 def _safe_url(url: str) -> str:
@@ -224,6 +242,7 @@ class RESTClient:
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
         request_timeout: Optional[float | tuple[float, float]] = None,
+        include_error_body: bool = False,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
@@ -236,6 +255,13 @@ class RESTClient:
         # customer-controlled host should set this so every sync request is bounded.
         self._request_timeout = request_timeout
         self._allow_redirects = allow_redirects
+        # Whether a 4xx body may be quoted in the raised error. `requests` builds its HTTPError
+        # message from status, reason, and URL alone, so without this a client error is only ever
+        # diagnosable by its status code. Off by default: the error message is persisted to
+        # `latest_error` and logged, and an API's error body can carry account or billing detail
+        # that has no business going there. Turn it on per source, once its error bodies are known
+        # to be a plain code and message.
+        self._include_error_body = include_error_body
         # When set (even to an empty list), every outgoing request URL — including
         # paginator next-page links and seeded resume URLs — must resolve to one of
         # these hosts (the base_url host is always implicitly allowed). This pins
@@ -459,7 +485,13 @@ class RESTClient:
             try:
                 response.raise_for_status()
             except HTTPError as e:
-                raise HTTPError(self._redact(str(e)), response=e.response, request=e.request) from None
+                message = str(e)
+                # Appended after the stock message, so non-retryable-error patterns — which match
+                # the message as a substring — keep matching.
+                body = _error_body_excerpt(response) if self._include_error_body else ""
+                if body:
+                    message = f"{message} | response body: {body}"
+                raise HTTPError(self._redact(message), response=e.response, request=e.request) from None
 
         # Parse inside the retry so a truncated/partial body is reissued like a 429/5xx
         # instead of bubbling up uncaught and failing the import.

@@ -88,6 +88,56 @@ class TestExceptionRedaction:
         assert "***" in message
         assert "400" in message
 
+    @parameterized.expand(
+        [
+            # The API's own error object is what names the cause; without it a 4xx is only
+            # diagnosable by its status code.
+            ("json_error", b'{"code": 20001, "message": "Invalid parameter"}', "20001"),
+            # An API that echoes a request param back must not put the secret into `latest_error`.
+            ("echoes_secret", f'{{"detail": "bad key {SECRET}"}}'.encode(), "bad key ***"),
+            ("long_body", b"x" * 900, "…"),
+        ]
+    )
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_client_error_carries_redacted_body(self, _name: str, content: bytes, expected: str, MockSession) -> None:
+        mock_session = _make_client(SECRET, MockSession)
+        mock_session.send.return_value = _make_response(400, SECRET, reason="Bad Request", content=content)
+        client = RESTClient(
+            base_url="https://api.example.com",
+            auth=APIKeyAuth(api_key=SECRET, name="api_key", location="query"),
+            max_retry_attempts=1,
+            include_error_body=True,
+        )
+        with pytest.raises(Exception) as excinfo:
+            list(client.paginate(path="/items"))
+        message = str(excinfo.value)
+        assert SECRET not in message
+        assert expected in message
+        # The stock prefix stays intact ahead of the body — non-retryable-error patterns match on it.
+        assert message.startswith("400 Client Error: Bad Request for url:")
+
+    @parameterized.expand(
+        [
+            # A source that hasn't opted in keeps its error bodies out of the persisted message,
+            # whatever account detail they carry.
+            ("not_opted_in", False, b'{"detail": "account 4021 is past due"}'),
+            ("opted_in_empty_body", True, b""),
+        ]
+    )
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_error_body_is_omitted(self, _name: str, include_error_body: bool, content: bytes, MockSession) -> None:
+        mock_session = _make_client(SECRET, MockSession)
+        mock_session.send.return_value = _make_response(400, SECRET, reason="Bad Request", content=content)
+        client = RESTClient(
+            base_url="https://api.example.com",
+            auth=APIKeyAuth(api_key=SECRET, name="api_key", location="query"),
+            max_retry_attempts=1,
+            include_error_body=include_error_body,
+        )
+        with pytest.raises(Exception) as excinfo:
+            list(client.paginate(path="/items"))
+        assert "response body" not in str(excinfo.value)
+
     @parameterized.expand([("raw", SECRET), ("reserved_chars", SPECIAL_SECRET)])
     @patch(f"{MODULE}.make_tracked_session")
     def test_retryable_5xx_drops_query_so_no_secret_leaks(self, _name: str, secret: str, MockSession) -> None:

@@ -106,14 +106,23 @@ class TestFormatFilterDate:
 
 
 class TestBuildInitialParams:
-    def test_full_refresh_only_sends_page_size(self):
+    @pytest.mark.parametrize(
+        "endpoint,expected",
+        [
+            ("messages", {"PageSize": 1000}),
+            # Twilio answers PageSize=1000 on the Verify Services endpoint with a 400, so this one
+            # sends no page size at all and takes Twilio's default.
+            ("verification_services", {}),
+        ],
+    )
+    def test_full_refresh_sends_only_the_endpoints_page_size(self, endpoint: str, expected: dict[str, Any]):
         params = _build_initial_params(
-            TWILIO_ENDPOINTS["messages"],
+            TWILIO_ENDPOINTS[endpoint],
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
             incremental_field=None,
         )
-        assert params == {"PageSize": 1000}
+        assert params == expected
 
     def test_incremental_adds_inclusive_date_filter(self):
         params = _build_initial_params(

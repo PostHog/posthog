@@ -9,6 +9,9 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 TWILIO_API_HOST = "https://api.twilio.com"
 TWILIO_VERIFY_HOST = "https://verify.twilio.com"
 
+# Twilio documents 1000 as the ceiling on every list endpoint, but not every endpoint honors it.
+DEFAULT_PAGE_SIZE = 1000
+
 
 def _datetime_field(name: str, nullable: bool = False) -> IncrementalField:
     return {
@@ -50,6 +53,8 @@ class TwilioEndpointConfig:
     date_filter_format: Literal["date", "datetime"] = "date"
     # Twilio list endpoints that filter by date return rows newest-first and offer no ascending option.
     sort_mode: SortMode = "asc"
+    # Rows per page. `None` sends no `PageSize` at all, leaving Twilio on its default of 50.
+    page_size: Optional[int] = DEFAULT_PAGE_SIZE
 
 
 TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
@@ -144,6 +149,9 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
         primary_key="category",
     ),
     # Verify API (verify.twilio.com/v2), not account-scoped and paginated via `meta.next_page_url`.
+    # Twilio answers `PageSize=1000` here with a 400, despite documenting 1000 as the maximum, so
+    # this sends no PageSize and takes the default of 50. An account holds a handful of services,
+    # so the extra pages cost nothing.
     "verification_services": TwilioEndpointConfig(
         name="verification_services",
         path="/v2/Services",
@@ -151,6 +159,7 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
         base_url=TWILIO_VERIFY_HOST,
         account_scoped=False,
         partition_key="date_created",
+        page_size=None,
     ),
     # Verification attempts are retained by Twilio for only 30 days, so this is synced incrementally on
     # `DateCreatedAfter` to keep pulling the freshest data every run.
