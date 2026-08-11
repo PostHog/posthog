@@ -1,15 +1,21 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { initKeaTests } from '~/test/init'
 
-import { ConversationsWidget } from './ConversationsWidget'
+import { ConversationsWidget, ConversationsWidgetTopHeading } from './ConversationsWidget'
+import { conversationsWidgetSavedViewsLogic } from './conversationsWidgetSavedViewsLogic'
 
 describe('ConversationsWidget', () => {
     beforeEach(() => {
-        initKeaTests()
+        initKeaTests(true, MOCK_DEFAULT_TEAM)
+        teamLogic.mount()
         jest.mocked(posthog.capture).mockClear()
     })
 
@@ -44,5 +50,23 @@ describe('ConversationsWidget', () => {
         fireEvent.click(screen.getByText('I need help with my dashboard.'))
 
         expect(posthog.capture).toHaveBeenCalledWith('support ticket opened from recent ticket list')
+    })
+
+    it('shows the saved view name in the card top heading', () => {
+        const savedViewsLogic = conversationsWidgetSavedViewsLogic({ projectId: teamLogic.values.currentProjectId })
+        savedViewsLogic.mount()
+        savedViewsLogic.actions.loadSavedViewsSuccess([{ short_id: 'needs-reply', name: 'Needs a reply' }])
+
+        render(
+            <ConversationsWidgetTopHeading
+                config={{ savedViewId: 'needs-reply' }}
+                widgetTypeLabel="Support"
+                showWidgetType
+                dateText={null}
+            />
+        )
+
+        expect(screen.getByText('Support')).toBeInTheDocument()
+        expect(screen.getByText('Needs a reply')).toBeInTheDocument()
     })
 })

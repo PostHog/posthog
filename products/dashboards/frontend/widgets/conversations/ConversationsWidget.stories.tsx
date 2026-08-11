@@ -17,7 +17,11 @@ import { WidgetRuntimeAvailabilityGuard } from '../../components/WidgetRuntimeAv
 import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { ConversationsWidget, type ConversationsWidgetTicket } from './ConversationsWidget'
+import {
+    ConversationsWidget,
+    ConversationsWidgetTopHeading,
+    type ConversationsWidgetTicket,
+} from './ConversationsWidget'
 import { ConversationsWidgetTileFilters } from './ConversationsWidgetTileFilters'
 
 const CATALOG = getDashboardWidgetCatalogEntry('conversations_recent_tickets')!
@@ -52,6 +56,7 @@ function StoryTile(props: DashboardWidgetComponentProps): JSX.Element {
                 widgetTypeLabel={getDashboardWidgetGroupLabel(CATALOG.groupId)}
                 config={config}
                 headerMeta={CATALOG.headerMeta}
+                TopHeading={ConversationsWidgetTopHeading}
                 description={CATALOG.description}
                 showDescription
                 loading={props.loading}

@@ -1,16 +1,19 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AssigneeDisplay, AssigneeResolver, AssigneeSelect } from 'products/conversations/frontend/components/Assignee'
@@ -24,9 +27,11 @@ import {
     WidgetContentFooter,
     WidgetListCount,
 } from '../../components/WidgetCard'
+import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard/WidgetCardHeader'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseConversationsWidgetConfig } from './conversationsWidgetConfigValidation'
 import { conversationsWidgetLogic } from './conversationsWidgetLogic'
+import { conversationsWidgetSavedViewsLogic } from './conversationsWidgetSavedViewsLogic'
 import {
     priorityTagType,
     statusTagType,
@@ -46,6 +51,33 @@ export type ConversationsWidgetResult = {
     hasMore?: boolean
     totalCount?: number
     totalCountCapped?: boolean
+}
+
+export function ConversationsWidgetTopHeading({
+    config,
+    widgetTypeLabel,
+    showWidgetType,
+    dateText,
+}: DashboardWidgetTopHeadingProps): JSX.Element {
+    const savedViewId = parseConversationsWidgetConfig(config).savedViewId
+    const { currentProjectId } = useValues(teamLogic)
+    const savedViewsLogic = conversationsWidgetSavedViewsLogic({ projectId: currentProjectId })
+    const { savedViewLabelById, savedViewsLoaded, savedViewsLoading } = useValues(savedViewsLogic)
+    const { loadSavedViews } = useActions(savedViewsLogic)
+
+    useEffect(() => {
+        if (savedViewId && !savedViewsLoaded && !savedViewsLoading) {
+            loadSavedViews()
+        }
+    }, [loadSavedViews, savedViewId, savedViewsLoaded, savedViewsLoading])
+
+    return (
+        <CardTopHeadingRow
+            typeLabel={widgetTypeLabel}
+            showTypeLabel={showWidgetType}
+            dateText={savedViewId ? (savedViewLabelById[savedViewId] ?? 'Saved view') : dateText}
+        />
+    )
 }
 
 function ConversationsWidgetRow({

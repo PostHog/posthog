@@ -39,6 +39,9 @@ const ActivityEventsWidget = lazyWithRetry(() =>
 const ConversationsWidget = lazyWithRetry(() =>
     import('./conversations/ConversationsWidget').then((m) => ({ default: m.ConversationsWidget }))
 )
+const ConversationsWidgetTopHeading = lazyWithRetry(() =>
+    import('./conversations/ConversationsWidget').then((m) => ({ default: m.ConversationsWidgetTopHeading }))
+)
 const ConversationsWidgetTileFilters = lazyWithRetry(() =>
     import('./conversations/ConversationsWidgetTileFilters').then((m) => ({
         default: m.ConversationsWidgetTileFilters,
@@ -226,6 +229,7 @@ export type DashboardWidgetEditModalProps = {
 export const DASHBOARD_WIDGET_REGISTRY = {
     conversations_recent_tickets: {
         Component: ConversationsWidget,
+        TopHeading: ConversationsWidgetTopHeading,
         TileFilters: ConversationsWidgetTileFilters,
         EditModal: EditConversationsWidgetModal,
         productAccess: 'ticket',
