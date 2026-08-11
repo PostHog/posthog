@@ -335,7 +335,7 @@ export function ReplyFooter({
           : authorKind;
       if (!seen.has(key)) seen.set(key, message);
     }
-    return [...seen.values()].slice(0, 4);
+    return [...seen.entries()].slice(0, 4);
   }, [messages]);
 
   if (messages.length === 0) {
@@ -359,19 +359,15 @@ export function ReplyFooter({
   return (
     <ThreadItemReplies onClick={onOpenThread} className="mt-1">
       <AvatarGroup size="xs">
-        {authors.map((message, index) =>
+        {authors.map(([key, message]) =>
           message.author_kind === "agent" ? (
-            <Avatar key="agent" size="xs">
+            <Avatar key={key} size="xs">
               <AvatarFallback>
                 <RobotIcon size={12} />
               </AvatarFallback>
             </Avatar>
           ) : (
-            <UserAvatar
-              key={message.author?.uuid ?? index}
-              user={message.author}
-              size="xs"
-            />
+            <UserAvatar key={key} user={message.author} size="xs" />
           ),
         )}
       </AvatarGroup>

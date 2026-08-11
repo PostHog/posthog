@@ -96,19 +96,19 @@ describe("ActivityTimeline", () => {
     expect(screen.queryByRole("button", { name: "View in chat" })).toBeNull();
   });
 
-  it("renders structured references natively in conversation previews", () => {
+  it("keeps long structured references intact in conversation previews", () => {
     renderTimeline(false, [
       {
         type: "user_message",
         id: "pr-message",
-        content:
-          '<github_pr number="73874" title="Loading…" url="https://github.com/PostHog/posthog/pull/73874" />',
+        content: `<github_pr number="73874" title="Loading…" url="https://github.com/PostHog/posthog/pull/73874/files?diff=split&long=${"a".repeat(80)}" /> ${"b".repeat(100)}`,
         timestamp: Date.parse("2026-07-17T09:05:00Z"),
       },
     ]);
 
     expect(screen.getByText("#73874 - Loading…")).toBeInTheDocument();
     expect(screen.queryByText(/<github_pr/)).toBeNull();
+    expect(screen.getByText(/^b+…$/)).toBeInTheDocument();
   });
 
   it("folds injected channel context by default", () => {

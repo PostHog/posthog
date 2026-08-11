@@ -33,7 +33,7 @@ import {
   ThreadMessageRow,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
-import { timelineMessagePreview } from "@posthog/ui/features/canvas/components/timelineMessagePreview";
+import { TIMELINE_MESSAGE_PREVIEW_LENGTH } from "@posthog/ui/features/canvas/components/timelineMessagePreview";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
@@ -92,9 +92,7 @@ function UserMessageRow({
     () => extractCustomInstructions(afterChannelContext),
     [afterChannelContext],
   );
-  const displayContent = timelineMessagePreview(
-    customInstructions?.stripped ?? afterChannelContext,
-  );
+  const displayContent = customInstructions?.stripped ?? afterChannelContext;
   return (
     <ThreadItem className="rounded-none">
       {/* Decorative: the author's name is written beside it, so keep the avatar's
@@ -108,7 +106,10 @@ function UserMessageRow({
           <ThreadTimestamp dateTime={timestamp} />
         </ThreadItemHeader>
         <ThreadItemBody className="mt-1.5 whitespace-pre-wrap break-words text-[13px]">
-          <MentionText content={displayContent} />
+          <MentionText
+            content={displayContent}
+            maxLength={TIMELINE_MESSAGE_PREVIEW_LENGTH}
+          />
           {channelContext && (
             <Collapsible className="mt-2 min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
               <CollapsibleTrigger

@@ -120,6 +120,31 @@ describe("ThreadMessageRow", () => {
     expect(screen.getByText(`${"a".repeat(100)}…`)).toBeInTheDocument();
     expect(screen.queryByText(content)).toBeNull();
   });
+
+  it("keeps long structured references intact in timeline previews", () => {
+    const content = `<github_pr number="73874" title="Loading…" url="https://github.com/PostHog/posthog/pull/73874/files?diff=split&long=${"a".repeat(80)}" /> ${"b".repeat(100)}`;
+    render(
+      <ThreadMessageRow
+        message={{
+          id: "m1",
+          task: "task",
+          content,
+          created_at: "2026-07-17T00:00:00Z",
+          author: null,
+        }}
+        isTaskAuthor
+        isOwnMessage={false}
+        canForward
+        preview
+        onSendToAgent={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("#73874 - Loading…")).toBeInTheDocument();
+    expect(screen.queryByText(/<github_pr/)).toBeNull();
+    expect(screen.getByText(/^b+…$/)).toBeInTheDocument();
+  });
 });
 
 describe("ThreadArtifactRow", () => {
