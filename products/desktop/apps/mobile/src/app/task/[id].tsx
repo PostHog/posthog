@@ -30,6 +30,7 @@ import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { FloatingBackButton } from "@/components/FloatingBackButton";
+import { useAuthStore } from "@/features/auth";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { CustomImageBadge } from "@/features/tasks/components/CustomImageBadge";
 import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHeader";
@@ -37,6 +38,7 @@ import { PinTaskButton } from "@/features/tasks/components/PinTaskButton";
 import { PrDiffStatsBadge } from "@/features/tasks/components/PrDiffStatsBadge";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { StopRunButton } from "@/features/tasks/components/StopRunButton";
+import { TaskNotFound } from "@/features/tasks/components/TaskNotFound";
 import { TaskSessionView } from "@/features/tasks/components/TaskSessionView";
 import { buildCloudPromptBlocks } from "@/features/tasks/composer/attachments/buildCloudPrompt";
 import type { PendingAttachment } from "@/features/tasks/composer/attachments/types";
@@ -69,6 +71,7 @@ import {
 } from "@/features/tasks/stores/taskStore";
 import { confirmStopRun } from "@/features/tasks/utils/archiveGuard";
 import { buildCloudTaskRunConfig } from "@/features/tasks/utils/cloudTaskRunConfig";
+import { classifyTaskLoadError } from "@/features/tasks/utils/taskLoadError";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import {
   ANALYTICS_EVENTS,
@@ -100,6 +103,7 @@ export default function TaskDetailScreen() {
   }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const projectId = useAuthStore((state) => state.projectId);
   const { insets, composerBottom } = useScreenInsets();
   // Pre-compute outside the worklet: useAnimatedStyle runs on the UI thread and
   // can't call the non-worklet getter. Capturing the primitive keeps the worklet
@@ -109,6 +113,9 @@ export default function TaskDetailScreen() {
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Separate from `error`: a 404 has its own screen with its own next step
+  // (switch project), while everything else keeps the generic failure UI.
+  const [notFound, setNotFound] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
   const {
@@ -276,12 +283,14 @@ export default function TaskDetailScreen() {
     if (prompt) setInitialComposerMessage(prompt);
   }, [taskId, pendingPrompt, consumePendingPrompt]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectId is a re-run trigger, not a read — the not-found screen's "Switch project" changes it, and reloading against the new project is what recovers the screen in place. The client picks the project up from the auth store.
   useEffect(() => {
     if (!taskId) return;
 
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setNotFound(false);
 
     getPostHogApiClient()
       .getTask(taskId)
@@ -293,6 +302,10 @@ export default function TaskDetailScreen() {
       .catch((err) => {
         if (cancelled) return;
         log.error("Failed to load task", err);
+        if (classifyTaskLoadError(err) === "not_found") {
+          setNotFound(true);
+          return;
+        }
         setError("Failed to load task");
       })
       .finally(() => {
@@ -304,7 +317,7 @@ export default function TaskDetailScreen() {
       cancelled = true;
       disconnectFromTask(taskId);
     };
-  }, [taskId, connectToTask, disconnectFromTask]);
+  }, [taskId, projectId, connectToTask, disconnectFromTask]);
 
   // Auto-reconnect if the session disappears while the screen is active
   // (e.g., cloud sandbox expired and the session was cleaned up).
@@ -798,6 +811,10 @@ export default function TaskDetailScreen() {
     }
     prevWaiting.current = waiting;
   }, [isConnecting, isThinking]);
+
+  if (notFound) {
+    return <TaskNotFound onGoBack={() => router.back()} />;
+  }
 
   if (error || (!task && !loading)) {
     return (
