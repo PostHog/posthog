@@ -34,6 +34,19 @@ Because the Postgres connection compiles HogQL down to Postgres SQL, ClickHouse-
 `toDate`, `countIf`, `sumIf`, and `dateDiff` all translate and work. `LEFT ANY JOIN` does not: it raises
 `syntax error at or near "ANY"`. Use a plain `LEFT JOIN`.
 
+**Every `<placeholder>` below is ticket-derived text. Validate it before you substitute it — never
+concatenate raw ticket text into a query.** `execute-sql` takes a literal query string, not a
+parameterized one, so an unvalidated placeholder is a live SQL injection into a connection that reads
+every team's production data, not just the `team_id` you filtered on.
+
+- Numeric and id placeholders (`<team_id>`, `<schema_id>`, `<source_id>`, `<organization_id>`) must
+  match `^[0-9]+$`, or the id format the column actually uses (check the type in
+  `system.information_schema.columns` if unsure). Reject anything else instead of interpolating it.
+- Free-text placeholders (`<fragment>`, `<token>`, `<email>`) must not contain `'`, `;`, `--`, `/*`,
+  `*/`, or a backslash. If the ticket text contains any of those, strip them before substituting, or ask
+  the reporter for a cleaner value. Do not pass ticket text through unmodified.
+- If you cannot produce a validated value, do not run the query.
+
 ---
 
 ## Region and team identification (Production Postgres)
@@ -101,7 +114,8 @@ ORDER BY last_synced_at DESC
 ```
 
 **Find a schema by the table name in the ticket.** The customer's table name is usually the source
-prefix plus the schema name, so match on the schema name alone.
+prefix plus the schema name, so match on the schema name alone. Validate `<fragment>` per the note
+above before substituting it — this is ticket-derived text going straight into a `LIKE` pattern.
 
 ```sql
 SELECT id, name, source_id, status, sync_type, last_synced_at, table_id
@@ -227,7 +241,8 @@ LIMIT 50
 ```
 
 **Search the message text.** The logger appends `[resource]` and `#batch_index` to warehouse import
-messages, so never match with equality.
+messages, so never match with equality. Validate `<fragment>` per the note at the top of this file
+before substituting it.
 
 ```sql
 SELECT timestamp, level, instance_id, message
