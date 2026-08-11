@@ -556,6 +556,15 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         member_id = request.query_params.get("member_id")
         if not member_id:
             raise exceptions.ValidationError("member_id is required")
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+        # An org hiding its member list means plain members can't browse other members' details, so 404.
+        # Org admins and explicit project admins keep these endpoints, since they can manage access
+        # and open details from the members list.
+        if (
+            not team.organization.members_can_see_org_members
+            and not user_access_control.check_can_modify_access_levels_for_object(team)
+        ):
+            raise exceptions.NotFound()
         return get_object_or_404(OrganizationMembership, id=member_id, organization=team.organization)
 
     def _get_role(self, request: Request, team: Team) -> Role:

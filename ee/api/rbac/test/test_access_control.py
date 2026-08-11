@@ -2199,6 +2199,39 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         res = self.client.get(f"/api/projects/@current/{endpoint}?{param}={subject_id}")
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
+    @parameterized.expand(
+        [
+            ("member_objects", "access_control_member_objects"),
+            ("member_properties", "access_control_member_properties"),
+            ("members_list", "access_control_members"),
+        ]
+    )
+    def test_member_endpoints_denied_to_plain_members_when_org_restricts_member_list_visibility(self, _name, endpoint):
+        other_user = self._create_user("colleague@example.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        # Plain project members are who the setting hides member details from
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get(f"/api/projects/@current/{endpoint}?member_id={other_membership.id}")
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+        # An explicit project admin who isn't an org admin manages access from the filtered list,
+        # so the detail endpoints stay available to them
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get(f"/api/projects/@current/{endpoint}?member_id={other_membership.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Org admins are unaffected by the setting
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get(f"/api/projects/@current/{endpoint}?member_id={other_membership.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
     def test_member_filter_narrows_the_members_list_to_one_row(self):
         User.objects.create_and_join(self.organization, "second-member@posthog.com", None)
         res = self.client.get(
