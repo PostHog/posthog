@@ -207,8 +207,8 @@ class TestCalendarSync(BaseTest):
 
     @parameterized.expand(
         [
-            ("known_email", {"known_emails": ["jane@acme.com"]}),
-            ("email_domain", {"email_domains": ["acme.com"]}),
+            ("known_email", {"known_emails": [" Jane@Acme.com "]}),
+            ("email_domain", {"email_domains": ["@Acme.com"]}),
         ]
     )
     def test_rematches_unassigned_meeting_after_account_matching_changes(
