@@ -26,6 +26,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
+    UUIDField,
     Value,
 )
 from django.db.models.functions import Cast
@@ -994,6 +995,20 @@ class DashboardBasicSerializer(
             "dashboard has no file system entry. The dashboard's own name is not part of the path."
         ),
     )
+    file_system_id = serializers.SerializerMethodField(
+        help_text=(
+            "Id of this dashboard's file system entry, or null when it has none. Together with "
+            "`file_system_path` this is everything a caller needs to move the dashboard between "
+            "folders, so a list page does not have to look the entry up separately."
+        ),
+    )
+    file_system_path = serializers.SerializerMethodField(
+        help_text=(
+            "Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. "
+            "Unlike `folder` this keeps the dashboard's own name as the last segment, which is what "
+            "a move needs in order to compute the destination path. Null when it has no entry."
+        ),
+    )
 
     class Meta:
         model = Dashboard
@@ -1007,6 +1022,8 @@ class DashboardBasicSerializer(
             "last_accessed_at",
             "last_viewed_at",
             "folder",
+            "file_system_id",
+            "file_system_path",
             "is_shared",
             "deleted",
             "creation_mode",
@@ -1056,6 +1073,15 @@ class DashboardBasicSerializer(
         if not path:
             return None
         return join_path(split_path(path)[:-1])
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_file_system_id(self, dashboard: Dashboard) -> str | None:
+        entry_id = getattr(dashboard, "_folder_id", None)
+        return str(entry_id) if entry_id else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_file_system_path(self, dashboard: Dashboard) -> str | None:
+        return getattr(dashboard, "_folder_path", None)
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -2331,19 +2357,22 @@ class DashboardsViewSet(
         # and avoids the row multiplication a join could cause when shortcuts/multiple surfaces exist.
         # The default surface matches both NULL and "web" rows, so order by id to keep the picked path
         # stable when more than one non-shortcut entry exists for the same dashboard.
+        entry_for_dashboard = FileSystem.objects.filter(
+            surface_q(DEFAULT_SURFACE),
+            team_id=OuterRef("team_id"),
+            type="dashboard",
+            ref=OuterRef("_ref_id"),
+        ).exclude(shortcut=True)
         queryset = queryset.annotate(_ref_id=Cast(F("id"), output_field=CharField())).annotate(
             _folder_path=Subquery(
-                FileSystem.objects.filter(
-                    surface_q(DEFAULT_SURFACE),
-                    team_id=OuterRef("team_id"),
-                    type="dashboard",
-                    ref=OuterRef("_ref_id"),
-                )
-                .exclude(shortcut=True)
-                .order_by("id")
-                .values("path")[:1],
+                entry_for_dashboard.order_by("id").values("path")[:1],
                 output_field=CharField(),
-            )
+            ),
+            # Same row as `_folder_path`, so a caller can move the dashboard without fetching the entry.
+            _folder_id=Subquery(
+                entry_for_dashboard.order_by("id").values("id")[:1],
+                output_field=UUIDField(),
+            ),
         )
 
         include_deleted = False
