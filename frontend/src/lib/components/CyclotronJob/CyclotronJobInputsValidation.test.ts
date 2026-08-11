@@ -138,8 +138,22 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.errors.config).toBe('Value must be a dictionary')
             })
 
-            it('should validate integration type', () => {
+            it('should accept a numeric-string integration id', () => {
+                // Stored `job_inputs` can persist the OAuth integration id as a string. Display
+                // resolves it, so validation must too — otherwise a connected workspace fails.
                 const inputs = { integration: { value: '123' } }
+                const schema: CyclotronJobInputSchemaType[] = [
+                    { key: 'integration', type: 'integration', label: 'Integration' },
+                ]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+            })
+
+            it('should reject a non-numeric integration value', () => {
+                const inputs = { integration: { value: 'not-an-id' } }
                 const schema: CyclotronJobInputSchemaType[] = [
                     { key: 'integration', type: 'integration', label: 'Integration' },
                 ]

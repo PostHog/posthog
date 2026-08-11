@@ -30,6 +30,19 @@ export function matchesIntegrationIdValue(integrationId: IntegrationType['id'], 
 }
 
 /**
+ * Whether a stored form value is a usable integration reference. Mirrors the
+ * coercion in `matchesIntegrationIdValue` so validation agrees with display: a
+ * numeric string (e.g. `"7"`) that resolves to a connected workspace on screen
+ * must not fail required-field validation. Blank values are "no selection".
+ */
+export function isIntegrationIdValue(value: IntegrationIdValue): boolean {
+    if (value === undefined || value === null || value === '') {
+        return false
+    }
+    return Number.isFinite(Number(value))
+}
+
+/**
  * Lookup helper built on top of `matchesIntegrationIdValue`. Returns the
  * integration matching the form value, or `undefined` if the list isn't loaded
  * or the value doesn't correspond to any integration.

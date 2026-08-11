@@ -25,6 +25,7 @@ export interface slackIntegrationLogicValues {
     siteUrlMisconfigured: boolean // preflightLogic
     _fetchedSlackChannelById: SlackChannelType | null
     _fetchedSlackChannels: SlackChannelType[]
+    _searchedSlackChannels: SlackChannelType[]
     allSlackChannels: {
         channels: SlackChannelType[]
         has_more?: boolean
@@ -119,6 +120,7 @@ export interface slackIntegrationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackChannels: (
             _fetchedSlackChannels: SlackChannelType[],
+            _searchedSlackChannels: SlackChannelType[],
             _fetchedSlackChannelById: SlackChannelType | null
         ) => SlackChannelType[]
         slackChannelsForPicker: (
@@ -204,9 +206,21 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         _fetchedSlackChannels: [
             [] as SlackChannelType[],
             {
-                // allSlackChannels is null when an inactive-integration load resolves with the
-                // (empty) prior state instead of throwing — keep the existing channels in that case.
-                loadAllSlackChannelsSuccess: (prev, { allSlackChannels }) => allSlackChannels?.channels ?? prev,
+                // The cached first page. Search-scoped loads land in `_searchedSlackChannels` instead,
+                // so a narrow (or empty) search can't replace this page and strand the picker behind
+                // the refresh cooldown. allSlackChannels is null when an inactive-integration load
+                // resolves with the (empty) prior state instead of throwing — keep channels then too.
+                loadAllSlackChannelsSuccess: (prev, { allSlackChannels, payload }) =>
+                    payload?.search ? prev : (allSlackChannels?.channels ?? prev),
+            },
+        ],
+        _searchedSlackChannels: [
+            [] as SlackChannelType[],
+            {
+                // Results of the last search, merged into `slackChannels` for display. Cleared when a
+                // non-search load succeeds so stale matches don't linger next to the fresh first page.
+                loadAllSlackChannelsSuccess: (prev, { allSlackChannels, payload }) =>
+                    payload?.search ? (allSlackChannels?.channels ?? prev) : [],
             },
         ],
         _fetchedSlackChannelById: [
@@ -240,14 +254,23 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
 
     selectors({
         slackChannels: [
-            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById],
+            (s) => [s._fetchedSlackChannels, s._searchedSlackChannels, s._fetchedSlackChannelById],
             (
                 _fetchedSlackChannels: SlackChannelType[],
+                _searchedSlackChannels: SlackChannelType[],
                 _fetchedSlackChannelById: SlackChannelType | null
             ): SlackChannelType[] => {
                 const channels = [..._fetchedSlackChannels]
-                if (_fetchedSlackChannelById && !channels.find((x) => x.id === _fetchedSlackChannelById.id)) {
-                    channels.push(_fetchedSlackChannelById)
+                const seen = new Set(channels.map((x) => x.id))
+                // Search matches beyond the first page, then the by-id lookup, deduped by id.
+                for (const channel of [
+                    ..._searchedSlackChannels,
+                    ...(_fetchedSlackChannelById ? [_fetchedSlackChannelById] : []),
+                ]) {
+                    if (!seen.has(channel.id)) {
+                        channels.push(channel)
+                        seen.add(channel.id)
+                    }
                 }
                 return channels
             },

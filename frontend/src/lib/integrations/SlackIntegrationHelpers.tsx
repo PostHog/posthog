@@ -185,6 +185,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             ? [...availableOptions, fallbackOption]
             : availableOptions
 
+    // Channels loaded, but the access filter removed every one — the connected Slack account
+    // isn't a member of any of them. Don't blame a missing app install in that case.
+    const allChannelsFilteredByAccess = (rawSlackChannelOptions?.length ?? 0) > 0 && availableOptions.length === 0
+
     return (
         <>
             <LemonInputSelect
@@ -241,10 +245,20 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     // not max-width — without a cap the popover can grow to fit a long single line
                     // and spill past the modal edge.
                     <p className="text-secondary italic p-1 max-w-sm">
-                        No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
-                        <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
-                            See the docs for more information.
-                        </Link>
+                        {allChannelsFilteredByAccess ? (
+                            <>
+                                The connected Slack account isn't a member of any private channels here. Reconnect with
+                                your own Slack account, or ask{' '}
+                                <ProfilePicture user={integration.created_by} showName size="sm" /> to pick one.
+                            </>
+                        ) : (
+                            <>
+                                No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
+                                <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
+                                    See the docs for more information.
+                                </Link>
+                            </>
+                        )}
                     </p>
                 }
                 options={options}

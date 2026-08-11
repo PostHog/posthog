@@ -4,6 +4,8 @@ import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 
+import { isIntegrationIdValue } from './integrations/integrationLookup'
+
 export type CyclotronJobInputsValidationResult = {
     valid: boolean
     errors: Record<string, string>
@@ -139,7 +141,7 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         }
     } else if (inputSchema.type === 'dictionary' && typeof value !== 'object') {
         return 'Value must be a dictionary'
-    } else if (inputSchema.type === 'integration' && typeof value !== 'number') {
+    } else if (inputSchema.type === 'integration' && !isIntegrationIdValue(value)) {
         return 'Value must be an Integration ID'
     } else if (inputSchema.type === 'json') {
         if (!['string', 'object'].includes(typeof value)) {

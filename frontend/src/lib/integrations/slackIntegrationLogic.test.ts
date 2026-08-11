@@ -132,6 +132,27 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C1', 'C2'])
     })
 
+    it('keeps the cached first page and merges in search-only matches', async () => {
+        // Load the first page with no search — this is the cached base list.
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackChannels.map((c) => c.id).sort()).toEqual(['C1', 'C2'])
+
+        // A search the server narrows to one cached channel plus one beyond the first page.
+        nextChannelsResponse = [
+            { id: 'C2', name: 'engineering' },
+            { id: 'C9', name: 'eng-oncall' },
+        ]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels(false, 'eng')
+        }).toFinishAllListeners()
+
+        // The first page survives (C1 is not dropped) and the off-page match is added, instead of the
+        // search replacing the cache and stranding the picker behind the refresh cooldown.
+        expect(logic.values.slackChannels.map((c) => c.id).sort()).toEqual(['C1', 'C2', 'C9'])
+    })
+
     it('isMemberOfSlackChannel returns null when the channel has not been loaded yet', () => {
         // Default selector state: no channels fetched, no by-id lookup landed. The picker uses
         // === false strict comparison to decide whether to show the "not in channel" warning, so
