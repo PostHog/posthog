@@ -5,7 +5,7 @@ Source of truth for satellite ClickHouse clusters, managed declaratively with
 Schemas are written in HCL, **composed per node** `(env, role)`, verified against
 captured cluster dumps, and used to generate the migration that applies a change.
 
-Covers the satellite roles (ops, logs, aux, ai_events, sessions, sessionsv3, batch_exports) in the cloud envs (dev, prod-us, prod-eu) where each exists, plus the local `data` node.
+Covers the satellite roles (ops, logs, aux, `ai_events`, sessions, sessionsv3, `batch_exports`) in the cloud envs (dev, prod-us, prod-eu) where each exists, plus the local `data` node.
 The prod data clusters carry per-env `mat_` columns, so their goldens and per-env override layers live in posthog-cloud-infra (see [The cloud side](#the-cloud-side-posthog-cloud-infra)).
 
 ## Model: per-node composition
