@@ -1179,6 +1179,21 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             _validation_error_response(error)
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
+
+        if result.created:
+            report_user_action(
+                request.user,
+                "llma dataset item updated",
+                {
+                    "dataset_item_id": str(result.item.id),
+                    "dataset_id": str(result.item.dataset_id),
+                    "updated_input": "input" in data,
+                    "updated_expected_output": "expected_output" in data,
+                    "updated_metadata": "metadata" in data,
+                },
+                team=self.team,
+                request=request,
+            )
         return Response(DatasetItemReadSerializer(result.version).data)
 
     @extend_schema(
@@ -1206,6 +1221,17 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
+
+        report_user_action(
+            request.user,
+            "llma dataset item archived",
+            {
+                "dataset_item_id": str(result.item.id),
+                "dataset_id": str(result.item.dataset_id),
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(DatasetItemReadSerializer(result.version).data)
 
     @extend_schema(
@@ -1236,6 +1262,17 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise Http404("Dataset item version not found.") from error
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
+
+        report_user_action(
+            request.user,
+            "llma dataset item restored",
+            {
+                "dataset_item_id": str(result.item.id),
+                "dataset_id": str(result.item.dataset_id),
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(DatasetItemReadSerializer(result.version).data)
 
     @extend_schema(

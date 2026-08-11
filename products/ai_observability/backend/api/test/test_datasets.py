@@ -356,6 +356,77 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(duplicate_restore.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(duplicate_restore.data["code"], "dataset_item_active")
 
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_item_lifecycle_mutations_report_product_analytics(self, mock_report_user_action: MagicMock) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"])
+        mock_report_user_action.reset_mock()
+
+        def captured_events() -> list[tuple[str, dict]]:
+            events = [(call.args[1], call.args[2]) for call in mock_report_user_action.call_args_list]
+            mock_report_user_action.reset_mock()
+            return events
+
+        update_response = self.client.patch(
+            f"{self.items_url}{item['id']}/",
+            {"base_version": 1, "input": "edited", "metadata": {"language": "de"}},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            captured_events(),
+            [
+                (
+                    "llma dataset item updated",
+                    {
+                        "dataset_item_id": item["id"],
+                        "dataset_id": dataset["id"],
+                        "updated_input": True,
+                        "updated_expected_output": False,
+                        "updated_metadata": True,
+                    },
+                )
+            ],
+        )
+
+        unchanged_response = self.client.patch(
+            f"{self.items_url}{item['id']}/",
+            {"base_version": 2, "input": "edited"},
+            format="json",
+        )
+        self.assertEqual(unchanged_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(captured_events(), [])
+
+        archive_response = self.client.post(
+            f"{self.items_url}{item['id']}/archive/",
+            {"base_version": 2},
+            format="json",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            captured_events(),
+            [("llma dataset item archived", {"dataset_item_id": item["id"], "dataset_id": dataset["id"]})],
+        )
+
+        duplicate_archive = self.client.post(
+            f"{self.items_url}{item['id']}/archive/",
+            {"base_version": 3},
+            format="json",
+        )
+        self.assertEqual(duplicate_archive.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(captured_events(), [])
+
+        restore_response = self.client.post(
+            f"{self.items_url}{item['id']}/restore/",
+            {"base_version": 3},
+            format="json",
+        )
+        self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            captured_events(),
+            [("llma dataset item restored", {"dataset_item_id": item["id"], "dataset_id": dataset["id"]})],
+        )
+
     def test_revision_list_reconstructs_exact_snapshots(self) -> None:
         dataset = self._create_dataset()
         first_item = self._create_item(dataset["id"], input="first-v1")
