@@ -25,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
     MALFORMED_JSON_MAX_ATTEMPTS,
     MAX_AD_ACCOUNT_PAGES,
+    META_ADS_API_VERSION_V25,
+    META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
@@ -1343,6 +1345,24 @@ class TestRetryableErrors:
             _raise_meta_api_error(_mock_response(500, body))
         assert any(pattern in str(exc_info.value) for pattern in patterns)
 
+    @pytest.mark.parametrize("code", sorted(meta_ads_module.META_RATE_LIMIT_ERROR_CODES))
+    def test_rate_limit_error_matches_retryable_pattern(self, code: int) -> None:
+        # Real-world Meta throttling response: code 17 "User request limit reached" with
+        # is_transient: false. It must be tagged retryable rather than falling through to the
+        # generic, unclassified message and getting reported to error tracking on every attempt.
+        body = {
+            "error": {
+                "message": "User request limit reached",
+                "type": "OAuthException",
+                "code": code,
+                "is_transient": False,
+            }
+        }
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(_mock_response(400, body))
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
     def test_empty_body_500_matches_retryable_pattern(self) -> None:
         # Meta (or a fronting proxy) occasionally returns a bare 500 with an empty body — no
         # JSON, no error code to classify by. It must still be tagged retryable rather than
@@ -1401,12 +1421,15 @@ class TestTimeRangeClamping:
         config.account_id = "act_123"
         config.meta_ads_integration_id = 1
         config.sync_lookback_days = source_kwargs.pop("sync_lookback_days", None)
+        config.action_attribution_windows = None
+        config.use_unified_attribution_setting = None
 
         response = meta_ads_source(
             resource_name="campaign_stats",
             config=config,
             team_id=1,
             resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
             **source_kwargs,
         )
         list(cast(Any, response.items()))
@@ -1654,11 +1677,15 @@ class TestListAdAccounts:
             assert call.kwargs["timeout"] == AD_ACCOUNT_LISTING_TIMEOUT_SECONDS
 
 
-def _source_config() -> mock.MagicMock:
+def _source_config(
+    *, action_attribution_windows: str | None = None, use_unified_attribution_setting: str | None = None
+) -> mock.MagicMock:
     config = mock.MagicMock()
     config.account_id = "act_123"
     config.meta_ads_integration_id = 1
     config.sync_lookback_days = None
+    config.action_attribution_windows = action_attribution_windows
+    config.use_unified_attribution_setting = use_unified_attribution_setting
     return config
 
 
@@ -1685,6 +1712,24 @@ class TestBreakdownStatsSchemas:
         # Without the dimensions in the key, every combination for a campaign/day collapses onto
         # one key: duplicate rows seed the Delta table and each later merge multi-matches them.
         assert set(breakdowns) <= set(schema.primary_keys)
+
+    @pytest.mark.parametrize(
+        "endpoint,level,grain_column",
+        [
+            (MetaAdsResource.CampaignStatsByCountry, "campaign", "campaign_id"),
+            (MetaAdsResource.AdsetStatsByCountry, "adset", "adset_id"),
+            (MetaAdsResource.AdStatsByCountry, "ad", "ad_id"),
+        ],
+    )
+    def test_level_sets_its_grain_column_as_key_and_field(self, endpoint: str, level: str, grain_column: str) -> None:
+        schema = get_meta_ads_schemas()[endpoint]
+
+        # The grain column is what makes an ad-level table distinct from the campaign-level one:
+        # keying an ad breakdown on `campaign_id` (or omitting `ad_id` from the request) would
+        # collapse every ad in a campaign onto one row and defeat the point of the finer grain.
+        assert schema.extra_params["level"] == level
+        assert grain_column in schema.primary_keys
+        assert grain_column in schema.field_names
 
     @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
     def test_breakdown_dimensions_are_not_requested_as_fields(self, endpoint: str) -> None:
@@ -1714,7 +1759,7 @@ class TestBreakdownStatsSchemas:
 
 
 class TestBreakdownStatsRequests:
-    def _capture_request(self, monkeypatch, resource_name: str) -> dict[str, Any]:
+    def _capture_request(self, monkeypatch, resource_name: str, config: mock.MagicMock | None = None) -> dict[str, Any]:
         integration = mock.MagicMock()
         integration.access_token = "token"
         monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
@@ -1729,9 +1774,10 @@ class TestBreakdownStatsRequests:
 
         response = meta_ads_source(
             resource_name=resource_name,
-            config=_source_config(),
+            config=config or _source_config(),
             team_id=1,
             resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
         )
         list(cast(Any, response.items()))
         return captured
@@ -1739,18 +1785,54 @@ class TestBreakdownStatsRequests:
     @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
     def test_breakdown_request_is_windowed_and_carries_its_breakdowns(self, monkeypatch, endpoint: str) -> None:
         captured = self._capture_request(monkeypatch, endpoint)
+        schema = get_meta_ads_schemas()[endpoint]
 
         # A breakdown table that loses `is_stats` would drop the time window and ask Meta for the
-        # whole account history on every sync.
+        # whole account history on every sync. Each level (campaign/adset/ad) must send its own
+        # `level`, or ad-level breakdowns would silently return campaign-grain rows.
         assert captured["time_range"] is not None
-        assert captured["params"]["breakdowns"] == get_meta_ads_schemas()[endpoint].extra_params["breakdowns"]
-        assert captured["params"]["level"] == "campaign"
+        assert captured["params"]["breakdowns"] == schema.extra_params["breakdowns"]
+        assert captured["params"]["level"] == schema.extra_params["level"]
 
     def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
         captured = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)
 
         assert captured["time_range"] is None
         assert captured["url"].endswith("/act_123/adcreatives")
+
+    def test_attribution_settings_omitted_when_unset(self, monkeypatch) -> None:
+        # Backward compatibility: an existing connection that never set attribution config must
+        # produce the same Insights request as before — Meta then applies its own default window.
+        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats)
+
+        assert "action_attribution_windows" not in captured["params"]
+        assert "use_unified_attribution_setting" not in captured["params"]
+
+    def test_attribution_settings_threaded_into_stats_request(self, monkeypatch) -> None:
+        config = _source_config(action_attribution_windows="7d_click, 1d_view", use_unified_attribution_setting="true")
+        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats, config)
+
+        # Windows are sent JSON-encoded (Meta's list-parameter shape) with surrounding whitespace
+        # trimmed; the unified-setting flag is passed through verbatim.
+        assert json.loads(captured["params"]["action_attribution_windows"]) == ["7d_click", "1d_view"]
+        assert captured["params"]["use_unified_attribution_setting"] == "true"
+
+    def test_attribution_default_sentinel_leaves_unified_setting_unset(self, monkeypatch) -> None:
+        # The "use Meta's default" picker option stores an empty string; it must not be sent as a
+        # value, or it would override Meta's default with a blank flag.
+        config = _source_config(use_unified_attribution_setting="")
+        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats, config)
+
+        assert "use_unified_attribution_setting" not in captured["params"]
+
+    def test_attribution_settings_not_sent_on_entity_endpoints(self, monkeypatch) -> None:
+        # Entity endpoints (campaigns, ads, ...) aren't Insights calls; Meta rejects attribution
+        # params there, so they must only ride on `is_stats` requests.
+        config = _source_config(action_attribution_windows="7d_click", use_unified_attribution_setting="true")
+        captured = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives, config)
+
+        assert "action_attribution_windows" not in captured["params"]
+        assert "use_unified_attribution_setting" not in captured["params"]
 
 
 class TestSingleObjectEndpoint:
@@ -1767,6 +1849,7 @@ class TestSingleObjectEndpoint:
             config=_source_config(),
             team_id=1,
             resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
         )
         return list(cast(Any, source.items()))
 
@@ -1791,3 +1874,41 @@ class TestSingleObjectEndpoint:
         field_names = get_meta_ads_schemas()[MetaAdsResource.AdAccount].field_names
         assert "business" not in field_names
         assert {"business_name", "business_country_code"} <= set(field_names)
+
+
+class TestApiVersionDispatch:
+    """The resolved source pin must reach the request URL — otherwise a pinned source silently
+    syncs against the wrong Graph API version, the drift the pinning framework exists to prevent."""
+
+    def _capture_url(self, monkeypatch, api_version: str) -> str:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        captured: dict[str, str] = {}
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            captured["url"] = url
+            yield from ()
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        response = meta_ads_source(
+            resource_name=MetaAdsResource.Campaigns,
+            config=_source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            api_version=api_version,
+        )
+        list(cast(Any, response.items()))
+        return captured["url"]
+
+    @pytest.mark.parametrize("api_version", list(MetaAdsSource.supported_versions))
+    def test_resolved_version_reaches_request_url(self, monkeypatch, api_version: str) -> None:
+        assert (
+            self._capture_url(monkeypatch, api_version) == f"https://graph.facebook.com/{api_version}/act_123/campaigns"
+        )
+
+    def test_new_sources_default_to_latest_while_previous_stays_supported(self) -> None:
+        assert MetaAdsSource.default_version == META_ADS_API_VERSION_V26
+        assert set(MetaAdsSource.supported_versions) == {META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26}

@@ -745,30 +745,34 @@ const ExperimentMetricsRecalculationLatestRetrieveSchema = ExperimentsMetricsRec
 const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
     typeof ExperimentMetricsRecalculationLatestRetrieveSchema,
     WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
-> => ({
-    name: 'experiment-metrics-recalculation-latest-retrieve',
-    schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
-        })
-        const filtered = omitResponseFields(result, [
-            'results.*.result.hogql',
-            'results.*.result.clickhouse_sql',
-            'results.*.result.cache_key',
-            'results.*.result.is_cached',
-            'results.*.result.cache_target_age',
-            'results.*.result.next_allowed_client_refresh',
-            'results.*.result.calculation_trigger',
-            'results.*.result.query_status',
-            'results.*.result.stats_version',
-            'results.*.result.insight',
-        ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
-    },
-})
+> =>
+    withUiApp('experiment-results', {
+        name: 'experiment-metrics-recalculation-latest-retrieve',
+        schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
+        handler: async (
+            context: Context,
+            params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>
+        ) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
+            })
+            const filtered = omitResponseFields(result, [
+                'results.*.result.hogql',
+                'results.*.result.clickhouse_sql',
+                'results.*.result.cache_key',
+                'results.*.result.is_cached',
+                'results.*.result.cache_target_age',
+                'results.*.result.next_allowed_client_refresh',
+                'results.*.result.calculation_trigger',
+                'results.*.result.query_status',
+                'results.*.result.stats_version',
+                'results.*.result.insight',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
+        },
+    })
 
 const ExperimentMetricsRecalculationRetrieveSchema = ExperimentsMetricsRecalculationRetrieveParams.omit({
     project_id: true,
@@ -1072,35 +1076,34 @@ const ExperimentTimeseriesResultsSchema = ExperimentsTimeseriesResultsRetrievePa
     .extend(ExperimentsTimeseriesResultsRetrieveQueryParams.shape)
     .extend({ id: z.preprocess(castStringToInt, ExperimentsTimeseriesResultsRetrieveParams.shape['id']) })
 
-const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResultsSchema, unknown> =>
-    withUiApp('experiment-results', {
-        name: 'experiment-timeseries-results',
-        schema: ExperimentTimeseriesResultsSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentTimeseriesResultsSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<unknown>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
-                query: {
-                    fingerprint: params.fingerprint,
-                    metric_uuid: params.metric_uuid,
-                },
-            })
-            const filtered = omitResponseFields(result, [
-                'timeseries.*.hogql',
-                'timeseries.*.clickhouse_sql',
-                'timeseries.*.cache_key',
-                'timeseries.*.is_cached',
-                'timeseries.*.cache_target_age',
-                'timeseries.*.next_allowed_client_refresh',
-                'timeseries.*.calculation_trigger',
-                'timeseries.*.query_status',
-                'timeseries.*.stats_version',
-                'timeseries.*.insight',
-            ]) as typeof result
-            return filtered
-        },
-    })
+const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResultsSchema, unknown> => ({
+    name: 'experiment-timeseries-results',
+    schema: ExperimentTimeseriesResultsSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentTimeseriesResultsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
+            query: {
+                fingerprint: params.fingerprint,
+                metric_uuid: params.metric_uuid,
+            },
+        })
+        const filtered = omitResponseFields(result, [
+            'timeseries.*.hogql',
+            'timeseries.*.clickhouse_sql',
+            'timeseries.*.cache_key',
+            'timeseries.*.is_cached',
+            'timeseries.*.cache_target_age',
+            'timeseries.*.next_allowed_client_refresh',
+            'timeseries.*.calculation_trigger',
+            'timeseries.*.query_status',
+            'timeseries.*.stats_version',
+            'timeseries.*.insight',
+        ]) as typeof result
+        return filtered
+    },
+})
 
 const ExperimentUnarchiveSchema = ExperimentsUnarchiveCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsUnarchiveCreateParams.shape['id']),

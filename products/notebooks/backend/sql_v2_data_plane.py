@@ -36,7 +36,7 @@ from posthog.models import Team, User
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.sql_v2 import verify_data_plane_token
+from products.notebooks.backend.sql_v2 import is_frame_store_enabled, verify_data_plane_token
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
@@ -47,6 +47,9 @@ ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
 FRAME_STORE_FALLBACK_COUNTER = Counter(
     "posthog_notebooks_frame_store_fallback_inline",
     "Number of object-delivery requests that fell back to the inline (Redis) path.",
+    # `not_in_rollout` is expected while the flag ramps; `not_configured` means the
+    # deployment cannot serve objects at all and should be near zero once provisioned.
+    labelnames=["reason"],
 )
 
 
@@ -142,7 +145,14 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     bounded = apply_page_bounds(data["query"], limit=data["limit"], offset=data["offset"])
 
     if data["delivery"] == "object":
-        if frame_store.is_enabled():
+        # The `notebooks-frame-store` flag carries the rollout on its own; the only other
+        # condition is that the deployment has object storage to write to. Failing either
+        # falls through to the inline transport below, which is correct for any user but
+        # clamped at the async row ceiling. DEBUG stands in for the flag, the way the SQLV2
+        # endpoints already treat `revamped-py-notebooks`, so local dev takes the object
+        # path without a flag on whichever project this instance sends analytics to.
+        frame_store_configured = frame_store.is_enabled()
+        if frame_store_configured and (settings.DEBUG or is_frame_store_enabled(user)):
             # Whole-frame materialization: stream the result to object storage via a
             # Temporal worker; the poll answers with a 302 to a presigned URL. The
             # frame_materialize module is imported lazily — it pulls temporalio and the
@@ -164,16 +174,22 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                 logger.exception("notebook_frame_materialize_enqueue_failed", notebook_short_id=notebook_short_id)
                 return JsonResponse({"error": "Query could not be scheduled."}, status=500)
             return JsonResponse({"query_id": status.id}, status=202)
-        # Degraded mode: the cell still runs over the inline (Redis) transport, clamped at
-        # the async row ceiling, instead of hard-failing. Loud on purpose.
-        FRAME_STORE_FALLBACK_COUNTER.inc()
-        logger.warning(
-            "notebook_frame_store_fallback_inline",
-            notebook_short_id=notebook_short_id,
-            team_id=team_id,
-            frame_store_enabled=settings.NOTEBOOKS_FRAME_STORE_ENABLED,
-            object_storage_enabled=settings.OBJECT_STORAGE_ENABLED,
-        )
+        if frame_store_configured:
+            # The environment is provisioned but this user is outside the rollout, which is
+            # the expected state for most users while the flag ramps. Counted, not logged:
+            # at warning level this would drown the misconfiguration case below.
+            FRAME_STORE_FALLBACK_COUNTER.labels(reason="not_in_rollout").inc()
+        else:
+            # Degraded mode: the cell still runs over the inline (Redis) transport, clamped
+            # at the async row ceiling, instead of hard-failing. Loud on purpose, because a
+            # deployment with the flag on and no object storage cannot serve a frame at all.
+            FRAME_STORE_FALLBACK_COUNTER.labels(reason="not_configured").inc()
+            logger.warning(
+                "notebook_frame_store_fallback_inline",
+                notebook_short_id=notebook_short_id,
+                team_id=team_id,
+                object_storage_enabled=settings.OBJECT_STORAGE_ENABLED,
+            )
 
     try:
         with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):

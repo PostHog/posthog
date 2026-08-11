@@ -70,9 +70,11 @@ function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls'
         // `@container` so ReportCard's `@lg:` row layout resolves against the preview width (it has no
         // inbox-list container here). `role="presentation"` – the whole thing is decorative.
         <div role="presentation" className="@container relative">
-            {/* The real card, kept inert: no navigation, no hover affordances, not focusable. */}
+            {/* The real card in preview mode: no detail link, no focusable actions. That keeps the
+                sample report id (which 404s) out of reach – nobody can click or tab into it – on top
+                of the `pointer-events-none` and overlay below. */}
             <div aria-hidden className="pointer-events-none">
-                <ReportCard report={report} tabKey={tabKey} />
+                <ReportCard report={report} tabKey={tabKey} preview />
             </div>
 
             {/* Always-visible label so the sample reads as a sample, not live work. Sits on the top

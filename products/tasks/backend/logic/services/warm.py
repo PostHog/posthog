@@ -81,7 +81,7 @@ class SandboxWarmer:
 
     ORIGIN_PRODUCT_CAPS: dict[str, WarmPoolCaps] = {
         Task.OriginProduct.POSTHOG_AI: WarmPoolCaps(per_user=2, per_org=10),
-        Task.OriginProduct.USER_CREATED: WarmPoolCaps(per_user=2, per_org=50),
+        Task.OriginProduct.USER_CREATED: WarmPoolCaps(per_user=10, per_org=100),
     }
     _DEFAULT_CAPS: WarmPoolCaps = WarmPoolCaps(per_user=2, per_org=10)
 

@@ -160,7 +160,7 @@ jobs:
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
-            # On PRs, only run chromium shards — no story currently opts into webkit snapshots
+            # On PRs, only run chromium shards — no story opts into webkit snapshots
             # (see common/storybook/.storybook/test-runner.ts), so webkit shards consume CI
             # minutes without producing snapshot diffs. WebKit render-error coverage is
             # preserved on master pushes.
@@ -249,8 +249,8 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             # Vite's dependency optimization cache (node_modules/.vite) is the most
-            # expensive part of the build — without it, Vite re-bundles 15k+ modules
-            # from scratch (~14 min on degraded runners vs <1 min with cache). The
+            # expensive part of the build — without it, Vite re-bundles every module
+            # from scratch, which dwarfs the rest of the build. The
             # pnpm lockfile hash ensures the cache is invalidated when deps change.
             - name: Restore Vite build cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

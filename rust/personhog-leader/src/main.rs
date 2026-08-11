@@ -195,6 +195,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Matcher::Full("personhog_coordination_partition_warm_ms".into()),
                 WARM_LATENCY_BUCKETS_MS,
             ),
+            (
+                Matcher::Full("personhog_leader_warm_span_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
         ],
     );
     preregister_metrics();
@@ -293,6 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(num_partitions, "loaded partition count from etcd");
 
     let locks = Arc::new(DashMap::new());
+    let fences: personhog_leader::fence::FenceMap = Arc::new(DashMap::new());
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(config.dirty_index_max_entries));
     // One per pod, shared by the service that raises floors and the
@@ -316,6 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
+    let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
         // directly, so an operator debugging a fenced-write timeout has
@@ -428,10 +434,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.properties_trim_target,
         ),
         warnings.clone(),
+        Arc::clone(&fences),
         fenced.clone(),
         gated_authority.clone(),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fence_capacity(config.fence_map_max_entries);
 
     let warm_pools = Arc::new(WarmClientPools::new(
         &config.kafka,
@@ -461,6 +469,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_backoff: Duration::from_millis(config.warm_retry_max_backoff_ms),
             },
         },
+        Arc::clone(&fences),
+        fence_scan_pool,
+        num_partitions,
         Arc::clone(&warm_pools),
         fenced.clone(),
         gated_authority.clone(),
@@ -784,5 +795,12 @@ fn preregister_metrics() {
         .increment(0);
     for stage in ["committed_offset", "fetch_watermarks"] {
         counter!("personhog_leader_warm_retries_total", "stage" => stage).increment(0);
+    }
+    // A broker blip is short enough to fall entirely between two
+    // scrapes, and these fire only during one. The codes seen in dev are
+    // preregistered so that burst is not swallowed; anything else stays
+    // lazy, as elsewhere for dynamic labels.
+    for code in ["BrokerTransportFailure", "AllBrokersDown"] {
+        counter!("personhog_leader_warm_transient_errors_total", "code" => code).increment(0);
     }
 }

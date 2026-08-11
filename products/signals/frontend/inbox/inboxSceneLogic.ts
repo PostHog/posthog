@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -264,12 +265,12 @@ export interface inboxSceneLogicActions {
         errorObject?: any
     }
     loadSelectedReportSuccess: (
-        selectedReportResponse: SignalReport,
+        selectedReportResponse: SignalReport | null,
         payload?: {
             id: string
         }
     ) => {
-        selectedReportResponse: SignalReport
+        selectedReportResponse: SignalReport | null
         payload?: {
             id: string
         }
@@ -414,8 +415,24 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         selectedReportResponse: [
             null as SignalReport | null,
             {
-                loadSelectedReport: async ({ id }: { id: string }) => {
-                    return await api.signalReports.get(id)
+                loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
+                    try {
+                        const report = await api.signalReports.get(id)
+                        breakpoint()
+                        return report
+                    } catch (error) {
+                        // Discard a superseded load so a slow response for a report the user already
+                        // navigated away from can't overwrite the current one (e.g. a stale 404
+                        // blanking a valid report that resolved first).
+                        breakpoint()
+                        // An unresolvable id (a stale deep link, or the onboarding sample card) 404s.
+                        // Return null so the scene shows a "not found" empty state instead of the
+                        // global raw error toast. Let every other failure surface as before.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
