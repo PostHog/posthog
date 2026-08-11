@@ -49,6 +49,21 @@ describe('GuidedWizardStepper', () => {
         expect(onStepClick).toHaveBeenCalledWith('third')
     })
 
+    it('shows the error messages as a tooltip on the errored current step', async () => {
+        render(
+            <GuidedWizardStepper steps={STEPS} currentStep="second" stepErrors={{ second: ['Something is wrong'] }} />
+        )
+
+        const warningIcon = screen.getByText('Second').closest('button')!.querySelector('svg')!
+        fireEvent.pointerEnter(warningIcon, { pointerType: 'mouse' })
+        fireEvent.mouseEnter(warningIcon)
+        // The tooltip's hover-intent detection needs pointer movement, not just enter
+        fireEvent.pointerMove(warningIcon, { pointerType: 'mouse' })
+        fireEvent.mouseMove(warningIcon)
+
+        expect(await screen.findByText('Something is wrong')).toBeInTheDocument()
+    })
+
     it('blocks forward navigation but allows going back when the current step has errors', () => {
         const onStepClick = jest.fn()
         render(

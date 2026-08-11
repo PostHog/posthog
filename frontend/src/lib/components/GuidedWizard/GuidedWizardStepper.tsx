@@ -66,7 +66,13 @@ export function GuidedWizardStepper<Step extends string>({
                     >
                         {/* Indicator */}
                         {hasErrors && isCurrent ? (
-                            <IconWarning className="size-5 text-warning" />
+                            <Tooltip
+                                title={stepErrors[step.step]?.map((error) => (
+                                    <div key={error}>{error}</div>
+                                ))}
+                            >
+                                <IconWarning className="size-5 text-warning" />
+                            </Tooltip>
                         ) : isCompleted ? (
                             <IconCheckCircle className="size-5 text-success" />
                         ) : (
