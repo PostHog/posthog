@@ -29,6 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1763,6 +1764,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 user=cast(User, request.user),
                 goal=body.validated_data["goal"],
                 user_access_control=self.user_access_control,
+                # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
+                # receive its content through the draft either.
+                include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
             )
         except DraftError:
             return Response(

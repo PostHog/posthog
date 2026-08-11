@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.models import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
 from products.posthog_ai.backend.models.assistant import CoreMemory
@@ -39,18 +41,20 @@ def _draft(**overrides) -> _LlmDraft:
 
 
 class TestBuildUserContent:
-    def test_surfaces_goal_and_taxonomy(self):
+    def test_surfaces_goal_and_taxonomy_inside_the_untrusted_fence(self):
         content = _build_user_content(
             "find users who get stuck during onboarding", ["subscription_started"], ["/onboarding"]
         )
 
         assert "find users who get stuck during onboarding" in content
-        assert "subscription_started" in content
-        assert "/onboarding" in content
+        fenced = content.split("<product-data>")[1].split("</product-data>")[0]
+        assert "subscription_started" in fenced
+        assert "/onboarding" in fenced
 
     def test_omits_empty_taxonomy_sections(self):
         content = _build_user_content("goal", [], [])
 
+        assert "<product-data>" not in content
         assert "custom events" not in content
         assert "Screens/paths" not in content
         assert "business context" not in content
@@ -237,6 +241,27 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert "allow AI analysis" in resp.content.decode()
+
+    @patch("products.replay_vision.backend.scanner_draft.is_core_memory_disabled", return_value=False)
+    @patch(_GENERATE_PATH)
+    def test_scoped_token_requests_exclude_business_context(self, mock_generate, _flag):
+        # Core memory's own API is INTERNAL (session-only); a scoped key must not read it through here.
+        mock_generate.return_value = _draft()
+        CoreMemory.objects.create(team=self.team, text="Acme sells anvils to coyotes.")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="draft-scope-test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["replay_scanner:read", "session_recording:read"],
+        )
+
+        resp = self.client.post(
+            self.draft_url, data={"goal": "find rage clicks"}, format="json", HTTP_AUTHORIZATION=f"Bearer {value}"
+        )
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert "Acme sells anvils to coyotes." not in mock_generate.call_args.kwargs["user_content"]
 
     def test_is_gated_by_the_shared_ai_throttles(self):
         # Denying the throttle and asserting the status proves it is wired into the request path;
