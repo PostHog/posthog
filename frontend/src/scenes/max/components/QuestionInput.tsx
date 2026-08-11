@@ -353,19 +353,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     setAutocompleteDismissed(true)
                                 }}
                             >
-                                {/*
-                                 * Single-cell grid: the hint, the fill-in cue and the textarea all sit in
-                                 * cell 1/1, so they share one text origin and wrap at the same column. The
-                                 * field's padding lives here rather than on the textarea, which would apply
-                                 * it twice — LemonTextArea forwards `className` to both its wrapper and the
-                                 * textarea inside it. No right reserve for the send cluster: it sits over
-                                 * the action row below, which keeps its own clearance.
-                                 */}
-                                <div className="relative grid w-full p-2">
+                                <div className="relative w-full">
                                     {!inputValue && (
                                         <div
                                             id="textarea-hint"
-                                            className="text-secondary [grid-area:1/1] text-sm pointer-events-none"
+                                            className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
                                         >
                                             {conversation && isSharedThread ? (
                                                 `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
@@ -390,12 +382,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             )}
                                         </div>
                                     )}
-                                    {/*
-                                     * Postfix cue after a fill-in suggestion's typed-in prefix. `self-start`
-                                     * keeps it on the first line once the textarea grows.
-                                     */}
+                                    {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
                                     {showFillInHint && (
-                                        <div className="[grid-area:1/1] self-start overflow-hidden pointer-events-none">
+                                        <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
                                             <FillInHint text={inputValue} hint={fillInHint} />
                                         </div>
                                     )}
@@ -458,7 +447,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         minRows={1}
                                         maxRows={10}
                                         className={cn(
-                                            '[grid-area:1/1] !min-h-0 !p-0 !border-none !bg-transparent resize-none',
+                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
+                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
                                             // Hide the native caret so only the enlarged fill-in caret shows.
                                             showFillInHint && 'caret-transparent'
                                         )}

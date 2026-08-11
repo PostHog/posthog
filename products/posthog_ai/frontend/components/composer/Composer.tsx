@@ -150,7 +150,7 @@ const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function Com
         ]
     )
 
-    // The relative wrapper is the positioning context for the absolutely-placed Submit. It's a
+    // The relative wrapper is the positioning context for the absolutely-placed Submit + Placeholder. It's a
     // real <form> so the send button is a native submit and Enter/Cmd+Enter route through `onSubmit`. The
     // forwarded ref always points to this form, regardless of chrome mode.
     const hasChrome = isSticky || isThreadVisible || !!containerClassName
@@ -251,23 +251,13 @@ const ComposerFrame = forwardRef<HTMLLabelElement, ComposerFrameProps>(function 
     )
 })
 
-/**
- * Single-cell grid stacking the Placeholder on the Textarea, so both share one text origin and wrap at
- * the same column. The field's padding lives here rather than on the textarea, which would apply it
- * twice — LemonTextArea forwards `className` to both its wrapper and the textarea inside it. The right
- * inset keeps text clear of the absolutely-positioned Submit.
- */
+/** Positioning context grouping the overlaid Placeholder and the Textarea. */
 const ComposerField = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerField(
     { className, children, ...rest },
     ref
 ): JSX.Element {
     return (
-        <div
-            data-slot="composer-field"
-            ref={ref}
-            className={cn('relative grid w-full py-2 pl-2 pr-12', className)}
-            {...rest}
-        >
+        <div data-slot="composer-field" ref={ref} className={cn('relative w-full', className)} {...rest}>
             {children}
         </div>
     )
@@ -287,7 +277,7 @@ const ComposerPlaceholder = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEle
             data-slot="composer-placeholder"
             id={`${id}-hint`}
             ref={ref}
-            className={cn('text-secondary [grid-area:1/1] text-sm pointer-events-none', className)}
+            className={cn('text-secondary absolute top-4 left-4 text-sm pointer-events-none', className)}
             {...rest}
         >
             {children}
@@ -325,7 +315,7 @@ function ComposerTextarea({
             minRows={minRows}
             maxRows={maxRows}
             autoFocus={autoFocus}
-            className={cn('[grid-area:1/1] !min-h-0 !p-0 !border-none !bg-transparent resize-none', className)}
+            className={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none', className)}
             hideFocus
             onPressEnter={() => submit()}
             {...rest}
