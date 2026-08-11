@@ -304,17 +304,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         symbol_sets = list(upload_data.get("symbol_sets", []))
         chunk_ids = list(upload_data.get("chunk_ids") or [])
 
-        posthoganalytics.capture(
-            "error_tracking_symbol_set_upload_started",
-            properties={
-                "team_id": self.team.id,
-                "endpoint": "bulk_start_upload",
-                "force": force,
-                "skip_on_conflict": skip_on_conflict,
-            },
-            groups=groups(self.team.organization, self.team),
-        )
-
         id_map = symbol_sets_facade.bulk_start_upload(
             self.team,
             symbol_sets=symbol_sets,
@@ -328,9 +317,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         # get no entry in the id_map, so its size is the number of chunks being uploaded.
         total_chunks = len(symbol_sets) + len(chunk_ids)
         posthoganalytics.capture(
-            "error_tracking_symbol_set_upload_chunk_stats",
+            "error_tracking_symbol_set_upload_started",
             properties={
                 "team_id": self.team.id,
+                "endpoint": "bulk_start_upload",
+                "force": force,
+                "skip_on_conflict": skip_on_conflict,
                 "total_chunks": total_chunks,
                 "chunks_skipped": total_chunks - len(id_map),
             },
