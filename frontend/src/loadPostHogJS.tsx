@@ -10,42 +10,6 @@ import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
-// Detail messages the backend sends with the three handled auth-gate 403s. The frontend already
-// recovers from each of them in `apiStatusLogic` (it opens the 2FA setup modal, shows the
-// re-verification toast, or prompts a re-auth), so a rejected request is expected control flow,
-// not a bug. posthog-js's error conversion keeps only the error type, message, and stack in
-// `$exception_list` — the DRF `code` never reaches `before_send` — so we match on the message,
-// which `ApiError` sets from the response `detail`.
-//
-//   two_factor_setup_required        — posthog/helpers/two_factor_session.py
-//   two_factor_verification_required — posthog/helpers/two_factor_session.py
-//   sensitive_action_required_reauth — posthog/permissions.py (TimeSensitiveActionPermission)
-const HANDLED_AUTH_GATE_MESSAGES = new Set([
-    '2FA setup required',
-    '2FA verification required',
-    'This action requires you to be recently authenticated.',
-])
-
-/**
- * Drops `$exception` events that are really a handled auth gate, not a crash. When an org enforces
- * 2FA, or an action needs recent re-authentication, the API returns a 403 that `apiStatusLogic`
- * turns into the setup/verify flow. The many call sites that also `captureException` the rejection
- * — kea loaders via `initKea`, and direct captures like `reverseProxyCheckerLogic` — would each
- * file it as a fresh error tracking issue, so filter them out centrally here. Exported for tests.
- */
-export function dropHandledAuthGateExceptions<T extends { event?: string; properties?: Record<string, any> } | null>(
-    event: T
-): T | null {
-    if (!event || event.event !== '$exception') {
-        return event
-    }
-    const list = (event.properties?.$exception_list ?? []) as Array<{ value?: string }>
-    if (list.some((ex) => ex?.value != null && HANDLED_AUTH_GATE_MESSAGES.has(ex.value))) {
-        return null
-    }
-    return event
-}
-
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
     return sampleOnProperty(sessionId, 0.5)
@@ -93,14 +57,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: [
-                dropHandledAuthGateExceptions,
-                ...(options.beforeSend
-                    ? Array.isArray(options.beforeSend)
-                        ? options.beforeSend
-                        : [options.beforeSend]
-                    : []),
-            ],
+            before_send: options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
