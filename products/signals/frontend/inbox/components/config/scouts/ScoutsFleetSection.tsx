@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { IconCompass, IconSparkles } from '@posthog/icons'
@@ -7,11 +8,11 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutAction, captureScoutFleetViewed } from '../../../inboxAnalytics'
-import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import {
     FleetSummary,
@@ -38,7 +39,6 @@ import { ScoutTagsFilter } from './ScoutTagsFilter'
 export function ScoutsFleetSection(): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
     const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
-    const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
 
     // Poll the runs window only while the fleet list is open — the always-mounted setup
@@ -100,19 +100,19 @@ export function ScoutsFleetSection(): JSX.Element {
             <FleetFindingsCallout
                 onOpen={() => {
                     captureScoutAction({ actionType: 'open_findings', surface: 'fleet_list' })
-                    // This section can render inside the scout-troop setup modal; dismiss it so the
-                    // findings view isn't left hidden behind the portal'd modal. No-op outside a modal.
+                    // Navigate through the router so a single URL write opens the panel. Setting the
+                    // scene flag directly races the modal-dismiss write and can bounce back to the list.
                     closeSetupModal()
-                    setFindingsOpen(true)
+                    router.actions.push(urls.inboxFindings())
                 }}
             />
             <FleetMemoryCallout
                 onOpen={() => {
                     captureScoutAction({ actionType: 'open_memory', surface: 'fleet_list' })
-                    // This section can render inside the scout-troop setup modal; dismiss it so the
-                    // memory view isn't left hidden behind the portal'd modal. No-op outside a modal.
+                    // Navigate through the router so a single URL write opens the panel. Setting the
+                    // scene flag directly races the modal-dismiss write and can bounce back to the list.
                     closeSetupModal()
-                    setScratchpadOpen(true)
+                    router.actions.push(urls.inboxScratchpad())
                 }}
             />
             <ScoutsFleetList />
