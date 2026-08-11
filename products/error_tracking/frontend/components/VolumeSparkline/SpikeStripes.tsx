@@ -58,11 +58,12 @@ export function SpikeStripes({ data, minBarSize, cornerRadius }: SpikeStripesPro
                     data-attr="error-tracking-volume-spike-stripes"
                     // `bg-[size:12px_12px]` tiles one cell; at `auto` the tile is the bar's own box,
                     // so the repeat seam lands mid-pattern and scrolls an out-of-phase strip up.
+                    // The animation (and its reduced-motion/snapshot opt-outs) lives on the
+                    // `VolumeSparkline__spikeStripes` class in base.scss, beside its keyframes.
                     className={cn(
-                        'absolute pointer-events-none',
+                        'VolumeSparkline__spikeStripes absolute pointer-events-none',
                         'bg-[repeating-linear-gradient(135deg,rgb(255_255_255/40%)_0_4.2426px,transparent_4.2426px_8.4853px)]',
-                        'bg-[size:12px_12px] animate-[VolumeSparkline__spikeStripes_1.5s_linear_infinite]',
-                        'motion-reduce:animate-none [.storybook-test-runner_&]:animate-none'
+                        'bg-[size:12px_12px]'
                     )}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{

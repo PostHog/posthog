@@ -2034,6 +2034,21 @@
     }
 }
 
+// A class, not a Tailwind `animate-[…]` utility: the keyframe name's `__` would need
+// underscore-escaping there, and Tailwind's raw-source scanner and the JSX-evaluated
+// class attribute disagree on backslashes, so the utility's selector never matches.
+.VolumeSparkline__spikeStripes {
+    animation: VolumeSparkline__spikeStripes 1.5s linear infinite;
+
+    .storybook-test-runner & {
+        animation: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
+}
+
 /* stylelint-disable-next-line keyframes-name-pattern */
 @keyframes setup-highlight-pulse {
     0%,
