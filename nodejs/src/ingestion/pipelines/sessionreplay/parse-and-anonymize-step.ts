@@ -12,7 +12,7 @@ import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/typ
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { hashImageBytes, imageRef, isImageRef } from './ml-mirror-image-scrub/content-ref'
+import { hashImageBytes, imageRef, isImageRef, urlRef } from './ml-mirror-image-scrub/content-ref'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
     PSEUDONYM_IMAGE_URL_KEY,
@@ -316,7 +316,7 @@ function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): Collected
     const urls: CollectedUrl[] = []
     const hosts = new Set<string>()
     for (const entry of meta.urls ?? []) {
-        urls.push({ ref: imageRef(pseudoTeam, entry.hash), url: entry.url, host: entry.host })
+        urls.push({ ref: urlRef(pseudoTeam, entry.hash), url: entry.url, host: entry.host })
         hosts.add(entry.host)
     }
     SessionRecordingIngesterMetrics.observeMlUrlHostsPerMessage(hosts.size)

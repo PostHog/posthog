@@ -134,7 +134,8 @@ pub struct CanonicalUrl {
 }
 
 /// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`. Same construction and width as
-/// [`crate::collect::hash_image_bytes`], so both kinds of ref parse under one regex downstream.
+/// [`crate::collect::hash_image_bytes`], but carried under the `imageurl:` prefix, because this
+/// hash names a URL rather than the bytes behind it.
 pub fn hash_url(url_key: &[u8], dedup_url: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(url_key).expect("hmac accepts any key length");
     mac.update(dedup_url.as_bytes());
@@ -328,7 +329,7 @@ impl UrlCollector {
         let canonical = canonicalize(raw)?;
         let hash = hash_url(self.url_key.as_bytes(), &canonical.dedup);
         if self.seen.contains(&hash) {
-            return Some(crate::collect::image_ref(&self.pseudo_team, &hash));
+            return Some(crate::collect::url_ref(&self.pseudo_team, &hash));
         }
         if self.urls.len() >= MAX_URLS_PER_MESSAGE {
             return None;
@@ -339,7 +340,7 @@ impl UrlCollector {
             url: canonical.fetch,
             host: canonical.host,
         });
-        Some(crate::collect::image_ref(&self.pseudo_team, &hash))
+        Some(crate::collect::url_ref(&self.pseudo_team, &hash))
     }
 
     /// Drain, sorted by hash. A deterministic order that cannot depend on which engine walked the
@@ -374,10 +375,12 @@ mod tests {
     }
 
     #[test]
-    fn ref_matches_the_consumer_shape() {
+    fn ref_matches_the_consumer_shape_and_says_it_came_from_a_url() {
         let mut c = collector();
         let r = c.collect("https://example.com/a.png").unwrap();
         assert!(crate::collect::is_image_ref_strict(&r));
+        // The prefix is what tells a reader the hash names a URL, not the bytes behind it.
+        assert!(r.starts_with("imageurl:"), "got {r}");
     }
 
     #[test]

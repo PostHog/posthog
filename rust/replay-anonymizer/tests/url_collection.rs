@@ -170,8 +170,8 @@ fn a_remote_src_becomes_a_ref_and_its_url_reaches_meta() {
         let (line, meta) = (&result[0], &result[1]);
         let src = attrs_of(line)["src"].as_str().expect("src is a string");
         assert!(
-            src.starts_with(&format!("image:{PSEUDO_TEAM}:")),
-            "{engine}: expected a ref, got {src}"
+            src.starts_with(&format!("imageurl:{PSEUDO_TEAM}:")),
+            "{engine}: expected a url ref, got {src}"
         );
 
         let urls = meta["urls"].as_array().expect("meta.urls present");
@@ -217,7 +217,7 @@ fn an_inlined_image_is_untouched_by_the_url_lane() {
         let (line, meta) = (&result[0], &result[1]);
         let src = attrs_of(line)["src"].as_str().expect("src is a string");
         assert!(
-            !src.starts_with("image:"),
+            !src.starts_with("imageurl:"),
             "{engine}: an inlined image must not take the URL lane, got {src}"
         );
         assert!(meta.get("urls").is_none(), "{engine}");

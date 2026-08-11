@@ -48,10 +48,11 @@ export type MlMirrorConfig = {
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
      * Enabling changes the mirrored JSONL shape a second time: a remote image's `src` carries an
-     * `image:<pseudoTeam>:<hash>` ref instead of the grey placeholder. Nothing fetches those URLs
-     * yet, so every such ref is dangling, and a dangling ref already renders as that same
-     * placeholder. The visible result is therefore unchanged, and what this buys is the measurement
-     * of how many URLs and how many distinct hosts real traffic carries.
+     * `imageurl:<pseudoTeam>:<hash>` ref instead of the grey placeholder. The prefix differs from
+     * the image lane's `image:` on purpose, because this hash names the URL rather than the bytes
+     * behind it. Nothing fetches those URLs yet, so every such ref is dangling, and a dangling ref
+     * renders as the same placeholder it replaced. What this buys is the measurement of how many
+     * URLs and how many distinct hosts real traffic carries.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string

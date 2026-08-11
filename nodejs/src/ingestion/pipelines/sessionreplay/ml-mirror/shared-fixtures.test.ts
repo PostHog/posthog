@@ -288,7 +288,13 @@ describeAddon('native image collection', () => {
         expect(Buffer.from(bytes)).toEqual(png)
         // The Rust-emitted hash must be the keyed HMAC of the returned bytes.
         expect(hashImageBytes(CONTENT_KEY, Buffer.from(bytes))).toBe(entry.hash)
-        expect(parseImageRef(expectedRef)).toEqual({ pseudoTeam: PSEUDO_TEAM, hash: entry.hash })
+        // `source` is what tells a reader whether the hash names the bytes or only the URL they
+        // came from. An inlined image is content-addressed, so it must read as `bytes`.
+        expect(parseImageRef(expectedRef)).toEqual({
+            pseudoTeam: PSEUDO_TEAM,
+            hash: entry.hash,
+            source: 'bytes',
+        })
     })
 
     it('collects nothing without the collection keys and blurs inline instead', async () => {

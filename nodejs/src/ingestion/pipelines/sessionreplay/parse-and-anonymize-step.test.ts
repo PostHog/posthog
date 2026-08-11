@@ -351,7 +351,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
         expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(expect.anything(), null, pseudoTeam, undefined, urlKey)
         expect(result.value.collectedUrls).toEqual([
             {
-                ref: `image:${pseudoTeam}:${'h'.repeat(22)}`,
+                ref: `imageurl:${pseudoTeam}:${'h'.repeat(22)}`,
                 url: 'https://cdn.example.com/a.png',
                 host: 'cdn.example.com',
             },
