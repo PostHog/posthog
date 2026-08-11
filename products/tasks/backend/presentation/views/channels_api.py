@@ -8,6 +8,7 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
@@ -16,6 +17,8 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import compute_quota_limit_response
+from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
     ChannelFeedMessageSerializer,
@@ -33,6 +36,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskActivitySerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
+    TaskRunErrorResponseSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
@@ -83,6 +87,13 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    @staticmethod
+    def _sandbox_task_id(request: Request) -> UUID | None:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return None
+        return authenticator.access_token.sandbox_task_id
+
     @extend_schema(
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
         summary="List channels",
@@ -96,12 +107,20 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
         summary="Resolve or create a public channel",
-        description="Returns the existing public channel with the (normalized) name, creating it if needed.",
+        description=(
+            "Returns the existing public channel with the (normalized) name, creating it if needed. "
+            "A channel created here is starred for the requester unless star is false."
+        ),
     )
     def create(self, request, **kwargs):
         serializer = ChannelWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        channel = tasks_facade.resolve_channel(self.team_id, self._user_id(), name=serializer.validated_data["name"])
+        channel = tasks_facade.resolve_channel(
+            self.team_id,
+            self._user_id(),
+            name=serializer.validated_data["name"],
+            star=serializer.validated_data["star"],
+        )
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ChannelSerializer(channel).data)
@@ -162,6 +181,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(**PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS)
     @instructions.mapping.put
     def publish_instructions(self, request, pk=None, **kwargs):
+        sandbox_task_id = self._sandbox_task_id(request)
+        if sandbox_task_id is not None and not tasks_facade.task_can_publish_channel_instructions(
+            sandbox_task_id, self.team_id, pk
+        ):
+            raise PermissionDenied("This loop can update only the CONTEXT.md configured for this run.")
+
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -529,13 +554,20 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: TaskThreadMessageSerializer,
             400: OpenApiResponse(description="No signalable run, or message already forwarded"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Organization reached its PostHog Desktop usage limit",
+            ),
         },
         summary="Send a thread message to the agent",
         description="Task author only: forwards the message into the task's latest live run.",
     )
     @action(detail=True, methods=["post"], url_path="send_to_agent", required_scopes=["task:write"])
     def send_to_agent(self, request, pk=None, **kwargs):
-        kind, message = tasks_facade.forward_thread_message(pk, self._task_id(), self.team_id, self._user_id())
+        try:
+            kind, message = tasks_facade.forward_thread_message(pk, self._task_id(), self.team_id, self._user_id())
+        except ComputeBillingLimitExceeded:
+            return compute_quota_limit_response()
         if kind == "not_found":
             raise NotFound()
         if kind == "forbidden":

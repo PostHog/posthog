@@ -93,7 +93,7 @@ def valid_report_uuids(report_ids: set[str | None]) -> set[str]:
     return {canonical for report_id in report_ids if (canonical := canonical_report_uuid(report_id)) is not None}
 
 
-# The `Inbox report feedback` producer contract (frontend/src/scenes/inbox/inboxAnalytics.ts emits
+# The `Inbox report feedback` producer contract (products/signals/frontend/inbox/inboxAnalytics.ts emits
 # exactly these two). Applied to the labeled-id spine and the feedback stream alike, so an event
 # whose sentiment is missing or off-contract carries no label and can neither mint a label-only
 # training row nor stamp a feedback label onto a real report.
@@ -176,7 +176,7 @@ IMPRESSIONS_COLUMNS = (
     "source_products",
 )
 # Ranks come from client-supplied JSON, so they can be any Int64, and JSONExtractInt yields 0 for
-# a missing or non-numeric value. The producer contract (frontend/src/scenes/inbox/inboxAnalytics.ts)
+# a missing or non-numeric value. The producer contract (products/signals/frontend/inbox/inboxAnalytics.ts)
 # is 1-based, so anything below 1 is malformed; anything above int32 would raise on the Parquet
 # conversion and fail the whole fleet-wide labels asset. Both are nulled out, and the impression
 # still counts toward the impression/user counts.

@@ -158,6 +158,43 @@ export class CloudArtifactService {
     return finalizedArtifacts.map((artifact) => artifact.id);
   }
 
+  async uploadRunOutput(
+    client: CloudArtifactClient,
+    taskId: string,
+    runId: string,
+    name: string,
+    content: string,
+    contentType?: string,
+  ): Promise<string> {
+    const bytes = new TextEncoder().encode(content);
+    const attachment: LoadedCloudAttachment = {
+      filePath: name,
+      bytes,
+      upload: {
+        name,
+        type: "output",
+        size: bytes.byteLength,
+        ...(contentType ? { content_type: contentType } : {}),
+      },
+    };
+    const preparedArtifacts = await client.prepareTaskRunArtifactUploads(
+      taskId,
+      runId,
+      [attachment.upload],
+    );
+    await this.uploadPreparedArtifacts([attachment], preparedArtifacts);
+    const finalizedArtifacts = await client.finalizeTaskRunArtifactUploads(
+      taskId,
+      runId,
+      preparedArtifacts,
+    );
+    const finalizedArtifact = finalizedArtifacts[0];
+    if (!finalizedArtifact) {
+      throw new Error("Artifact upload was not finalized");
+    }
+    return finalizedArtifact.id;
+  }
+
   async uploadRunAttachments(
     client: CloudArtifactClient,
     taskId: string,

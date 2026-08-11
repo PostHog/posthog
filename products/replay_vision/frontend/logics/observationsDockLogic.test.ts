@@ -9,11 +9,16 @@ import { visionScannersListLogic } from './visionScannersListLogic'
 describe('observationsDockLogic', () => {
     let logic: ReturnType<typeof observationsDockLogic.build>
     let observeCalls: number
+    let inlineScanCalls: number
     let releaseObserve: () => void
+    let releaseInlineScan: () => void
     let releaseScanners: () => void
+    let inlineScanOutcome: string
 
     beforeEach(() => {
         observeCalls = 0
+        inlineScanCalls = 0
+        inlineScanOutcome = 'started'
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/': async () => {
@@ -33,6 +38,20 @@ describe('observationsDockLogic', () => {
                     })
                     return [202, { workflow_id: 'wf-1' }]
                 },
+                '/api/projects/:team/vision/scanners/inline_scan/': async () => {
+                    inlineScanCalls += 1
+                    await new Promise<void>((resolve) => {
+                        releaseInlineScan = resolve
+                    })
+                    return [
+                        202,
+                        {
+                            scan_id: 'scanner-x',
+                            started: inlineScanOutcome === 'started' ? 1 : 0,
+                            results: [{ session_id: 'sess-1', scan_outcome: inlineScanOutcome }],
+                        },
+                    ]
+                },
             },
         })
         initKeaTests()
@@ -42,6 +61,7 @@ describe('observationsDockLogic', () => {
 
     afterEach(() => {
         releaseObserve?.()
+        releaseInlineScan?.()
         releaseScanners?.()
         logic?.unmount()
     })
@@ -69,5 +89,30 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(observeCalls).toBe(1)
+    })
+
+    it('starts one inline scan when summarize is clicked twice', async () => {
+        // Same race as `observe`, but the summarize path guards itself with its own cache flag, so the
+        // observe test can't cover it. A second POST spends nothing but contradicts the first toast.
+        logic.actions.summarize()
+        logic.actions.summarize()
+        await expectLogic(logic).toMatchValues({ summarizing: true })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(inlineScanCalls).toBe(1)
+    })
+
+    it('re-reads observations when the recording was already summarized', async () => {
+        // The inline scanner is shared across the project, so the existing row can postdate this dock's
+        // mount-time load. Without the refetch the user reads "already summarized" over an empty dock.
+        inlineScanOutcome = 'already_scanned'
+        logic.actions.summarize()
+        // The mock holds the request open, and its release hook only exists once the handler runs.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+
+        await expectLogic(logic).toDispatchActions(['summarizeFailure', 'loadObservations'])
+        await expectLogic(logic).toMatchValues({ dockOpen: true })
     })
 })

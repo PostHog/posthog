@@ -89,7 +89,7 @@ jobs:
     # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
-        # Let the initial task tell us to not run (currently very blunt)
+        # Let the initial task tell us to not run (very blunt)
         needs:
             - plan
         if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}

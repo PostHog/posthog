@@ -47,6 +47,6 @@ Spotted a bug? Something broken? [Raise an issue](https://github.com/PostHog/cod
 
 ## Feature requests
 
-Raise an issue and tag it as an enhancement. Give us as much context on the _why_ as possible -- we love hearing about the problem you're trying to solve.
+Request features on [our public roadmap](https://posthog.com/roadmap). Give us as much context on the _why_ as possible -- we love hearing about the problem you're trying to solve.
 
 If you're unsure whether something fits, open an issue first and we'll get back to you quickly.

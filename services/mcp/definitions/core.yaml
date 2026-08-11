@@ -43,6 +43,9 @@ tools:
     cimd-verification-tokens-list:
         operation: cimd_verification_tokens_list
         enabled: false
+    cimd-verification-tokens-partial-update:
+        operation: cimd_verification_tokens_partial_update
+        enabled: false
     cimd-verification-tokens-retrieve:
         operation: cimd_verification_tokens_retrieve
         enabled: false
