@@ -877,7 +877,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     toolDataEvents ? events.some((event) => toolDataEvents.has(event)) : null
                 // Both replay sources read recordings, so they stand or fall on the same opt-in.
                 const sessionReplayTool: SourceToolStatus = {
-                    toolName: 'Session replay',
+                    toolName: 'Session Replay',
                     enabled: !!team?.session_recording_opt_in,
                     enablement: 'session_replay',
                     // Recordings never produce event definitions, so there is no cheap signal.
@@ -885,7 +885,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
                 return {
                     error_tracking: {
-                        toolName: 'Error tracking',
+                        toolName: 'Error Tracking',
                         // Server SDKs capture exceptions without the autocapture opt-in, so
                         // flowing data counts as on.
                         enabled: !!team?.autocapture_exceptions_opt_in || has('$exception') === true,
@@ -901,13 +901,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         receivingData: null,
                     },
                     llm_analytics: {
-                        toolName: 'AI observability',
+                        toolName: 'AI Observability',
                         enabled: true,
                         enablement: null,
                         receivingData: has('$ai_generation', '$ai_trace'),
                     },
                     analytics: {
-                        toolName: 'Product analytics',
+                        toolName: 'Product Analytics',
                         enabled: true,
                         enablement: null,
                         receivingData: has('$pageview', '$autocapture'),

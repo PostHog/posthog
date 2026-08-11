@@ -37,22 +37,22 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
     [SignalSourceProduct.SessionReplay]: {
         Icon: IconRewindPlay,
         colorClass: 'text-warning',
-        label: 'Session replay',
+        label: 'Session Replay',
     },
     [SignalSourceProduct.ReplayVision]: {
         Icon: IconEye,
         colorClass: 'text-warning',
-        label: 'Replay vision',
+        label: 'Replay Vision',
     },
     [SignalSourceProduct.ErrorTracking]: {
         Icon: IconBug,
         colorClass: 'text-danger',
-        label: 'Error tracking',
+        label: 'Error Tracking',
     },
     [SignalSourceProduct.LlmAnalytics]: {
         Icon: IconBrain,
         colorClass: 'text-accent',
-        label: 'AI observability',
+        label: 'AI Observability',
     },
     [SignalSourceProduct.Github]: {
         Icon: IconGithub,
@@ -97,17 +97,17 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
     [SignalSourceProduct.HealthChecks]: {
         Icon: IconHeartPlus,
         colorClass: 'text-danger',
-        label: 'Health checks',
+        label: 'Health Checks',
     },
     [SignalSourceProduct.EngineeringAnalytics]: {
         Icon: IconGear,
         colorClass: 'text-warning',
-        label: 'Engineering analytics',
+        label: 'Engineering Analytics',
     },
     [SignalSourceProduct.Analytics]: {
         Icon: IconGraph,
         colorClass: 'text-accent',
-        label: 'Product analytics',
+        label: 'Product Analytics',
     },
 }
 

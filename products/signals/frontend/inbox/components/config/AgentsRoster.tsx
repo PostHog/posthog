@@ -399,6 +399,9 @@ const AgentRow = memo(function AgentRow({
     // An off tool blocks arming (the source would watch nothing), never disarming.
     const armingBlocked = toolOff && !armed
     const tag = notableTag(status, armed, toolOff, tool)
+    // A source whose entities the user creates gets no master switch. Arming it would write to
+    // every entity at once, and turning it off and on again would not restore the earlier subset.
+    const hasMasterSwitch = !agent.entitiesAreUserCreated
     const enabledCount = entities.filter((entity) => entity.enabled).length
     return (
         <div>
@@ -447,7 +450,7 @@ const AgentRow = memo(function AgentRow({
                         <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
                             Connect
                         </LemonButton>
-                    ) : (
+                    ) : hasMasterSwitch ? (
                         <LemonSwitch
                             checked={armed}
                             onChange={() => onToggle(agent.source)}
@@ -458,7 +461,7 @@ const AgentRow = memo(function AgentRow({
                             }
                             aria-label={`Arm ${agent.label}`}
                         />
-                    )}
+                    ) : null}
                 </div>
                 <IconChevronRight
                     className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -705,9 +708,7 @@ export function AgentsRoster(): JSX.Element {
         (source: AgentRosterSource) => {
             switch (source) {
                 case 'replay_vision':
-                    // Replay Vision has no row of its own, so the master is the scanners themselves:
-                    // arm them all when none emits, and stand them all down otherwise.
-                    setAllScannerSignals(!scannerEntities.some((entity) => entity.enabled))
+                    // Switched per scanner, in the expanded list. No row-level control to fire.
                     return
                 case 'error_tracking':
                     toggleErrorTracking()
@@ -718,16 +719,9 @@ export function AgentsRoster(): JSX.Element {
                 case 'session_replay':
                     toggleSessionAnalysis()
                     return
-                case 'llm_analytics': {
-                    // Two streams sit under this row, the periodic digest and the per-evaluation
-                    // allowlist, so the master has to move both or it would lie about the row.
-                    const next = !(!!evalReportsConfig?.enabled || evaluationEntities.some((e) => e.enabled))
-                    if (!!evalReportsConfig?.enabled !== next) {
-                        toggleEvalReports()
-                    }
-                    setEvaluationSignals(next ? evaluationEntities.map((entity) => entity.id) : [])
+                case 'llm_analytics':
+                    // Switched per evaluation, plus the digest, both in the expanded list.
                     return
-                }
                 case 'analytics':
                     toggleAnomalyInvestigation()
                     return
