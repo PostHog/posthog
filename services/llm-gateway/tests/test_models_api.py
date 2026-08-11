@@ -234,26 +234,26 @@ class TestListModelsForProductEndpoint:
         assert models["gpt-5.2"]["pricing"] == {
             "prompt": "0.0000025",
             "completion": "0.00001",
-            "cache_read": "0.00000025",
-            "cache_write": "0.0000025",
+            "input_cache_read": "0.00000025",
+            "input_cache_write": "0.0000025",
         }
         assert models["claude-opus-4-5"]["pricing"] == {
             "prompt": "0.000005",
             "completion": "0.000025",
-            "cache_read": "0.0000005",
-            "cache_write": "0.00000625",
+            "input_cache_read": "0.0000005",
+            "input_cache_write": "0.00000625",
         }
         assert models["@cf/zai-org/glm-5.2"]["pricing"] == {
             "prompt": "0.0000014",
             "completion": "0.0000044",
-            "cache_read": "0.00000014",
-            "cache_write": "0.0000014",
+            "input_cache_read": "0.00000014",
+            "input_cache_write": "0.0000014",
         }
         assert models["deepseek-ai/deepseek-v4-flash-0731"]["pricing"] == {
             "prompt": "0.00000013",
             "completion": "0.00000026",
-            "cache_read": "0.000000028",
-            "cache_write": "0.00000013",
+            "input_cache_read": "0.000000028",
+            "input_cache_write": "0.00000013",
         }
 
     @pytest.mark.parametrize("alias", ["twig", "array"])

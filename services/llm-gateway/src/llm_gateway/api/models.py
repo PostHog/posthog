@@ -36,8 +36,8 @@ class TruncationPolicyConfig(BaseModel):
 class ModelPricing(BaseModel):
     prompt: str
     completion: str
-    cache_read: str | None = None
-    cache_write: str | None = None
+    input_cache_read: str | None = None
+    input_cache_write: str | None = None
 
 
 class ModelObject(BaseModel):
@@ -94,8 +94,8 @@ def _get_model_pricing(cost_model_id: str) -> ModelPricing | None:
     return ModelPricing(
         prompt=_format_rate(input_cost),
         completion=_format_rate(output_cost),
-        cache_read=_format_rate(cache_read_cost) if cache_read_cost is not None else None,
-        cache_write=_format_rate(cache_write_cost) if cache_write_cost is not None else None,
+        input_cache_read=_format_rate(cache_read_cost) if cache_read_cost is not None else None,
+        input_cache_write=_format_rate(cache_write_cost) if cache_write_cost is not None else None,
     )
 
 
