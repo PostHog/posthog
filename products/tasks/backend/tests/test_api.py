@@ -309,7 +309,7 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
-    def test_list_excludes_other_user_and_unowned_tasks(self):
+    def test_list_excludes_other_user_tasks_but_includes_legacy_unowned(self):
         other_user = self.create_organization_user("victim")
         self.create_task("Mine", created_by=self.user)
         self.create_task("Theirs", created_by=other_user)
@@ -317,8 +317,8 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
 
         response = self.client.get("/api/projects/@current/tasks/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        titles = [task["title"] for task in response.json()["results"]]
-        self.assertEqual(titles, ["Mine"])
+        titles = sorted(task["title"] for task in response.json()["results"])
+        self.assertEqual(titles, ["Legacy", "Mine"])
 
     def test_retrieve_other_user_task_returns_404(self):
         other_user = self.create_organization_user("victim")
@@ -327,11 +327,11 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_retrieve_legacy_unowned_task_returns_404(self):
+    def test_retrieve_legacy_unowned_task_is_visible(self):
         task = self._create_legacy_task()
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_retrieve_includes_passive_slack_thread_references(self):
         task = self.create_task()

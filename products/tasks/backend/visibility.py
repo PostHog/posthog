@@ -35,7 +35,9 @@ def task_control_q(user_id: int | None) -> Q:
     Null-channel tasks keep the product-origin control rules used before channels.
     """
     channeled_q = Q(channel_id__isnull=False) & Channel.visible_to_q(user_id, relation="channel") & _creator_q(user_id)
-    legacy_q = Q(channel_id__isnull=True) & (_creator_q(user_id) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS))
+    legacy_q = Q(channel_id__isnull=True) & (
+        _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
+    )
     return channeled_q | legacy_q
 
 
@@ -46,7 +48,9 @@ def task_visibility_q(user_id: int | None) -> Q:
     product-origin fallback applies only to null-channel compatibility rows.
     """
     channeled_q = Q(channel_id__isnull=False) & Channel.visible_to_q(user_id, relation="channel")
-    legacy_q = Q(channel_id__isnull=True) & (_creator_q(user_id) | Q(origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS))
+    legacy_q = Q(channel_id__isnull=True) & (
+        _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
+    )
     return channeled_q | legacy_q
 
 
@@ -55,6 +59,7 @@ def task_run_visibility_q(user_id: int | None) -> Q:
     channeled_q = Q(task__channel_id__isnull=False) & Channel.visible_to_q(user_id, relation="task__channel")
     legacy_q = Q(task__channel_id__isnull=True) & (
         (Q(task__pk__in=[]) if user_id is None else Q(task__created_by_id=user_id))
+        | Q(task__created_by__isnull=True)
         | Q(task__origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
     )
     return channeled_q | legacy_q
