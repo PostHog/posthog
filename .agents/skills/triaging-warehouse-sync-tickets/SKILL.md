@@ -78,7 +78,9 @@ Related skills, and what is still usable from them:
 - **Never select `job_inputs`.** That column holds source credentials.
 - **Cross-customer data stays in the session.** Do not put a customer name, table name, error text, row
   count, or team id into a commit message, PR description, public issue, or screenshot.
-- **Bound every query.** See the pitfalls section. Unbounded queries here time out or scan the fleet.
+- **Bound every query by `team_id` and by time, never by row count.** An unbounded query times out or
+  scans the fleet. A `LIMIT` on a listing hides the broken source you are looking for. See the pitfalls
+  section, and the row-cap note at the top of the cookbook.
 
 ## Step 0 — Find the region
 
