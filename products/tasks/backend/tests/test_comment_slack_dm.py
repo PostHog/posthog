@@ -66,6 +66,18 @@ class TestCommentSlackDm(CommentActivityTestCase):
         assert "mentioned you" in text
         assert "this needs a guard" in text
 
+    def test_fallback_text_escapes_user_controlled_slack_markup(self):
+        self.peer.first_name = "<@U-ATTACKER>"
+        self.peer.last_name = ""
+        self.peer.save(update_fields=["first_name", "last_name"])
+        self.task.title = "<https://example.com|click me>"
+        self.task.save(update_fields=["title"])
+
+        self._record_activity(self._comment(), [self.author.id])
+
+        fallback = self.slack_client.chat_postMessage.call_args.kwargs["text"]
+        assert fallback == "&lt;@U-ATTACKER&gt; mentioned you on &lt;https://example.com|click me&gt;"
+
     def test_no_dm_when_the_user_opted_out(self):
         self._opt_in(self.author, False)
 

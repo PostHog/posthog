@@ -268,7 +268,7 @@ def _message(*, kind: str, comment: Comment, task: Task, organization_id: str | 
     label = escape_slack_mrkdwn(title).replace("|", "-")
     heading = template.format(author=f"*{escape_slack_mrkdwn(author)}*", link=f"<{url}|{label}>")
     # Plain-text twin for the notification preview and older clients.
-    fallback = template.format(author=author, link=title)
+    fallback = template.format(author=escape_slack_mrkdwn(author), link=escape_slack_mrkdwn(title))
 
     body, _ = rich_content_to_slack_payload(
         comment.rich_content, comment.content or "", include_images=False, organization_id=organization_id
