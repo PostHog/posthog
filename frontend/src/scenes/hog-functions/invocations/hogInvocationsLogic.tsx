@@ -725,7 +725,7 @@ async function fetchProblemLevels(
         FROM log_entries
         WHERE log_source = ${props.functionKind}
           AND log_source_id = ${props.id}
-          AND timestamp > {filters.dateRange.from}
+          AND timestamp >= {filters.dateRange.from}
           AND ${idClause}
         GROUP BY instance_id
         HAVING sev > 0
