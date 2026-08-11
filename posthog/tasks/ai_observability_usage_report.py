@@ -17,6 +17,7 @@ from posthog.logging.timing import timed_log
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
+from posthog.ph_client import PH_US_API_KEY
 from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
@@ -27,12 +28,21 @@ logger = structlog.get_logger(__name__)
 
 @cached(cache={})
 def get_ph_client() -> PostHogClient:
-    """Get a PostHog client instance for capturing events."""
-    return PostHogClient("sTMFPsFhdP1Ssg", sync_mode=True)
+    """Get a PostHog client instance for capturing events.
+
+    Shares `PH_US_API_KEY` with `internal_reporting_team_id`, which resolves the team the
+    already-reported lookup reads. A separate literal here could drift from that key, and the lookup
+    would then resolve no team, report that it cannot verify, and emit without checking.
+    """
+    return PostHogClient(PH_US_API_KEY, sync_mode=True)
 
 
 AI_EVENTS = [event.value for event in AIEventType]
 LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
+
+# The emitted report event. Shared by the emission and the already-reported lookup so the two
+# cannot drift: a lookup reading a different name would find nothing and silently allow duplicates.
+AI_OBSERVABILITY_USAGE_EVENT = "llm analytics usage"
 
 AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS = [*AI_EVENTS, LLM_PROMPT_FETCHED_EVENT]
 
@@ -58,6 +68,10 @@ CH_AI_OBSERVABILITY_SETTINGS = {
 QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
+
+# How long a queued report message may still be in flight before Celery discards it. The dispatch
+# claim reuses this, so the two cannot disagree about how long a run may still be emitting.
+USAGE_REPORT_MESSAGE_EXPIRY_SECONDS = 4 * 60 * 60
 
 # Celery task ID for query attribution
 CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports"
@@ -676,6 +690,114 @@ def get_llm_feedback_survey_metrics(
     )
 
 
+# Bounds the scan for the already-reported lookup, which has to see every stamp a report for the
+# period could carry. Reports emitted before stamping became deterministic carry their arrival time,
+# and for a backfill that is the operator's wall clock rather than the covered day, so the window
+# reaches well past the period. A report emitted more than this long after the period it covers is
+# invisible to the lookup and would be emitted a second time.
+REPORTED_LOOKUP_WINDOW = timedelta(days=90)
+
+# A claim has to outlive the run that took it, otherwise it lapses while the first dispatch is still
+# emitting and a second dispatch is admitted whose lookup cannot see the first one's events yet.
+USAGE_REPORT_DISPATCH_LOCK_TIMEOUT_SECONDS = USAGE_REPORT_MESSAGE_EXPIRY_SECONDS
+
+
+def usage_report_dispatch_lock_key(date: str) -> str:
+    """Cache key claiming a report date.
+
+    Keyed on the date alone, deliberately, even though it makes two disjoint `--org-ids` backfills of
+    one date serialize. The admin button always dispatches a whole date, so a key that also covered
+    the org scope would give the button and an org-scoped run different keys and let both through.
+    """
+    return f"ai-observability-usage-report-dispatch:{date}"
+
+
+def internal_reporting_team_id() -> int | None:
+    """The team whose events hold previously emitted reports, when this region has one.
+
+    `get_ph_client` emits with the US project's token from every region, so reports only ever land in
+    that one project and only a worker in the region hosting it can read them back. Everywhere else
+    the token matches no team. Callers must read None as "cannot verify", never as "nothing emitted".
+    """
+    return Team.objects.filter(api_token=PH_US_API_KEY).values_list("id", flat=True).first()
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_organizations_already_reported(period_start: datetime, internal_team_id: int) -> set[str]:
+    """Organization ids that already have a report covering `period_start`.
+
+    Matched on the `period_start` report property rather than on the event timestamp, because the
+    timestamp is a presentation choice that has already changed once, so deriving the period from it
+    would break silently if it changed again. `organization_id` and `period_start` are read from
+    `properties` rather than through `_ai_property_expr`: the `ai` property group only holds keys
+    matching `$ai_%`, so a group read of either would always return empty and allow every duplicate.
+    """
+    use_new = use_new_events_schema(internal_team_id)
+    org_id_expr, _ = get_property_string_expr(
+        "events", "organization_id", "'organization_id'", "properties", use_new_events_schema=use_new
+    )
+    period_start_expr, _ = get_property_string_expr(
+        "events", "period_start", "'period_start'", "properties", use_new_events_schema=use_new
+    )
+
+    query = f"""
+        SELECT DISTINCT {org_id_expr} AS organization_id
+        FROM {events_read_table(use_new)}
+        WHERE team_id = %(team_id)s
+          AND event = %(event)s
+          AND timestamp >= %(window_start)s
+          AND timestamp < %(window_end)s
+          AND toDate(parseDateTimeBestEffortOrNull({period_start_expr})) = toDate(%(period_start)s)
+          AND organization_id != ''
+    """
+
+    with tags_context(
+        product=Product.LLM_ANALYTICS,
+        feature=Feature.QUERY,
+        kind="celery",
+        id=CELERY_TASK_ID,
+        name="Get organizations already reported",
+        workload=Workload.OFFLINE.value,
+    ):
+        results = sync_execute(
+            query,
+            {
+                "team_id": internal_team_id,
+                "event": AI_OBSERVABILITY_USAGE_EVENT,
+                "window_start": period_start,
+                "window_end": period_start + REPORTED_LOOKUP_WINDOW,
+                "period_start": period_start,
+            },
+            workload=Workload.OFFLINE,
+            settings=CH_AI_OBSERVABILITY_SETTINGS,
+        )
+
+    return {row[0] for row in results}
+
+
+def _get_organizations_to_skip(period_start: datetime) -> set[str]:
+    """Organizations to leave out of this run because they already have a report for the period.
+
+    Returns an empty set where this region cannot read previously emitted reports, which emits
+    everything and matches the behaviour before the lookup existed. A lookup that fails for any other
+    reason raises instead, and that is deliberate: the run then cannot tell whether the period already
+    has reports, and emitting anyway would double count usage in every insight built on these events
+    with no way to remove the duplicates. Raising lets Celery retry and, if the failure persists, give
+    up having emitted nothing.
+    """
+    internal_team_id = internal_reporting_team_id()
+    if internal_team_id is None:
+        logger.warning(
+            "[AIO Usage Error] cannot check for already-emitted reports in this region, emitting without the check",
+            period_start=period_start.isoformat(),
+            event_source="ai_observability_usage_report",
+        )
+        return set()
+
+    return get_organizations_already_reported(period_start, internal_team_id)
+
+
 def _is_final_attempt(task: Task) -> bool:
     """Whether a failure now is permanent: a direct (synchronous) call never retries, and the
     last autoretry attempt runs with retries >= max_retries."""
@@ -693,7 +815,7 @@ AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS = {
     "autoretry_for": (Exception,),
     "retry_backoff": 300,  # 5min
     "retry_backoff_max": 1800,  # 30min
-    "expires": 14400,  # 4h
+    "expires": USAGE_REPORT_MESSAGE_EXPIRY_SECONDS,
 }
 
 
@@ -955,7 +1077,7 @@ def capture_ai_observability_report(
 
         capture_event(
             pha_client=pha_client,
-            name="llm analytics usage",
+            name=AI_OBSERVABILITY_USAGE_EVENT,
             organization_id=organization_id,
             properties=report_dict,
             timestamp=at_date,
@@ -1026,6 +1148,10 @@ def send_ai_observability_usage_reports(
     period = get_previous_day(at=at_date)
     period_start, period_end = period
 
+    # An explicit date or org filter is what distinguishes an operator-triggered run from the daily
+    # schedule.
+    is_manual_run = bool(at or organization_ids)
+
     if organization_ids:
         logger.info(
             "Sending AI observability usage reports for specific organizations",
@@ -1037,6 +1163,14 @@ def send_ai_observability_usage_reports(
     query_time_start = datetime.now(UTC)
 
     try:
+        # Every run consults this, not only operator-triggered ones. `acks_late` with
+        # `reject_on_worker_lost` means a worker lost part way through the emission loop has its
+        # message redelivered with the same arguments, and the scheduled run carries no date, so a
+        # redelivered daily run would otherwise emit a second report for every organization it had
+        # already dispatched. It runs before the gathering so that a lookup failure costs one query
+        # rather than the whole five-query gather on each Celery retry, and inside this block so that
+        # a permanent lookup failure still reaches the terminal log the alert alerts on.
+        organizations_to_skip = _get_organizations_to_skip(period_start)
         org_reports = _get_all_ai_observability_reports(period_start, period_end)
     except Exception as err:
         # The log alert keys on error severity: retryable attempts stay warnings, only the
@@ -1066,6 +1200,18 @@ def send_ai_observability_usage_reports(
             missing_orgs=missing_orgs or None,
         )
 
+    # Applied before the dry-run return so that a dry run previews the organizations a real run would
+    # report on, rather than the unfiltered set.
+    if organizations_to_skip:
+        before_count = len(org_reports)
+        org_reports = {org_id: report for org_id, report in org_reports.items() if org_id not in organizations_to_skip}
+        logger.info(
+            "Skipped organizations that already have an AI observability report for this period",
+            skipped_org_count=before_count - len(org_reports),
+            remaining_org_count=len(org_reports),
+            period_start=period_start.isoformat(),
+        )
+
     query_time_duration = (datetime.now(UTC) - query_time_start).total_seconds()
     logger.info(f"Found {len(org_reports)} AI observability org reports. It took {query_time_duration} seconds.")
 
@@ -1082,7 +1228,7 @@ def send_ai_observability_usage_reports(
     # in UTC and project timezones, and stops retry stragglers landing on the wrong chart day.
     # Actual arrival time remains queryable via events.created_at.
     report_timestamp = (period_start + timedelta(days=1)).isoformat()
-    triggered_by = "manual" if (at or organization_ids) else "scheduled"
+    triggered_by = "manual" if is_manual_run else "scheduled"
 
     for org_id, report in org_reports.items():
         report["triggered_by"] = triggered_by
