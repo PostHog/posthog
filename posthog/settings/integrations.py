@@ -1,25 +1,10 @@
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
-# Integration service — serves the platform integration credentials in this module over
-# HTTP, so they stop being injected as env vars into every pod that might need one.
-#
-# Both unset (the default, and the only sane state for self-hosted) means every read
-# falls back to the local environment exactly as before. Setting them enables the service
-# per environment, which is how this rolls out without a flag day.
+# Integration service. Both unset (the default) means credential reads fall back to the
+# local environment; see posthog/integration_secrets/client.py for the contract.
 INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
-# Comma-separated `new,old`, newest first. Per CALLER, not fleet-wide: the value in the
-# Django secret differs from the temporal workers', so a key leaked from one pod cannot
-# mint tokens claiming to be the other and inherit its wider allowlist. Sign with the
-# first; the service verifies against every key listed for that caller.
-#
-# No dev default, unlike RECORDING_API_JWT_SECRET: the client is inert until
-# INTEGRATION_SERVICE_URL is set, and local dev reads the environment as it always has.
-# So an empty value here fails closed everywhere rather than minting tokens nothing wants.
+# Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
 INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
-# Which product asked for a credential is passed at the call site from
-# posthog.integration_secrets.callers.IntegrationCaller, not configured here. The
-# deployment is identified by which signing key above verifies, so it needs no setting
-# either.
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")

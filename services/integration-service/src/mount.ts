@@ -5,7 +5,7 @@
 // the pod without a restart and a read never sees a half-written set.
 
 import { createHash } from 'node:crypto'
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir, readlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { logger } from './lib/logging'
@@ -37,23 +37,30 @@ function commaList(value: string | undefined): string[] {
 
 /** Every file on the mount, by name. Kubelet's own dot-prefixed bookkeeping is skipped. */
 export async function readMount(dir: string): Promise<Record<string, string> | null> {
+    // Kubelet swaps `..data` atomically between versions. Reading through the resolved
+    // target pins one version for the whole loop, so a swap mid-read cannot hand back a
+    // mix of old and new entries.
+    let root = dir
+    try {
+        root = join(dir, await readlink(join(dir, '..data')))
+    } catch {
+        // Not a kubelet projection (tests, local dev): read the directory as-is.
+    }
+
     let entries: string[]
     try {
-        entries = await readdir(dir)
+        entries = await readdir(root)
     } catch (err) {
         logger.error('mount:unreadable', { dir, error: err instanceof Error ? err.message : String(err) })
         return null
     }
 
     const values: Record<string, string> = {}
-    for (const entry of entries) {
-        if (entry.startsWith('.')) {
-            continue
-        }
+    for (const entry of entries.filter((name) => !name.startsWith('.'))) {
         try {
             // Trailing newlines are easy to introduce by hand and would silently break an
             // API call, so trim rather than trust the file byte for byte.
-            values[entry] = (await readFile(join(dir, entry), 'utf8')).trim()
+            values[entry] = (await readFile(join(root, entry), 'utf8')).trim()
         } catch (err) {
             logger.warn('mount:entry_unreadable', {
                 key: entry,
@@ -123,8 +130,10 @@ export class SecretMount {
         const credentials: Record<string, Credential> = {}
 
         for (const [key, value] of Object.entries(values)) {
-            // The one rule keeping the signing keys on this mount out of a response.
-            if (key.startsWith(RESERVED_PREFIX)) {
+            // Signing keys, the recovery list and rotation siblings are the mount's own
+            // machinery; served as credentials they would leak the outgoing value of a
+            // rotation and the list of burned keys.
+            if (key.startsWith(RESERVED_PREFIX) || key === RECOVERY_KEYS || key.endsWith(FALLBACK_SUFFIX)) {
                 continue
             }
             if (inRecovery.has(key)) {

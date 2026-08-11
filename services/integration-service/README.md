@@ -193,8 +193,9 @@ scrapes it unauthenticated, the same shape as every other service.
 
 This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for
 resolution — nothing from `nodejs/`, `frontend/` or `common/`. The package's own
-`.oxlintrc.json` enforces that with a `no-restricted-imports` rule, so `pnpm lint` fails on any
-import that reaches outside.
+`.oxlintrc.json` enforces that with a `no-restricted-imports` rule over static import specifiers
+that name another part of the monorepo. It does not see `require()`, dynamic `import()`, or a new
+npm dependency, so those still rest on review of `package.json` and the lockfile.
 
 Installs run `--ignore-scripts`; nothing in the tree needs an install-time script, and that is
 the npm-specific supply-chain path worth closing here.

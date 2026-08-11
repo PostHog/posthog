@@ -20,18 +20,17 @@ export interface Config {
     metricsPort: number
 }
 
-function intFromEnv(key: string, fallback: number): number {
+function intFromEnv(key: string, fallback: number, min = 0): number {
     const raw = process.env[key]
     if (!raw) {
         return fallback
     }
-    const parsed = Number.parseInt(raw, 10)
-    // Fail loudly rather than default: a malformed reload interval silently falling back
-    // would run a cadence the operator did not set.
-    if (Number.isNaN(parsed)) {
-        throw new Error(`${key} is not a number: ${JSON.stringify(raw)}`)
+    // Fail loudly rather than default or truncate: "30abc" must not run as 30, and a
+    // zero reload interval would re-read the mount in a 1ms setInterval loop.
+    if (!/^\d+$/.test(raw) || Number.parseInt(raw, 10) < min) {
+        throw new Error(`${key} must be an integer >= ${min}, got ${JSON.stringify(raw)}`)
     }
-    return parsed
+    return Number.parseInt(raw, 10)
 }
 
 export function loadConfig(): Config {
@@ -46,7 +45,7 @@ export function loadConfig(): Config {
 
         // Shorter than kubelet's own sync so a rotation is visible within about a minute
         // of the mount changing.
-        reloadSeconds: intFromEnv('INTEGRATION_SERVICE_RELOAD_SECONDS', 30),
+        reloadSeconds: intFromEnv('INTEGRATION_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('INTEGRATION_SERVICE_METRICS_PORT', 9090),
     }

@@ -6,7 +6,26 @@
             {
                 "patterns": [
                     {
-                        "group": ["**/nodejs/**", "**/frontend/**", "**/common/**", "@posthog/*", "@posthog/**"],
+                        "group": [
+                            "**/nodejs",
+                            "**/nodejs/**",
+                            "**/frontend",
+                            "**/frontend/**",
+                            "**/common",
+                            "**/common/**",
+                            "**/ee",
+                            "**/ee/**",
+                            "**/products",
+                            "**/products/**",
+                            "**/packages",
+                            "**/packages/**",
+                            "**/services/**",
+                            "**/plugin-server/**",
+                            "../../*",
+                            "../../**",
+                            "@posthog/*",
+                            "@posthog/**"
+                        ],
                         "message": "integration-service must not import from the rest of the monorepo — copy the small piece you need instead"
                     }
                 ]

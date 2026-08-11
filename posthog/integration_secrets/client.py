@@ -85,6 +85,14 @@ class SecretValue:
     previous: str | None = field(repr=False)
 
 
+@frozen
+class RotatingSecret:
+    """Current value plus the outgoing one, so the two cannot be transposed silently."""
+
+    current: str = field(repr=False)
+    previous: str | None = field(repr=False)
+
+
 def integration_service_signing_keys() -> list[str]:
     """The comma-separated `new_key,old_key` set, newest first, whitespace-trimmed.
 
@@ -94,25 +102,28 @@ def integration_service_signing_keys() -> list[str]:
     return [key for key in get_list(settings.INTEGRATION_SERVICE_JWT_SECRET or "") if key]
 
 
-def _flag_enabled() -> bool:
-    """The rollout flag, failing closed.
+def _disabled_reason() -> str | None:
+    """Why the environment fallback is in use, or None when the service should be called.
 
-    Closed here means "do not use the service" — the old environment-variable path. A
-    flag service blip must not take out credential reads, and during the rollout the
-    environment variables are still present, so falling back is safe.
+    The flag fails closed: closed means the old environment-variable path, because a flag
+    service blip must not take out credential reads. The three reasons matter separately
+    during the rollout — "flag_error" is the fail-closed path that quietly keeps a pod on
+    environment variables while the flag service is unhealthy, and it must not look like
+    a deliberate opt-out.
     """
+    if not settings.INTEGRATION_SERVICE_URL or not integration_service_signing_keys():
+        return "unconfigured"
     try:
-        return bool(posthoganalytics.feature_enabled(INTEGRATION_SERVICE_FLAG, INTEGRATION_SERVICE_FLAG_DISTINCT_ID))
+        enabled = bool(posthoganalytics.feature_enabled(INTEGRATION_SERVICE_FLAG, INTEGRATION_SERVICE_FLAG_DISTINCT_ID))
     except Exception:
         logger.warning("integration_secrets.flag_check_failed_defaulting_off", exc_info=True)
-        return False
+        return "flag_error"
+    return None if enabled else "flag_off"
 
 
 def integration_service_enabled() -> bool:
     """True when the service is configured and the rollout flag is on."""
-    if not settings.INTEGRATION_SERVICE_URL or not integration_service_signing_keys():
-        return False
-    return _flag_enabled()
+    return _disabled_reason() is None
 
 
 class IntegrationSecretsClient:
@@ -129,7 +140,7 @@ class IntegrationSecretsClient:
             out[key] = secret.value
         return out
 
-    def get_with_previous(self, key: str, caller: IntegrationCaller) -> tuple[str, str | None]:
+    def get_with_previous(self, key: str, caller: IntegrationCaller) -> RotatingSecret:
         """Current value plus the outgoing one while a rotation is in flight.
 
         For callers that can retry against a third party: try current, and on an auth
@@ -139,11 +150,12 @@ class IntegrationSecretsClient:
         secret = self._resolve([key], caller)[key]
         if secret.state == "recovery" or secret.value is None:
             raise SecretInRecoveryError(key)
-        return secret.value, secret.previous
+        return RotatingSecret(current=secret.value, previous=secret.previous)
 
     def _resolve(self, keys: list[str], caller: IntegrationCaller) -> dict[str, SecretValue]:
-        if not integration_service_enabled():
-            INTEGRATION_SECRET_ENV_FALLBACK_COUNTER.labels(reason="disabled").inc()
+        reason = _disabled_reason()
+        if reason is not None:
+            INTEGRATION_SECRET_ENV_FALLBACK_COUNTER.labels(reason=reason).inc()
             return {key: self._from_environment(key) for key in keys}
         return self._fetch(keys, caller)
 
@@ -202,5 +214,5 @@ def get_many(keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
     return _client.get_many(keys, caller)
 
 
-def get_with_previous(key: str, caller: IntegrationCaller) -> tuple[str, str | None]:
+def get_with_previous(key: str, caller: IntegrationCaller) -> RotatingSecret:
     return _client.get_with_previous(key, caller)

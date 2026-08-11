@@ -51,13 +51,18 @@ describe('reading the mount', () => {
         expect(held?.credentials['A_CREDENTIAL_NOBODY_HAS_HEARD_OF']).toMatchObject({ state: 'steady', value: 'new' })
     })
 
-    // THE property that replaced the manifest filter: anything reserved-prefixed is never a
-    // credential, and the caller signing keys sharing this mount are all reserved-prefixed.
+    // THE property that replaced the manifest filter: the mount's own machinery is never a
+    // credential — signing keys, the recovery list, and rotation siblings, which would
+    // otherwise hand out a rotation's outgoing value under its own name.
     it.each([
         ['a caller signing key', '__CALLER_KEY_POSTHOG_DJANGO'],
         ['any other reserved entry', '__SOMETHING_ELSE'],
+        ['the recovery list', 'INTEGRATION_RECOVERY_KEYS'],
+        ['a rotation sibling', 'HUBSPOT_APP_CLIENT_SECRET_FALLBACKS'],
     ])('never exposes %s as a credential', async (_label, key) => {
         const held = await load({ HUBSPOT_APP_CLIENT_SECRET: 'sec', [key]: 'not-a-credential' })
+        // The positive alongside the negative, so this cannot pass by load() returning null.
+        expect(held?.credentials).toHaveProperty('HUBSPOT_APP_CLIENT_SECRET')
         expect(held?.credentials).not.toHaveProperty(key)
     })
 

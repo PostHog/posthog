@@ -77,10 +77,12 @@ export class IntegrationServer {
         return address && typeof address === 'object' ? (address as AddressInfo).port : undefined
     }
 
-    /** Re-read the mount and the signing keys now, without waiting for the timer. */
+    /** Re-read the signing keys and the mount now, without waiting for the timer. */
     async reload(): Promise<void> {
-        await this.mount?.reload()
+        // Keys before credentials: a revocation and a rotation can land in one secret
+        // edit, and the revoked caller must not see the new values in the gap between.
         await this.signingKeys?.reload()
+        await this.mount?.reload()
         this.lifecycle.ready = this.mount?.current() != null
     }
 

@@ -46,9 +46,9 @@ describe('resolve', () => {
         })
     })
 
-    // THE containment property. The caller is allowed Stripe, but this token did not ask
-    // for it — so a token lifted from a log unlocks one credential, not the caller's whole
-    // entitlement. If someone reintroduces a request body, this is the test that fails.
+    // THE containment property at this layer: the scope is the identity's key list and
+    // nothing else. The route-level half — a request body cannot widen it — is pinned in
+    // app.test.ts, since this function never sees an HTTP request.
     it('serves nothing outside the token scope even though the caller may read it', async () => {
         const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID']), MOUNTED)
 

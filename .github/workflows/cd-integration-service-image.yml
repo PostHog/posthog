@@ -50,8 +50,6 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
-            # The Dockerfile re-runs check-import-boundary and check-deps-allowlist after
-            # bundling, so the isolation guardrails gate the image itself and not only CI.
             - name: Build and push container image
               id: push
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0

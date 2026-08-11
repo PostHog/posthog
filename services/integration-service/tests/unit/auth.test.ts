@@ -27,15 +27,16 @@ function verifier(keys: SigningKeys = KEYS): JwtVerifier {
 async function mint(opts: {
     key: string
     caller?: string
-    keys?: string[]
+    keys?: unknown
     audience?: string
     expiresIn?: string
     /** Mint with no `exp` at all — the shape jose accepts unless `exp` is required. */
     omitExpiry?: boolean
+    omitKeys?: boolean
 }): Promise<string> {
     const builder = new SignJWT({
         caller: opts.caller ?? 'warehouse-sources',
-        keys: opts.keys ?? ['GOOGLE_ADS_APP_CLIENT_SECRET'],
+        ...(opts.omitKeys ? {} : { keys: opts.keys ?? ['GOOGLE_ADS_APP_CLIENT_SECRET'] }),
     })
         .setProtectedHeader({ alg: 'HS256' })
         .setAudience(opts.audience ?? AUDIENCE)
@@ -90,6 +91,11 @@ describe('jwt verification', () => {
         ['an expired token', { expiresIn: '-1s' }, 'expired'],
         ['a token for another audience', { audience: 'posthog:recording_api' }, 'bad_audience'],
         ['a token with no keys claim', { keys: [] }, 'no_keys_claim'],
+        // A bare string would spread through `new Set(...)` into one requested key per
+        // character; a non-string element would slip past validation entirely.
+        ['a token whose keys claim is a bare string', { keys: 'STRIPE_APP_SECRET_KEY' }, 'no_keys_claim'],
+        ['a token whose keys claim holds a non-string', { keys: ['GOOGLE_ADS_APP_CLIENT_SECRET', 7] }, 'no_keys_claim'],
+        ['a token with the keys claim absent', { omitKeys: true }, 'no_keys_claim'],
         // jose validates `exp` only when it is present, so a token minted without one
         // would otherwise verify and never expire. The bound has to live here rather than
         // in whichever client happens to mint today.

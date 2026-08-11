@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, override_settings
 
 import jwt
+import requests
 from parameterized import parameterized
 
 from posthog.integration_secrets.callers import IntegrationCaller
@@ -99,7 +100,24 @@ class TestIntegrationSecretsClient(SimpleTestCase):
     def test_get_with_previous_exposes_the_outgoing_value_during_a_rotation(self) -> None:
         rotating = {"state": "rotating", "value": "new", "previous": "old", "version_id": "v1", "fetched_at": "now"}
         with patch(POST, return_value=FakeResponse(body({KEY: rotating}))):
-            assert self.secrets.get_with_previous(KEY, CALLER) == ("new", "old")
+            secret = self.secrets.get_with_previous(KEY, CALLER)
+        assert secret.current == "new"
+        assert secret.previous == "old"
+
+    # The 503 contract: the service answers 503 rather than all-missing on a cold start,
+    # and only raise_for_status keeps that from surfacing as SecretMissingError, which
+    # callers treat as terminal.
+    def test_a_service_error_status_propagates_rather_than_reading_as_missing(self) -> None:
+        class ErrorResponse:
+            def raise_for_status(self) -> None:
+                raise requests.HTTPError("503 Server Error")
+
+            def json(self) -> dict[str, Any]:
+                return {"error": "Secret store unavailable"}
+
+        with patch(POST, return_value=ErrorResponse()):
+            with pytest.raises(requests.HTTPError):
+                self.secrets.get(KEY, CALLER)
 
     # With no cache there is no last known good, so an outage is an outage. This is the
     # trade for immediate rotations, and it is why the service needs an availability SLO

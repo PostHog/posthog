@@ -135,6 +135,24 @@ describe('http surface', () => {
         })
     })
 
+    // The request scope is the token, full stop. A route change that read a body and
+    // merged its key names into the scope would fail here, not in resolve.test.ts, because
+    // resolveKeys never sees the HTTP request.
+    it('ignores a request body naming keys outside the token scope', async () => {
+        const { app } = build()
+        const res = await app.request(
+            new Request('http://svc/v1/secrets/resolve', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${await mint()}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keys: ['STRIPE_APP_SECRET_KEY'] }),
+            })
+        )
+
+        expect(res.status).toBe(200)
+        const body = (await res.json()) as { secrets: Record<string, unknown> }
+        expect(Object.keys(body.secrets)).toEqual([KEY])
+    })
+
     it('never exposes a credential value in the scrape', async () => {
         const { app } = build()
         await app.request(await authed(await mint()))
