@@ -5,6 +5,7 @@ import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import {
+  ArrowCounterClockwise,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -42,7 +43,8 @@ import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useThemeColors } from "@/lib/theme";
 import { getReportRepository } from "../api";
 import { inboxCardViewBottomInset } from "../cardViewLayout";
-import { useDismissReport } from "../hooks/useInboxReports";
+import { useDismissReport, useRestoreReport } from "../hooks/useInboxReports";
+import { type InboxToast, isUndoable, toastAutoDismissMs } from "../inboxToast";
 import { useDismissedReportsStore } from "../stores/dismissedReportsStore";
 import { useInboxStore } from "../stores/inboxStore";
 import { ActionabilityBadge, PriorityBadge, StatusBadge } from "./ReportBadges";
@@ -121,6 +123,9 @@ export function TinderView({
   // `mutate` is a stable reference; the mutation result object is not, and
   // would defeat handleDismiss's memoization.
   const { mutate: dismissOnServer } = useDismissReport();
+  // `mutateAsync` for the same reason, plus the undo path wants the resolved
+  // "was it actually restorable?" boolean rather than a callback.
+  const { mutateAsync: restoreOnServer } = useRestoreReport();
 
   const analytics = useAnalytics();
 
@@ -156,23 +161,21 @@ export function TinderView({
   );
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{
-    taskId: string | null;
-    title: string;
-    pending: boolean;
-  } | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One toast slot, shared by the accept confirmation and the dismiss undo
+  // window: a newer swipe replaces an older toast, so only the most recent
+  // decision is ever offered back.
+  const [toast, setToast] = useState<InboxToast | null>(null);
 
-  const showToastPending = useCallback((title: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ taskId: null, title, pending: true });
-  }, []);
-
-  const showToastDone = useCallback((taskId: string, title: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ taskId, title, pending: false });
-    toastTimer.current = setTimeout(() => setToast(null), 10_000);
-  }, []);
+  // Each toast object is a fresh reference, so this re-arms on every new toast
+  // and the cleanup cancels the previous deadline — a stale timer can never
+  // close a toast that replaced it.
+  useEffect(() => {
+    if (!toast) return;
+    const ms = toastAutoDismissMs(toast);
+    if (ms === null) return;
+    const timer = setTimeout(() => setToast(null), ms);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const reportsRef = useRef(reports);
   reportsRef.current = reports;
@@ -185,6 +188,11 @@ export function TinderView({
       const target = idx >= 0 ? visible[idx] : null;
       if (target) trackReportAction(target, "dismiss", idx, visible.length);
       dismissReport(reportId);
+      setToast({
+        kind: "undo_dismiss",
+        reportId,
+        title: target?.title ?? "Untitled report",
+      });
       // Propagate to the server so the report doesn't stay open on other
       // devices; a suppressed report can be restored from the archive view.
       // On failure (offline, state transition rejected) roll back the local
@@ -199,6 +207,13 @@ export function TinderView({
         {
           onError: (err) => {
             undismissReport(reportId);
+            // The card is already back, so retract the undo offer rather than
+            // leaving a button that would restore an un-dismissed report.
+            setToast((current) =>
+              current?.kind === "undo_dismiss" && current.reportId === reportId
+                ? null
+                : current,
+            );
             log.warn("Server dismissal failed; restored card", {
               reportId,
               error: err.message,
@@ -213,11 +228,43 @@ export function TinderView({
     [dismissReport, undismissReport, dismissOnServer, trackReportAction],
   );
 
+  const handleUndoDismiss = useCallback(
+    (reportId: string) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // Local first, and unconditionally: the deck is driven by the local
+      // decided-IDs list, so this is what actually brings the card back.
+      undismissReport(reportId);
+      setToast(null);
+      // The server restore revalidates before writing and resolves false when
+      // the report has moved on (picked up elsewhere, already re-opened). That
+      // is not a reason to re-hide the card — the user asked for it back on
+      // this device, and the next poll will reconcile the real state.
+      restoreOnServer(reportId)
+        .then((restored) => {
+          if (!restored) {
+            log.warn("Report no longer restorable; kept local undo", {
+              reportId,
+            });
+          }
+        })
+        .catch((err: Error) => {
+          log.warn("Server restore failed; kept local undo", {
+            reportId,
+            error: err.message,
+          });
+        });
+    },
+    [undismissReport, restoreOnServer],
+  );
+
   const handleAccept = useCallback(
     async (report: SignalReport) => {
       setCreating(true);
       setError(null);
-      showToastPending(report.title ?? "Untitled report");
+      setToast({
+        kind: "task_pending",
+        title: report.title ?? "Untitled report",
+      });
       // Snapshot rank/list_size before the swipe completes — accepting filters
       // the report out of the visible deck.
       const visibleBefore = reportsRef.current;
@@ -262,7 +309,11 @@ export function TinderView({
 
         acceptReport(report.id);
         trackReportAction(report, "create_pr", acceptedRank, acceptedListSize);
-        showToastDone(task.id, report.title ?? "Untitled report");
+        setToast({
+          kind: "task_started",
+          taskId: task.id,
+          title: report.title ?? "Untitled report",
+        });
       } catch (e) {
         const message =
           e instanceof Error ? e.message : "Failed to create task";
@@ -273,14 +324,7 @@ export function TinderView({
         setCreating(false);
       }
     },
-    [
-      repositoryOptions,
-      model,
-      showToastPending,
-      showToastDone,
-      acceptReport,
-      trackReportAction,
-    ],
+    [repositoryOptions, model, acceptReport, trackReportAction],
   );
 
   const currentReport =
@@ -377,21 +421,57 @@ export function TinderView({
         </View>
       )}
 
-      {/* "Task started" toast — sits above the mode switcher pill */}
-      {toast && (
+      {/* Undo pill — same slot as the task toast, above the mode switcher.
+          Neutral rather than green: it reports a removal, and its only
+          affordance is taking that removal back. */}
+      {toast && isUndoable(toast) && (
+        <View
+          className="elevation-4 absolute inset-x-4 flex-row items-center justify-between rounded-2xl border border-gray-6 bg-gray-3 px-5 py-4 shadow-lg"
+          style={{ bottom: bottomInset }}
+        >
+          <View className="min-w-0 flex-1">
+            <Text className="font-semibold text-[15px] text-gray-12">
+              Report dismissed
+            </Text>
+            <Text className="mt-0.5 text-[13px] text-gray-10" numberOfLines={1}>
+              {toast.title}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => handleUndoDismiss(toast.reportId)}
+            accessibilityRole="button"
+            accessibilityLabel="Undo dismissal"
+            hitSlop={8}
+            className="ml-3 flex-row items-center gap-1.5 rounded-full border border-gray-7 px-3 py-1.5 active:opacity-70"
+          >
+            <ArrowCounterClockwise
+              size={14}
+              color={themeColors.gray[12]}
+              weight="bold"
+            />
+            <Text className="font-semibold text-[14px] text-gray-12">Undo</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* "Task started" toast — accepts are not undoable (the task already
+          exists), so this only offers the way forward into it. */}
+      {(toast?.kind === "task_pending" || toast?.kind === "task_started") && (
         <Pressable
           onPress={() => {
-            if (toast.pending || !toast.taskId) return;
+            if (toast.kind !== "task_started") return;
             setToast(null);
             router.push(`/task/${toast.taskId}`);
           }}
-          disabled={toast.pending}
+          disabled={toast.kind === "task_pending"}
           className="elevation-4 absolute inset-x-4 flex-row items-center justify-between rounded-2xl bg-status-success px-5 py-4 shadow-lg active:opacity-80"
           style={{ bottom: bottomInset }}
         >
           <View className="min-w-0 flex-1">
             <Text className="font-semibold text-[15px] text-white">
-              {toast.pending ? "Starting task\u2026" : "Task started"}
+              {toast.kind === "task_pending"
+                ? "Starting task\u2026"
+                : "Task started"}
             </Text>
             <Text
               className="mt-0.5 text-[13px] text-white/80"
@@ -400,7 +480,7 @@ export function TinderView({
               {toast.title}
             </Text>
           </View>
-          {toast.pending ? (
+          {toast.kind === "task_pending" ? (
             <ActivityIndicator className="ml-3" color="white" size="small" />
           ) : (
             <Text className="ml-3 font-semibold text-[14px] text-white">
