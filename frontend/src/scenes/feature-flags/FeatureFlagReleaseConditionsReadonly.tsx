@@ -143,7 +143,9 @@ export function FeatureFlagReleaseConditionsReadonly({
             </div>
 
             <p className="text-xs text-muted mb-2">
-                Condition sets are evaluated top to bottom — the first match wins.
+                {filters.early_exit
+                    ? 'Condition sets are evaluated top to bottom, and the first match wins.'
+                    : 'All condition sets are evaluated. A person is released if they match any set.'}
             </p>
 
             {filters.early_exit && <EarlyExitIndicator />}

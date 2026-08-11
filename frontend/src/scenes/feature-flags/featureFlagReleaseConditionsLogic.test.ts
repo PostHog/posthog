@@ -1808,6 +1808,47 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.filters.groups[0].rollout_percentage).toEqual(100)
         })
 
+        it('keeps a local rollout edit when a stale echo arrives after adding a condition set', async () => {
+            logic?.unmount()
+
+            const initialFilters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 0, variant: null, sort_key: 'group-1' },
+            ])
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'stale-echo-add-set-test',
+                filters: initialFilters,
+            })
+            logic.mount()
+
+            // User sets condition set 0 to 100%, then the parent echoes that value back.
+            logic.actions.updateConditionSet(0, 100)
+            featureFlagReleaseConditionsLogic({
+                id: 'stale-echo-add-set-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 100, variant: null, sort_key: 'group-1' },
+                ]),
+            })
+
+            // User adds a second condition set locally (it defaults to 0%).
+            logic.actions.addConditionSet('group-2')
+            expect(logic.values.filters.groups).toHaveLength(2)
+            expect(logic.values.filters.groups[0].rollout_percentage).toEqual(100)
+
+            // A lagging echo of the initial 0% snapshot arrives after the fact. It differs from
+            // the previous prop, so the child must recognise it as its own stale edit and ignore
+            // it rather than reset condition set 0 back to 0%.
+            await expectLogic(logic, () => {
+                featureFlagReleaseConditionsLogic({
+                    id: 'stale-echo-add-set-test',
+                    filters: initialFilters,
+                })
+            }).toNotHaveDispatchedActions(['setFilters'])
+
+            expect(logic.values.filters.groups).toHaveLength(2)
+            expect(logic.values.filters.groups[0].rollout_percentage).toEqual(100)
+        })
+
         it('adopts a genuine external filters change from the parent', async () => {
             logic?.unmount()
 

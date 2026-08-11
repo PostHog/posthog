@@ -1161,22 +1161,22 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             },
         ],
     }),
-    propsChanged(({ props, values, actions }, oldProps) => {
+    propsChanged(({ props, values, actions, cache }, _oldProps) => {
         // Compare only the fields that affect release conditions and blast radius,
         // excluding payloads which don't affect targeting
         const { payloads: _newPayloads, ...newRelevant } = props.filters ?? {}
-        const { payloads: _prevPropPayloads, ...prevPropRelevant } = oldProps?.filters ?? {}
 
-        // Only adopt the incoming filters when the parent actually pushed a new value.
-        // The child emits its edits up to the parent, which stores them and echoes them
-        // back down as this prop. A re-render caused by the child's own edit can fire
-        // propsChanged before that edit has round-tripped back to the parent, so
-        // props.filters still holds the pre-edit snapshot. Adopting it here would clobber
-        // the fresher local edit and silently reset the rollout percentage (e.g. back to a
-        // newly-added condition set's 0% default). Reacting only to genuine parent changes
-        // breaks that loop while still syncing external updates (template application,
-        // variant removal, flag reload).
-        if (objectsEqual(newRelevant, prevPropRelevant)) {
+        // The child owns every edit while it is mounted. It emits each edit up to the
+        // parent, which stores it and echoes it back down as this prop. An echo can arrive
+        // after the child has already moved on to a newer edit. For example, after the user
+        // adds a condition set, an echo of an earlier state can arrive late. Adopting it
+        // would clobber the fresher local edit and reset the rollout percentage (e.g. back
+        // to a newly-added condition set's 0% default). So ignore any incoming prop the
+        // child itself produced, whether it is the latest echo or a stale one, and adopt
+        // only genuinely external changes (flag reload, template application, variant
+        // removal) that the child never emitted.
+        const emitted: FeatureFlagFilters[] = cache.emittedFilters ?? []
+        if (emitted.some((e) => objectsEqual(e, newRelevant))) {
             return
         }
 
@@ -1185,9 +1185,16 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setFilters(props.filters)
         }
     }),
-    subscriptions(({ props, values }) => ({
+    subscriptions(({ props, values, cache }) => ({
         filters: (value: FeatureFlagFilters, oldValue: FeatureFlagFilters): void => {
             if (!objectsEqual(value, oldValue)) {
+                // Record the value the child emits up so a later echo of it is recognised
+                // and ignored in propsChanged, rather than clobbering a newer local edit.
+                const { payloads: _payloads, ...relevant } = value ?? {}
+                const emitted: FeatureFlagFilters[] = cache.emittedFilters ?? []
+                if (!emitted.some((e) => objectsEqual(e, relevant))) {
+                    cache.emittedFilters = [...emitted, relevant]
+                }
                 props.onChange?.(value, values.propertySelectErrors)
             }
         },

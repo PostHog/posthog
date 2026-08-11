@@ -564,9 +564,12 @@ export function FeatureFlagReleaseConditions({
                 !excludeTitle && (
                     // span, not div: SceneSection renders the description inside a <p>
                     <span className="block text-secondary mb-2">
-                        Specify users for flag release. Condition sets are evaluated top to bottom - the first matching
-                        set is used. A condition matches when all property filters pass AND the target falls within the
-                        rollout percentage.
+                        Specify users for flag release.{' '}
+                        {filters?.early_exit
+                            ? 'Condition sets are evaluated top to bottom, and the first matching set is used.'
+                            : 'All condition sets are evaluated, and a person is released if they match any set.'}{' '}
+                        A condition matches when all property filters pass and the target falls within the rollout
+                        percentage.
                     </span>
                 )
             }
