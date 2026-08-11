@@ -705,13 +705,17 @@ export class PiAgentServer {
       typeof params.content === "string" ? params.content : "",
       artifacts,
     );
-    return this.dispatchUserMessage(
+    const result = await this.dispatchUserMessage(
       runtime,
       message.content,
       message.images,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
+    if (message.includesAutoPublishInstruction) {
+      this.autoPublishInstructionDelivered = true;
+    }
+    return result;
   }
 
   private async prepareUserMessage(
@@ -720,6 +724,7 @@ export class PiAgentServer {
   ): Promise<{
     content: string;
     images: Parameters<PiRpcClient["prompt"]>[1];
+    includesAutoPublishInstruction: boolean;
   }> {
     const images: NonNullable<Parameters<PiRpcClient["prompt"]>[1]> = [];
     const filePaths: string[] = [];
@@ -764,14 +769,12 @@ export class PiAgentServer {
       ? `Attached files:\n${filePaths.map((filePath) => `- ${filePath}`).join("\n")}`
       : "";
     const autoPublishInstruction = this.buildAutoPublishInstruction();
-    if (autoPublishInstruction) {
-      this.autoPublishInstructionDelivered = true;
-    }
     return {
       content: [autoPublishInstruction, content, attachmentText]
         .filter(Boolean)
         .join("\n\n"),
       images,
+      includesAutoPublishInstruction: autoPublishInstruction !== null,
     };
   }
 

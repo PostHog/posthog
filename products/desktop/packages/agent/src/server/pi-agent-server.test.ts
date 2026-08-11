@@ -336,6 +336,39 @@ describe("PiAgentServer", () => {
     expect(sendCommand.mock.calls[1]?.[0].message).toBe("one more thing");
   });
 
+  it("retries Pi auto-publish instructions when the first send fails", async () => {
+    const sendCommand = vi
+      .fn(async (_command: Record<string, unknown>) => ({}))
+      .mockRejectedValueOnce(new Error("send failed"));
+    const server = new PiAgentServer(
+      config({ autoPublish: true, createPr: true }),
+    ) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: { getState: vi.fn(async () => ({ isStreaming: false })) },
+        sendCommand,
+      },
+    };
+
+    await expect(
+      server.executeCommand("user_message", { content: "fix it" }),
+    ).rejects.toThrow("send failed");
+    await server.executeCommand("user_message", { content: "fix it" });
+
+    expect(sendCommand.mock.calls[0]?.[0].message).toContain(
+      "auto-publish enabled",
+    );
+    expect(sendCommand.mock.calls[1]?.[0].message).toContain(
+      "auto-publish enabled",
+    );
+  });
+
   it.each([
     [{ autoPublish: false }, "auto-publish disabled"],
     [{ autoPublish: true, createPr: false }, "PR creation disabled"],
