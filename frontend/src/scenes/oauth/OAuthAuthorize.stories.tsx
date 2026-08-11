@@ -28,14 +28,13 @@ function withOAuthApplication(overrides: Record<string, unknown>): Decorator {
     }
 }
 
-const pushAuthorize = (scope?: string, extraParams?: Record<string, string>): void => {
+const pushAuthorize = (scope?: string): void => {
     const params = new URLSearchParams({
         client_id: 'test-client-id',
         redirect_uri: 'https://app.example.com/oauth/callback',
         response_type: 'code',
         state: 'test-state',
         ...(scope ? { scope } : {}),
-        ...extraParams,
     })
     router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
 }
@@ -161,16 +160,6 @@ export const WildcardScope: Story = {
     decorators: [withOAuthApplication({ required_scopes: [] })],
     render: () => {
         useDelayedOnMountEffect(() => pushAuthorize('*'))
-        return <App />
-    },
-}
-
-// Project-scoped request (the wizard install flow): the consent screen shows an organization
-// and project picker. The "New project" button next to the picker is labeled and spaced away
-// from the dropdown so it doesn't catch clicks meant for the project selector.
-export const ProjectScoped: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('project:read query:read', { required_access_level: 'project' }))
         return <App />
     },
 }
