@@ -5,6 +5,7 @@ import { formatInputValidationError } from '@/tools/exec'
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 
 // Minimal valid input per tool: create requires `query`, update requires `id`.
+// The create query needs a real series, because `source` is typed per query kind.
 const cases = [
     {
         tool: 'insight-create',
