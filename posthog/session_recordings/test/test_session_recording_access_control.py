@@ -88,6 +88,19 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("You do not have editor access", response.json()["detail"])
 
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_viewer_can_mark_recording_viewed(self, mock_load_metadata):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+
+        self.client.force_login(self.viewer_user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/",
+            {"viewed": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],

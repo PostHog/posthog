@@ -884,7 +884,11 @@ class SessionRecordingViewSet(
 ):
     authentication_classes = [ExportRendererAuthentication]
     scope_object = "session_recording"
-    scope_object_read_actions = ["list", "retrieve", "snapshots"]
+    # partial_update only records the current user's own viewed/analyzed bookkeeping
+    # (see SessionRecordingUpdateSerializer), so it resolves to read-level access. It must
+    # also leave the write set, because write actions are matched before read actions.
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "partial_update"]
+    scope_object_write_actions = ["create", "update", "patch", "destroy"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this

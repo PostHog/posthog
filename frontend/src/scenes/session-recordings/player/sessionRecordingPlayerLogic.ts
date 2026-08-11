@@ -32,7 +32,7 @@ import {
     createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -2607,16 +2607,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
+            // Marking a recording viewed is best-effort bookkeeping. A permission failure must not
+            // surface as an unhandled exception, so we swallow it quietly and only report the rest.
+            const reportUnlessForbidden = (error: unknown): void => {
+                if (error instanceof ApiError && error.status === 403) {
+                    return
+                }
+                posthog.captureException(error)
+            }
+
             await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
-            await api.recordings.update(props.sessionRecordingId, {
-                viewed: true,
-                player_metadata: values.sessionPlayerMetaData,
-            })
+            try {
+                await api.recordings.update(props.sessionRecordingId, {
+                    viewed: true,
+                    player_metadata: values.sessionPlayerMetaData,
+                })
+            } catch (error) {
+                reportUnlessForbidden(error)
+            }
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            await api.recordings.update(props.sessionRecordingId, {
-                analyzed: true,
-                player_metadata: values.sessionPlayerMetaData,
-            })
+            try {
+                await api.recordings.update(props.sessionRecordingId, {
+                    analyzed: true,
+                    player_metadata: values.sessionPlayerMetaData,
+                })
+            } catch (error) {
+                reportUnlessForbidden(error)
+            }
         },
         setPause: () => {
             actions.stopAnimation()
