@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 from celery import shared_task
@@ -13,6 +16,16 @@ logger = structlog.get_logger(__name__)
 
 # Bounds the teardown-task fanout of one sweep tick; the remainder drains on later ticks.
 STOPPED_SYNC_SWEEP_CAP = 500
+
+# A schema saved within this window may have been auto-disabled by its own workflow's
+# failure handling, which the write-time dispatch excludes from cancellation; sweeping it
+# this tick would cancel that still-finishing workflow. `updated_at` only bumps on
+# `save()`, so bulk `.update()` disables are not delayed.
+STOPPED_SYNC_SWEEP_GRACE = timedelta(minutes=30)
+
+# Jobs stuck in Running from before this sweep shipped are left alone rather than
+# mass-failed (and their latest_error rewritten) on the first ticks after deploy.
+STOPPED_SYNC_SWEEP_MAX_JOB_AGE = timedelta(days=7)
 
 
 @shared_task(
@@ -59,9 +72,12 @@ def sweep_stopped_schema_syncs() -> None:
     event heals on the next cycle instead of never. Overlap with a write-time
     dispatch still in flight is harmless for the same reason.
     """
+    now = timezone.now()
     stopped = list(
         ExternalDataJob.objects.filter(status=ExternalDataJob.Status.RUNNING)
         .filter(Q(schema__should_sync=False) | Q(schema__deleted=True))
+        .filter(created_at__gte=now - STOPPED_SYNC_SWEEP_MAX_JOB_AGE)
+        .exclude(schema__updated_at__gte=now - STOPPED_SYNC_SWEEP_GRACE)
         .values_list("schema_id", "team_id", "schema__deleted")
         .distinct()[: STOPPED_SYNC_SWEEP_CAP + 1]
     )

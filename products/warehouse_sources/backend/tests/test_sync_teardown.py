@@ -1,10 +1,13 @@
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 import psycopg
 import fakeredis
@@ -20,7 +23,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.sync_teardown import teardown_schema_syncs
-from products.warehouse_sources.backend.tasks import sweep_stopped_schema_syncs
+from products.warehouse_sources.backend.tasks import (
+    STOPPED_SYNC_SWEEP_GRACE,
+    STOPPED_SYNC_SWEEP_MAX_JOB_AGE,
+    sweep_stopped_schema_syncs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import sync_lock
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
     _ensure_tables,
@@ -154,9 +161,23 @@ class TestSweepStoppedSchemaSyncs:
         idle_schema, idle_job = _create_schema_with_running_job(team)
         idle_job.status = ExternalDataJob.Status.COMPLETED
         idle_job.save()
+        fresh_schema, _fresh_job = _create_schema_with_running_job(team)
+        old_schema, old_job = _create_schema_with_running_job(team)
 
         update = {"deleted": True} if deleted else {"should_sync": False}
-        ExternalDataSchema.objects.filter(pk__in=[stopped_schema.pk, idle_schema.pk]).update(**update)
+        ExternalDataSchema.objects.filter(
+            pk__in=[stopped_schema.pk, idle_schema.pk, fresh_schema.pk, old_schema.pk]
+        ).update(**update)
+
+        # fresh_schema keeps its just-created updated_at (inside the grace window); the
+        # rest are backdated past it. old_job predates the sweep's max age.
+        now = timezone.now()
+        ExternalDataSchema.objects.exclude(pk=fresh_schema.pk).update(
+            updated_at=now - STOPPED_SYNC_SWEEP_GRACE - timedelta(minutes=1)
+        )
+        ExternalDataJob.objects.filter(pk=old_job.pk).update(
+            created_at=now - STOPPED_SYNC_SWEEP_MAX_JOB_AGE - timedelta(days=1)
+        )
 
         with patch(TASK_DELAY) as mock_delay:
             sweep_stopped_schema_syncs()
