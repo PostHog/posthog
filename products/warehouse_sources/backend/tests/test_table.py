@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
@@ -16,6 +17,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 
 from posthog.exceptions import ClickHouseAtCapacity
 
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
@@ -226,3 +228,92 @@ class TestGetHogqlFieldForColumn(SimpleTestCase):
 
         assert type(field) is expected_type
         assert field.is_nullable()
+
+
+class TestUrlPatternChangeGuard(BaseTest):
+    # A table with no credential is read by ClickHouse under the node's own S3 role, so its
+    # url_pattern is only safe to trust because PostHog computed it. This guards that invariant at
+    # the model layer so any writer (not just the REST API) is refused by default.
+    def _credential_less_table(
+        self, url_pattern: str = "https://posthog-owned.example/team_1/x.csv"
+    ) -> DataWarehouseTable:
+        table = DataWarehouseTable(name="t", format="CSVWithNames", team=self.team, url_pattern=url_pattern)
+        table.save(internally_computed_url_pattern=True)
+        return table
+
+    def _credentialed_table(self, url_pattern: str = "https://customer-bucket.example/x.csv") -> DataWarehouseTable:
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="access_key", access_secret="access_secret"
+        )
+        table = DataWarehouseTable(
+            name="t", format="CSVWithNames", team=self.team, url_pattern=url_pattern, credential=credential
+        )
+        table.save()
+        return table
+
+    def test_creating_a_credential_less_table_does_not_require_the_flag(self) -> None:
+        table = DataWarehouseTable(
+            name="t", format="CSVWithNames", team=self.team, url_pattern="https://x.example/a.csv"
+        )
+        table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://x.example/a.csv"
+
+    def test_changing_url_pattern_without_the_flag_is_rejected(self) -> None:
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+
+    def test_changing_url_pattern_with_the_flag_is_allowed(self) -> None:
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_1/y.csv"
+        table.save(internally_computed_url_pattern=True)
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/y.csv"
+
+    def test_changing_url_pattern_on_a_credentialed_table_does_not_require_the_flag(self) -> None:
+        table = self._credentialed_table()
+
+        table.url_pattern = "https://customer-bucket.example/renamed.csv"
+        table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://customer-bucket.example/renamed.csv"
+
+    def test_resaving_the_same_url_pattern_does_not_require_the_flag(self) -> None:
+        table = self._credential_less_table()
+
+        table.columns = {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+        table.save()
+
+        table.refresh_from_db()
+        assert table.columns == {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+
+    def test_update_fields_scoped_save_skips_the_check_when_url_pattern_is_excluded(self) -> None:
+        # Mirrors ExternalDataSchema._sync_teardown_kind: a save scoped away from url_pattern via
+        # update_fields can't have changed it, so the extra DB read to compare prior state is skipped.
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"  # not persisted below
+        table.columns = {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+        table.save(update_fields=["columns"])
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+        assert table.columns == {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+
+    def test_soft_delete_on_a_credential_less_table_does_not_trip_the_guard(self) -> None:
+        table = self._credential_less_table()
+
+        table.soft_delete()
+
+        table.refresh_from_db()
+        assert table.deleted is True
