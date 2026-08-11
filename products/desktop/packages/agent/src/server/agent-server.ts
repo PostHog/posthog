@@ -27,12 +27,6 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
 } from "@posthog/shared";
-import {
-  buildPosthogPropertiesHeaderLines,
-  buildPosthogPropertiesHeaderRecord,
-  buildPosthogScopedPropertyHeaderLines,
-  buildPosthogScopedPropertyHeaderRecord,
-} from "@posthog/shared/posthog-property-headers";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -97,7 +91,14 @@ import type {
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
-import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
+import {
+  buildGatewayPropertiesHeader,
+  buildGatewayPropertiesHeaderRecord,
+  buildGatewayPropertyHeaderRecord,
+  buildGatewayPropertyHeaders,
+  resolveGatewayProduct,
+  resolveGatewayTarget,
+} from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -1621,7 +1622,6 @@ export class AgentServer {
       void fetchGatewayModels({
         gatewayUrl: gatewayEnv.anthropicBaseUrl,
         authToken: gatewayEnv.anthropicAuthToken,
-        projectId: Number(gatewayEnv.posthogProjectId) || undefined,
       }).catch(() => {});
     }
 
@@ -3613,6 +3613,32 @@ export class AgentServer {
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
 
+  /**
+   * What to do when a cloud run has no way to reach the user's code.
+   *
+   * Repository access on a cloud run comes from the user's own GitHub connection in
+   * PostHog, so a run can legitimately start without one — nothing is checked out and
+   * there are no credentials to push with. The Slack mention path used to refuse those
+   * mentions outright, which walled off every question that only looked like it needed
+   * code; it now starts the run and leaves the judgement here, where the request itself
+   * is visible. The settings link is built from this run's own host and project so it
+   * lands the user in the right region rather than a hardcoded one.
+   *
+   * Appended to every cloud branch on purpose: a checkout is not proof of access. A
+   * public repository clones with no token at all, so a run can hold the code and still
+   * have no way to push it.
+   */
+  private buildSourceControlAccessInstructions(): string {
+    const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
+    return `
+## When you cannot reach the code
+You may have no repository checked out, or no credentials to push and open a pull request with.
+- Answer the part of the request that does not need the code first — questions about PostHog, their data, or their configuration are all still answerable.
+- If the request turns out not to need a code change at all, just answer it and say nothing about GitHub.
+- Only if it genuinely needs a code change, say so plainly and link them to ${settingsUrl} to connect GitHub, then ask them to come back to you.
+- Do not work around it: no guessing at file contents you cannot read, and no starting a change you have no way to deliver.`;
+  }
+
   private buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -3714,7 +3740,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
@@ -4071,23 +4097,17 @@ ${commonInstructions}
         ai_product: aiProduct,
         team_id: projectId,
       };
-      customHeaders = buildPosthogPropertiesHeaderLines(properties);
-      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
+      customHeaders = buildGatewayPropertiesHeader(properties);
+      openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
     } else {
-      customHeaders = buildPosthogScopedPropertyHeaderLines(
-        gatewayProperties,
-        projectId,
-      );
+      customHeaders = buildGatewayPropertyHeaders(gatewayProperties);
       // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
       // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
-        {
-          ...gatewayProperties,
-          team_id: projectId,
-          $ai_session_id: taskId,
-        },
-        projectId,
-      );
+      openaiCustomHeaders = buildGatewayPropertyHeaderRecord({
+        ...gatewayProperties,
+        team_id: projectId,
+        $ai_session_id: taskId,
+      });
     }
 
     // Server-level constants that don't vary per task — safe to keep in

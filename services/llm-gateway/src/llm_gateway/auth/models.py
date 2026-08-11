@@ -12,8 +12,6 @@ class AuthenticatedUser:
     token_expires_at: datetime | None = None
     application_id: str | None = None
     is_staff: bool = False
-    scoped_teams: list[int] | None = None
-    scoped_organizations: list[str] | None = None
 
 
 def resolve_distinct_id(auth_user: AuthenticatedUser, end_user_id: str | None) -> str:
