@@ -1214,10 +1214,12 @@ export const productUrls = {
         options?: {
             metric?: ExperimentMetric
             name?: string
+            tab?: string
         }
     ): string => {
         const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
-        return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+        const params = options ? toParams(options) : ''
+        return params ? `${baseUrl}?${params}` : baseUrl
     },
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
