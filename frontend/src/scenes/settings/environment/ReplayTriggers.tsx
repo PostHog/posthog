@@ -65,6 +65,39 @@ function AnyWith100SamplingWarning({
     )
 }
 
+/**
+ * The default replay config records every session: 100% sampling, no minimum duration, and no
+ * trigger narrowing what gets recorded. This is the most expensive setup and the one new projects
+ * start on, so warn about it. AnyWith100SamplingWarning only covers "any" matching with a trigger,
+ * so it deliberately skips this plain default.
+ */
+function RecordEverythingWarning({
+    currentTeam,
+}: {
+    currentTeam: TeamType | TeamPublicType | null | undefined
+}): JSX.Element | null {
+    const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
+
+    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+    const hasMinDuration = !!currentTeam?.session_recording_minimum_duration_milliseconds
+    const hasNarrowingCondition =
+        (urlTriggerConfig?.length ?? 0) > 0 ||
+        (eventTriggerConfig?.length ?? 0) > 0 ||
+        !!currentTeam?.session_recording_linked_flag
+
+    if (sampleRate !== 100 || hasMinDuration || hasNarrowingCondition) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <strong>You're recording every session.</strong> With 100% sampling and no minimum duration, PostHog records
+            and bills for every session, including very short ones. Lower the sample rate or set a minimum duration to
+            record fewer sessions.
+        </LemonBanner>
+    )
+}
+
 function TriggerPanelHeader({
     title,
     status,
@@ -437,6 +470,8 @@ function LegacyRecordingConditions(): JSX.Element {
             <IngestionControls.MatchTypeSelect />
 
             <AnyWith100SamplingWarning currentTeam={currentTeam} isV2TriggersEnabled={!!isV2TriggersEnabled} />
+
+            <RecordEverythingWarning currentTeam={currentTeam} />
 
             <div>
                 <h3 className="text-sm font-semibold mb-2">Recording conditions</h3>

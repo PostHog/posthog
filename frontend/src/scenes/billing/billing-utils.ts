@@ -17,6 +17,41 @@ import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
+// Usage fractions (of allocation) at which we re-surface a dismissed billing alert.
+// Crossing a higher threshold re-shows the alert even after an earlier dismissal, so an
+// over-limit warning silenced at 100% comes back at 120%.
+export const USAGE_ALERT_THRESHOLDS = [0.8, 1, 1.2]
+
+/** How many usage thresholds the current usage has crossed. A higher band is more urgent. */
+export function usageAlertBand(percentageUsage: number): number {
+    return USAGE_ALERT_THRESHOLDS.filter((threshold) => percentageUsage > threshold).length
+}
+
+/**
+ * Decide whether a stored dismissal still hides the alert.
+ * The stored value is `${billingPeriodEnd}:${band}`. The alert stays hidden only while the
+ * billing period is unchanged and usage has not climbed into a higher band. A legacy value with
+ * no band (from before threshold tracking) re-shows, so the fix reaches already-dismissed orgs.
+ */
+export function isUsageAlertDismissedForBand(
+    dismissedValue: string | null,
+    billingPeriodEnd: string,
+    currentBand: number
+): boolean {
+    if (!dismissedValue) {
+        return false
+    }
+    const [dismissedPeriodEnd, dismissedBandRaw] = dismissedValue.split(':')
+    if (dismissedPeriodEnd !== billingPeriodEnd) {
+        return false
+    }
+    const dismissedBand = Number.parseInt(dismissedBandRaw, 10)
+    if (!Number.isFinite(dismissedBand)) {
+        return false
+    }
+    return currentBand <= dismissedBand
+}
+
 export const isProductVariantPrimary = (productType: string): boolean =>
     ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails', 'logs'].includes(productType)
 

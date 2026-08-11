@@ -341,6 +341,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 if (fakeBillingAlert !== 'none') {
                     return {
                         status: fakeBillingAlert,
+                        type: 'fake',
                         title: `Fake ${fakeBillingAlert} billing alert`,
                         message: 'This is a fake billing alert triggered via Superpowers for testing purposes.',
                     }
