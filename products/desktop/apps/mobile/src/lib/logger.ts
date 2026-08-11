@@ -1,5 +1,4 @@
-// TODO: Set up proper production logging
-// Currently, all logs are disabled in production builds.
+import { appendLogEntry, type LogLevel } from "@/lib/logBuffer";
 
 type LogFn = (message: string, ...args: unknown[]) => void;
 
@@ -11,27 +10,26 @@ interface Logger {
   scope: (name: string) => Logger;
 }
 
+// Console output is dev-only; the ring buffer always captures so the staff
+// debug-log screen (Settings → Debug logs) works in production builds too.
 function createLogger(scope?: string): Logger {
   const prefix = scope ? `[${scope}]` : "";
+  const scopeName = scope ?? "app";
 
-  if (!__DEV__) {
-    // Production: no-op for all log methods
-    const noop: LogFn = () => {};
-    return {
-      debug: noop,
-      info: noop,
-      warn: noop,
-      error: noop,
-      scope: () => createLogger(scope),
+  const emit =
+    (level: LogLevel): LogFn =>
+    (message, ...args) => {
+      appendLogEntry(level, scopeName, message, args);
+      if (__DEV__) {
+        console[level](prefix, message, ...args);
+      }
     };
-  }
 
-  // Development: log everything
   return {
-    debug: (message, ...args) => console.debug(prefix, message, ...args),
-    info: (message, ...args) => console.info(prefix, message, ...args),
-    warn: (message, ...args) => console.warn(prefix, message, ...args),
-    error: (message, ...args) => console.error(prefix, message, ...args),
+    debug: emit("debug"),
+    info: emit("info"),
+    warn: emit("warn"),
+    error: emit("error"),
     scope: (name) => createLogger(scope ? `${scope}:${name}` : name),
   };
 }

@@ -120,6 +120,10 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       {/* Settings — pushed on top of whatever the user was viewing, so
           back / iOS swipe-back / Android hardware-back all return to it. */}
       <Stack.Screen name="settings/index" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="settings/debug-logs"
+        options={{ headerShown: false }}
+      />
 
       {/* MCP servers — marketplace + installed management. */}
       <Stack.Screen name="mcp-servers/index" options={{ headerShown: false }} />
