@@ -26,12 +26,19 @@ def _source(team, source_type):
     return ExternalDataSource.objects.create(source_id="src", connection_id="conn", team=team, source_type=source_type)
 
 
+def _credential(team, source_type):
+    # `PendingSourceCredential` is fail-closed team-scoped: its default manager raises
+    # `TeamScopeError` outside a request that set an ambient team scope. The migration this covers
+    # updates every team's rows anyway, so the fixture writes through `unscoped()`.
+    return PendingSourceCredential.objects.unscoped().create(team=team, source_type=source_type, payload={})
+
+
 @pytest.mark.django_db
 class TestRenamePlanetScaleSourceType:
     def test_forwards_renames_only_planetscale_rows(self, team):
         planetscale = _source(team, "PlanetScale")
         mysql = _source(team, "MySQL")
-        credential = PendingSourceCredential.objects.create(team=team, source_type="PlanetScale", payload={})
+        credential = _credential(team, "PlanetScale")
 
         forwards(apps, _SchemaEditor())
 
@@ -45,7 +52,7 @@ class TestRenamePlanetScaleSourceType:
 
     def test_backwards_restores_the_old_value(self, team):
         source = _source(team, "PlanetScale")
-        credential = PendingSourceCredential.objects.create(team=team, source_type="PlanetScale", payload={})
+        credential = _credential(team, "PlanetScale")
 
         forwards(apps, _SchemaEditor())
         backwards(apps, _SchemaEditor())
