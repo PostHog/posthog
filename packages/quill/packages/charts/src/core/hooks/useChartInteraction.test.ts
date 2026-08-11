@@ -548,6 +548,21 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(onPointClick.mock.calls[0][0].dataIndex).toBe(1)
     })
 
+    // Mirrors the mouse-click resolveClickToNearestSeries test above: a single tap on a
+    // pinnable, multi-series chart must resolve directly to the nearest series instead of
+    // pinning first, so touch users get the same one-tap drill-in mouse users get on a click.
+    it('a single touch tap fires onPointClick for the nearest series when resolveClickToNearestSeries is set', () => {
+        const onPointClick = jest.fn()
+        const { result } = renderInteraction(true, onPointClick, true)
+
+        // Tap at (200, 100) -> Tue column, closer to series 'a' (yPixel 180) than 'b' (yPixel 185).
+        simulateTap(result, refs, 200, 100)
+
+        expect(onPointClick).toHaveBeenCalledTimes(1)
+        expect(onPointClick.mock.calls[0][0].series.key).toBe('a')
+        expect(result.current.tooltipCtx?.isPinned).not.toBe(true)
+    })
+
     it('clears the pinned tooltip when labels shrink so the pinned dataIndex no longer exists', () => {
         const { rerender, result } = renderHook(
             ({ ls }: { ls: string[] }) =>

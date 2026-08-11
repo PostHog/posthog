@@ -380,6 +380,29 @@ export function useChartInteraction<Meta = unknown>({
                     setHover(index, position)
                     if (showTooltip) {
                         const ctx = buildCtxAt(index, position)
+                        // Mirror the mouse path: an unambiguous nearest-series tap fires the click
+                        // action directly instead of pinning first, so touch users get the same
+                        // one-tap drill-in mouse users get on a single click.
+                        if (
+                            ctx &&
+                            pinnable &&
+                            resolveClickToNearestSeries &&
+                            onPointClick &&
+                            ctx.seriesData.length > 1
+                        ) {
+                            const clickData = resolveNearestSeriesClickData(
+                                index,
+                                series,
+                                labels,
+                                ctx,
+                                interactionAxis,
+                                position
+                            )
+                            if (clickData) {
+                                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                                return
+                            }
+                        }
                         setTooltipCtx(ctx && pinnable ? { ...ctx, isPinned: true, onUnpin: unpin } : ctx)
                         return
                     }
