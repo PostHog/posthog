@@ -1038,6 +1038,12 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return row is not None
         except psycopg.errors.QueryCanceled:
             raise
+        except psycopg.OperationalError:
+            # A connection-level failure (e.g. the SSL connection dropping mid-query) means the
+            # probe never ran — swallowing it as "no duplicate keys" would be a false negative.
+            # Propagate it so the activity's retry path handles it; these are transient and stay
+            # retryable. Mirrors the equivalent Postgres source.
+            raise
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")
             # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable

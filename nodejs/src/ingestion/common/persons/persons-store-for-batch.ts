@@ -81,8 +81,6 @@ export interface PersonsStoreTransactionForBatch {
         distinctId: string
     ): Promise<void>
 
-    addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean>
-
     fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]>
 }
 
@@ -105,10 +103,7 @@ export type PersonsStoreForBatch = Omit<
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
-    | 'addPersonlessDistinctId'
-    | 'addPersonlessDistinctIdForMerge'
     | 'prefetchPersons'
-    | 'processPersonlessDistinctIdsBatch'
     | 'releaseBatch'
     | 'getFlushStats'
     | 'inTransaction'
@@ -150,12 +145,6 @@ export type PersonsStoreForBatch = Omit<
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
-    addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean>
-    addPersonlessDistinctIdForMerge(
-        teamId: number,
-        distinctId: string,
-        tx?: PersonRepositoryTransaction
-    ): Promise<boolean>
     moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
@@ -164,7 +153,6 @@ export type PersonsStoreForBatch = Omit<
         tx: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult>
     prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void>
-    processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<void>
     inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransactionForBatch) => Promise<T>): Promise<T>
     readonly batchId: number
 }
@@ -284,10 +272,6 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
         return this.tx.updateCohortsAndFeatureFlagsForMergeBatch(teamID, sourcePersonIDs, targetPersonID, distinctId)
     }
 
-    addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
-        return this.tx.addPersonlessDistinctIdForMerge(teamId, distinctId, this.batchId)
-    }
-
     fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {
         return this.tx.fetchPersonDistinctIds(person, distinctId, limit)
     }
@@ -399,10 +383,6 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         return this.store.prefetchPersons(teamDistinctIds)
     }
 
-    processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<void> {
-        return this.store.processPersonlessDistinctIdsBatch(entries, this.batchId)
-    }
-
     inTransaction<T>(
         description: string,
         transaction: (tx: PersonsStoreTransactionForBatch) => Promise<T>
@@ -460,18 +440,6 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         return this.store.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, distinctId, tx)
     }
 
-    addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
-        return this.store.addPersonlessDistinctId(teamId, distinctId, this.batchId)
-    }
-
-    addPersonlessDistinctIdForMerge(
-        teamId: number,
-        distinctId: string,
-        tx?: PersonRepositoryTransaction
-    ): Promise<boolean> {
-        return this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, tx, this.batchId)
-    }
-
     personPropertiesSize(personId: string, teamId: number): Promise<number> {
         return this.store.personPropertiesSize(personId, teamId)
     }
@@ -487,10 +455,6 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
 
     removeDistinctIdFromCache(teamId: number, distinctId: string): void {
         return this.store.removeDistinctIdFromCache(teamId, distinctId)
-    }
-
-    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
-        return this.store.getPersonlessBatchResult(teamId, distinctId)
     }
 
     flush(): Promise<FlushResult[]> {

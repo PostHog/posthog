@@ -355,3 +355,62 @@ enum ReleaseOutcome {
 }
 
 message ReleaseFenceResponse {}
+
+// A sealed source snapshot paired with its precedence ordinal — the
+// pair order the saga recorded in lifecycle_op_person. The fold sorts
+// by ordinal itself rather than trusting request order, so a re-drive
+// that lists sources differently still folds the same document.
+message SealedSourceSnapshot {
+  Person person = 1;
+  int32 ordinal = 2;
+}
+
+// FoldPersonDocumentRequest folds sealed source snapshots into the merge
+// target's document (see PersonHogLeader.FoldPersonDocument). The
+// snapshots are the sources' final word — each was returned by
+// FencePerson and no write can follow it while the merge op lives.
+message FoldPersonDocumentRequest {
+  int64 team_id = 1;
+  // The merge target. The fold is computed by its owning leader from its
+  // authoritative cache plus the snapshots below.
+  int64 person_id = 2;
+  // Sealed source snapshots. Property precedence follows the ordinals —
+  // a lower ordinal beats a higher one on contested keys, and the
+  // target beats all — in whatever order the request lists them;
+  // duplicate ordinals are rejected. Must be non-empty — a merge with
+  // no sealed sources has nothing to fold.
+  repeated SealedSourceSnapshot sealed_snapshots = 3;
+  // JSON-encoded maps from the merge event. event_set overrides on
+  // conflict (matching ingestion's $identify behavior); event_set_once
+  // fills only still-absent keys.
+  bytes event_set = 4;
+  bytes event_set_once = 5;
+  // The merge saga's op id, verified against the lifecycle database:
+  // the fold is refused unless this op holds the person as its live
+  // ('marked') merge target, closing late re-drives from a settled or
+  // superseded op. The check is read-time only — a fold already past it
+  // when the op settles can still land — so it narrows the late-fold
+  // residual rather than eliminating it. Re-applying a fold on
+  // unchanged target state changes no content and only bumps the
+  // version; the id is not a dedup key. The accepted at-least-once
+  // residual applies while the op lives: the target is never fenced, so
+  // a re-driven fold recomputes over writes that landed in between and
+  // can clobber them where they overlap the event's $set or a
+  // snapshot's keys — the same residual every re-appliable leader merge
+  // carries today, closed later by operation identity in the write
+  // path.
+  string op_id = 6;
+}
+
+message FoldPersonDocumentResponse {
+  // The folded document exactly as produced to the changelog:
+  // target-wins properties, created_at = min(target, sources),
+  // is_identified = true, last_seen_at = max(target, sources),
+  // version = max(target, max sealed) + 1.
+  // One exception: when the target's stored properties violate the size
+  // constraint beyond remediation (protected keys alone exceed the
+  // ceiling), no applyable document exists — the fold produces nothing
+  // and returns the person unchanged, skipping its property and scalar
+  // effects for this person.
+  Person person = 1;
+}

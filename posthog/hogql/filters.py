@@ -5,7 +5,15 @@ from typing import Any, Optional, TypeVar, cast
 
 from dateutil.parser import isoparse
 
-from posthog.schema import EmptyPropertyFilter, HogQLFilters, SessionPropertyFilter
+from posthog.schema import (
+    BreakdownFilter,
+    BreakdownType,
+    EmptyPropertyFilter,
+    HogQLFilters,
+    IntervalType,
+    MultipleBreakdownType,
+    SessionPropertyFilter,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -40,6 +48,12 @@ BOUND_FILTERS_USAGE = (
     "e.g. {filters(created_at AS timestamp, account_id AS 'account_id')}. "
     "Use null to skip a key, e.g. {filters(null AS timestamp)}."
 )
+BOUND_BREAKDOWN_USAGE = (
+    "Each argument of {filters.breakdown(...)} must bind an expression to a breakdown key with AS, "
+    "e.g. {filters.breakdown(properties.plan AS 'plan')}. "
+    "Use null to skip a key, e.g. {filters.breakdown(null AS 'plan')}."
+)
+INTERVAL_UNITS = frozenset(interval.value for interval in IntervalType)
 
 
 @dataclasses.dataclass
@@ -213,6 +227,22 @@ class ReplaceFilters(CloningVisitor):
         if isinstance(node.expr, ast.Call) and node.expr.name == "filters":
             return self._replace_bound_filters(node.expr)
 
+        # Dotted call forms: {filters.interval('week')} substitutes a granularity constant, and
+        # {filters.breakdown(expr AS key, ...)} substitutes the column bound to the selected breakdown.
+        if isinstance(node.expr, ast.ExprCall) and isinstance(node.expr.expr, ast.Field):
+            call_chain = node.expr.expr.chain
+            if call_chain == ["filters", "interval"]:
+                return self._replace_interval(node.expr.args)
+            if call_chain == ["filters", "breakdown"]:
+                return self._replace_breakdown(node.expr.args)
+            if call_chain and call_chain[0] == "filters":
+                chain_str = ".".join(str(c) for c in call_chain)
+                raise QueryError(
+                    f"Unsupported filters placeholder `{{{chain_str}(...)}}`. "
+                    "Supported call forms are: `{filters(expr AS key, ...)}`, `{filters.interval('day')}`, "
+                    "and `{filters.breakdown(expr AS key, ...)}`."
+                )
+
         no_filters = self.filters is None or not self.filters.model_fields_set
 
         if node.chain == ["filters"]:
@@ -316,12 +346,22 @@ class ReplaceFilters(CloningVisitor):
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
+        if node.chain == ["filters", "interval"]:
+            return self._replace_interval([])
+
+        if node.chain == ["filters", "breakdown"]:
+            raise QueryError(
+                "{filters.breakdown} needs column bindings. "
+                "Write {filters.breakdown(expr AS 'key', ...)} to map breakdown keys onto your columns."
+            )
+
         if node.chain and node.chain[0] == "filters":
             chain_str = ".".join(str(c) for c in node.chain)
             raise QueryError(
                 f"Unsupported filters placeholder `{{{chain_str}}}`. "
                 "Supported filters placeholders are: `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`, "
-                "and the column-bound form `{filters(expr AS key, ...)}`."
+                "`{filters.interval}`, and the column-bound forms `{filters(expr AS key, ...)}` and "
+                "`{filters.breakdown(expr AS key, ...)}`."
             )
 
         return super().visit_placeholder(node)
@@ -345,14 +385,21 @@ class ReplaceFilters(CloningVisitor):
         return ast.And(exprs=exprs)
 
     def _parse_bindings(self, call: ast.Call) -> dict[str, Optional[ast.Expr]]:
-        if call.params is not None or call.distinct or not call.args:
+        if call.params is not None or call.distinct:
             raise QueryError(BOUND_FILTERS_USAGE)
+        return self._parse_binding_args(call.args, BOUND_FILTERS_USAGE, "{filters(...)}")
+
+    def _parse_binding_args(
+        self, args: list[ast.Expr], usage: str, placeholder_label: str
+    ) -> dict[str, Optional[ast.Expr]]:
+        if not args:
+            raise QueryError(usage)
         bindings: dict[str, Optional[ast.Expr]] = {}
-        for arg in call.args:
+        for arg in args:
             if not isinstance(arg, ast.Alias):
-                raise QueryError(BOUND_FILTERS_USAGE)
+                raise QueryError(usage)
             if arg.alias in bindings:
-                raise QueryError(f"Filter key '{arg.alias}' is bound more than once in {{filters(...)}}.")
+                raise QueryError(f"Filter key '{arg.alias}' is bound more than once in {placeholder_label}.")
             if isinstance(arg.expr, ast.Constant) and arg.expr.value is None:
                 # `null AS key` opts the query out of filters on that key.
                 bindings[arg.alias] = None
@@ -450,3 +497,84 @@ class ReplaceFilters(CloningVisitor):
         if bound_expr is None:
             return None
         return bound_property_to_expr(property, bound_expr, self.team)
+
+    def _replace_interval(self, args: list[ast.Expr]) -> ast.Expr:
+        if len(args) > 1:
+            raise QueryError(
+                "{filters.interval(...)} takes at most one argument: the default interval, "
+                "e.g. {filters.interval('week')}."
+            )
+        default = "day"
+        if args:
+            arg = args[0]
+            if not isinstance(arg, ast.Constant) or arg.value not in INTERVAL_UNITS:
+                units = ", ".join(sorted(INTERVAL_UNITS))
+                raise QueryError(f"The default interval must be a constant string, one of: {units}.")
+            default = arg.value
+        if self.filters is not None and self.filters.interval is not None:
+            return ast.Constant(value=self.filters.interval.value)
+        return ast.Constant(value=default)
+
+    def _replace_breakdown(self, args: list[ast.Expr]) -> ast.Expr:
+        # Bindings are validated before checking whether a breakdown is set, so malformed usage
+        # surfaces in the SQL editor even while no breakdown is selected yet.
+        bindings = self._parse_binding_args(args, BOUND_BREAKDOWN_USAGE, "{filters.breakdown(...)}")
+        breakdown_filter = self.filters.breakdownFilter if self.filters is not None else None
+        key = self._resolve_breakdown_key(breakdown_filter)
+        if key is None:
+            # No breakdown selected: a constant key keeps the query valid and yields a single group.
+            return ast.Constant(value=None)
+        if key not in bindings:
+            raise QueryError(
+                f"The breakdown on '{key}' has no binding in {{filters.breakdown(...)}}. "
+                f"Bind a column like {{filters.breakdown(my_column AS '{key}')}} to apply it, "
+                f"or null AS '{key}' to skip it."
+            )
+        bound_expr = bindings[key]
+        if bound_expr is None:
+            return ast.Constant(value=None)
+        return clone_expr(bound_expr)
+
+    def _resolve_breakdown_key(self, breakdown_filter: Optional[BreakdownFilter]) -> Optional[str]:
+        if breakdown_filter is None:
+            return None
+        if breakdown_filter.breakdowns:
+            if len(breakdown_filter.breakdowns) > 1:
+                raise self._multiple_breakdowns_error()
+            single = breakdown_filter.breakdowns[0]
+            if single.type == MultipleBreakdownType.COHORT:
+                raise self._cohort_breakdown_error()
+            if single.histogram_bin_count is not None:
+                raise self._histogram_breakdown_error()
+            return str(single.property)
+        if breakdown_filter.breakdown is None:
+            return None
+        if breakdown_filter.breakdown_type == BreakdownType.COHORT:
+            raise self._cohort_breakdown_error()
+        if breakdown_filter.breakdown_histogram_bin_count is not None:
+            raise self._histogram_breakdown_error()
+        breakdown = breakdown_filter.breakdown
+        if isinstance(breakdown, list):
+            if len(breakdown) == 0:
+                return None
+            if len(breakdown) > 1:
+                raise self._multiple_breakdowns_error()
+            breakdown = breakdown[0]
+        return str(breakdown)
+
+    def _multiple_breakdowns_error(self) -> QueryError:
+        return QueryError(
+            "{filters.breakdown(...)} supports a single breakdown. "
+            "Remove the extra breakdowns from the dashboard or insight."
+        )
+
+    def _cohort_breakdown_error(self) -> QueryError:
+        return QueryError(
+            "Cohort breakdowns can't be applied through {filters.breakdown(...)}, because cohort "
+            "membership is resolved per person. Remove the cohort breakdown from the dashboard or insight."
+        )
+
+    def _histogram_breakdown_error(self) -> QueryError:
+        return QueryError(
+            "Numeric binning isn't supported by {filters.breakdown(...)}. Remove the bin count from the breakdown."
+        )

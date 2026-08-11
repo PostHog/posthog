@@ -580,6 +580,22 @@ _MISSING_PROJECT_RESOURCE_STATUSES = (403, 404)
 # project membership in the org, even though the token itself is otherwise valid.
 _NO_PROJECTS_AVAILABLE_DETAIL = "No projects available"
 
+# Any other 400 from the stats-summary endpoint is a deterministic rejection of the request we
+# build (most often the requested window falling outside the org's plan retention), so retrying
+# replays it identically. Surface a credential-safe message the source classifies as non-retryable
+# (see `SentrySource.get_non_retryable_errors`) instead of burning retries on the raw HTTPError,
+# whose URL embeds the org slug. The wording never interpolates the org, URL, or response body.
+STATS_SUMMARY_REJECTED_MESSAGE = (
+    "Sentry rejected PostHog's request for your per-project usage stats (the "
+    "organization_stats_summary table) with an HTTP 400. This usually means the requested date "
+    "range is outside your Sentry plan's data retention. Remove that table from this source's "
+    "selected tables, then re-enable the sync."
+)
+
+
+class SentryStatsSummaryRejectedError(Exception):
+    """The stats-summary endpoint rejected our request with a non-recoverable 400."""
+
 
 def _iter_rows_tolerating_unavailable(
     rows: Iterator[dict[str, Any]],
@@ -742,6 +758,7 @@ def _iter_organization_stats_summary_rows(
                     organization_slug=organization_slug,
                 )
                 return
+            raise SentryStatsSummaryRejectedError(STATS_SUMMARY_REJECTED_MESSAGE) from exc
         raise
 
     period_start = payload.get("start")

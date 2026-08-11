@@ -69,6 +69,7 @@ service PersonHogService {
   // semantics.
   rpc FencePerson(personhog.types.v1.FencePersonRequest) returns (personhog.types.v1.FencePersonResponse);
   rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+  rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
 
   // Person deletes
   // WARNING: This is a write operation on person data. It should route to the leader

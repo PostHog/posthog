@@ -7935,6 +7935,32 @@ class TestClickhouseRetentionGroupAggregation(
         day0_row = next(r for r in result if r["label"] == "Day 0")
         self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 1])
 
+    def test_custom_brackets_first_ever_east_of_utc_timezone(self):
+        """The first-ever anchor must keep the same timezone type as legacy's aggregate, or brackets shift east of UTC"""
+        self.team.timezone = "Asia/Kolkata"
+        self.team.save()
+
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_events(self.team, [("person1", _date(0))], "$user_signed_up")
+        _create_events(self.team, [("person1", _date(1)), ("person1", _date(6))], "$pageview")
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "retentionCustomBrackets": [4, 5],  # Day 1-4, Day 5-9
+                },
+            }
+        )
+
+        day0_row = next(r for r in result if r["label"] == "Day 0")
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 1])
+
     def test_custom_brackets_with_minimum_occurrences(self):
         """Test custom brackets with minimum occurrences (counted per day within bracket)"""
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])

@@ -242,6 +242,8 @@ services:
             - redis7
             - clickhouse
             - kafka
+            # The combined AI consumer's blob store healthchecks the ai-blobs bucket at startup
+            - objectstorage
             - personhog-router
 
     ingestion-sessionreplay:

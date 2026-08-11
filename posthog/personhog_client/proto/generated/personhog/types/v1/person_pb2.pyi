@@ -578,3 +578,44 @@ class ReleaseFenceResponse(_message.Message):
     __slots__ = ()
 
     def __init__(self) -> None: ...
+
+class SealedSourceSnapshot(_message.Message):
+    __slots__ = ("person", "ordinal")
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    ORDINAL_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+    ordinal: int
+
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., ordinal: _Optional[int] = ...) -> None: ...
+
+class FoldPersonDocumentRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "sealed_snapshots", "event_set", "event_set_once", "op_id")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    SEALED_SNAPSHOTS_FIELD_NUMBER: _ClassVar[int]
+    EVENT_SET_FIELD_NUMBER: _ClassVar[int]
+    EVENT_SET_ONCE_FIELD_NUMBER: _ClassVar[int]
+    OP_ID_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    sealed_snapshots: _containers.RepeatedCompositeFieldContainer[SealedSourceSnapshot]
+    event_set: bytes
+    event_set_once: bytes
+    op_id: str
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        sealed_snapshots: _Optional[_Iterable[_Union[SealedSourceSnapshot, _Mapping]]] = ...,
+        event_set: _Optional[bytes] = ...,
+        event_set_once: _Optional[bytes] = ...,
+        op_id: _Optional[str] = ...,
+    ) -> None: ...
+
+class FoldPersonDocumentResponse(_message.Message):
+    __slots__ = ("person",)
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
