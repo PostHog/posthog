@@ -31,14 +31,7 @@ class SuggestionKind(StrEnum):
 
 class Capability(StrEnum):
     """What a working setup buys you. Every suggestion says which of these it
-    unlocks, so the UI can answer "why should I care?" without extra copy.
-
-    Retention and LTV by channel are deliberately absent. Both need
-    `customer_analytics_config.activity_event` and friends, which belong to Customer
-    analytics — a different product, a different model, and fields whose own
-    project-admin checks `apply_setup_ops` already refuses to write. Marketing analytics
-    supplies the attribution side; the setup for the other half lives with the other
-    half."""
+    unlocks, so the UI can answer "why should I care?" without extra copy."""
 
     COST = "cost"
     ATTRIBUTION = "attribution"
