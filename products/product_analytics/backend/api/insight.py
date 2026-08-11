@@ -552,9 +552,9 @@ class QueryFieldSerializer(serializers.Serializer):
 # kinds below have no bare renderer and fall through to a JSON-dump fallback that paints
 # ~0px inside a dashboard tile, so they are safe (and necessary) to auto-wrap on save.
 #
-# This is every InsightVizNode source kind except the ones Query.tsx renders bare, so a kind
-# added to that union has to be added here too. BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS records
-# the exceptions, and a test pins the two sets against the schema so the split can't drift.
+# Keep this exhaustive over the InsightVizNode source union; BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS
+# holds the exceptions. A test pins both sets against that union, so a new source kind fails
+# loudly — but it can't see Query.tsx, so a renderer added or dropped there still needs a human.
 AUTO_WRAPPED_INSIGHT_QUERY_KINDS = frozenset(
     {
         "TrendsQuery",
