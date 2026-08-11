@@ -46,11 +46,11 @@ describe('setupPlanLogic', () => {
         applyRequests = []
         useMocks({
             get: {
-                '/api/environments/:team_id/marketing_analytics/setup_plan': () => [200, plan([suggestion()])],
+                '/api/projects/:team_id/marketing_analytics/setup_plan': () => [200, plan([suggestion()])],
                 '/api/environments/:team_id/marketing_analytics/utm_audit': () => [200, {}],
             },
             post: {
-                '/api/environments/:team_id/marketing_analytics/apply_setup_ops': async ({ request }) => {
+                '/api/projects/:team_id/marketing_analytics/apply_setup_ops': async ({ request }) => {
                     applyRequests.push(await request.json())
                     return [200, { applied: [], undo_ops: UNDO_OPS }]
                 },
@@ -128,7 +128,7 @@ describe('setupPlanLogic', () => {
         const unsafe = suggestion({ id: 'unsafe', safe_to_batch: false })
         useMocks({
             get: {
-                '/api/environments/:team_id/marketing_analytics/setup_plan': () => [200, plan([suggestion(), unsafe])],
+                '/api/projects/:team_id/marketing_analytics/setup_plan': () => [200, plan([suggestion(), unsafe])],
             },
         })
 
@@ -149,7 +149,7 @@ describe('setupPlanLogic', () => {
         let loads = 0
         useMocks({
             get: {
-                '/api/environments/:team_id/marketing_analytics/setup_plan': () => {
+                '/api/projects/:team_id/marketing_analytics/setup_plan': () => {
                     loads += 1
                     return [200, loads === 1 ? plan([suggestion()]) : plan([])]
                 },
@@ -172,7 +172,7 @@ describe('setupPlanLogic', () => {
         // request were 400ing.
         useMocks({
             post: {
-                '/api/environments/:team_id/marketing_analytics/apply_setup_ops': () => [400, { ops: 'nope' }],
+                '/api/projects/:team_id/marketing_analytics/apply_setup_ops': () => [400, { ops: 'nope' }],
             },
         })
 
@@ -233,7 +233,7 @@ describe('setupPlanLogic', () => {
             // Counting it would advertise hidden work that no longer exists.
             useMocks({
                 get: {
-                    '/api/environments/:team_id/marketing_analytics/setup_plan': () => [200, plan([])],
+                    '/api/projects/:team_id/marketing_analytics/setup_plan': () => [200, plan([])],
                 },
             })
 
@@ -251,7 +251,7 @@ describe('setupPlanLogic', () => {
         const urls: string[] = []
         useMocks({
             get: {
-                '/api/environments/:team_id/marketing_analytics/setup_plan': ({ request }) => {
+                '/api/projects/:team_id/marketing_analytics/setup_plan': ({ request }) => {
                     urls.push(request.url)
                     return [200, plan([])]
                 },
@@ -339,7 +339,7 @@ describe('setupPlanLogic', () => {
         beforeEach(async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/marketing_analytics/setup_plan': () => [200, plan([cost, attribution])],
+                    '/api/projects/:team_id/marketing_analytics/setup_plan': () => [200, plan([cost, attribution])],
                 },
             })
             await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
@@ -382,7 +382,7 @@ describe('setupPlanLogic', () => {
     it('surfaces degraded and truncated from the response', async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/marketing_analytics/setup_plan': () => [
+                '/api/projects/:team_id/marketing_analytics/setup_plan': () => [
                     200,
                     { ...plan([]), degraded: ['attribution_health'], truncated: true },
                 ],

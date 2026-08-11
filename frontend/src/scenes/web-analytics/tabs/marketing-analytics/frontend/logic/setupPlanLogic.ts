@@ -263,7 +263,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                  * current data and has to mean it, or the button looks broken. */
                 loadSetupPlan: async ({ refresh } = { refresh: false }) => {
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/marketing_analytics/setup_plan${
+                        `api/projects/${values.currentTeamId}/marketing_analytics/setup_plan${
                             refresh ? '?refresh=true' : ''
                         }`
                     )
@@ -503,7 +503,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
             const inFlight = options.suggestionIds ?? []
             try {
                 const response: ApplyResponse = await api.create(
-                    `api/environments/${values.currentTeamId}/marketing_analytics/apply_setup_ops`,
+                    `api/projects/${values.currentTeamId}/marketing_analytics/apply_setup_ops`,
                     { ops, source: options.source }
                 )
 
