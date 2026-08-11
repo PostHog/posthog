@@ -1567,18 +1567,26 @@ class TestDuckgresSessionServiceCredential:
     hands back nothing usable, and refreshes a (nearly) expired credential on
     reconnect."""
 
-    def _credential(self, password: str = "secret", rotated: bool = True, expires_at: datetime | None = None):
+    # Fixed datetimes, never datetime.now(): these payloads are what the CP
+    # hands a session, and the session's refresh decision is "expiry vs now"
+    # — so a stale credential is one expired in the PAST (fixed: far behind)
+    # and a fresh credential is one comfortably in the FUTURE (fixed: far
+    # ahead). Deterministic under any wall clock.
+    _STALE_EXPIRY = datetime(2020, 1, 1, tzinfo=UTC)
+    _FRESH_EXPIRY = datetime(2040, 1, 1, tzinfo=UTC)
+
+    def _credential(self, password: str, *, rotated: bool = True, expires_at: datetime | None = None):
         return ServiceCredential(
             username="posthog_team_2_rw",
             password=password,
-            expires_at=expires_at or datetime.now(UTC) + timedelta(minutes=15),
+            expires_at=expires_at or self._FRESH_EXPIRY,
             rotated=rotated,
         )
 
     @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
     @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
     def test_mint_is_reuse_first_and_no_refresh_while_fresh(self, mock_connect, mock_mint):
-        credential = self._credential(rotated=True)
+        credential = self._credential("grant", rotated=True)
         mock_mint.return_value = credential
         mock_connect.return_value = MagicMock()
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
@@ -1598,8 +1606,8 @@ class TestDuckgresSessionServiceCredential:
         # The realistic first-fetch shape: CP reuses a live grant → no
         # plaintext → must escalate to force_rotate to get one.
         mock_mint.side_effect = [
-            self._credential(password="", rotated=False),
-            self._credential(password="escalated", rotated=True),
+            self._credential("", rotated=False),
+            self._credential("escalated", rotated=True),
         ]
         mock_connect.return_value = MagicMock()
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
@@ -1618,8 +1626,8 @@ class TestDuckgresSessionServiceCredential:
         # A session whose TTL lapses mid-run (long export, worker drops at
         # t+2h) must NOT present the dead credential on reconnect — the CP
         # rotates the hash on the first mint touch after lapse.
-        stale = self._credential(expires_at=datetime.now(UTC) - timedelta(minutes=1))
-        fresh = self._credential(password="fresh-secret", expires_at=datetime.now(UTC) + timedelta(minutes=15))
+        stale = self._credential("stale", expires_at=self._STALE_EXPIRY)
+        fresh = self._credential("fresh-secret")
         mock_mint.side_effect = [stale, fresh]
         mock_connect.side_effect = [MagicMock(name="c0"), MagicMock(name="c1")]
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
