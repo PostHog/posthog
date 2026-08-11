@@ -26,7 +26,9 @@ const PRODUCED_REF_CACHE_MAX = 500_000
  */
 const MAX_URLS_PER_RECORD = 64
 
-/** One record on the fetch topic. The Kafka key is the host, so all URLs here have that one host. */
+/** One record on the fetch topic. The Kafka key is the registrable domain, so every URL here
+ *  belongs to one operator. Hosts can differ within it: a CDN sharding over img1..img8 keeps one
+ *  budget but still needs its own robots.txt and connection limit per host. */
 export interface CollectedUrlsMessage {
     /**
      * The wire format version. The fetcher reads this topic from another deployment, so the two
@@ -42,16 +44,20 @@ export interface CollectedUrlsMessage {
      * age check exists for.
      */
     capturedAtMs: number
-    urls: { ref: string; url: string }[]
+    urls: { ref: string; url: string; host: string }[]
 }
 
 /**
- * Produce the collected URLs of remote images to the fetch topic, keyed by host.
+ * Produce the collected URLs of remote images to the fetch topic, keyed by registrable domain.
  *
- * The URLs of one replay message go into groups by host, and each group becomes one Kafka message.
- * A Kafka message has one key, and the key of this topic is the host, so a group can hold only one
- * host. A page usually loads its images from one or two hosts, so this makes tens of URLs into one
- * or two records.
+ * The URLs of one replay message go into groups by domain, and each group becomes one Kafka
+ * message. A Kafka message has one key, so a group holds one domain. A page usually loads its
+ * images from one or two operators, so this makes tens of URLs into one or two records.
+ *
+ * The key is the operator rather than the host, because that is what a rate limit protects. A CDN
+ * that shards over img1..img8.cdn.example.com keys to one partition, so one pod holds one budget
+ * for it. The anonymizer computes the domain from the public suffix list and sends it with the
+ * URL, so this step never repeats that rule.
  *
  * The step does not hold URLs across replay messages. The produce goes back as a pipeline side
  * effect, and the pipeline waits for the side effects of a batch before it commits the offsets of
@@ -95,7 +101,7 @@ export function createProduceCollectedUrlsStep<
         // puts it. Every entry must agree on it: one replay message belongs to one team, and a
         // record stamped with another team's pseudonym is a tenant-attribution error that nothing
         // downstream can detect.
-        const usable: { ref: string; url: string; host: string }[] = []
+        const usable: CollectedUrl[] = []
         let pseudoTeam: string | undefined
         for (const entry of fresh) {
             const parsed = parseImageRef(entry.ref)
@@ -116,14 +122,15 @@ export function createProduceCollectedUrlsStep<
             return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
         }
 
-        const byHost = new Map<string, { ref: string; url: string }[]>()
+        const byDomain = new Map<string, { ref: string; url: string; host: string }[]>()
         for (const entry of usable) {
             producedRefs.add(entry.ref)
-            const group = byHost.get(entry.host)
+            const group = byDomain.get(entry.domain)
+            const record = { ref: entry.ref, url: entry.url, host: entry.host }
             if (group) {
-                group.push({ ref: entry.ref, url: entry.url })
+                group.push(record)
             } else {
-                byHost.set(entry.host, [{ ref: entry.ref, url: entry.url }])
+                byDomain.set(entry.domain, [record])
             }
         }
         SessionRecordingIngesterMetrics.incrementMlUrlsCollected('queued', usable.length)
@@ -133,9 +140,9 @@ export function createProduceCollectedUrlsStep<
         // timestamp as -1, which is not nullish, so a plain ?? would ship a negative age.
         const messageTimestamp = input.message.timestamp
         const capturedAtMs = messageTimestamp !== undefined && messageTimestamp > 0 ? messageTimestamp : Date.now()
-        const messages = [...byHost].flatMap(([host, urls]) =>
+        const messages = [...byDomain].flatMap(([domain, urls]) =>
             chunk(urls, MAX_URLS_PER_RECORD).map((slice) => ({
-                key: host,
+                key: domain,
                 value: Buffer.from(
                     JSON.stringify({
                         v: 1,
@@ -166,7 +173,7 @@ export function createProduceCollectedUrlsStep<
                 }
                 logger.warn('🌐', 'ml_image_fetch_produce_failed', {
                     count: refs.length,
-                    hosts: byHost.size,
+                    domains: byDomain.size,
                     error: String(error),
                 })
                 SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produce_failed', refs.length)

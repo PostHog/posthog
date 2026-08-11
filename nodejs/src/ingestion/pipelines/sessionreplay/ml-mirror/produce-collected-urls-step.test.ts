@@ -22,8 +22,8 @@ describe('produceCollectedUrlsStep', () => {
         outputs = { queueMessages } as unknown as IngestionOutputs<MlImageFetchOutput>
     })
 
-    function collected(hash: string, host: string, url: string): CollectedUrl {
-        return { ref: `imageurl:${PSEUDO_TEAM}:${hash.padEnd(22, 'x')}`, url, host }
+    function collected(hash: string, host: string, url: string, domain = host): CollectedUrl {
+        return { ref: `imageurl:${PSEUDO_TEAM}:${hash.padEnd(22, 'x')}`, url, host, domain }
     }
 
     function decode(batch: { key: string; value: Buffer }[]) {
@@ -42,7 +42,7 @@ describe('produceCollectedUrlsStep', () => {
         return result
     }
 
-    it('sends one message per host, keyed by that host, and strips the URLs from the element', async () => {
+    it('sends one message per operator, keyed by the domain, and strips the URLs from the element', async () => {
         // The clock is moved far from CAPTURED_AT on purpose: the record must carry the capture
         // time of the replay message, not the time the mirror produced it.
         jest.useFakeTimers().setSystemTime(new Date('2026-08-10T00:00:00.000Z'))
@@ -70,10 +70,12 @@ describe('produceCollectedUrlsStep', () => {
                             {
                                 ref: `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
                                 url: 'https://cdn.example.com/a.jpg?sig=1',
+                                host: 'cdn.example.com',
                             },
                             {
                                 ref: `imageurl:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
                                 url: 'https://cdn.example.com/c.jpg',
+                                host: 'cdn.example.com',
                             },
                         ],
                     },
@@ -88,6 +90,7 @@ describe('produceCollectedUrlsStep', () => {
                             {
                                 ref: `imageurl:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
                                 url: 'https://img.other.com/b.png',
+                                host: 'img.other.com',
                             },
                         ],
                     },
@@ -145,6 +148,7 @@ describe('produceCollectedUrlsStep', () => {
                     ref: `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
                     url: 'https://img.example.com/a.png',
                     host: 'img.example.com',
+                    domain: 'example.com',
                 },
             ],
         })
@@ -164,6 +168,7 @@ describe('produceCollectedUrlsStep', () => {
                     ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
                     url: 'https://img.example.com/inlined.png',
                     host: 'img.example.com',
+                    domain: 'example.com',
                 },
                 collected('h3', 'img.example.com', 'https://img.example.com/c.png'),
             ],
@@ -189,6 +194,7 @@ describe('produceCollectedUrlsStep', () => {
                     ref: `imageurl:${otherTeam}:h2xxxxxxxxxxxxxxxxxxxx`,
                     url: 'https://img.example.com/b.png',
                     host: 'img.example.com',
+                    domain: 'img.example.com',
                 },
             ],
         })
@@ -196,5 +202,29 @@ describe('produceCollectedUrlsStep', () => {
         const sent = decode(queued[0])
         expect(sent[0].value.pseudoTeam).toBe(PSEUDO_TEAM)
         expect(sent[0].value.urls).toHaveLength(1)
+    })
+
+    it('puts a sharded CDN on one key, and keeps each host on its record', async () => {
+        // A CDN that shards over numbered subdomains is one operator. Keying by host gave it one
+        // budget per subdomain, which is the fragmentation this key exists to prevent. Each entry
+        // still carries its own host, because robots.txt and the connection limit are per host.
+        const step = createProduceCollectedUrlsStep(outputs, 100)
+
+        await run(step, {
+            message: { timestamp: CAPTURED_AT },
+            collectedUrls: [
+                collected('h1', 'img1.cdn.example.com', 'https://img1.cdn.example.com/a.png', 'example.com'),
+                collected('h2', 'img8.cdn.example.com', 'https://img8.cdn.example.com/b.png', 'example.com'),
+                collected('h3', 'assets.other.org', 'https://assets.other.org/c.png', 'other.org'),
+            ],
+        })
+
+        const sent = decode(queued[0])
+        expect(sent.map((m) => m.key).sort()).toEqual(['example.com', 'other.org'])
+        const shared = sent.find((m) => m.key === 'example.com')!
+        expect(shared.value.urls.map((u: { host: string }) => u.host)).toEqual([
+            'img1.cdn.example.com',
+            'img8.cdn.example.com',
+        ])
     })
 })
