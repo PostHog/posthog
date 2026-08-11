@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LogMessage } from '~/queries/schema/schema-general'
@@ -62,18 +63,8 @@ function extractFilterGroup(alert: LogsAlertConfigurationApi | null): UniversalF
     return EMPTY_FILTER_GROUP
 }
 
-function errorMessage(error: unknown): string {
-    if (error instanceof Error) {
-        return error.message
-    }
-    const { detail, message } = error as { detail?: unknown; message?: unknown }
-    if (typeof detail === 'string') {
-        return detail
-    }
-    if (typeof message === 'string') {
-        return message
-    }
-    return 'Failed to save alert'
+function saveErrorMessage(error: ApiError): string {
+    return error.detail ?? error.message ?? 'Failed to save alert'
 }
 
 export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): LogsAlertFormType {
@@ -355,7 +346,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                         lemonToast.success('Alert created')
                     }
                 } catch (error: unknown) {
-                    lemonToast.error(errorMessage(error))
+                    lemonToast.error(saveErrorMessage(error as ApiError))
                     throw error
                 }
 
