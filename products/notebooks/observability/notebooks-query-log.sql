@@ -238,3 +238,48 @@ WHERE event_date >= today() - 3
   AND is_initial_query
 GROUP BY hour, bucket
 ORDER BY hour, bucket;
+
+
+-- ---------------------------------------------------------------------------
+-- 9. Transport A/B: worker relay (phase 1) vs ClickHouse writing S3 itself
+--    (phase 2), on identical work.
+--
+--    `query_kind` is the discriminator and needs no new instrumentation: the relay
+--    is a Select whose rows stream back through a worker, the CH-writes path is an
+--    `INSERT INTO FUNCTION s3(...)` that returns no result set.
+--
+--    That difference is also why the delivered-size columns differ per mode, and why
+--    averaging the two together is wrong. A Select reports what it handed back in
+--    `result_bytes`/`result_rows`; an Insert leaves both at zero and reports what it
+--    pushed to S3 in `WriteBufferFromS3Bytes`/`written_rows`. `delivered_*` below
+--    coalesces the pair so one column is comparable across modes.
+--
+--    Read `scanned` as the control: the two modes run the same user query, so a
+--    materially different scan between them means the arms are not comparable
+--    (different date ranges, or ClickHouse cache state) and the latency delta is
+--    not yet evidence.
+-- ---------------------------------------------------------------------------
+SELECT
+    if(query_kind = 'Insert', 'ch_writes', 'worker_relay')      AS mode,
+    count()                                                     AS queries,
+    round(quantile(0.5)(query_duration_ms))                     AS p50_ms,
+    round(quantile(0.95)(query_duration_ms))                    AS p95_ms,
+    formatReadableSize(quantile(0.5)(read_bytes))               AS p50_scanned,
+    formatReadableSize(
+        quantile(0.5)(
+            if(query_kind = 'Insert',
+               ProfileEvents['WriteBufferFromS3Bytes'],
+               result_bytes)
+        )
+    )                                                           AS p50_delivered_bytes,
+    round(quantile(0.5)(
+        if(query_kind = 'Insert', written_rows, result_rows)
+    ))                                                          AS p50_delivered_rows,
+    round(quantile(0.95)(memory_usage) / 1e6)                   AS p95_memory_mb,
+    countIf(exception_code != 0)                                AS failures
+FROM query_log_archive
+WHERE event_date >= today() - 1
+  AND lc_product = 'notebooks'
+  AND is_initial_query
+GROUP BY mode
+ORDER BY mode;

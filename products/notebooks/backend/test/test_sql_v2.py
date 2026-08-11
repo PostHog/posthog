@@ -2338,10 +2338,10 @@ class TestSQLV2KernelPackage(SimpleTestCase):
                 patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
                 patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
             ):
-                rows, fetched_from, _download_s = kernel_data_plane.materialize_query_to_file(
+                materialized = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "secret-token", "select 1", dest, limit=1000
                 )
-            self.assertEqual(rows, 2)
+            self.assertEqual(materialized.row_count, 2)
             self.assertEqual(pa.ipc.open_file(pa.memory_map(dest)).read_all().num_rows, 2)
 
         (download,) = download_requests
@@ -2349,8 +2349,8 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertFalse(download.has_header("Authorization"))
         # The surfaced source is a bearer secret truncated to a host-only preview: it must
         # never carry the signature query parameters.
-        self.assertEqual(fetched_from, presigned_url[:30])
-        self.assertNotIn("X-Amz-Signature", fetched_from or "")
+        self.assertEqual(materialized.source, presigned_url[:30])
+        self.assertNotIn("X-Amz-Signature", materialized.source or "")
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()
@@ -2389,11 +2389,11 @@ class TestSQLV2PythonNodeRun(SimpleTestCase):
                 "urlopen",
                 side_effect=lambda request, timeout=None: _FakeResponse(arrow_bytes),
             ):
-                rows, fetched_from, _download_s = kernel_data_plane.materialize_query_to_file(
+                materialized = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "t", "select 1", dest, limit=1000
                 )
-            self.assertEqual(rows, 2)
-            self.assertIsNone(fetched_from)  # inline body — no presigned source to surface
+            self.assertEqual(materialized.row_count, 2)
+            self.assertIsNone(materialized.source)  # inline body — no presigned source to surface
             table = pa.ipc.open_file(pa.memory_map(dest)).read_all()
             self.assertEqual(table.num_rows, 2)
             self.assertEqual(table.column_names, ["id", "v"])
@@ -2511,7 +2511,8 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
     def test_callback_reports_the_run_with_its_outcome(self, envelope_status, expected_outcome, mock_report):
         run = self._create_run()
         token = mint_callback_token(str(run.id), self.team.id)
-        before = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
+        labels = {"node_type": "hogql", "outcome": expected_outcome, "delivery": "object_relay"}
+        before = self._histogram_count(labels)
         response = self.client.post(
             f"/internal/notebooks/runs/{run.id}/result/",
             data=json.dumps(
@@ -2519,6 +2520,7 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
                     "envelope": {
                         "status": envelope_status,
                         "row_count": 3,
+                        "delivery": "object_relay",
                         "timings": {"input_wait_s": 1.5, "exec_s": 0.4, "sandbox_total_s": 2.0},
                     }
                 }
@@ -2534,13 +2536,14 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(properties["notebook_short_id"], "nbmet01")
         self.assertEqual(properties["node_type"], "hogql")
         self.assertEqual(properties["row_count"], 3)
+        self.assertEqual(properties["delivery"], "object_relay")
         self.assertEqual(properties["input_wait_seconds"], 1.5)
         self.assertEqual(properties["exec_seconds"], 0.4)
         self.assertEqual(properties["sandbox_total_seconds"], 2.0)
         self.assertGreaterEqual(properties["duration_seconds"], 0)
         # $groups must come from the run's own team, not the user's currently active project.
         self.assertEqual(mock_report.call_args.kwargs["team"].id, self.team.id)
-        after = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
+        after = self._histogram_count(labels)
         self.assertEqual(after, before + 1)
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
@@ -2671,6 +2674,30 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.DONE)
         properties = mock_report.call_args[0][1]
         self.assertNotIn("exec_seconds", properties)
+
+    @parameterized.expand(
+        [
+            ("forged_string", "'; drop--"),
+            ("unknown_mode", "object_something_new"),
+            ("not_a_string", 17),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_an_unrecognized_delivery_never_becomes_a_metric_label(self, _name, delivery, mock_report):
+        # The envelope is built inside the sandbox, where user code can forge it, and
+        # `delivery` becomes a Prometheus label. Anything outside the known transports must
+        # collapse to "none" rather than minting a new time series per forged value.
+        run = self._create_run()
+        token = mint_callback_token(str(run.id), self.team.id)
+        response = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": {"status": "ok", "delivery": delivery}}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_report.call_args[0][1]["delivery"], "none")
+        self.assertEqual(self._histogram_count({"node_type": "hogql", "outcome": "done", "delivery": delivery}), 0.0)
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
     def test_completed_event_survives_a_hard_deleted_user(self, mock_report):
