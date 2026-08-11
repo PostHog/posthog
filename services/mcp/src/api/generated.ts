@@ -88973,6 +88973,10 @@ export namespace Schemas {
      */
     recording_subject?: string;
     /**
+     * Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.
+     */
+    result_search?: string;
+    /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
@@ -89111,6 +89115,10 @@ export namespace Schemas {
      */
     recording_subject?: string;
     /**
+     * Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.
+     */
+    result_search?: string;
+    /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
@@ -89166,6 +89174,10 @@ export namespace Schemas {
      */
     recording_subject?: string;
     /**
+     * Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.
+     */
+    result_search?: string;
+    /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
@@ -89220,6 +89232,10 @@ export namespace Schemas {
      * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
+    /**
+     * Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.
+     */
+    result_search?: string;
     /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
