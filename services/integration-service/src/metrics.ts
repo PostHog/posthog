@@ -51,37 +51,25 @@ export const previousVersionServedTotal = new Counter({
 
 export const secretAgeSeconds = new Gauge({
     name: 'integration_secret_age_seconds',
-    help: 'Age of the integration-service secret current version',
+    help: 'Time since the mounted secret last changed, for "not rotated in N days" alerting',
     registers: [register],
 })
 
 // ---------------------------------------------------------------------------
-// Cache / storage health
+// Mount health
 // ---------------------------------------------------------------------------
 
-export const cacheHitsTotal = new Counter({
-    name: 'integration_secret_cache_hits_total',
-    help: 'Provider snapshot lookups by the tier that served them',
-    labelNames: ['layer'],
-    registers: [register],
-})
-
+// An unreadable mount keeps the last snapshot rather than failing every read, so without
+// this the degradation is silent. Alert on it.
 export const servingStaleSeconds = new Gauge({
     name: 'integration_secret_serving_stale_seconds',
-    help: 'Age of the snapshot still being served because refresh is failing (0 when healthy)',
+    help: 'Age of the snapshot still being served because the mount could not be re-read (0 when healthy)',
     registers: [register],
 })
 
 export const storeErrorsTotal = new Counter({
     name: 'integration_secret_store_errors_total',
-    help: 'Failed reads from the backing secret store',
-    registers: [register],
-})
-
-export const kmsOperationsTotal = new Counter({
-    name: 'integration_secret_kms_operations_total',
-    help: 'KMS calls made for envelope encryption',
-    labelNames: ['op', 'result'],
+    help: 'Reads of the secret mount that returned nothing',
     registers: [register],
 })
 
@@ -155,6 +143,3 @@ export function observeResolve(
     }
 }
 
-export function observeKms(op: 'generate_data_key' | 'decrypt', result: 'ok' | 'error'): void {
-    kmsOperationsTotal.labels({ op, result }).inc()
-}

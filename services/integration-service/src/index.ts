@@ -19,6 +19,7 @@ import { createPool, observeVersion } from './db/client.js'
 import { createApp, type Lifecycle } from './http/app.js'
 import { loadConfig } from './lib/config.js'
 import { logger } from './lib/logging.js'
+import { secretAgeSeconds, servingStaleSeconds, storeErrorsTotal } from './metrics.js'
 import { createFileStore } from './store/fileStore.js'
 import type { SecretsSnapshot } from './types.js'
 import { UsagePublisher } from './usage/publisher.js'
@@ -96,8 +97,19 @@ async function main(): Promise<void> {
         const next = await store.load()
         if (next) {
             snapshot = next
-        } else if (lifecycle.ready) {
-            logger.error('secrets:snapshot_lost', { dir: config.secretsDir })
+            servingStaleSeconds.set(0)
+            if (next.changedAt) {
+                secretAgeSeconds.set((Date.now() - Date.parse(next.changedAt)) / 1000)
+            }
+        } else {
+            storeErrorsTotal.inc()
+            if (snapshot) {
+                // Keeping the last snapshot is what stops an unreadable mount failing every
+                // read. The gauge is what stops that being silent.
+                servingStaleSeconds.set((Date.now() - Date.parse(snapshot.fetchedAt)) / 1000)
+            } else if (lifecycle.ready) {
+                logger.error('secrets:snapshot_lost', { dir: config.secretsDir })
+            }
         }
         lifecycle.ready = snapshot !== null
     }

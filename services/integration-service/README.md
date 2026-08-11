@@ -36,7 +36,7 @@ otherwise.
 
 ```text
 GET  /_liveness          200 always
-GET  /_readiness         200 once the client registry is loaded and providers are warmed
+GET  /_readiness         200 once the pod holds a credential snapshot
 GET  /metrics            prometheus text (bearer-gated when a token is configured)
 POST /v1/secrets/resolve
 ```
@@ -127,11 +127,19 @@ can drop in later without touching the routes or the policy layer.
 ## Storage and rotation
 
 **One secret holds everything**, the way every other PostHog service stores its configuration:
-`integration-service-secrets`, a flat map of `KEY: value` pairs. External Secrets Operator syncs it
-into a Kubernetes Secret, kubelet mounts that as a directory of one file per key, and the service
-reads the mount. This service stops being the exception that calls Secrets Manager at runtime. Flat and uppercase is not a
+`integration-service-secrets`, a flat map of `KEY: value` pairs. Flat and uppercase is not a
 preference — the `PostHog/secrets` CLI and UI only manage `[A-Z0-9_]+` keys with plain string
 values, and a nested object would be invisible to the very tooling meant to operate this.
+
+External Secrets Operator syncs that secret into a Kubernetes Secret, and kubelet mounts it as a
+directory of one file per key. The service reads the mount, so it is not the one service calling
+Secrets Manager at runtime. Kubelet rewrites the mount in place and swaps the `..data` symlink
+atomically, so a rotation reaches the pod without a restart and a read never sees a half-written
+set. The service re-reads on a timer and holds the parsed snapshot in memory; there is no cache
+tier, because a handful of small files on tmpfs is already the fast path.
+
+A pod with no snapshot fails its readiness probe rather than exiting, so an empty mount recovers on
+its own once ESO syncs instead of crash-looping.
 
 ```text
 integration-service-secrets
@@ -197,16 +205,10 @@ the old value" is vacuously true, which is exactly the state where retiring look
 A deployment that reads a key rarely delays the verdict rather than rushing it. That is the correct
 direction to be wrong in.
 
-## State
+## Postgres
 
-There are two stores, and neither holds a credential.
-
-**The mount** carries the credentials. Kubelet rewrites it in place when the content changes, so a
-rotation reaches the pod without a restart, and it swaps the `..data` symlink atomically so a read
-never sees a half-written set. The service re-reads it on a timer and keeps the parsed snapshot in
-memory. There is no cache tier: a handful of small files on tmpfs is already the fast path.
-
-**Postgres** carries the usage counters and the version-observation log. Durability is the point.
+Postgres carries the usage counters and the version-observation log. It holds no credential.
+Durability is the point.
 The counters decide whether an old credential is safe to retire, and losing a row moves that answer
 in the _unsafe_ direction — drop a stale reader's record while keeping a fresh one and the stale
 reader disappears, so the verdict flips to "safe" while that reader is still on the old value. A
@@ -217,8 +219,26 @@ read reaches this service; an upsert per read would put a write on the hot path 
 loses at most one flush interval of counts. Shutdown flushes, so a rolling restart does not lose the
 reads that prove a caller has moved onto a new value.
 
+Three tables, applied as idempotent DDL at boot:
+
+| Table                          | Holds                                    | Pruned?                        |
+| ------------------------------ | ---------------------------------------- | ------------------------------ |
+| `integration_secret_usage`     | read counts per key, deployment and hour | yes, past the retention window |
+| `integration_secret_last_seen` | when each deployment last read each key  | **never**                      |
+| `integration_secret_version`   | when each content hash was first seen    | no                             |
+
+`integration_secret_last_seen` is separate from the counts and never pruned on purpose. The
+retirement verdict has to consider every deployment known to read a key, not only those active
+inside the rolling window — otherwise a consumer that reads rarely drops out, and one read from an
+active caller could declare the previous value retirable while that consumer is still on it.
+
+A mounted secret carries no AWS version, so `integration_secret_version` is what "the value changed
+at" means: the first time any replica saw this content hash. Recording it centrally keeps replicas
+in agreement and survives a restart.
+
 The DSN comes from the `psql:` harness in the `posthog-app` chart, so connections go through
-PgBouncer in transaction mode. Nothing here may rely on session state.
+PgBouncer in transaction mode. Nothing here may rely on session state: no `LISTEN`/`NOTIFY`, no
+session-scoped settings, no server-side named prepared statements.
 
 ### What used to be here
 
@@ -238,6 +258,33 @@ points at a local mock. The second is a dev-only path, enforced rather than docu
 This is a security control, not only a bundle-size one: a service whose entire job is holding
 third-party credentials should not be able to silently authenticate as an EC2 instance role or as
 whatever a developer last ran `aws sso login` against.
+
+## Metrics
+
+Every label value comes from fixed configuration, never from a request: a key the manifest does not
+define and a product the service does not recognise both collapse to a constant. Nothing here is
+reported by a caller, so no metric depends on a client being current or honest.
+
+| Metric                                                                     | What it answers                                                     |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `integration_secret_resolve_total{deployment,product,provider,key,result}` | who read what, and whether it resolved                              |
+| `integration_secret_last_resolved_timestamp{provider,key}`                 | which credentials nothing reads any more                            |
+| `integration_secret_previous_version_served_total{provider,key}`           | how much traffic is reading a key mid-rotation                      |
+| `integration_secret_age_seconds`                                           | time since the secret last changed — drives "not rotated in N days" |
+| `integration_secret_serving_stale_seconds`                                 | how long this pod has served a snapshot it could not refresh        |
+| `integration_secret_store_errors_total`                                    | mount reads that returned nothing                                   |
+| `integration_service_signing_keys_last_loaded_timestamp`                   | staleness means a revocation has not landed on this pod             |
+| `integration_service_signing_key_reload_failures_total`                    | reloads that kept the previous key set                              |
+| `integration_service_auth_failures_total{reason}`                          | rejected tokens, by why                                             |
+| `integration_secret_usage_publish_total{result}`                           | whether the usage artifact is reaching S3                           |
+
+Two of these exist because a fail-open needs to be visible. The signing-key reload keeps the
+previous keys when an edit is malformed, so a revocation can fail to land; and an unreadable mount
+keeps the last snapshot rather than failing every read. Alert on the two staleness signals, or
+neither degradation is observable.
+
+`/metrics` is bearer-gated and the token is production-required: the resolve counter is a precise
+map of which deployment reads which credential, even though it carries no values.
 
 ## Isolation
 
@@ -273,23 +320,30 @@ recording, which costs the rollup and nothing else.
 
 ## Configuration
 
-| Variable                                 | Default                    | Notes                                                    |
-| ---------------------------------------- | -------------------------- | -------------------------------------------------------- |
-| `INTEGRATION_SERVICE_ENV`                | `dev`                      | Logical env; recorded on the usage artifact              |
-| `INTEGRATION_SERVICE_SECRETS_DIR`        | `/etc/integration-secrets` | Where the Kubernetes Secret is mounted                   |
-| `INTEGRATION_SERVICE_DATABASE_URL`       | —                          | From the chart's `psql:` harness. Required in production |
-| `INTEGRATION_SERVICE_RELOAD_SECONDS`     | `30`                       | How often to re-read the mount                           |
-| `INTEGRATION_SERVICE_USAGE_FLUSH_MS`     | `10000`                    | How often to flush batched usage counters                |
-| `INTEGRATION_SERVICE_RETENTION_DAYS`     | `9`                        | How long usage buckets are kept                          |
-| `INTEGRATION_SERVICE_RETIRE_QUIET_HOURS` | `24`                       | Window for `safeToRetirePrevious`                        |
-| `INTEGRATION_SERVICE_USAGE_BUCKET`       | —                          | Unset disables usage publishing                          |
-| `INTEGRATION_SERVICE_USAGE_KMS_KEY_ID`   | —                          | SSE-KMS key for the usage artifact                       |
-| `INTEGRATION_SERVICE_METRICS_TOKEN`      | —                          | Bearer token for `/metrics`. Required in production      |
-| `PORT`                                   | `8004`                     |                                                          |
+| Variable                                        | Default                    | Notes                                                    |
+| ----------------------------------------------- | -------------------------- | -------------------------------------------------------- |
+| `INTEGRATION_SERVICE_ENV`                       | `dev`                      | Logical env; recorded on the usage artifact              |
+| `INTEGRATION_SERVICE_SECRETS_DIR`               | `/etc/integration-secrets` | Where the Kubernetes Secret is mounted                   |
+| `INTEGRATION_SERVICE_DATABASE_URL`              | —                          | From the chart's `psql:` harness. Required in production |
+| `INTEGRATION_SERVICE_RELOAD_SECONDS`            | `30`                       | How often to re-read the mount                           |
+| `INTEGRATION_SERVICE_USAGE_FLUSH_MS`            | `10000`                    | How often to flush batched usage counters                |
+| `INTEGRATION_SERVICE_RETENTION_DAYS`            | `9`                        | How long usage buckets are kept                          |
+| `INTEGRATION_SERVICE_RETIRE_QUIET_HOURS`        | `24`                       | Window for `safeToRetirePrevious`                        |
+| `INTEGRATION_SERVICE_USAGE_BUCKET`              | —                          | Unset disables usage publishing                          |
+| `INTEGRATION_SERVICE_USAGE_KMS_KEY_ID`          | —                          | SSE-KMS key for the usage artifact                       |
+| `INTEGRATION_SERVICE_METRICS_TOKEN`             | —                          | Bearer token for `/metrics`. Required in production      |
+| `INTEGRATION_SERVICE_USAGE_PUBLISH_INTERVAL_MS` | `300000`                   | How often to publish the usage artifact                  |
+| `INTEGRATION_SERVICE_LOG_LEVEL`                 | by `NODE_ENV`              | `debug`, `info`, `warn` or `error`                       |
+| `AWS_REGION`                                    | `us-east-1`                | For the S3 client, the only AWS client left              |
+| `AWS_ENDPOINT_URL`                              | —                          | Local mock only. Refused under `NODE_ENV=production`     |
+| `PORT`                                          | `8004`                     |                                                          |
+| `HOST`                                          | `0.0.0.0`                  |                                                          |
+| `SHUTDOWN_GRACE_MS`                             | `15000`                    | Drain budget before exit                                 |
+| `SHUTDOWN_PRESTOP_DELAY_MS`                     | `5000`                     | Wait before draining, for the Kubernetes prestop window  |
 
 The service exits at boot rather than starting degraded: a missing production variable, or
 `AWS_ENDPOINT_URL` set under `NODE_ENV=production` — that variable skips IRSA for static
-throwaway credentials and points every AWS client at whatever it names, so it belongs to local
+throwaway credentials and points the S3 client at whatever it names, so it belongs to local
 dev only. An empty secret mount does not exit; the pod fails its readiness probe and recovers
 on its own once External Secrets Operator syncs.
 
