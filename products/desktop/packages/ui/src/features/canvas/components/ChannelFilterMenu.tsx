@@ -5,7 +5,6 @@ import {
   type ChannelItemFilters,
   type ChannelItemSort,
   type CreatedByFilter,
-  DEFAULT_CHANNEL_ITEM_FILTERS,
   type EnvironmentFilter,
   type PinnedFilter,
 } from "@posthog/core/canvas/channelItems";
@@ -149,7 +148,8 @@ function FilterSubmenu<T extends string>({
  */
 export function ChannelFilterMenu({
   filters,
-  onFiltersChange,
+  onFilterChange,
+  onClearFilters,
   sort,
   onSortChange,
   sources,
@@ -157,8 +157,20 @@ export function ChannelFilterMenu({
   showRunFilters,
   active,
 }: {
+  /**
+   * What the menu shows as chosen. It can be narrower than what is stored: a
+   * filter the current list cannot answer reads as "any" here.
+   */
   filters: ChannelItemFilters;
-  onFiltersChange: (filters: ChannelItemFilters) => void;
+  /**
+   * One field at a time. Writing the whole object back would carry the
+   * narrowed values with it and drop a choice made under another tab.
+   */
+  onFilterChange: <K extends keyof ChannelItemFilters>(
+    key: K,
+    value: ChannelItemFilters[K],
+  ) => void;
+  onClearFilters: () => void;
   sort: ChannelItemSort;
   onSortChange: (sort: ChannelItemSort) => void;
   /** `origin_product` keys present in the list. */
@@ -179,11 +191,6 @@ export function ChannelFilterMenu({
       label: getOriginProductMeta(source)?.label ?? source,
     })),
   ];
-
-  const set = <K extends keyof ChannelItemFilters>(
-    key: K,
-    value: ChannelItemFilters[K],
-  ) => onFiltersChange({ ...filters, [key]: value });
 
   return (
     <DropdownMenu>
@@ -216,7 +223,7 @@ export function ChannelFilterMenu({
             label="Status"
             options={ATTENTION_OPTIONS}
             value={filters.attention}
-            onChange={(value) => set("attention", value)}
+            onChange={(value) => onFilterChange("attention", value)}
           />
         )}
         {/* #me holds only your own sessions, so "created by" can only ever
@@ -227,14 +234,14 @@ export function ChannelFilterMenu({
             label="Created by"
             options={CREATED_BY_OPTIONS}
             value={filters.createdBy}
-            onChange={(value) => set("createdBy", value)}
+            onChange={(value) => onFilterChange("createdBy", value)}
           />
         )}
         <FilterSubmenu
           label="Pinned"
           options={PINNED_OPTIONS}
           value={filters.pinned}
-          onChange={(value) => set("pinned", value)}
+          onChange={(value) => onFilterChange("pinned", value)}
         />
         {showRunFilters && (
           <>
@@ -242,13 +249,13 @@ export function ChannelFilterMenu({
               label="Environment"
               options={ENVIRONMENT_OPTIONS}
               value={filters.environment}
-              onChange={(value) => set("environment", value)}
+              onChange={(value) => onFilterChange("environment", value)}
             />
             <FilterSubmenu
               label="Source"
               options={sourceOptions}
               value={filters.source}
-              onChange={(value) => set("source", value)}
+              onChange={(value) => onFilterChange("source", value)}
             />
           </>
         )}
@@ -264,10 +271,7 @@ export function ChannelFilterMenu({
             <DropdownMenuSeparator />
             {/* The empty state tells you to clear the filters; with five of them
                 behind submenus, this is where that instruction is carried out. */}
-            <DropdownMenuItem
-              onClick={() => onFiltersChange(DEFAULT_CHANNEL_ITEM_FILTERS)}
-              variant="destructive"
-            >
+            <DropdownMenuItem onClick={onClearFilters} variant="destructive">
               Clear filters
             </DropdownMenuItem>
           </>

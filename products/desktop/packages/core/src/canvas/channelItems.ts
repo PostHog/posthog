@@ -364,7 +364,10 @@ export function groupChannelItems(
   }
 
   for (const item of rest) {
-    const ts = sort === "created" ? item.createdAt : item.ts;
+    // Clamped to now, because the label does the same: a row stamped in the
+    // future (clock skew between the writer and this client) would otherwise
+    // take a day key of its own under a second "Today" header.
+    const ts = Math.min(sort === "created" ? item.createdAt : item.ts, +now);
     const key = `day:${getLocalDayKey(ts)}`;
     const open = sections[sections.length - 1];
     if (open?.key === key) {

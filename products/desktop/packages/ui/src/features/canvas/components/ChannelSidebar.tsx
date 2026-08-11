@@ -46,9 +46,11 @@ import {
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { logger } from "@posthog/ui/shell/logger";
@@ -74,7 +76,8 @@ function RecentSectionHeader({
   query,
   onQueryChange,
   filters,
-  onFiltersChange,
+  onFilterChange,
+  onClearFilters,
   sort,
   onSortChange,
   sources,
@@ -89,7 +92,11 @@ function RecentSectionHeader({
   query: string;
   onQueryChange: (value: string) => void;
   filters: ChannelItemFilters;
-  onFiltersChange: (filters: ChannelItemFilters) => void;
+  onFilterChange: <K extends keyof ChannelItemFilters>(
+    key: K,
+    value: ChannelItemFilters[K],
+  ) => void;
+  onClearFilters: () => void;
   sort: ChannelItemSort;
   onSortChange: (sort: ChannelItemSort) => void;
   sources: readonly string[];
@@ -139,7 +146,8 @@ function RecentSectionHeader({
         </Button>
         <ChannelFilterMenu
           filters={filters}
-          onFiltersChange={onFiltersChange}
+          onFilterChange={onFilterChange}
+          onClearFilters={onClearFilters}
           sort={sort}
           onSortChange={onSortChange}
           sources={sources}
@@ -267,7 +275,15 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { renameTask } = useRenameTask();
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
 
-  const [tab, setTab] = useState<ChannelTab>("task");
+  // A space opens on its sessions. The pane stays mounted across a space
+  // switch, so the tab is stored against the space it was chosen in rather than
+  // carried into the next one; the filters below deliberately do carry over.
+  const [chosenTab, setChosenTab] = useState({
+    channelId,
+    tab: "task" as ChannelTab,
+  });
+  const tab = chosenTab.channelId === channelId ? chosenTab.tab : "task";
+  const setTab = (next: ChannelTab) => setChosenTab({ channelId, tab: next });
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [rawFilters, setFilters] = useState<ChannelItemFilters>(
@@ -424,6 +440,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               params: { channelId },
             })
           }
+          // ⌘N inside a space lands on this same route (openTaskInput scopes to
+          // the channel you're in), so the row can claim the key.
+          endHint={<SidebarKbdHint keys={SHORTCUTS.NEW_TASK} />}
         />
         {sectionRow(
           "home",
@@ -478,7 +497,13 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               query={query}
               onQueryChange={setQuery}
               filters={filters}
-              onFiltersChange={setFilters}
+              // Written against the stored filters, not the narrowed ones the
+              // menu displays: a choice made under one tab has to survive a
+              // write made under another.
+              onFilterChange={(key, value) =>
+                setFilters((prev) => ({ ...prev, [key]: value }))
+              }
+              onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
               sort={sort}
               onSortChange={setSort}
               sources={sources}
@@ -513,16 +538,23 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               <TabEmptyState tab={tab} />
             ) : sections.length > 0 ? (
               <div className="flex flex-col gap-px">
-                {sections.map((section) => (
-                  <Fragment key={section.key}>
-                    {section.label && <MenuLabel>{section.label}</MenuLabel>}
-                    {/* Under "Pinned" every row would wear the same badge, so
-                          the header says it once instead. */}
-                    {section.items.map((item) =>
-                      taskRow(item, section.key !== PINNED_SECTION_KEY),
-                    )}
-                  </Fragment>
-                ))}
+                {sections.map((section, index) => {
+                  // Under "Pinned" every row would wear the same badge, so the
+                  // header says it once instead — but only while a header below
+                  // marks where the pins stop. An alphabetical run carries no
+                  // header of its own, so there the badges stay.
+                  const nextRunIsHeaded =
+                    sections[index + 1] == null ||
+                    sections[index + 1].label != null;
+                  const showPinBadge =
+                    section.key !== PINNED_SECTION_KEY || !nextRunIsHeaded;
+                  return (
+                    <Fragment key={section.key}>
+                      {section.label && <MenuLabel>{section.label}</MenuLabel>}
+                      {section.items.map((item) => taskRow(item, showPinBadge))}
+                    </Fragment>
+                  );
+                })}
               </div>
             ) : (
               <Empty className="border-0 py-6">

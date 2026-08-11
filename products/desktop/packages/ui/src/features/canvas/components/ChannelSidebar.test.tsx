@@ -82,9 +82,9 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
 // A fresh element per render: React bails out of re-rendering an element it has
 // already seen by reference, and these tests change the hook's answer between
 // renders rather than the props.
-const sidebar = () => (
+const sidebar = (channelId = "channel-1") => (
   <Theme>
-    <ChannelSidebar channelId="channel-1" />
+    <ChannelSidebar channelId={channelId} />
   </Theme>
 );
 
@@ -175,6 +175,27 @@ describe("ChannelSidebar", () => {
 
     expect(screen.getByText("No matches")).toBeInTheDocument();
     expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
+  });
+
+  it("opens a space on its sessions, whichever tab the last one was left on", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.items = [item()];
+    const { rerender } = renderSidebar();
+
+    await user.click(screen.getByRole("tab", { name: "Canvases" }));
+    expect(screen.getByRole("tab", { name: "Canvases" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // The pane stays mounted across a space switch, so the tab has to be put
+    // back rather than left where the last space was.
+    rerender(sidebar("channel-2"));
+
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("shows one kind at a time, and drops the run filters with the sessions", async () => {

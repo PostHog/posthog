@@ -445,6 +445,17 @@ describe("groupChannelItems", () => {
     ]);
   });
 
+  // A row can be stamped ahead of this client's clock (skew between whoever
+  // wrote it and whoever reads it). Dated on its own it opens a second "Today".
+  it("keeps a row stamped in the future under today", () => {
+    expect(
+      group([
+        model({ id: "ahead", ts: at(29, 14) }),
+        model({ id: "earlier", ts: at(29, 9) }),
+      ]),
+    ).toEqual([["Today", "ahead", "earlier"]]);
+  });
+
   it("leaves an alphabetical list undated", () => {
     expect(
       group(
