@@ -105,8 +105,8 @@ function CreateScannerButton({
 }
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
-    const { togglingIds, deletingIds } = useValues(replayScannersLogic)
-    const { toggleScannerEnabled, deleteScanner } = useActions(replayScannersLogic)
+    const { togglingIds, deletingIds, duplicatingIds } = useValues(replayScannersLogic)
+    const { toggleScannerEnabled, deleteScanner, duplicateScanner } = useActions(replayScannersLogic)
 
     return (
         <More
@@ -135,6 +135,22 @@ function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element
                         data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
                     >
                         {scanner.enabled ? 'Disable' : 'Enable'}
+                    </LemonButton>
+                    <LemonButton
+                        fullWidth
+                        onClick={() => duplicateScanner(scanner.id)}
+                        loading={duplicatingIds.includes(scanner.id)}
+                        disabledReason={
+                            duplicatingIds.includes(scanner.id)
+                                ? 'Duplicating…'
+                                : // Duplicating creates a new scanner, so gate on resource-level edit access
+                                  // rather than this row's per-object level.
+                                  getReplayVisionEditDisabledReason()
+                        }
+                        data-attr="vision-scanner-duplicate"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    >
+                        Duplicate
                     </LemonButton>
                     <LemonDivider />
                     <LemonButton

@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    visionScannersCreate,
     visionScannersCreatorsRetrieve,
     visionScannersDestroy,
     visionScannersList,
@@ -26,6 +27,7 @@ import {
     ScannerType,
     ReplayScanner,
     createdByLabel,
+    scannerToApiBody,
     scannersFromApi,
 } from './types'
 
@@ -75,6 +77,16 @@ export const DEFAULT_FILTERS: ScannersFilters = {
 
 export function resolveScannerOrderByKey(columnKey: string): ScannerOrderKey | null {
     return (SORTABLE_COLUMN_KEYS as readonly string[]).includes(columnKey) ? (columnKey as ScannerOrderKey) : null
+}
+
+// Matches the serializer's `name` max_length in products/replay_vision/backend/api/scanners.py.
+const MAX_SCANNER_NAME_LENGTH = 255
+// Bounds the copy-name retry loop on the team-unique name 400, so it can't spin forever.
+const MAX_COPY_NAME_ATTEMPTS = 5
+
+export function scannerCopyName(name: string, attempt: number): string {
+    const suffix = attempt <= 1 ? ' (copy)' : ` (copy ${attempt})`
+    return `${name.slice(0, MAX_SCANNER_NAME_LENGTH - suffix.length)}${suffix}`
 }
 
 export function buildScannerListParams(
@@ -129,6 +141,7 @@ export interface replayScannersLogicValues {
     creators: UserBasicApi[]
     creatorsLoading: boolean
     deletingIds: string[]
+    duplicatingIds: string[]
     enabledFilter: EnabledFilter[]
     filters: ScannersFilters
     hasActiveFilters: boolean
@@ -153,6 +166,9 @@ export interface replayScannersLogicActions {
         id: string
     }
     deleteScannerSuccess: (id: string) => {
+        id: string
+    }
+    duplicateScanner: (id: string) => {
         id: string
     }
     loadCreators: () => {
@@ -227,6 +243,13 @@ export interface replayScannersLogicActions {
         deleting: boolean
         id: string
     }
+    setScannerDuplicating: (
+        id: string,
+        duplicating: boolean
+    ) => {
+        duplicating: boolean
+        id: string
+    }
     setScannersFilters: (
         filters: Partial<ScannersFilters>,
         replace?: boolean
@@ -287,6 +310,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
+        duplicateScanner: (id: string) => ({ id }),
+        setScannerDuplicating: (id: string, duplicating: boolean) => ({ id, duplicating }),
         toggleScannerEnabled: (id: string) => ({ id }),
         toggleScannerEnabledDone: (id: string) => ({ id }),
         revertScannerEnabled: (id: string) => ({ id }),
@@ -386,6 +411,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     deleting ? [...state, id] : state.filter((i) => i !== id),
             },
         ],
+        duplicatingIds: [
+            [] as string[],
+            {
+                setScannerDuplicating: (state, { id, duplicating }) =>
+                    duplicating ? [...state, id] : state.filter((i) => i !== id),
+            },
+        ],
         scannersLoading: [
             false,
             {
@@ -478,6 +510,61 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
             } finally {
                 actions.setScannerDeleting(id, false)
+            }
+        },
+
+        duplicateScanner: async ({ id }) => {
+            const teamId = teamLogic.values.currentTeamId
+            // The in-flight guard keeps a double-click from creating two copies.
+            if (!teamId || values.duplicatingIds.includes(id)) {
+                return
+            }
+            const source = values.scanners.find((s) => s.id === id)
+            if (!source) {
+                return
+            }
+            actions.setScannerDuplicating(id, true)
+            try {
+                // Explicit allowlist of the writable serializer fields; the copy starts disabled so it
+                // spends no credits until the user reviews it in the editor.
+                const body: Record<string, unknown> = {
+                    description: source.description,
+                    scanner_type: source.scanner_type,
+                    scanner_config: source.scanner_config,
+                    sampling_rate: source.sampling_rate,
+                    sampling_mode: source.sampling_mode,
+                    provider: source.provider,
+                    model: source.model,
+                    emits_signals: source.emits_signals,
+                    enabled: false,
+                }
+                // Omit nullable fields entirely when unset, matching the editor's create payload.
+                if (source.query != null) {
+                    body.query = source.query
+                }
+                if (source.experiment_targeting != null) {
+                    body.experiment_targeting = source.experiment_targeting
+                }
+                for (let attempt = 1; attempt <= MAX_COPY_NAME_ATTEMPTS; attempt++) {
+                    try {
+                        const response = await visionScannersCreate(
+                            String(teamId),
+                            scannerToApiBody({ ...body, name: scannerCopyName(source.name, attempt) })
+                        )
+                        lemonToast.success('Scanner duplicated')
+                        router.actions.push(urls.replayVisionScannerConfigure(response.id))
+                        return
+                    } catch (error: any) {
+                        // A name-uniqueness 400 means this copy name is taken; try the next numbered one.
+                        if (error?.status === 400 && error?.attr === 'name' && attempt < MAX_COPY_NAME_ATTEMPTS) {
+                            continue
+                        }
+                        lemonToast.error(`Failed to duplicate scanner${error.detail ? `: ${error.detail}` : ''}`)
+                        return
+                    }
+                }
+            } finally {
+                actions.setScannerDuplicating(id, false)
             }
         },
 

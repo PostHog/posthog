@@ -12,6 +12,7 @@ import {
     buildScannerListParams,
     replayScannersLogic,
     resolveScannerOrderByKey,
+    scannerCopyName,
     type ScannerOrderKey,
 } from './replayScannersLogic'
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
@@ -401,6 +402,111 @@ describe('replayScannersLogic', () => {
 
             expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(500)
             quotaLogic.unmount()
+        })
+    })
+
+    describe('scannerCopyName', () => {
+        it.each([
+            ['Confused checkout', 1, 'Confused checkout (copy)'],
+            ['Confused checkout', 2, 'Confused checkout (copy 2)'],
+            ['Confused checkout', 3, 'Confused checkout (copy 3)'],
+        ])('suffixes %s (attempt %i) as %s', (name, attempt, expected) => {
+            expect(scannerCopyName(name, attempt)).toBe(expected)
+        })
+
+        it('truncates the base so the result stays within the 255-char name limit', () => {
+            const result = scannerCopyName('x'.repeat(255), 1)
+            expect(result).toHaveLength(255)
+            expect(result.endsWith(' (copy)')).toBe(true)
+        })
+    })
+
+    describe('duplicateScanner', () => {
+        it('posts a disabled allowlisted copy and routes to its configure page', async () => {
+            const bodies: Record<string, any>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/vision/scanners/': async ({ request }: { request: Request }) => {
+                        const body = await request.json()
+                        bodies.push(body)
+                        return [201, { ...body, id: 'new-id' }]
+                    },
+                },
+            })
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+            expect(bodies).toHaveLength(1)
+            expect(bodies[0].name).toBe('Confused checkout (copy)')
+            expect(bodies[0].enabled).toBe(false)
+            expect(bodies[0].scanner_type).toBe('monitor')
+            // Server-managed fields and the null query must not be posted; the serializer owns them.
+            for (const field of [
+                'id',
+                'created_at',
+                'updated_at',
+                'last_swept_at',
+                'created_by',
+                'scanner_version',
+                'credits_this_month',
+                'estimated_monthly_credits',
+                'query',
+                'user_access_level',
+            ]) {
+                expect(bodies[0]).not.toHaveProperty(field)
+            }
+            expect(router.values.location.pathname).toContain('/replay-vision/new-id/configure')
+            expect(logic.values.duplicatingIds).toEqual([])
+        })
+
+        it('retries with a numbered copy name when the name is taken', async () => {
+            const names: string[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/vision/scanners/': async ({ request }: { request: Request }) => {
+                        const body = await request.json()
+                        names.push(body.name)
+                        return names.length === 1
+                            ? [
+                                  400,
+                                  {
+                                      type: 'validation_error',
+                                      code: 'unique',
+                                      detail: 'A scanner with this name already exists in this team.',
+                                      attr: 'name',
+                                  },
+                              ]
+                            : [201, { ...body, id: 'new-id' }]
+                    },
+                },
+            })
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+            expect(names).toEqual(['Confused checkout (copy)', 'Confused checkout (copy 2)'])
+            expect(router.values.location.pathname).toContain('/replay-vision/new-id/configure')
+        })
+
+        it('shows an error, stays put, and releases the in-flight guard on a non-name failure', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team/vision/scanners/': () => [
+                        400,
+                        { type: 'validation_error', code: 'invalid', detail: 'Bad config', attr: 'scanner_config' },
+                    ],
+                },
+            })
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+            const pathBefore = router.values.location.pathname
+
+            await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+            expect(errorToast).toHaveBeenCalledWith('Failed to duplicate scanner: Bad config')
+            expect(router.values.location.pathname).toBe(pathBefore)
+            expect(logic.values.duplicatingIds).toEqual([])
         })
     })
 
