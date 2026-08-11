@@ -30,14 +30,14 @@ async def slice_session_data_for_segments_activity(
     inputs: VideoSummarySingleSessionInputs,
     segment_specs: list[VideoSegmentSpec],
 ) -> None:
-    redis_client, redis_input_key, _ = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
         state_id=inputs.session_id,
     )
     llm_input_raw = await get_data_class_from_redis(
-        redis_client=redis_client,
-        redis_key=redis_input_key,
+        redis_client=redis_state.client,
+        redis_key=redis_state.input_key,
         label=StateActivitiesEnum.SESSION_DB_DATA,
         target_class=SingleSessionSummaryLlmInputs,
     )
@@ -115,7 +115,7 @@ async def slice_session_data_for_segments_activity(
             state_id=segment_state_id,
         )
         await store_data_in_redis(
-            redis_client=redis_client,
+            redis_client=redis_state.client,
             redis_key=segment_key,
             data=json.dumps(context.model_dump()),
             label=StateActivitiesEnum.SEGMENT_LLM_CONTEXT,
