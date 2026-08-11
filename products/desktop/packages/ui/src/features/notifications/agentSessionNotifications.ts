@@ -16,7 +16,7 @@ export class AgentSessionNotificationService implements AgentSessionNotifier {
   ) {}
 
   notify(notification: AgentSessionNotification): void {
-    if (notification.isTaskAuthor === false) {
+    if (notification.isTaskAuthor !== true) {
       return;
     }
 

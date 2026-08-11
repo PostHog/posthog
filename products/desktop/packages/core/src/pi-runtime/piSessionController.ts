@@ -191,7 +191,13 @@ export class PiSessionController {
     @inject(AGENT_SESSION_NOTIFIER)
     @optional()
     private readonly notifier?: AgentSessionNotifier,
-  ) {}
+  ) {
+    this.authService?.on(AuthServiceEvent.StateChanged, (state) => {
+      if (state.status === "anonymous") {
+        this.disconnectAll();
+      }
+    });
+  }
 
   setNotificationContext(
     taskId: string,
@@ -272,6 +278,18 @@ export class PiSessionController {
   disconnect(taskId: string): void {
     this.activeTaskIds.delete(taskId);
     this.disposeTask(taskId);
+  }
+
+  disconnectAll(): void {
+    const taskIds = new Set([
+      ...this.activeTaskIds,
+      ...this.sessions.keys(),
+      ...this.subscriptions.keys(),
+      ...this.notificationContexts.keys(),
+    ]);
+    for (const taskId of taskIds) {
+      this.disconnect(taskId);
+    }
   }
 
   async retry(taskId: string): Promise<void> {

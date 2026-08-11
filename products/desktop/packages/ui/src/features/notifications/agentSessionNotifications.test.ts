@@ -23,6 +23,7 @@ describe("AgentSessionNotificationService", () => {
       taskTitle: "Fix notifications",
       stopReason: "end_turn",
       durationMs: 42_000,
+      isTaskAuthor: true,
     });
 
     expect(notifications.notifyPromptComplete).toHaveBeenCalledWith(
@@ -47,6 +48,7 @@ describe("AgentSessionNotificationService", () => {
       kind: "needs_input",
       taskId: "task-1",
       taskTitle: "Fix notifications",
+      isTaskAuthor: true,
       agentSpoke: true,
     });
 
@@ -57,18 +59,21 @@ describe("AgentSessionNotificationService", () => {
     expect(speech.speak).not.toHaveBeenCalled();
   });
 
-  it("does not notify task observers", () => {
-    const { notifications, service, speech } = createService();
+  it.each([false, undefined])(
+    "does not notify when task ownership is %s",
+    (isTaskAuthor) => {
+      const { notifications, service, speech } = createService();
 
-    service.notify({
-      kind: "turn_completed",
-      taskId: "task-1",
-      taskTitle: "Fix notifications",
-      stopReason: "end_turn",
-      isTaskAuthor: false,
-    });
+      service.notify({
+        kind: "turn_completed",
+        taskId: "task-1",
+        taskTitle: "Fix notifications",
+        stopReason: "end_turn",
+        isTaskAuthor,
+      });
 
-    expect(notifications.notifyPromptComplete).not.toHaveBeenCalled();
-    expect(speech.speak).not.toHaveBeenCalled();
-  });
+      expect(notifications.notifyPromptComplete).not.toHaveBeenCalled();
+      expect(speech.speak).not.toHaveBeenCalled();
+    },
+  );
 });

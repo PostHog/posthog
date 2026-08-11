@@ -393,6 +393,34 @@ describe("PiSessionController", () => {
     );
   });
 
+  it("disconnects retained sessions when authentication ends", async () => {
+    let onAuthStateChange: (
+      state: ReturnType<AuthService["getState"]>,
+    ) => void = () => {};
+    const authService = {
+      getState: vi.fn(() => ({ status: "authenticated" })),
+      on: vi.fn((_event, handler) => {
+        onAuthStateChange = handler;
+      }),
+      off: vi.fn(),
+    } as unknown as AuthService;
+    const unsubscribe = vi.fn();
+    const session = createSession();
+    vi.mocked(session.onConversationEvent).mockReturnValue(unsubscribe);
+    const controller = createController(session, undefined, authService);
+
+    await controller.connect("task-1");
+    await controller.submit("task-1", "keep running", false, "steer");
+    controller.release("task-1");
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    onAuthStateChange({ status: "anonymous" } as ReturnType<
+      AuthService["getState"]
+    >);
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it("cancels auth-held submissions on disconnect and preserves the prompt", async () => {
     const authService = {
       getState: vi.fn(() => ({ status: "restoring" })),
