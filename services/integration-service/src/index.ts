@@ -1,12 +1,4 @@
 // Entry point for the integration-service.
-//
-// Startup sequence:
-//   1. Load and validate configuration.
-//   2. Connect Postgres and apply the schema.
-//   3. Load the signing keys off the secret mount — a hard failure, since the service
-//      cannot authenticate anybody without them.
-//   4. Read the credentials once, then flip readiness.
-//   5. Start the HTTP server and the background reload, flush and publish timers.
 
 import { S3Client } from '@aws-sdk/client-s3'
 import { serve } from '@hono/node-server'
@@ -19,23 +11,11 @@ import { createPool, observeVersion } from './db/client.js'
 import { createApp, type Lifecycle } from './http/app.js'
 import { loadConfig } from './lib/config.js'
 import { logger } from './lib/logging.js'
-import { secretAgeSeconds, servingStaleSeconds, storeErrorsTotal } from './metrics.js'
+import { scheduleJittered } from './lib/schedule.js'
+import { SnapshotManager } from './snapshot.js'
 import { createFileStore } from './store/fileStore.js'
-import type { SecretsSnapshot } from './types.js'
 import { UsagePublisher } from './usage/publisher.js'
 import { UsageRecorder } from './usage/recorder.js'
-
-/** Spread a periodic task over its interval so replicas do not sync up. */
-function scheduleJittered(intervalMs: number, task: () => Promise<void>): void {
-    const timer = setTimeout(
-        function run() {
-            void task().finally(() => timer.refresh?.())
-        },
-        intervalMs / 2 + Math.random() * intervalMs
-    )
-    // Unref so a pending timer never holds the process open during shutdown.
-    timer.unref()
-}
 
 async function main(): Promise<void> {
     const config = loadConfig()
@@ -52,7 +32,7 @@ async function main(): Promise<void> {
             process.exit(1)
         }
     } else {
-        logger.warn('db:disabled', { reason: 'INTEGRATION_SERVICE_DATABASE_URL is unset — no usage recording' })
+        logger.warn('db:disabled', { reason: 'INTEGRATION_SERVICE_DATABASE_URL is unset, so no usage recording' })
     }
 
     const signingKeys = new SigningKeyLoader(config.secretsDir)
@@ -73,48 +53,18 @@ async function main(): Promise<void> {
         observeVersion: (hash) => (pool ? observeVersion(pool, hash) : Promise.resolve(null)),
     })
 
-    // The mount is a handful of small files on tmpfs, so there is no cache tier here: the
-    // snapshot is re-read on a timer and held in memory between reads.
-    let snapshot: SecretsSnapshot | null = null
-
     const recorder = new UsageRecorder({ pool })
     const lifecycle: Lifecycle = { shuttingDown: false, ready: false }
+    const snapshots = new SnapshotManager({ store, lifecycle, dir: config.secretsDir })
 
     const app = createApp({
         verifier: new JwtVerifier(signingKeys),
         lifecycle,
-        resolveDeps: { loadSecrets: () => Promise.resolve(snapshot), recorder },
+        resolveDeps: { loadSecrets: () => Promise.resolve(snapshots.current()), recorder },
         metricsToken: config.metricsToken,
     })
 
-    // Readiness tracks whether this pod actually holds a snapshot, not merely that a reload
-    // ran. A pod with no credentials must fail its probe: every resolve would come back
-    // all-missing, which callers treat as terminal rather than retryable. An unreadable
-    // mount keeps the previous snapshot, so a transient blip does not take a warm fleet
-    // out of rotation — and an empty mount at boot recovers on its own once ESO syncs,
-    // without a crash loop.
-    const reloadAndSetReady = async (): Promise<void> => {
-        const next = await store.load()
-        if (next) {
-            snapshot = next
-            servingStaleSeconds.set(0)
-            if (next.changedAt) {
-                secretAgeSeconds.set((Date.now() - Date.parse(next.changedAt)) / 1000)
-            }
-        } else {
-            storeErrorsTotal.inc()
-            if (snapshot) {
-                // Keeping the last snapshot is what stops an unreadable mount failing every
-                // read. The gauge is what stops that being silent.
-                servingStaleSeconds.set((Date.now() - Date.parse(snapshot.fetchedAt)) / 1000)
-            } else if (lifecycle.ready) {
-                logger.error('secrets:snapshot_lost', { dir: config.secretsDir })
-            }
-        }
-        lifecycle.ready = snapshot !== null
-    }
-
-    await reloadAndSetReady()
+    await snapshots.reload()
     if (!lifecycle.ready) {
         logger.error('startup:no_credentials_on_mount', { dir: config.secretsDir })
     }
@@ -124,7 +74,7 @@ async function main(): Promise<void> {
     })
 
     scheduleJittered(config.reloadSeconds * 1000, async () => {
-        await reloadAndSetReady()
+        await snapshots.reload()
         await signingKeys.reload()
     })
 
@@ -135,8 +85,7 @@ async function main(): Promise<void> {
         const publisher = new UsagePublisher({
             s3: new S3Client({
                 region: config.awsRegion,
-                // Explicit, so the SDK never consults its default chain — see
-                // src/aws/credentials.ts for why that matters on this service.
+                // Explicit, so the SDK never consults its default chain (aws/credentials.ts).
                 credentials: credentialProvider(),
                 ...(config.awsEndpoint ? { endpoint: config.awsEndpoint, forcePathStyle: true } : {}),
             }),
@@ -145,7 +94,7 @@ async function main(): Promise<void> {
             env: config.env,
             quietWindowHours: config.retireQuietHours,
             recorder,
-            loadSnapshot: () => Promise.resolve(snapshot),
+            loadSnapshot: () => Promise.resolve(snapshots.current()),
         })
         scheduleJittered(config.usagePublishIntervalMs, () => publisher.publish())
     }
