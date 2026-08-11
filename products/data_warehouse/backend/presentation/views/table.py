@@ -26,6 +26,7 @@ from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
+    FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
@@ -675,9 +676,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         try:
             table.columns = table.get_columns()
         except Exception as err:
+            # The raw column-detection failure is a ClickHouse error that's opaque to users, so keep it
+            # in error tracking and hand back plain, format-specific guidance on what to check instead.
+            capture_exception(err)
+            hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
+            message = f"Couldn't read the columns from your file. {hint}".strip()
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not read columns from the uploaded file: {err}"},
+                data={"message": message},
             )
         table.save()
 

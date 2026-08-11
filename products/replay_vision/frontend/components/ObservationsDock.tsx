@@ -1,18 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconEye } from '@posthog/icons'
+import { IconChevronDown, IconEye, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { quotaUx } from '../utils/quotaProjection'
 import { ObservationDockCard } from './ObservationCard'
 
@@ -33,7 +36,8 @@ export function ObservationsDock(): JSX.Element | null {
 /** Searchable scanner picker for "Observe this recording"; a flat menu doesn't scale to teams with many scanners. */
 function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { scanners, filteredScanners, scannerSearch, scannerPickerOpen, observing } = useValues(logic)
+    const { scanners, scannersLoading, filteredScanners, scannerSearch, scannerPickerOpen, observing } =
+        useValues(logic)
     const { observe, setScannerSearch, setScannerPickerOpen } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
@@ -57,8 +61,14 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                         />
                     </div>
                     <div className="max-h-80 overflow-y-auto p-1">
-                        {scanners.length === 0 ? (
-                            <Link to={urls.replayVision()} className="block px-2 py-3 text-sm">
+                        {scanners.length === 0 && scannersLoading ? (
+                            <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted">
+                                <Spinner /> Loading scanners…
+                            </div>
+                        ) : scanners.length === 0 ? (
+                            // Opens in a new tab so the recording stays put behind it — this dropdown is
+                            // reached mid-recording and a same-tab navigation would abandon that context.
+                            <Link to={urls.replayVision()} target="_blank" className="block px-2 py-3 text-sm">
                                 No scanners yet — create one
                             </Link>
                         ) : filteredScanners.length === 0 ? (
@@ -70,6 +80,7 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                                     fullWidth
                                     size="small"
                                     onClick={() => observe(scanner.id)}
+                                    disabledReason={observing ? 'Starting an observation…' : undefined}
                                     data-attr="vision-scan-pick-scanner"
                                     data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                                 >
@@ -97,6 +108,57 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                 Scan this recording
             </LemonButton>
         </LemonDropdown>
+    )
+}
+
+/** One-click summary: an inline summarizer scan, so it needs no saved scanner. */
+function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
+    const logic = observationsDockLogic({ sessionId })
+    const { summarizing } = useValues(logic)
+    const { summarize } = useActions(logic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const [consentRequested, setConsentRequested] = useState(false)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+    // An inline scan mints a scanner, so the endpoint holds it to scanner-editor access. Without this the
+    // button looks available to a viewer and answers 403.
+    const accessDisabledReason = getReplayVisionEditDisabledReason()
+
+    const button = (
+        <LemonButton
+            size="small"
+            type="secondary"
+            icon={<IconNotebook />}
+            loading={summarizing}
+            // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
+            onClick={() => (dataProcessingAccepted ? summarize() : setConsentRequested(true))}
+            disabledReason={accessDisabledReason ?? quotaDisabledReason}
+            tooltip={quotaTooltip ?? 'Write a summary of what happened in this recording'}
+            data-attr="vision-summarize-recording"
+        >
+            {dataProcessingAccepted ? 'Summarize this recording' : 'Allow AI analysis and summarize'}
+        </LemonButton>
+    )
+
+    if (dataProcessingAccepted) {
+        return button
+    }
+
+    return (
+        <AIConsentPopoverWrapper
+            placement="bottom-end"
+            showArrow
+            ignoreDismissal
+            hideTrainingDisclaimer
+            hidden={!consentRequested}
+            onApprove={() => {
+                setConsentRequested(false)
+                summarize()
+            }}
+            onDismiss={() => setConsentRequested(false)}
+        >
+            {button}
+        </AIConsentPopoverWrapper>
     )
 }
 
@@ -135,10 +197,11 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             data-attr="vision-observations-dock"
         >
             {dockOpen && <Resizer {...resizerProps} />}
-            <div className="flex items-center gap-3 h-11 px-3 shrink-0">
+            <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <ScannerPicker sessionId={sessionId} />
+                <SummarizeButton sessionId={sessionId} />
                 {observations.length > 0 && (
-                    <span className="text-muted text-sm">
+                    <span className="text-muted text-sm min-w-0 truncate">
                         {observations.length} observation{observations.length === 1 ? '' : 's'}
                     </span>
                 )}
@@ -162,7 +225,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : observations.length === 0 ? (
                         <div className="text-muted text-sm py-4">
-                            No observations yet. Pick a scanner to run on this recording.
+                            No observations yet. Summarize this recording, or pick a scanner to run on it.
                         </div>
                     ) : (
                         observations.map((observation) => (

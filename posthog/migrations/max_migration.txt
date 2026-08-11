@@ -1,1 +1,1 @@
-1276_untrack_legacy_provisioning_columns
+1298_user_stripped_alias_index

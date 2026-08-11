@@ -1,10 +1,14 @@
+import os
 import re
 import gzip
 import json
 import time
+import zlib
+import random
 import threading
 import statistics
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -22,8 +26,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import get_query_runner_or_none
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner_or_none
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 from posthog.query_cache import QueryCache
@@ -163,13 +168,17 @@ _EXACT_LOOKBACK_DATE_FROM_RE = re.compile(r"^-(\d+)([hdw])$")
 
 
 def _exact_lookback_days(date_from: str | None) -> int | None:
-    """Days a -Nh/-Nd/-Nw range reaches back, or None for any other form."""
+    """Days a -Nh/-Nd/-Nw range reaches back, or None for any other form.
+
+    Hours round up: callers use this as "how many days of buckets cover the
+    span", so flooring -721h to 30 would leave the oldest partial day cold.
+    """
     match = _EXACT_LOOKBACK_DATE_FROM_RE.match(date_from or "")
     if not match:
         return None
     value, unit = int(match.group(1)), match.group(2)
     if unit == "h":
-        return value // _HOURS_PER_DAY
+        return -(-value // _HOURS_PER_DAY)
     if unit == "w":
         return value * _DAYS_PER_WEEK
     return value
@@ -241,6 +250,55 @@ def maybe_expand_warming_date_range(query_json: dict) -> dict:
     return {**query_json, "dateRange": {**date_range, "date_from": WARMING_EXPANDED_DATE_FROM}}
 
 
+# The canonical lazy replay drops every field the bucket namespace ignores —
+# except the two it still needs: the opt-in flag (the eligibility gates read it)
+# and the date range (canonicalized below rather than dropped).
+_CANONICAL_REPLAY_DROPPED_FIELDS: frozenset[str] = SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS - {
+    "useWebAnalyticsPrecompute",
+    "dateRange",
+}
+
+# The deepened lookback rounds UP to the next multiple of this step. Without it
+# the replay's depth tracks the deepest variant in the rolling demand window
+# exactly, so a -44d/-46d drift alone rotates the cache key. A step trades at
+# most (step - 1) days of extra immutable-bucket depth for a key that only moves
+# when demand genuinely crosses a step boundary.
+_CANONICAL_LOOKBACK_STEP_DAYS = 15
+
+
+def canonicalize_lazy_replay_json(query_json: dict) -> dict:
+    """Collapse a lazy-path replay to its shape's canonical variant.
+
+    The warm/cold + staleness discriminator is the replayed runner's result-cache
+    key, but the replayed variant is the demand snapshot's most-requested RAW
+    variant. Fields the bucket namespace ignores (compareFilter, limit, modifiers,
+    …) and small drifts in the deepest observed lookback flip that variant on
+    every snapshot rotation, rotating the cache key — the warmer then re-warms a
+    shape whose buckets are already fresh. Measured before this: ~90% of the
+    fleet re-warmed on every 6h rotation. Dropping the ignored fields and
+    stepping the lookback makes the replay a pure function of the normalized
+    shape, so the discriminator survives rotations.
+
+    Confined to the lazy path, mirroring the deepen/expand gates: a raw replay's
+    exact result-cache row is the whole value of warming it, so its variant must
+    stay faithful. A bounded range (date_to) keeps its faithful span for the same
+    reason deepening skips it, but still sheds the ignored fields.
+    """
+    if query_json.get("kind") not in LAZY_PRECOMPUTE_QUERY_KINDS:
+        return query_json
+    if query_json.get("useWebAnalyticsPrecompute") is not True:
+        return query_json
+    canonical = {k: v for k, v in query_json.items() if k not in _CANONICAL_REPLAY_DROPPED_FIELDS}
+    date_range = canonical.get("dateRange") or {}
+    if not date_range.get("date_to"):
+        days = _exact_lookback_days(date_range.get("date_from"))
+        if days:
+            step = _CANONICAL_LOOKBACK_STEP_DAYS
+            stepped = min(MAX_PRECOMPUTE_DAYS, ((days + step - 1) // step) * step)
+            canonical["dateRange"] = {**date_range, "date_from": f"-{stepped}d"}
+    return canonical
+
+
 # Family-level eligibility dispatch, mirroring each runner's own lazy-path
 # entry points (stats_table tries three families; a shape is lazy-served iff
 # any accepts). Keyed by query kind — only LAZY_PRECOMPUTE_QUERY_KINDS appear.
@@ -283,28 +341,36 @@ def build_replay_runner(
     the warmer's purpose — so the decision rests on the shape itself.
     """
     # The lazy candidate: deepen to the widest range the shape's demand covers,
-    # then widen a sub-30d range up to the standard warm depth. Both are no-ops
-    # off the lazy path, so an unchanged result means nothing to try there.
-    lazy_json = maybe_expand_warming_date_range(
+    # then widen a sub-30d range up to the standard warm depth. Both only ever
+    # substitute ranges the shape's own demand (or the standard warm depth)
+    # covers, so eligibility is decided on this json.
+    eligible_json = maybe_expand_warming_date_range(
         deepen_to_widest_warmable_range(query_json, observed_date_froms, MAX_PRECOMPUTE_DAYS)
     )
-    if lazy_json is query_json:
-        runner = get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
-        if runner is None:
-            return None, query_json, False
-        return runner, query_json, _is_lazy_eligible(runner, query_json)
-
-    runner = get_query_runner_or_none(query=lazy_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+    runner = get_query_runner_or_none(query=eligible_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
     if runner is None:
-        return None, lazy_json, False
-    if _is_lazy_eligible(runner, lazy_json):
-        return runner, lazy_json, True
-    # Raw path: replay the faithful original range, never the deepened/widened one.
-    return (
-        get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC),
-        query_json,
-        False,
-    )
+        return None, eligible_json, False
+    if not _is_lazy_eligible(runner, eligible_json):
+        if eligible_json is query_json:
+            return runner, query_json, False
+        # Raw path: replay the faithful original range, never the deepened/widened one.
+        return (
+            get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC),
+            query_json,
+            False,
+        )
+    # Only a proven-eligible replay collapses to the canonical variant:
+    # canonicalizing before the check could manufacture eligibility — dropping
+    # a rejected modifier, stepping a >90d lookback under the cap — and build
+    # buckets the shape's real queries can never consume, on the lazy demand
+    # floor instead of the raw one. Dropping namespace-ignored fields can only
+    # relax the gate, so the canonical replay is re-checked and falls back to
+    # the proven json if construction or the gate disagrees.
+    lazy_json = canonicalize_lazy_replay_json(eligible_json)
+    lazy_runner = get_query_runner_or_none(query=lazy_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+    if lazy_runner is not None and _is_lazy_eligible(lazy_runner, lazy_json):
+        return lazy_runner, lazy_json, True
+    return runner, eligible_json, True
 
 
 def queries_to_keep_fresh(
@@ -615,6 +681,76 @@ WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
 # identity churn re-warming old days, one team's pathological filters).
 WARMING_SLOW_SHAPE_SECONDS = 15
 
+# A ClickHouse node dying mid-pass can leave every worker thread blocked in a
+# socket read that never returns: no futures complete, the heartbeat (which
+# lives in the consumption loop) goes silent, and because pool threads are
+# non-daemon the process cannot even exit — the run wedges indefinitely,
+# mutual exclusion then blocks every subsequent scheduled tick, and the fleet
+# goes stale until a human terminates the run. If nothing has completed for
+# this long WHILE there is still queued work beyond the in-flight set (threads
+# should be turning over constantly), the pass is presumed wedged and the
+# process hard-exits so Dagster records a step failure and the next tick runs.
+# A quiet tail (pending <= concurrency, e.g. one slow deep-range straggler) is
+# legitimate and only logs.
+WARMING_STALL_TIMEOUT_SECONDS = 1800
+
+# A quiet tail (pending <= concurrency) gets this many consecutive stall
+# windows before it is also presumed wedged: a legitimately slow straggler is
+# bounded by ClickHouse-side execution timeouts at minutes, so zero completions
+# among only in-flight shapes for this long has no innocent explanation.
+WARMING_TAIL_STALL_WINDOWS = 3
+
+# The no-progress guard above cannot catch a pass that crawls: a poisoned
+# shard completing a handful of shapes per window keeps resetting it while
+# holding the job's single run slot, so every scheduled tick is skipped and
+# the fleet goes stale until a human terminates the run (observed as one shard
+# at ~70 shapes/hour blocking all warming for two days). A healthy full pass
+# finishes well inside an hour; one still running after this long is not
+# serving its purpose, so it fails and the next tick starts fresh.
+WARMING_PASS_DEADLINE_SECONDS = 3 * 3600
+
+# After cancellation/crash, how long healthy in-flight shapes get to finish
+# before the process exits hard rather than hanging on a blocked thread join.
+WARMING_CANCEL_GRACE_SECONDS = 60
+
+
+# The warmer shares its per-user ClickHouse query budget with every other
+# Dagster job (the `dagster` CH user has a hard simultaneous-query cap on the
+# sessions cluster), so a co-tenant burst surfaces here as 202/AtCapacity even
+# when the warmer itself is within budget. Those bursts are seconds-long;
+# failing the shape defers it a whole hour. A couple of jittered retries ride
+# them out, and sleeping in the worker thread throttles the pool exactly while
+# the cluster is saturated. Persistent saturation still fails fast: with the
+# cap sustained, each shape costs at most ~2 sleeps before reporting "failed".
+WARMING_CAPACITY_RETRIES = 2
+WARMING_CAPACITY_BACKOFF_RANGE_SECONDS = (5.0, 15.0)
+
+# The shape-level staleness threshold is a fixed wall-clock delta, so shapes
+# warmed together go stale together: any bulk pass (a cold drain, a deploy
+# rotating cache hashes) synchronizes the fleet and every later run inherits a
+# multi-hour expiry storm that monopolizes the hourly cadence until phases
+# drift apart on their own. Evaluating staleness with the entry aged by a
+# bounded offset warms each shape a little early — never late, so served
+# freshness is untouched.
+#
+# The offset is seeded with (shape, last_refresh), not the shape alone: the
+# warmer only samples staleness at run ticks, and with a threshold that is a
+# whole number of ticks, every fixed offset below one tick collapses onto the
+# same tick — a synchronized cohort would march in formation forever. Seeding
+# with last_refresh keeps the offset stable between runs within a cycle (no
+# flapping) but re-draws it each time the shape warms, so every cycle each
+# shape independently lands one tick earlier or not — a synchronized cohort
+# decays geometrically instead of persisting. Mean cost is ~30min early on a
+# multi-hour cycle (~+10-15% warms), well inside the sharded pass's headroom.
+WARMING_STALENESS_JITTER_MAX_SECONDS = 3600
+
+
+def _staleness_jitter(normalized_query_hash: object, last_refresh: datetime) -> timedelta:
+    # crc32, not hash(): str hashing is salted per process, and the offset must
+    # be reproducible across runs or it re-randomizes each hour and shapes flap.
+    seed = f"{normalized_query_hash}:{last_refresh.isoformat()}".encode()
+    return timedelta(seconds=zlib.crc32(seed) % WARMING_STALENESS_JITTER_MAX_SECONDS)
+
 
 def _team_still_exists(team_id: int) -> bool:
     # Thin DB boundary so tests can pin the answer: pool worker threads hold their
@@ -722,6 +858,7 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 date_from=date_range.get("date_from") if isinstance(date_range, dict) else None,
                 replay_date_from=query_info.get("_replay_date_from"),
                 was_cold=query_info.get("_was_cold"),
+                capacity_retries=query_info.get("_capacity_retries"),
                 normalized_query_hash=query_info.get("normalized_query_hash"),
             )
         except Exception:
@@ -801,12 +938,34 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
 
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])
-                if not runner._is_stale(last_refresh):
+                aged_refresh = (
+                    last_refresh - _staleness_jitter(query_info["normalized_query_hash"], last_refresh)
+                    if last_refresh
+                    else None
+                )
+                if not runner._is_stale(aged_refresh):
                     WARMING_QUERIES_COUNTER.labels(outcome="skipped_fresh").inc()
                     return "skipped_fresh"
 
             # TODO: We shouldn't try to run a query if it failed last run
-            runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
+            # Blocking-always, not the stale-checking default: run() re-checks
+            # staleness internally against the entry's true last_refresh, so a
+            # jitter-early warm would silently return the still-fresh cached
+            # response and the early refresh — the whole point of the jitter —
+            # would never happen. The warmer has already made the staleness
+            # decision above; run() must not second-guess it.
+            for attempt in range(WARMING_CAPACITY_RETRIES + 1):
+                try:
+                    runner.run(
+                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        analytics_props={"source": EventSource.CACHE_WARMING},
+                    )
+                    break
+                except ClickHouseAtCapacity:
+                    query_info["_capacity_retries"] = attempt + 1
+                    if attempt == WARMING_CAPACITY_RETRIES:
+                        raise
+                    time.sleep(random.uniform(*WARMING_CAPACITY_BACKOFF_RANGE_SECONDS))
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
             return "warmed"
         except Exception as e:
@@ -848,16 +1007,71 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     started_at = time.monotonic()
     last_log_at = started_at
     context.log.info(f"Warming {total} shapes across {len(teams)} teams (mode={mode}, concurrency={concurrency})")
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+    # No `with` block: the context manager's exit calls shutdown(wait=True),
+    # which joins worker threads — on the exceptional paths below that would
+    # re-block on the very wedged threads this code exists to escape.
+    pool = ThreadPoolExecutor(max_workers=concurrency)
+    pending: set = set()
+    try:
         # Futures are consumed by completion, not input order: with pool.map one
         # slow early shape would block this loop — and the heartbeat — while later
         # workers finish thousands of shapes. Consuming on the op thread also keeps
         # context.log here safe, unlike the worker-thread logging inside _warm_one.
         futures = [pool.submit(_warm_one, query_info) for query_info in queries]
-        for future in as_completed(futures):
-            outcome = future.result()
-            outcomes[outcome] = outcomes.get(outcome, 0) + 1
-            processed += 1
+        pending = set(futures)
+        empty_waits = 0
+        while pending:
+            # The wait is truncated to the remaining deadline so a quiet window
+            # cannot overshoot it by a full stall timeout. A truncated empty
+            # wait lands in the deadline raise below before the stall guard, so
+            # the shortened window never counts as a stall observation.
+            remaining = WARMING_PASS_DEADLINE_SECONDS - (time.monotonic() - started_at)
+            done, pending = wait(
+                pending,
+                timeout=min(WARMING_STALL_TIMEOUT_SECONDS, max(1.0, remaining)),
+                return_when=FIRST_COMPLETED,
+            )
+            if pending and time.monotonic() - started_at > WARMING_PASS_DEADLINE_SECONDS:
+                # Raising (not os._exit) routes through the cancellation path
+                # below: the backlog is cancelled, healthy in-flight shapes get
+                # the bounded grace, and only truly wedged threads hard-exit.
+                # Non-retryable: the op's retry policy would reset the clock and
+                # hold the schedule slot for another full deadline per attempt;
+                # the next scheduled run resumes incrementally instead.
+                raise dagster.Failure(
+                    f"Warming pass still running after {WARMING_PASS_DEADLINE_SECONDS // 3600}h with "
+                    f"{len(pending)} shapes left ({processed}/{total} processed) — failing the pass so "
+                    f"the next scheduled run takes over instead of holding the schedule slot",
+                    allow_retries=False,
+                )
+            if not done:
+                empty_waits += 1
+                # Queued work beyond the in-flight set means threads should be
+                # turning over constantly — one silent window is definitive. A
+                # quiet tail gets WARMING_TAIL_STALL_WINDOWS before the same
+                # verdict, so a single slow straggler isn't killed but a fully
+                # wedged tail cannot spin forever.
+                if len(pending) > concurrency or empty_waits >= WARMING_TAIL_STALL_WINDOWS:
+                    context.log.error(
+                        f"No shape completed in {empty_waits * WARMING_STALL_TIMEOUT_SECONDS}s with {len(pending)} "
+                        f"shapes pending — presuming worker threads wedged on dead connections; exiting so the "
+                        f"step fails and the next scheduled run takes over"
+                    )
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    # Blocked pool threads are non-daemon: a raise would still hang
+                    # at interpreter shutdown joining them. Hard exit is the only
+                    # way out of a wedged process; Dagster records a step failure.
+                    os._exit(1)
+                context.log.warning(
+                    f"No shape completed in {WARMING_STALL_TIMEOUT_SECONDS}s with only {len(pending)} in flight "
+                    f"— slow tail (window {empty_waits}/{WARMING_TAIL_STALL_WINDOWS}), still waiting"
+                )
+                continue
+            empty_waits = 0
+            for future in done:
+                outcome = future.result()
+                outcomes[outcome] = outcomes.get(outcome, 0) + 1
+                processed += 1
             now = time.monotonic()
             if now - last_log_at >= WARMING_PROGRESS_LOG_INTERVAL_SECONDS:
                 elapsed = now - started_at
@@ -866,9 +1080,32 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
                 context.log.info(
                     f"Warming progress: {processed}/{total} ({100 * processed // total}%) "
-                    f"at {rate:.0f}/s, ETA ~{eta_min:.0f}m — {breakdown}"
+                    # Cold passes run well under 1 shape/s, so only per-minute
+                    # precision distinguishes slow-but-healthy progress from the
+                    # crawl the pass deadline guards against.
+                    f"at {rate * 60:.0f}/min, ETA ~{eta_min:.0f}m — {breakdown}"
                 )
                 last_log_at = now
+        pool.shutdown(wait=False)
+    except BaseException:
+        # Cancellation or a crash must not drain the queued backlog (observed as
+        # a cancelled run that kept warming for hours), and must not block on a
+        # wedged in-flight thread either. Cancel the queue, give healthy
+        # in-flight shapes a bounded grace to finish, then exit hard if any
+        # remain — re-raising with blocked threads alive would just hang again
+        # at the interpreter's exit join.
+        pool.shutdown(wait=False, cancel_futures=True)
+        if pending:
+            _, still_pending = wait(pending, timeout=WARMING_CANCEL_GRACE_SECONDS)
+            if still_pending:
+                # Not log.exception: the interesting fact is the wedged threads,
+                # not the (expected) cancellation traceback.
+                context.log.error(  # noqa: TRY400
+                    f"{len(still_pending)} in-flight shapes still running {WARMING_CANCEL_GRACE_SECONDS}s "
+                    f"after cancellation — exiting hard instead of hanging on the thread join"
+                )
+                os._exit(1)
+        raise
 
     queries_warmed = outcomes.get("warmed", 0)
     queries_skipped = outcomes.get("skipped_fresh", 0)
@@ -938,6 +1175,14 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         "dagster/web_analytics_cache_warming": "web_analytics_cache_warming",
+        # Run-level backstop, enforced by Dagster run monitoring. The in-op
+        # guards (stall windows, pass deadline) only bound executing shard
+        # code; a run can also zombie at the orchestration layer — steps dying
+        # to infra and idling between retries — while mutual exclusion skips
+        # every scheduled tick. Sized above the worst legitimate case (3h shard
+        # deadline + retry + step scheduling), far below the days a zombie
+        # otherwise holds the slot.
+        "dagster/max_runtime": 6 * 3600,
         # The agent default is 2 CPUs / 8Gi (charts: argocd/dagster/values). The
         # sharded pass runs one subprocess per shard, each compiling HogQL on its
         # own core, so the run pod needs CPU for the shards and memory for that

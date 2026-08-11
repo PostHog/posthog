@@ -191,7 +191,6 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
 
             junk_drawer: None,
             code_variables: None,
-            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,
@@ -223,7 +222,6 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             resolve_failure,
             junk_drawer: None,
             code_variables: None,
-            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,

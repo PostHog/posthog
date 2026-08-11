@@ -303,6 +303,7 @@ mod tests {
             router_name: router.to_string(),
             partition: handoff.partition,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: handoff.handoff_id.clone(),
         }
     }

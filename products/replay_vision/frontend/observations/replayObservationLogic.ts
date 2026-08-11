@@ -132,6 +132,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             loadObservation: async () => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    actions.loadObservationFailure() // Clear the loading flag; a bare return spins forever.
                     return
                 }
                 try {

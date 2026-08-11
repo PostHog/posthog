@@ -111,6 +111,21 @@ def resume_nodes(nodes: Iterable[Node], *, by: str, engine: str | None = None) -
     )
 
 
+def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> dict[str, dict]:
+    """Merged per-engine suspension state across every node backing the query.
+
+    When duplicate DAGs give the query several nodes, the earliest suspension per engine wins —
+    that is when the model actually stopped updating.
+    """
+    merged: dict[str, dict] = {}
+    for node in Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id):
+        for engine, entry in suspension_state(node).items():
+            existing = merged.get(engine)
+            if existing is None or (entry.get("at") or "") < (existing.get("at") or ""):
+                merged[engine] = entry
+    return merged
+
+
 def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
     """One query can back several nodes when it landed in duplicate DAGs, and "resume this model"
     means all of them."""

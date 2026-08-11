@@ -123,16 +123,11 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         }
     }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
+    // A tab is unavailable both when the scene will never offer it and while the scene is still
+    // loading the object it describes. Staying open renders nothing until the tab resolves, which
+    // keeps deep links like #panel=access-control working on a cold load. Leaving a scene is what
+    // closes the panel, and sidePanelLogic handles that.
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && enabledTabs.includes(selectedTab)
-
-    // If the selected tab is no longer available (e.g. navigating away from a scene
-    // with Settings or Info), fall back to Info or Max instead of closing
-    useEffect(() => {
-        if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
-            const fallbackTab = enabledTabs.includes(SidePanelTab.Info) ? SidePanelTab.Info : SidePanelTab.Max
-            openSidePanel(fallbackTab)
-        }
-    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, enabledTabs, openSidePanel])
 
     const { windowSize } = useWindowSize()
 

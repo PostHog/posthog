@@ -159,8 +159,8 @@ def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
     layout) grow vertically, not horizontally. Small funnels are constrained later by the
     width measurement. The higher the number, the more RAM the Chromium driver needs.
 
-    A metric renders as a wide 2:1 card whose height derives from the viewport width, so a
-    narrower viewport keeps it at dashboard-tile size instead of a 400px-tall banner.
+    A metric renders as a card whose height derives from the viewport width, so a narrower
+    viewport keeps it at dashboard-tile size instead of a 400px-tall banner.
     Mirrors the frontend's check (InsightVizNode wrapper required), which gates the
     metric card CSS — a bare TrendsQuery gets neither, so it must keep the default viewport.
     """

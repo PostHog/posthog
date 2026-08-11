@@ -1,4 +1,7 @@
+from contextlib import contextmanager
+
 import pytest
+from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
@@ -44,6 +47,43 @@ async def test_syncs_event_retention_months_from_billing(features: list[dict], e
 
     await sync_to_async(team.refresh_from_db)()
     assert team.event_retention_months == expected_months
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_emits_change_events_and_returns_totals():
+    team = await _team_with_features(
+        [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}], current_months=999
+    )
+    captured: list[dict] = []
+
+    @contextmanager
+    def fake_scoped_capture():
+        yield lambda **kwargs: captured.append(kwargs)
+
+    with patch("posthog.temporal.sync_events_retention.activities.ph_scoped_capture", fake_scoped_capture):
+        result = await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
+
+    assert [c["event"] for c in captured] == ["events_retention_changed"]
+    change = captured[0]["properties"]
+    assert change["team_id"] == team.pk
+    assert change["retention_months_before"] == 999
+    assert change["retention_months_after"] == 12
+    assert result.total_processed == 1
+    assert result.total_updated == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_syncs_all_teams_across_batches():
+    features = [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}]
+    teams = [await _team_with_features(features, current_months=999) for _ in range(3)]
+
+    await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False, batch_size=1))
+
+    for team in teams:
+        await sync_to_async(team.refresh_from_db)()
+        assert team.event_retention_months == 12
 
 
 @pytest.mark.django_db(transaction=True)

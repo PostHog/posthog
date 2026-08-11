@@ -67,7 +67,7 @@ export function ContextDisplay({
         }))
     const exceptionEntries = exceptionAttributes
         ? [
-              { key: 'Level', value: exceptionAttributes.level, filterKey: '$level' },
+              { key: 'Level', value: exceptionAttributes.level, filterKey: '$exception_level' },
               { key: 'Synthetic', value: exceptionAttributes.synthetic },
               {
                   key: 'Library',

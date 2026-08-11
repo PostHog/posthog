@@ -38,4 +38,24 @@ describe('sqlChartComponentFor', () => {
     ])('routes mixed bar + line series on %s to SqlComboGraph', (_name, visualizationType) => {
         expect(sqlChartComponentFor({ ...baseProps(visualizationType), yData: mixedYData }).name).toBe('SqlComboGraph')
     })
+
+    it('routes an all-bar line chart to SqlBarGraph', () => {
+        const allBars = [
+            ySeries('a', { display: { displayType: 'bar' } }),
+            ySeries('b', { display: { displayType: 'bar' } }),
+        ]
+        expect(sqlChartComponentFor({ ...baseProps(ChartDisplayType.ActionsLineGraph), yData: allBars }).name).toBe(
+            'SqlBarGraph'
+        )
+    })
+
+    it("routes a percent stack whose line shares the bars' axis to SqlBarGraph", () => {
+        expect(
+            sqlChartComponentFor({
+                ...baseProps(ChartDisplayType.ActionsStackedBar),
+                yData: mixedYData,
+                chartSettings: { stackBars100: true },
+            }).name
+        ).toBe('SqlBarGraph')
+    })
 })

@@ -26,11 +26,13 @@ logger = logging.getLogger(__name__)
 
 # Convex deployments are served behind Cloudflare, which surfaces transient edge/origin
 # problems as the 52x family (520 Unknown Error, 521 Web Server Down, 522 Connection Timed
-# Out, 523 Origin Unreachable, 524 Timeout). These are retryable just like the standard 5xx
-# codes, but urllib3's default forcelist doesn't include them — so a single transient 520
-# would otherwise fail the whole sync. All Convex requests are idempotent GETs, so retrying
-# them is safe. Derive from DEFAULT_RETRY so backoff/total/allowed-methods stay in sync.
-_CLOUDFLARE_TRANSIENT_STATUSES = frozenset({520, 521, 522, 523, 524})
+# Out, 523 Origin Unreachable, 524 Timeout) plus 530, which Cloudflare emits for edge-side
+# DNS resolution hiccups reaching the origin (its 1xxx error subcodes). These are retryable
+# just like the standard 5xx codes, but urllib3's default forcelist doesn't include them —
+# so a single transient 520/530 would otherwise fail the whole sync. All Convex requests are
+# idempotent GETs, so retrying them is safe. Derive from DEFAULT_RETRY so backoff/total/
+# allowed-methods stay in sync.
+_CLOUDFLARE_TRANSIENT_STATUSES = frozenset({520, 521, 522, 523, 524, 530})
 _CONVEX_RETRY = DEFAULT_RETRY.new(
     status_forcelist=frozenset(DEFAULT_RETRY.status_forcelist) | _CLOUDFLARE_TRANSIENT_STATUSES
 )

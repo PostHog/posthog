@@ -135,11 +135,13 @@ export interface sessionRecordingEventUsageLogicActions {
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
-        defaultDurationFilter: RecordingDurationFilter
+        defaultDurationFilter: RecordingDurationFilter,
+        source?: string
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        source: string | undefined
     }
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
         filterType: SessionRecordingFilterType
@@ -167,11 +169,14 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingsListFetched: (
             loadTime: number,
             filters: RecordingUniversalFilters,
-            defaultDurationFilter: RecordingDurationFilter
+            defaultDurationFilter: RecordingDurationFilter,
+            /** Which surface embeds the playlist, so a list load can be read per host page. */
+            source?: string
         ) => ({
             loadTime,
             filters,
             defaultDurationFilter,
+            source,
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
@@ -220,7 +225,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
+        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter, source }) => {
             metricHistogram('replay_list_load_ms', loadTime, 'ms')
             try {
                 const filterValues = filtersFromUniversalFilterGroups(filters)
@@ -248,6 +253,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                     load_time: loadTime,
                     listing_version: '3',
                     filters,
+                    source,
                     ...filterBreakdown,
                 })
             } catch (e) {

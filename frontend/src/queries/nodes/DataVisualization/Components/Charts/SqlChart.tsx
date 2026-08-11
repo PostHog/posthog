@@ -6,7 +6,7 @@ import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { SqlBarGraph } from './SqlBarGraph'
 import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
-import { canRenderSqlBarGraph, canRenderSqlComboGraph } from './sqlLineGraphAdapter'
+import { sqlChartKind } from './sqlLineGraphAdapter'
 
 export type SqlChartProps = {
     xData: AxisSeries<string> | null
@@ -27,13 +27,14 @@ export type SqlChartProps = {
  * series, bar for bar-only, line/area otherwise. (Pie has its own wrapper — see PieChart.)
  */
 export function sqlChartComponentFor(props: SqlChartProps): (props: SqlChartProps) => JSX.Element {
-    if (canRenderSqlComboGraph(props)) {
-        return SqlComboGraph
+    switch (sqlChartKind(props)) {
+        case 'combo':
+            return SqlComboGraph
+        case 'bar':
+            return SqlBarGraph
+        case 'line':
+            return SqlLineGraph
     }
-    if (canRenderSqlBarGraph(props)) {
-        return SqlBarGraph
-    }
-    return SqlLineGraph
 }
 
 /** Entry point for rendering a non-pie SQL (DataVisualization) chart: dispatches line, area, bar,

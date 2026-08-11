@@ -23,7 +23,7 @@ import requests
 import structlog
 
 from posthog.security.pinned_requests import PinnedIPAdapter
-from posthog.security.url_validation import validate_url_and_pin_ips
+from posthog.security.url_validation import strip_userinfo, validate_url_and_pin_ips
 
 from .constants import URL_CONNECT_TIMEOUT, URL_MAX_BYTES, URL_MAX_REDIRECTS, URL_READ_TIMEOUT, URL_USER_AGENT
 
@@ -41,22 +41,6 @@ class FetchResult:
     content_type: str | None
     etag: str | None
     final_url: str
-
-
-def strip_userinfo(url: str) -> str:
-    """
-    Remove `user:pass@` from authority. Userinfo in URLs is a known SSRF
-    smuggling vector (some libraries interpret it as the host when stricter
-    parsers don't).
-    """
-
-    parsed = urlparse.urlparse(url)
-    if parsed.username is None and parsed.password is None:
-        return url
-    netloc = parsed.hostname or ""
-    if parsed.port:
-        netloc = f"{netloc}:{parsed.port}"
-    return urlparse.urlunparse(parsed._replace(netloc=netloc))
 
 
 def normalize_url(raw: str) -> str:

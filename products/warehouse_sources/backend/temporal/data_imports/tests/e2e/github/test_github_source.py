@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     GITHUB_MAX_RETRY_AFTER_SECONDS,
+    GithubAccessDeniedError,
     GithubEgressIdentity,
     GithubResumeConfig,
     GithubRetryableError,
@@ -1438,6 +1439,7 @@ class TestGithubWebhookSource:
             "reviews": "pull_request_review",
             "deployments": "deployment",
             "deployment_statuses": "deployment_status",
+            "check_runs": "check_run",
         }
 
     def test_webhook_template_identity(self) -> None:
@@ -1455,6 +1457,7 @@ class TestGithubWebhookSource:
             "reviews",
             "deployments",
             "deployment_statuses",
+            "check_runs",
         }
 
     def test_workflow_runs_and_jobs_are_webhook_only(self) -> None:
@@ -1643,6 +1646,7 @@ class TestGithubWebhookSource:
         assert repo == "owner/repo"
         assert url == "https://app.posthog.com/webhook"
         assert sorted(events) == [
+            "check_run",
             "deployment",
             "deployment_status",
             "pull_request_review",
@@ -1875,7 +1879,7 @@ class TestFetchPageRateLimit:
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.request.return_value = resp
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(GithubAccessDeniedError):
                 _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         assert mock_get.return_value.request.call_count == 1

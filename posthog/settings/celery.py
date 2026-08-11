@@ -16,6 +16,7 @@ CELERY_DEFAULT_QUEUE = "celery"
 # List them here so Celery's import_default_modules() registers them deterministically
 # (worker + tests), independent of what else got imported.
 CELERY_IMPORTS: list[str] = [
+    "ee.tasks.quota_limiting",
     "posthog.api.oauth.cimd",
     "posthog.caching.warming",
     "posthog.email",

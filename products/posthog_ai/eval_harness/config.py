@@ -40,6 +40,12 @@ class SandboxedEvalCase(BaseEvalCase):
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""
 
+    interaction_origin: str | None = None
+    """Surface to run the case as (e.g. ``"slack"``), for suites grading behavior that only
+    exists on one surface. The agent server branches its system prompt on this, so setting it
+    is what makes a case exercise the real prompt instead of a copy. ``None`` runs the case
+    like a plain task, which is what every non-surface-specific suite wants."""
+
     setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = Field(
         default=None,
         exclude=True,

@@ -164,6 +164,20 @@ export function decorateAlertName(baseName: string, selectedKinds: string[] | nu
     return `${baseName}${formatKindsSuffix(selectedKinds)}`
 }
 
+function buildAlertInputs(
+    template: HogFunctionTemplateType,
+    subTemplateInputs: Record<string, CyclotronJobInputType> | null | undefined,
+    inputValues: Record<string, CyclotronJobInputType>
+): Record<string, CyclotronJobInputType> {
+    const inputs: Record<string, CyclotronJobInputType> = {}
+    for (const schema of template.inputs_schema ?? []) {
+        if (schema.default !== undefined) {
+            inputs[schema.key] = { value: schema.default }
+        }
+    }
+    return { ...inputs, ...subTemplateInputs, ...inputValues }
+}
+
 function extractDestinationKeyFromAlert(alert: HogFunctionType, allDestinations: WizardDestination[]): string | null {
     const templateId = alert.template?.id
     if (!templateId) {
@@ -664,17 +678,14 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 return
             }
 
-            const mergedInputs: Record<string, any> = { ...subTemplate.inputs }
-            for (const [key, val] of Object.entries(values.inputValues)) {
-                mergedInputs[key] = val
-            }
-
             const selectedTemplate = values.selectedTemplate
             if (!selectedTemplate) {
                 lemonToast.error('Template not loaded yet')
                 actions.testConfigurationComplete()
                 return
             }
+
+            const mergedInputs = buildAlertInputs(selectedTemplate, subTemplate.inputs, values.inputValues)
 
             const configuration: Record<string, any> = {
                 type: 'internal_destination',
@@ -754,10 +765,13 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     return
                 }
 
-                const mergedInputs: Record<string, any> = { ...subTemplate.inputs }
-                for (const [key, val] of Object.entries(values.inputValues)) {
-                    mergedInputs[key] = val
+                const selectedTemplate = values.selectedTemplate
+                if (!selectedTemplate) {
+                    lemonToast.error('Template not loaded yet')
+                    return
                 }
+
+                const mergedInputs = buildAlertInputs(selectedTemplate, subTemplate.inputs, values.inputValues)
 
                 const filters = applyKindFilter(subTemplate.filters, values.selectedKinds)
                 const name = decorateAlertName(subTemplate.name ?? '', values.selectedKinds)

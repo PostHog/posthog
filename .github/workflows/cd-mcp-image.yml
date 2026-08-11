@@ -52,7 +52,10 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: posthog-mcp
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  # Publishes only from the default branch — assume the role and touch ECR only there;
+                  # labeled PRs still build (push=false) without assuming it.
+                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  push-to-ecr: ${{ github.ref == 'refs/heads/master' }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}

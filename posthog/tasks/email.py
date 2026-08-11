@@ -18,7 +18,7 @@ from prometheus_client import Counter, Histogram
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
-from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
+from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
@@ -298,6 +298,7 @@ def send_invite(invite_id: str) -> None:
             "invitee_first_name": invitee_first_name,
             "invite_message": invite_message,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
+            **get_email_team_and_org_context(organization=invite.organization),
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
@@ -378,12 +379,6 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         fallback="",
         context={"task": "send_member_join", "field": "invitee_last_name", **log_context},
     )
-    organization_name = sanitize_display_name(
-        organization.name,
-        fallback="your organization",
-        context={"task": "send_member_join", "field": "organization_name", **log_context},
-    )
-
     campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
     message = EmailMessage(
         use_http=True,
@@ -395,7 +390,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
             "organization": organization,
             "invitee_first_name": invitee_first_name,
             "invitee_last_name": invitee_last_name,
-            "organization_name": organization_name,
+            **get_email_team_and_org_context(organization=organization),
         },
     )
     for user in members_to_email:
@@ -856,7 +851,7 @@ def send_matview_failure_digest() -> None:
     )
 
     failed_queries = (
-        DataWarehouseSavedQuery.objects.filter(deleted=False, sync_frequency_interval__isnull=False)
+        DataWarehouseSavedQuery.objects.filter(deleted=False)
         .annotate(
             latest_job_status=Subquery(latest_job.values("status")[:1]),
             latest_job_run_at=Subquery(latest_job.values("last_run_at")[:1]),
@@ -865,44 +860,21 @@ def send_matview_failure_digest() -> None:
             latest_job_status=DataModelingJob.Status.FAILED,
             latest_job_run_at__gte=cutoff,
         )
-        .select_related("team")
     )
 
-    # Recent-run cutoff avoids nagging about long-term pauses.
-    paused_queries = (
-        DataWarehouseSavedQuery.objects.filter(
-            deleted=False,
-            sync_frequency_interval__isnull=True,
-            latest_error__isnull=False,
-        )
-        .annotate(latest_job_run_at=Subquery(latest_job.values("last_run_at")[:1]))
-        .filter(latest_job_run_at__gte=cutoff)
-        .select_related("team")
-    )
-
-    teams_with_issues: dict[int, dict] = {}
-
+    failed_ids_by_team: dict[int, list[str]] = {}
     for sq in failed_queries:
-        entry = teams_with_issues.setdefault(sq.team_id, {"team": sq.team, "failed": [], "paused": []})
-        entry["failed"].append(sq)
+        failed_ids_by_team.setdefault(sq.team_id, []).append(str(sq.id))
 
-    for paused_sq in paused_queries:
-        entry = teams_with_issues.setdefault(paused_sq.team_id, {"team": paused_sq.team, "failed": [], "paused": []})
-        entry["paused"].append(paused_sq)
-
-    if not teams_with_issues:
-        logger.info("No matview failures or paused schedules found")
+    if not failed_ids_by_team:
+        logger.info("No matview failures found")
         return
 
-    logger.info("Found %d teams with matview issues", len(teams_with_issues))
+    logger.info("Found %d teams with matview failures", len(failed_ids_by_team))
 
-    for team_id, data in teams_with_issues.items():
-        failed_ids = [str(sq.id) for sq in data["failed"]]
-        paused_ids = [str(sq.id) for sq in data["paused"]]
-        send_team_matview_failure_digest.delay(team_id, failed_ids, paused_ids)
-        logger.info(
-            f"Dispatching matview failure digest for team {team_id} with {len(failed_ids)} failed and {len(paused_ids)} paused."
-        )
+    for team_id, failed_ids in failed_ids_by_team.items():
+        send_team_matview_failure_digest.delay(team_id, failed_ids, [])
+        logger.info("Dispatching matview failure digest for team %d with %d failed views.", team_id, len(failed_ids))
 
     logger.info("Completed materialized view failure digest fan-out")
 
@@ -1043,12 +1015,12 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
         "pr_url": context.pr_url,
         "repository": context.repository or "",
         "first_name": user.first_name or "",
-        "organization_name": team.organization.name,
         "project_name": team.name,
         "branch_name": context.branch or "",
         "task_id": str(context.task_id),
         "run_id": str(context.run_id),
         "site_url": settings.SITE_URL,
+        **get_email_team_and_org_context(team=team),
     }
     message = EmailMessage(
         use_http=True,
@@ -1820,6 +1792,7 @@ def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, mor
             "more_info": more_info,
             "mask_value": mask_value,
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
+            **get_email_team_and_org_context(team=team),
         },
     )
     for membership in memberships_to_email:
@@ -1853,6 +1826,7 @@ def send_project_secret_api_key_exposed(
             "more_info": more_info,
             "mask_value": old_mask_value,
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
+            **get_email_team_and_org_context(team=team),
         },
     )
     for membership in memberships_to_email:
@@ -1939,12 +1913,12 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
         subject=f"[Ticket #{ticket.ticket_number}] New support ticket in {team.name}",
         template_name="new_conversation_ticket",
         template_context={
-            "team_name": team.name,
             "ticket_number": ticket.ticket_number,
             "customer_name": customer_name,
             "customer_email": customer_email,
             "first_message": first_message_content[:500] if first_message_content else "",
             "ticket_url": ticket_url,
+            **get_email_team_and_org_context(team=team),
         },
     )
 
@@ -1976,8 +1950,8 @@ def send_conversation_restore_email(email: str, team_id: int, restore_url: str) 
         subject=f"Restore your conversations with {team.name}",
         template_name="conversation_restore",
         template_context={
-            "team_name": team.name,
             "restore_url": restore_url,
+            **get_email_team_and_org_context(team=team),
         },
     )
 
@@ -2005,6 +1979,7 @@ def send_project_deleted_email(
         template_name="project_deleted",
         template_context={
             "project_name": project_name,
+            "team_name": project_name,
             "site_url": settings.SITE_URL,
         },
     )
@@ -2345,8 +2320,8 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
             "integration_kind": kind,
             "reason": sanitized_reason,
             "org_name": org_name,
-            "team_name": team.name,
             "connect_url": f"{settings.SITE_URL}/project/{team_id}/integrations/{kind}",
+            **get_email_team_and_org_context(team=team),
         },
         reply_to=requester.email or "",
     )
@@ -2370,12 +2345,6 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
         fallback="A teammate",
         context={"task": "send_posthog_ai_access_request", "field": "requester_first_name", **log_context},
     )
-    org_name = sanitize_display_name(
-        organization.name,
-        fallback="your organization",
-        context={"task": "send_posthog_ai_access_request", "field": "organization_name", **log_context},
-    )
-
     # AI consent is an org-level setting reachable from any project; prefer the requester's
     # current project so the link feels familiar, falling back to any project in the org.
     current_team = requester.current_team
@@ -2411,8 +2380,8 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
         template_context={
             "requester_name": requester_name,
             "requester_email": requester.email or "",
-            "organization_name": org_name,
             "posthog_ai_url": posthog_ai_url,
+            **get_email_team_and_org_context(organization=organization),
         },
         reply_to=requester.email or "",
     )

@@ -38,7 +38,12 @@ from posthog.hogql_queries.insights.retention.retention_base_query_fixed import 
 from posthog.hogql_queries.insights.retention.retention_base_query_rolling import (
     RetentionRollingIntervalBaseQueryBuilder,
 )
-from posthog.hogql_queries.insights.retention.retention_validation_rules import DisallowCumulativeWith24HourWindows
+from posthog.hogql_queries.insights.retention.retention_validation_rules import (
+    DisallowBreakdownsWithDataWarehouse24HourWindows,
+    DisallowCumulativeWith24HourWindows,
+    DisallowGroupAggregationWithDataWarehouse24HourWindows,
+    DisallowPropertyAggregationWith24HourWindows,
+)
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_OTHER_STRING_LABEL,
@@ -138,7 +143,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 self.modifiers.inCohortVia = InCohortVia.LEFTJOIN
 
     def validators(self) -> Sequence[QueryValidationRule[RetentionQuery]]:
-        return (DisallowCumulativeWith24HourWindows(), DisallowUnsupportedDataWarehouseSettings())
+        return (
+            DisallowCumulativeWith24HourWindows(),
+            DisallowBreakdownsWithDataWarehouse24HourWindows(),
+            DisallowGroupAggregationWithDataWarehouse24HourWindows(),
+            DisallowPropertyAggregationWith24HourWindows(),
+            DisallowUnsupportedDataWarehouseSettings(),
+        )
 
     @cached_property
     def property_aggregation_expr(self) -> ast.Expr | None:
