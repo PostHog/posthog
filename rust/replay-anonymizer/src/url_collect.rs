@@ -27,7 +27,7 @@ use base64::Engine;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
-use crate::url_policy::{canonicalize, MAX_URL_LEN};
+use crate::url_policy::{try_canonicalize, MAX_URL_LEN};
 /// Distinct raw values one message may memoize.
 ///
 /// Larger than [`MAX_URLS_PER_MESSAGE`] on purpose, because the memo also holds the values this
@@ -94,6 +94,10 @@ pub struct UrlCollector {
     /// distinct `src` values would otherwise pin a second copy of all of them, including the ones
     /// this collector declined.
     memo: HashMap<String, Option<String>>,
+    /// Counts by reason for every URL this collector refused, so a lane that quietly collects less
+    /// than it should reads off a dashboard instead of being guessed at. The phase that measures
+    /// this lane cannot be trusted without it.
+    declines: HashMap<&'static str, u32>,
 }
 
 impl UrlCollector {
@@ -104,6 +108,7 @@ impl UrlCollector {
             urls: Vec::new(),
             seen: HashSet::new(),
             memo: HashMap::new(),
+            declines: HashMap::new(),
         }
     }
 
@@ -117,6 +122,7 @@ impl UrlCollector {
         // still do is match the hash of one already held, and that is not worth a parse and an
         // HMAC for every distinct value on a payload built to carry many of them.
         if self.urls.len() >= MAX_URLS_PER_MESSAGE {
+            self.decline("over_cap");
             return None;
         }
         let result = self.collect_uncached(raw);
@@ -128,14 +134,21 @@ impl UrlCollector {
         result
     }
 
+    fn decline(&mut self, reason: &'static str) {
+        *self.declines.entry(reason).or_insert(0) += 1;
+    }
+
     fn collect_uncached(&mut self, raw: &str) -> Option<String> {
-        let canonical = canonicalize(raw)?;
+        let canonical = match try_canonicalize(raw) {
+            Ok(c) => c,
+            Err(reason) => {
+                self.decline(reason.label());
+                return None;
+            }
+        };
         let hash = hash_url(self.url_key.as_bytes(), &canonical.dedup);
         if self.seen.contains(&hash) {
             return Some(crate::collect::url_ref(&self.pseudo_team, &hash));
-        }
-        if self.urls.len() >= MAX_URLS_PER_MESSAGE {
-            return None;
         }
         self.seen.insert(hash.clone());
         self.urls.push(CollectedUrl {
@@ -145,6 +158,17 @@ impl UrlCollector {
             domain: canonical.domain,
         });
         Some(crate::collect::url_ref(&self.pseudo_team, &hash))
+    }
+
+    /// Counts by reason for the URLs this collector refused.
+    pub fn into_declines(&self) -> Vec<(String, u32)> {
+        let mut out: Vec<(String, u32)> = self
+            .declines
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), *v))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
     }
 
     /// Drain, sorted by hash. A deterministic order that cannot depend on which engine walked the

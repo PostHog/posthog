@@ -166,6 +166,15 @@ impl<'a> Ctx<'a> {
     /// Takes the collector rather than `self`, because the caller drains the images afterwards and
     /// that call consumes the context. A second call therefore returns nothing, which is why this
     /// is not named `into_`.
+    /// Counts by reason for the URLs the collector refused. Read before [`Self::take_collected_urls`],
+    /// which takes the collector.
+    pub fn take_url_declines(&self) -> Vec<(String, u32)> {
+        match self.url_collector.as_ref() {
+            Some(collector) => collector.borrow().into_declines(),
+            None => Vec::new(),
+        }
+    }
+
     pub fn take_collected_urls(&mut self) -> Vec<CollectedUrl> {
         match self.url_collector.take() {
             Some(collector) => collector.into_inner().into_urls(),

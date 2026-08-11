@@ -301,3 +301,41 @@ fn one_url_under_two_signatures_collects_once() {
         "two signatures of one image are one URL to fetch"
     );
 }
+
+#[test]
+fn every_refusal_is_counted_with_a_reason() {
+    // A silent decline makes the lane look like the traffic carries fewer images than it does,
+    // which is exactly the number the measurement phase exists to produce.
+    let allow = AllowLists::default();
+    let mut bytes = payload_tagged(
+        "img",
+        json!({
+            "src": "http://169.254.169.254/meta.png",
+            "rr_src": "ftp://files.example.com/a.png",
+            "poster": "/relative/a.png"
+        }),
+    );
+    let msg = anonymize_kafka_payload_collecting(
+        &allow,
+        &mut bytes,
+        AnonymizeOpts::default(),
+        None,
+        None,
+        Some(UrlCollection {
+            pseudo_team: PSEUDO_TEAM.to_string(),
+            url_key: URL_KEY.to_string(),
+        }),
+    )
+    .expect("anonymize should succeed");
+
+    assert!(msg.meta.urls.is_empty(), "none of these are fetchable");
+    let reasons: Vec<&str> = msg
+        .meta
+        .url_declines
+        .iter()
+        .map(|d| d.reason.as_str())
+        .collect();
+    assert!(reasons.contains(&"non_public_host"), "{reasons:?}");
+    assert!(reasons.contains(&"bad_scheme"), "{reasons:?}");
+    assert!(reasons.contains(&"not_absolute"), "{reasons:?}");
+}

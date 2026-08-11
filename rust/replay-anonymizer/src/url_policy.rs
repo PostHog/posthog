@@ -255,22 +255,52 @@ fn is_public_v4(v4: Ipv4Addr) -> bool {
         || o[0] >= 240)
 }
 
-/// Canonicalize a remote image URL into its fetch and dedup forms.
-///
-/// `None` for anything we will not fetch: a non-`http(s)` scheme, a URL with no host, or one past
-/// [`MAX_URL_LEN`]. A relative URL also lands here, because the recording does not carry the base
-/// it would need to resolve against.
+/// Why a URL was not collected. Each variant is a label on the decline counter, so a lane that
+/// silently collects less than it should can be read off a dashboard rather than guessed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Decline {
+    /// Longer than [`MAX_URL_LEN`], before or after normalization.
+    TooLong,
+    /// Not parseable as an absolute URL. A relative `src` lands here, because the recording does
+    /// not carry the base it would need to resolve against.
+    NotAbsolute,
+    /// A scheme we do not fetch, such as `data:`, `blob:` or `ftp:`.
+    BadScheme,
+    /// No host at all.
+    NoHost,
+    /// Loopback, private, link-local or an internal-only name. See [`is_public_host`].
+    NonPublicHost,
+}
+
+impl Decline {
+    /// The metric label. Stable, because a dashboard and an alert both key on it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Decline::TooLong => "too_long",
+            Decline::NotAbsolute => "not_absolute",
+            Decline::BadScheme => "bad_scheme",
+            Decline::NoHost => "no_host",
+            Decline::NonPublicHost => "non_public_host",
+        }
+    }
+}
+
+/// Canonicalize a remote image URL into its fetch and dedup forms, or say why it was refused.
 pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
+    try_canonicalize(raw).ok()
+}
+
+pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if raw.len() > MAX_URL_LEN {
-        return None;
+        return Err(Decline::TooLong);
     }
-    let mut url = Url::parse(raw).ok()?;
+    let mut url = Url::parse(raw).map_err(|_| Decline::NotAbsolute)?;
     if !matches!(url.scheme(), "http" | "https") {
-        return None;
+        return Err(Decline::BadScheme);
     }
-    let host = url.host_str()?.to_string();
+    let host = url.host_str().ok_or(Decline::NoHost)?.to_string();
     if !is_public_host(&host) {
-        return None;
+        return Err(Decline::NonPublicHost);
     }
 
     // Userinfo is credentials, so it never reaches the topic and never reaches the wire. The
@@ -284,7 +314,7 @@ pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
     // Percent-encoding and IDNA can both grow a URL, so the cap is re-checked on what we emit
     // rather than only on what we were handed.
     if fetch.len() > MAX_URL_LEN {
-        return None;
+        return Err(Decline::TooLong);
     }
 
     let pairs: Vec<(String, String)> = url
@@ -315,7 +345,7 @@ pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
     let dedup = url.to_string();
 
     let domain = politeness_key(&host);
-    Some(CanonicalUrl {
+    Ok(CanonicalUrl {
         fetch,
         dedup,
         host,

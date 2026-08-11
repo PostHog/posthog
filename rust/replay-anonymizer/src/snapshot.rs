@@ -171,6 +171,18 @@ pub struct SnapshotMeta {
     /// Collected remote image URLs (hash-sorted); non-empty only on the URL-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub urls: Vec<UrlEntry>,
+    /// Counts by reason for the URLs the collector refused. Every decline is otherwise invisible,
+    /// and the phase that measures this lane would report a smaller URL set than the traffic holds
+    /// with nothing to say why.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub url_declines: Vec<UrlDecline>,
+}
+
+/// One reason the collector refused a URL, and how many times it did.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct UrlDecline {
+    pub reason: String,
+    pub count: u32,
 }
 
 /// Which implementation produced the output (tree = the whole-message fallback fired). Both are
@@ -518,6 +530,11 @@ fn anonymize_snapshot_data_inner(
         // consumed before the signal, so the tree path re-reads the intact buffer.
         None => anonymize_via_tree_mut(&ctx, distinct_id, inner)?,
     };
+    msg.meta.url_declines = ctx
+        .take_url_declines()
+        .into_iter()
+        .map(|(reason, count)| UrlDecline { reason, count })
+        .collect();
     msg.meta.urls = ctx
         .take_collected_urls()
         .into_iter()
@@ -965,6 +982,7 @@ fn finish(
             // The collector lives on the Ctx, not the Sink; the entry point packs it in.
             images: Vec::new(),
             urls: Vec::new(),
+            url_declines: Vec::new(),
         },
         image_bytes: Vec::new(),
     })

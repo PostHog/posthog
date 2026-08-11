@@ -94,6 +94,12 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['outcome'],
     })
 
+    private static readonly mlUrlsDeclined = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_urls_declined',
+        help: 'Remote image URLs the anonymizer refused to collect, by reason. A decline is invisible in the collected count, so without this the lane looks like traffic carries fewer images than it does',
+        labelNames: ['reason'],
+    })
+
     private static readonly mlUrlDomainsPerMessage = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_url_domains_per_message',
         help: 'Distinct registrable domains among the URLs collected from one message, observed for every message including those with none. The fetch topic is keyed by that domain, so this is how many Kafka messages one replay message becomes, and how concentrated a page is on one operator',
@@ -167,6 +173,12 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMlUrlsCollected(outcome: MlUrlLaneStage, count: number): void {
         this.mlUrlsCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlUrlsDeclined(reason: string, count: number): void {
+        if (count > 0) {
+            this.mlUrlsDeclined.inc({ reason }, count)
+        }
     }
 
     public static observeMlUrlDomainsPerMessage(domains: number): void {

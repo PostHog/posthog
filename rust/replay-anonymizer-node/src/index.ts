@@ -63,6 +63,8 @@ export interface AnonymizeMeta {
     images?: AnonymizeImageEntry[]
     /** Collected remote image URLs (hash-sorted); present only when the URL lane was enabled and URLs were collected. */
     urls?: AnonymizeUrlEntry[]
+    /** Counts by reason for the URLs the collector refused. Absent when it refused none. */
+    urlDeclines?: { reason: string; count: number }[]
 }
 
 /**

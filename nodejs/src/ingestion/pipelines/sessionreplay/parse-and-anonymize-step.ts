@@ -327,6 +327,9 @@ function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): Collected
         })
         domains.add(entry.domain)
     }
+    for (const decline of meta.urlDeclines ?? []) {
+        SessionRecordingIngesterMetrics.incrementMlUrlsDeclined(decline.reason, decline.count)
+    }
     SessionRecordingIngesterMetrics.observeMlUrlDomainsPerMessage(domains.size)
     if (urls.length === 0) {
         return undefined
