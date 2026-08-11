@@ -205,7 +205,7 @@ export function SpacePanel({ channelId }: { channelId: string }) {
       <div className="relative min-h-0 flex-1">
         {tab === "sessions" && (
           <>
-            <ChannelSessionsList channelId={channelId} />
+            <ChannelSessionsList channelId={channelId} sessionsOnly />
             <ChannelsFab channelId={channelId} />
           </>
         )}

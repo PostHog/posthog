@@ -249,11 +249,27 @@ function listStateOf({
  * recents. Shared by the legacy channel pane below and the space panel in the
  * new chrome, so the two surfaces list sessions identically.
  */
-export function ChannelSessionsList({ channelId }: { channelId: string }) {
+export function ChannelSessionsList({
+  channelId,
+  sessionsOnly = false,
+}: {
+  channelId: string;
+  /** Drop canvases, for a surface that lists them somewhere of their own. */
+  sessionsOnly?: boolean;
+}) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  const { items, actions, me, isLoading, channelMissing } =
-    useChannelItems(channelId);
+  const {
+    items: allItems,
+    actions,
+    me,
+    isLoading,
+    channelMissing,
+  } = useChannelItems(channelId);
+  const items = useMemo(
+    () => (sessionsOnly ? allItems.filter((i) => i.kind === "task") : allItems),
+    [allItems, sessionsOnly],
+  );
   // Inline rename is the only thing left of the old native-menu hook here: the
   // row's menu is a quill one now, so this surface no longer reaches into the
   // main process to draw it.
