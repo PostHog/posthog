@@ -102,6 +102,21 @@ describe("MentionText", () => {
     );
   });
 
+  it("truncates rendered text without exposing structured token syntax", () => {
+    const structuredReference =
+      '<github_pr number="73874" title="Loading…" url="https://github.com/PostHog/posthog/pull/73874" />';
+    const { container } = render(
+      <MentionText
+        content={`${structuredReference} ${"a".repeat(100)}`}
+        maxLength={100}
+      />,
+    );
+
+    expect(screen.getByText("#73874 - Loading…")).toBeInTheDocument();
+    expect(container).not.toHaveTextContent("<github_pr");
+    expect(container.textContent?.endsWith("…")).toBe(true);
+  });
+
   it("leaves malformed and unsafe structured references as readable text", () => {
     render(
       <MentionText

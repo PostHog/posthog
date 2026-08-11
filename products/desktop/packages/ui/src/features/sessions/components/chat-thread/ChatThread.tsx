@@ -115,7 +115,10 @@ import {
   useSessionViewActions,
   useShowRawLogs,
 } from "@posthog/ui/features/sessions/sessionViewStore";
-import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
+import {
+  THREAD_SCROLL_SETTLE_FRAMES,
+  useThreadScrollRequest,
+} from "@posthog/ui/features/sessions/threadNavigationStore";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
 import {
   SessionTaskIdProvider,
@@ -984,6 +987,7 @@ function ThreadScrollBody({
   keyboardFocusedMessageId,
   onUserInteract,
   resumeStateRef,
+  followRef,
 }: {
   items: ConversationItem[];
   rows: TurnRow[];
@@ -995,10 +999,9 @@ function ThreadScrollBody({
   onUserInteract?: () => void;
   /** Continuously updated so the virtualized body can take over mid-session (see {@link ThreadScrollResume}). */
   resumeStateRef: RefObject<ThreadScrollResume>;
+  followRef: RefObject<ThreadFollowState>;
 }) {
   const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
-
-  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
 
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
   // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
@@ -1010,7 +1013,7 @@ function ThreadScrollBody({
       onPointerDownCapture={onUserInteract}
     >
       <MessageMinimap items={items} />
-      <ThreadAutoFollow items={items} followRef={autoFollowRef} />
+      <ThreadAutoFollow items={items} followRef={followRef} />
       <ThreadScrollStateRecorder stateRef={resumeStateRef} />
       <ChatMessageScrollerViewport>
         <ChatMessageScrollerContent
@@ -1039,7 +1042,7 @@ function ThreadScrollBody({
       {/* Re-arms the pin as well as scrolling: the button is the reader saying "follow again". */}
       <ChatMessageScrollerButton
         onClick={() => {
-          autoFollowRef.current = FOLLOWING_END;
+          followRef.current = FOLLOWING_END;
         }}
       />
     </ChatMessageScroller>
@@ -1147,12 +1150,17 @@ export interface ChatThreadProps extends SharedChatThreadProps {
 function ThreadScrollRequestBridge({
   taskId,
   jumpToMessage,
+  prepareForJump,
 }: {
   taskId?: string;
   jumpToMessage?: (id: string) => void;
+  prepareForJump?: () => void;
 }) {
   const { scrollToMessage } = useChatMessageScroller();
-  useThreadScrollRequest(taskId, jumpToMessage ?? scrollToMessage);
+  useThreadScrollRequest(taskId, jumpToMessage ?? scrollToMessage, {
+    settleFrames: jumpToMessage ? 0 : THREAD_SCROLL_SETTLE_FRAMES,
+    prepareForJump,
+  });
   return null;
 }
 
@@ -1253,6 +1261,10 @@ function ChatThreadRenderer({
     atBottom: true,
     anchorId: null,
   });
+  const nonVirtualFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
+  const prepareForNonVirtualJump = useCallback(() => {
+    nonVirtualFollowRef.current = { following: false, leftEnd: true };
+  }, []);
 
   const [jumpPickerOpen, setJumpPickerOpen] = useState(false);
   const [keyboardFocusedMessageId, setKeyboardFocusedMessageId] = useState<
@@ -1367,6 +1379,7 @@ function ChatThreadRenderer({
       <ThreadScrollRequestBridge
         taskId={taskId}
         jumpToMessage={jumpToMessage}
+        prepareForJump={jumpToMessage ? undefined : prepareForNonVirtualJump}
       />
     </>
   );
@@ -1411,6 +1424,7 @@ function ChatThreadRenderer({
                   onUserInteract={clearKeyboardFocus}
                   footer={footer}
                   resumeStateRef={threadResumeRef}
+                  followRef={nonVirtualFollowRef}
                 />
                 {renderNav()}
               </>

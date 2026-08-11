@@ -25,6 +25,65 @@ type RenderSegment =
   | { type: "mention"; name: string; email: string }
   | { type: "chip"; chip: MentionChip };
 
+type RenderEntry = { segment: RenderSegment; key: string };
+
+function segmentDisplayText(segment: RenderSegment): string {
+  if (
+    segment.type === "text" ||
+    segment.type === "link" ||
+    segment.type === "agent"
+  ) {
+    return segment.text;
+  }
+  if (segment.type === "mention") return `@${segment.name}`;
+  if (
+    segment.chip.type === "github_issue" ||
+    segment.chip.type === "github_pr"
+  ) {
+    return segment.chip.label;
+  }
+  const prefix = segment.chip.type === "command" ? "/" : "@";
+  return `${prefix}${segment.chip.label}`;
+}
+
+function truncateRenderEntries(
+  entries: RenderEntry[],
+  maxLength: number | undefined,
+): RenderEntry[] {
+  if (maxLength === undefined) return entries;
+
+  const truncated: RenderEntry[] = [];
+  let usedLength = 0;
+  for (const entry of entries) {
+    const displayCharacters = Array.from(segmentDisplayText(entry.segment));
+    if (usedLength + displayCharacters.length <= maxLength) {
+      truncated.push(entry);
+      usedLength += displayCharacters.length;
+      continue;
+    }
+
+    const remainingLength = Math.max(0, maxLength - usedLength);
+    if (
+      remainingLength > 0 &&
+      (entry.segment.type === "text" || entry.segment.type === "link")
+    ) {
+      truncated.push({
+        ...entry,
+        segment: {
+          ...entry.segment,
+          text: displayCharacters.slice(0, remainingLength).join(""),
+        },
+      });
+    }
+    truncated.push({
+      segment: { type: "text", text: "…" },
+      key: `${entry.key}-ellipsis`,
+    });
+    return truncated;
+  }
+  return truncated;
+}
+
 const chipIcons = {
   file: FileTextIcon,
   folder: FolderIcon,
@@ -77,15 +136,17 @@ export function MentionText({
   content,
   currentUserEmail,
   className,
+  maxLength,
 }: {
   content: string;
   currentUserEmail?: string | null;
   className?: string;
+  maxLength?: number;
 }) {
   // Key each segment by its character offset — stable for a given content.
   const segments = useMemo(() => {
     let offset = 0;
-    const entries: Array<{ segment: RenderSegment; key: string }> = [];
+    const entries: RenderEntry[] = [];
     const push = (segment: RenderSegment, length: number) => {
       entries.push({ segment, key: `${offset}` });
       offset += length;
@@ -132,8 +193,8 @@ export function MentionText({
         }
       }
     }
-    return entries;
-  }, [content]);
+    return truncateRenderEntries(entries, maxLength);
+  }, [content, maxLength]);
   const selfEmail = currentUserEmail?.toLowerCase();
   return (
     <span className={className}>

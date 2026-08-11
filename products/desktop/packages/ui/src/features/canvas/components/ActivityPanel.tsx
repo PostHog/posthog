@@ -18,7 +18,10 @@ import {
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
+import { useOptimisticItemsForTask } from "@posthog/ui/features/sessions/sessionStore";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
+import { useSessionIsCloud } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
@@ -162,13 +165,16 @@ function ActivityConversation({
     [taskId],
   );
 
-  const conversationItems = useMemo(
-    () =>
-      tab === "timeline"
-        ? buildConversationItems(events, isPromptPending).items
-        : [],
-    [tab, events, isPromptPending],
-  );
+  const optimisticItems = useOptimisticItemsForTask(taskId);
+  const isCloud = useSessionIsCloud(taskId);
+  const conversationItems = useMemo(() => {
+    if (tab !== "timeline") return [];
+    return mergeConversationItems({
+      conversationItems: buildConversationItems(events, isPromptPending).items,
+      optimisticItems,
+      isCloud,
+    });
+  }, [tab, events, isPromptPending, optimisticItems, isCloud]);
 
   // A thread picked on the artifact itself lives in the Comments tab, so the
   // pick has to bring the tab with it. Only a fresh request switches tabs: a

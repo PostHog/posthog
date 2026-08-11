@@ -51,6 +51,7 @@ import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTe
 import { MentionComposer } from "@posthog/ui/features/canvas/components/MentionComposer";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
+import { TIMELINE_MESSAGE_PREVIEW_LENGTH } from "@posthog/ui/features/canvas/components/timelineMessagePreview";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
@@ -76,7 +77,6 @@ export function ThreadMessageRow({
   isOwnMessage: boolean;
   currentUserEmail?: string | null;
   canForward: boolean;
-  /** Timeline rows preserve authored whitespace while showing the full message. */
   preview?: boolean;
   onSendToAgent: () => void;
   onDelete: () => void;
@@ -105,6 +105,7 @@ export function ThreadMessageRow({
           <MentionText
             content={message.content}
             currentUserEmail={currentUserEmail}
+            maxLength={preview ? TIMELINE_MESSAGE_PREVIEW_LENGTH : undefined}
           />
         </ThreadItemBody>
         {forwarded && (

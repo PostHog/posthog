@@ -1,4 +1,5 @@
 import {
+  ArrowRightIcon,
   CheckCircleIcon,
   FileTextIcon,
   PlusCircleIcon,
@@ -9,14 +10,15 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  cn,
   ThreadItem,
+  ThreadItemAction,
   ThreadItemAuthor,
   ThreadItemBody,
   ThreadItemContent,
   ThreadItemGroup,
   ThreadItemGutter,
   ThreadItemHeader,
+  TooltipProvider,
 } from "@posthog/quill";
 import type {
   Task,
@@ -31,12 +33,13 @@ import {
   ThreadMessageRow,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
+import { TIMELINE_MESSAGE_PREVIEW_LENGTH } from "@posthog/ui/features/canvas/components/timelineMessagePreview";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
-import { Fragment, type KeyboardEvent, type ReactNode, useMemo } from "react";
+import { Fragment, type ReactNode, useMemo } from "react";
 
 type ConversationItem = ReturnType<
   typeof buildConversationItems
@@ -90,31 +93,8 @@ function UserMessageRow({
     [afterChannelContext],
   );
   const displayContent = customInstructions?.stripped ?? afterChannelContext;
-  // The row itself is the hit target. `ThreadItem` renders an <article>, which a
-  // <button> may not wrap and which can't become one (quill's primitive takes no
-  // `render`), so it carries the button role and its own key handling.
-  //
-  // Deliberately no `aria-label`: the button takes its name from its contents, so
-  // it announces the author, time and preview a sighted user sees. A label would
-  // replace all three — and since every row here is authored by the task creator,
-  // one built from the name alone would be identical on every row.
-  const activation = onSelect
-    ? ({
-        role: "button",
-        tabIndex: 0,
-        onClick: onSelect,
-        onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          onSelect();
-        },
-      } as const)
-    : {};
   return (
-    <ThreadItem
-      className={cn("rounded-none", onSelect && "cursor-pointer")}
-      {...activation}
-    >
+    <ThreadItem className="group/timeline-message rounded-none">
       {/* Decorative: the author's name is written beside it, so keep the avatar's
           initials out of the row's accessible name. */}
       <ThreadItemGutter className="justify-center" aria-hidden>
@@ -124,9 +104,25 @@ function UserMessageRow({
         <ThreadItemHeader>
           <ThreadItemAuthor className="text-[13px]">{name}</ThreadItemAuthor>
           <ThreadTimestamp dateTime={timestamp} />
+          {onSelect && (
+            <TooltipProvider>
+              <ThreadItemAction
+                label="View in chat"
+                variant="link-muted"
+                size="icon-xs"
+                className="ml-auto self-center opacity-0 transition-[background-color,color,opacity] hover:bg-gray-3 hover:text-foreground focus-visible:bg-gray-3 group-focus-within/timeline-message:opacity-100 group-hover/timeline-message:opacity-100"
+                onClick={onSelect}
+              >
+                <ArrowRightIcon size={12} />
+              </ThreadItemAction>
+            </TooltipProvider>
+          )}
         </ThreadItemHeader>
         <ThreadItemBody className="mt-1.5 whitespace-pre-wrap break-words text-[13px]">
-          <MentionText content={displayContent} />
+          <MentionText
+            content={displayContent}
+            maxLength={TIMELINE_MESSAGE_PREVIEW_LENGTH}
+          />
           {channelContext && (
             <Collapsible className="mt-2 min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
               <CollapsibleTrigger
