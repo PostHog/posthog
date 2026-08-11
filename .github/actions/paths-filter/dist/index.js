@@ -42689,6 +42689,10 @@ const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
+// A single transient network error against the GitHub API used to fail the whole job.
+// Retry the paginated call a few times before falling back to git-based detection.
+const API_MAX_ATTEMPTS = 3;
+const API_RETRY_BASE_DELAY_MS = 500;
 async function run() {
     try {
         const workingDirectory = core.getInput('working-directory', { required: false });
@@ -42753,15 +42757,27 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
             }
             const pr = github.context.payload.pull_request;
             if (token) {
-                return await getChangedFilesFromApi(token, pr);
+                try {
+                    return await getChangedFilesFromApi(token, pr);
+                }
+                catch (error) {
+                    if (github.context.eventName === 'pull_request_target') {
+                        // pull_request_target checks out the base branch, so a local git diff would
+                        // compare the wrong refs. Fail loudly rather than report a wrong file set.
+                        throw error;
+                    }
+                    core.warning(`Could not fetch changed files from the GitHub API: ${getErrorMessage(error)}. Falling back to git diff.`);
+                }
             }
-            if (github.context.eventName === 'pull_request_target') {
+            else if (github.context.eventName === 'pull_request_target') {
                 // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
                 // Therefore it's not possible to look at changes in last commit
                 // At the same time we don't want to fetch any code from forked repository
                 throw new Error(`'token' input parameter is required if action is triggered by 'pull_request_target' event`);
             }
-            core.info('Github token is not available - changes will be detected using git diff');
+            else {
+                core.info('Github token is not available - changes will be detected using git diff');
+            }
             const baseSha = (_a = github.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.base.sha;
             const defaultBranch = (_b = github.context.payload.repository) === null || _b === void 0 ? void 0 : _b.default_branch;
             const currentRef = await git.getCurrentRef();
@@ -42821,51 +42837,76 @@ async function getChangedFilesFromGit(base, head, initialFetchDepth) {
 async function getChangedFilesFromApi(token, pullRequest) {
     core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`);
     try {
-        const client = github.getOctokit(token);
-        const per_page = 100;
-        const files = [];
-        core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
-        for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
-            owner: github.context.repo.owner,
-            repo: github.context.repo.repo,
-            pull_number: pullRequest.number,
-            per_page
-        }))) {
-            if (response.status !== 200) {
-                throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`);
-            }
-            core.info(`Received ${response.data.length} items`);
-            for (const row of response.data) {
-                core.info(`[${row.status}] ${row.filename}`);
-                // There's no obvious use-case for detection of renames
-                // Therefore we treat it as if rename detection in git diff was turned off.
-                // Rename is replaced by delete of original filename and add of new filename
-                if (row.status === file_1.ChangeStatus.Renamed) {
-                    files.push({
-                        filename: row.filename,
-                        status: file_1.ChangeStatus.Added
-                    });
-                    files.push({
-                        // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-                        filename: row.previous_filename,
-                        status: file_1.ChangeStatus.Deleted
-                    });
-                }
-                else {
-                    // Github status and git status variants are same except for deleted files
-                    const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
-                    files.push({
-                        filename: row.filename,
-                        status
-                    });
-                }
-            }
-        }
-        return files;
+        return await withRetry(() => listChangedFilesFromApi(token, pullRequest), API_MAX_ATTEMPTS);
     }
     finally {
         core.endGroup();
     }
+}
+// Retries an operation with exponential backoff so a single transient network error
+// (e.g. a dropped TLS handshake against the GitHub API) doesn't fail the whole job.
+async function withRetry(operation, maxAttempts) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await operation();
+        }
+        catch (error) {
+            lastError = error;
+            if (attempt < maxAttempts) {
+                const delayMs = API_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+                core.warning(`GitHub API request failed (attempt ${attempt}/${maxAttempts}): ${getErrorMessage(error)}. Retrying in ${delayMs}ms.`);
+                await sleep(delayMs);
+            }
+        }
+    }
+    throw lastError;
+}
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+async function listChangedFilesFromApi(token, pullRequest) {
+    const client = github.getOctokit(token);
+    const per_page = 100;
+    const files = [];
+    core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
+    for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        pull_number: pullRequest.number,
+        per_page
+    }))) {
+        if (response.status !== 200) {
+            throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`);
+        }
+        core.info(`Received ${response.data.length} items`);
+        for (const row of response.data) {
+            core.info(`[${row.status}] ${row.filename}`);
+            // There's no obvious use-case for detection of renames
+            // Therefore we treat it as if rename detection in git diff was turned off.
+            // Rename is replaced by delete of original filename and add of new filename
+            if (row.status === file_1.ChangeStatus.Renamed) {
+                files.push({
+                    filename: row.filename,
+                    status: file_1.ChangeStatus.Added
+                });
+                files.push({
+                    // 'previous_filename' for some unknown reason isn't in the type definition or documentation
+                    filename: row.previous_filename,
+                    status: file_1.ChangeStatus.Deleted
+                });
+            }
+            else {
+                // Github status and git status variants are same except for deleted files
+                const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
+                files.push({
+                    filename: row.filename,
+                    status
+                });
+            }
+        }
+    }
+    return files;
 }
 function exportResults(results, format) {
     core.info('Results:');
