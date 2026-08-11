@@ -156,9 +156,14 @@ export const DragToZoom: Story = {
     },
 }
 
-/** Every chrome toggle on, as a host's shared chart defaults set them: grid, L-axis, tick marks,
- *  and a crosshair through the hovered point. Same keys `ChartConfig` uses, so one set of host
- *  defaults styles a scatter and a line chart alike. */
+// The dashed grid and crosshair are theme, not config, and the token vars carry no dash pattern —
+// PostHog layers these on top (`chartThemeDefaults` in `frontend/src/lib/charts/hooks.ts`). Both are
+// mode-independent, so one constant serves light and dark.
+const HOST_THEME_CHROME = { gridDashPattern: [3, 3], crosshairDashPattern: [3, 3] }
+
+/** The chart as PostHog renders it: every chrome toggle on, as a host's shared chart config
+ *  defaults set them, over a theme carrying the host's dashed grid. The other stories show the
+ *  library's own defaults, which own no house style. */
 export const HostChrome: Story = {
     render: function Render() {
         const theme = useReactiveTheme()
@@ -166,7 +171,7 @@ export const HostChrome: Story = {
             <Stage width={620} height={360}>
                 <ScatterChart
                     series={SINGLE}
-                    theme={theme}
+                    theme={{ ...theme, ...HOST_THEME_CHROME }}
                     config={{
                         ...AXES,
                         showAxisLines: true,
