@@ -4365,7 +4365,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     evaluation_contexts: string[]
-    usage_dashboard?: number
+    usage_dashboard?: number | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
@@ -4373,7 +4373,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
-    _should_create_usage_dashboard?: boolean
     last_called_at?: string | null
     is_used_in_replay_settings?: boolean
 }
