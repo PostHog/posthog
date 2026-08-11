@@ -335,7 +335,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
         """
-        Checkpoint should be updated to the wall-clock time of the sync run, not max event timestamp
+        Checkpoint should be updated to the window end, not the max event timestamp
         """
         redis_mock = mock_redis_client()
         mock_get_client.return_value = redis_mock

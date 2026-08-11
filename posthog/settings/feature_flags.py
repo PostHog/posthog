@@ -50,9 +50,9 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
 )
 # The sync reads distributed_events_recent, which either replica of the batch-export shard can
 # answer, so rows inserted moments ago may be missing from whichever one serves a given query.
-# Ending the scan window this far before now gives replication time to catch up. Rows missed
-# this way are lost rather than delayed, because the checkpoint advances past the window end
-# and the next run only reads inserted_at greater than it.
+# Ending the scan window this far before now keeps the checkpoint from advancing past those
+# rows, so a row still missing at read time is picked up by the next run instead of being
+# skipped for good.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS: int = max(
     0,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS", 60, type_cast=int),
