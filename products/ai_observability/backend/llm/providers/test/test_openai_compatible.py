@@ -1,10 +1,17 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
+import openai
 from parameterized import parameterized
 
+from posthog.security.pinned_httpx import PinnedIPHTTPTransport
+from posthog.security.pinned_requests import SSRFBlockedError
+
+from products.ai_observability.backend.llm.providers import openai_compatible
 from products.ai_observability.backend.llm.providers.openai_compatible import (
     DISALLOWED_BASE_URL_MESSAGE,
+    REDIRECT_MESSAGE,
     OpenAICompatibleAdapter,
     error_field_for_validation_message,
     is_allowed_custom_base_url,
@@ -50,6 +57,7 @@ class TestErrorFieldForValidationMessage:
             ("required", "Base URL is required", "base_url"),
             ("disallowed", DISALLOWED_BASE_URL_MESSAGE, "base_url"),
             ("not_found", "The endpoint did not return a model list, check the base URL", "base_url"),
+            ("redirect", REDIRECT_MESSAGE, "base_url"),
             ("connection", "Could not connect to the endpoint", "base_url"),
             ("bad_key", "Invalid API key", "api_key"),
             ("unattributed", "Rate limited, please try again later", None),
@@ -58,6 +66,18 @@ class TestErrorFieldForValidationMessage:
     )
     def test_maps_message_to_field(self, _name, message, expected_field):
         assert error_field_for_validation_message(message) == expected_field
+
+
+class TestPinnedHttpClient:
+    def test_client_is_locked_to_the_validated_endpoint(self):
+        with openai_compatible._pinned_http_client(ALLOWED_BASE_URL) as client:
+            # Following a redirect would reach a host nothing validated, and the hop would be
+            # made by the pooled connection rather than a freshly validated one.
+            assert client.follow_redirects is False
+            assert isinstance(client._transport, PinnedIPHTTPTransport)
+
+            with pytest.raises(SSRFBlockedError):
+                client.get("https://internal.example/v1/models")
 
 
 class TestOpenAICompatibleAdapter:
@@ -131,6 +151,31 @@ class TestOpenAICompatibleAdapter:
 
         with pytest.raises(ValueError, match="Base URL must be"):
             list(adapter.stream(_completion_request(), "test-key", AnalyticsContext()))
+
+    @patch(OPENAI_PATCH_TARGET)
+    def test_validate_key_reports_a_redirect_instead_of_following_it(self, mock_openai):
+        redirect = openai.APIStatusError(
+            "redirect",
+            response=httpx.Response(302, request=httpx.Request("GET", f"{ALLOWED_BASE_URL}/models")),
+            body=None,
+        )
+        mock_openai.return_value.models.list.side_effect = redirect
+
+        state, message = OpenAICompatibleAdapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
+
+        assert state == "invalid"
+        assert message == REDIRECT_MESSAGE
+
+    @patch(OPENAI_PATCH_TARGET)
+    def test_validate_key_is_invalid_when_the_host_fails_pinning(self, mock_openai):
+        # Stands in for a record that resolved publicly during validation and rebinds to a
+        # private address before the request goes out.
+        with patch.object(openai_compatible, "pinned_transport", side_effect=SSRFBlockedError("Internal IP")):
+            state, message = OpenAICompatibleAdapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
+
+        assert state == "invalid"
+        assert message == DISALLOWED_BASE_URL_MESSAGE
+        mock_openai.assert_not_called()
 
     @patch(OPENAI_PATCH_TARGET)
     def test_complete_without_api_key_raises(self, mock_openai):

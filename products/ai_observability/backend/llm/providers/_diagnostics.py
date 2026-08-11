@@ -20,10 +20,16 @@ def _tag_response(response: httpx.Response) -> None:
         pass  # instrumentation must never break the call
 
 
-def tagged_http_client(timeout: float | None = None) -> httpx.Client:
+def tagged_http_client(
+    timeout: float | None = None,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    follow_redirects: bool = True,
+) -> httpx.Client:
     return httpx.Client(
         event_hooks={"response": [_tag_response]},
         limits=_PROVIDER_DEFAULT_LIMITS,
-        follow_redirects=True,
+        follow_redirects=follow_redirects,
         timeout=timeout if timeout is not None else httpx.Timeout(connect=5.0, read=600, write=600, pool=600),
+        transport=transport,
     )
