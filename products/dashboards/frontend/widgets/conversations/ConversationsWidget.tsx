@@ -99,12 +99,14 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
                         {requesterName(ticket)}
                     </span>
                     <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
-                    <Tooltip title={channelLabel}>
-                        <span className="size-3.5 shrink-0 text-muted [&>svg]:size-3.5">
-                            {channelIcon[ticket.channel_source]}
-                        </span>
-                    </Tooltip>
-                    <TZLabel time={ticket.updated_at} className="ml-auto shrink-0 text-xs text-muted" />
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                        <Tooltip title={channelLabel}>
+                            <span className="flex size-3.5 items-center justify-center text-muted [&>svg]:size-3.5">
+                                {channelIcon[ticket.channel_source]}
+                            </span>
+                        </Tooltip>
+                        <TZLabel time={ticket.updated_at} className="w-20 text-right text-xs text-muted" />
+                    </div>
                 </div>
                 <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
                     <span
