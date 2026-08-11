@@ -4178,6 +4178,10 @@
             "ignored_in_assistant": true,
             "label": "MCP tools listed (legacy)"
         },
+        "organization switched": {
+            "description": "Fires when a user switches their active organization from the account menu.",
+            "label": "Organization switched"
+        },
         "posthog_identify": {
             "description": "LEGACY \u2014 do not use. Superseded by the canonical `$identify` emitted by @posthog/mcp, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
             "ignored_in_assistant": true,

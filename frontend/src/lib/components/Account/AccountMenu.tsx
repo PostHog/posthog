@@ -139,7 +139,7 @@ function ThemeMenu(): JSX.Element {
 }
 
 export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -261,10 +261,22 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     <DropdownMenuSub>
                         <DropdownMenuSubTrigger asChild>
-                            <ButtonPrimitive menuItem>
+                            <ButtonPrimitive
+                                menuItem
+                                tooltip="Switch organization"
+                                tooltipPlacement="right"
+                                aria-label="Switch organization"
+                            >
                                 <IconBlank />
                                 Other organizations
-                                <MenuOpenIndicator intent="sub" />
+                                <div className="ml-auto flex items-center gap-1">
+                                    {otherOrganizations.length > 0 && (
+                                        <span className="text-xs text-tertiary" aria-hidden>
+                                            +{otherOrganizations.length}
+                                        </span>
+                                    )}
+                                    <MenuOpenIndicator intent="sub" />
+                                </div>
                             </ButtonPrimitive>
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="min-w-[var(--project-panel-width)]">

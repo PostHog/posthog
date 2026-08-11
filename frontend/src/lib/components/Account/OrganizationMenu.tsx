@@ -34,6 +34,9 @@ export function OrganizationMenu({
                         size={iconOnly ? 'base' : 'sm'}
                         {...buttonProps}
                         className={cn('max-w-[178px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
+                        tooltip={buttonProps.tooltip ?? 'Switch organization'}
+                        // The icon-only trigger shows only the logo, so give it a spoken label
+                        aria-label={iconOnly ? 'Switch organization' : undefined}
                     >
                         {currentOrganization ? (
                             <UploadedLogo

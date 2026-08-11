@@ -751,6 +751,9 @@ export const userLogic = kea<userLogicType>([
             await breakpoint(10)
             await api.update('api/users/@me/', { set_current_organization: organizationId })
 
+            // send_instantly so the event flushes before the full page reload below
+            posthog.capture('organization switched', { organization_id: organizationId }, { send_instantly: true })
+
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 
             window.location.href = destination || '/'

@@ -52,7 +52,7 @@ interface AccountMenuProps {
 }
 
 export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { user, otherOrganizations } = useValues(userLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -271,6 +271,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         render={
                                             <ButtonPrimitive
                                                 menuItem
+                                                tooltip="Switch organization"
+                                                tooltipPlacement="right"
+                                                aria-label="Switch organization"
                                                 data-attr="new-account-menu-all-organizations-button"
                                             >
                                                 {currentOrganization ? (
@@ -288,7 +291,14 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         ? currentOrganization.name
                                                         : 'Select organization'}
                                                 </span>
-                                                <MenuOpenIndicator intent="sub" className="ml-auto" />
+                                                <div className="ml-auto flex items-center gap-1">
+                                                    {otherOrganizations.length > 0 && (
+                                                        <span className="text-xs text-tertiary" aria-hidden>
+                                                            +{otherOrganizations.length}
+                                                        </span>
+                                                    )}
+                                                    <MenuOpenIndicator intent="sub" />
+                                                </div>
                                             </ButtonPrimitive>
                                         }
                                     />
