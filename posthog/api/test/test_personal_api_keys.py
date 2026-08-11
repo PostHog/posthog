@@ -1090,6 +1090,26 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @parameterized.expand(
+        [
+            ("US", "PostHog US", "https://eu.i.posthog.com"),
+            ("EU", "PostHog EU", "https://us.i.posthog.com"),
+        ]
+    )
+    def test_invalid_key_on_cloud_names_region_and_other_host(self, region, region_text, other_host):
+        with override_settings(CLOUD_DEPLOYMENT=region):
+            response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        detail = response.json()["detail"]
+        self.assertIn(region_text, detail)
+        self.assertIn(other_host, detail)
+
+    def test_invalid_key_off_cloud_omits_region_hint(self):
+        with override_settings(CLOUD_DEPLOYMENT=None):
+            response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn("region", response.json()["detail"])
+
 
 class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):
     @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")

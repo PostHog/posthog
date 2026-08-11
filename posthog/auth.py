@@ -40,6 +40,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
+    PERSONAL_API_KEY_AUTH_FAILURE_COUNTER,
     PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
 )
@@ -58,6 +59,7 @@ from posthog.passkey import verify_passkey_authentication_response
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+from posthog.utils import get_instance_region
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -208,7 +210,26 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         SOURCE_QUERY_STRING: "query string",
     }
 
+    # Personal API keys live in one region only. A key from another region is genuinely absent from this
+    # region's database, so it fails the same lookup as a deleted or mistyped key.
+    _REGION_API_HOSTS = {
+        "US": "https://us.i.posthog.com",
+        "EU": "https://eu.i.posthog.com",
+    }
+
     message = "Invalid personal API key."
+
+    @classmethod
+    def _wrong_region_hint(cls) -> str:
+        """On Cloud, name the region the key was checked against and point at the other region's host."""
+        region = get_instance_region()
+        if region not in cls._REGION_API_HOSTS:
+            return ""
+        other_region = "EU" if region == "US" else "US"
+        return (
+            f" This key was checked against PostHog {region}. Personal API keys work in one region only."
+            f" If you created it in PostHog {other_region}, send the request to {cls._REGION_API_HOSTS[other_region]} instead."
+        )
 
     @classmethod
     def find_key_with_source(
@@ -280,8 +301,11 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 db_span.set_attribute("auth.hash_mode_used", mode_used)
 
         if not personal_api_key_object:
+            PERSONAL_API_KEY_AUTH_FAILURE_COUNTER.labels(source=source).inc()
             source_display = cls._SOURCE_DISPLAY.get(source, source)
-            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
+            raise AuthenticationFailed(
+                detail=f"Personal API key found in request {source_display} is invalid.{cls._wrong_region_hint()}"
+            )
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.

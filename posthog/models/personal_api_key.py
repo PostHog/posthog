@@ -30,6 +30,12 @@ PERSONAL_API_KEY_AUTH_COUNTER = Counter(
     labelnames=["hash_mode"],
 )
 
+PERSONAL_API_KEY_AUTH_FAILURE_COUNTER = Counter(
+    "personal_api_key_auth_failure_total",
+    "Personal API key authentications that failed to resolve a key",
+    labelnames=["source"],
+)
+
 
 class PersonalAPIKey(ModelActivityMixin, models.Model):
     id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)

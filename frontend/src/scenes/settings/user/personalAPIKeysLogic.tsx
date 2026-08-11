@@ -18,6 +18,7 @@ import {
     scopesArrayToObject,
     scopesObjectToArray,
 } from 'lib/scopes'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -760,6 +761,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         <CodeSnippet className="ph-no-capture" thing="personal API key">
                             {value}
                         </CodeSnippet>
+
+                        <p className="mb-2 mt-4">
+                            Personal API keys work in one region only. Send requests to this region's API host:
+                        </p>
+
+                        <CodeSnippet thing="API host">{apiHostOrigin()}</CodeSnippet>
 
                         <LemonBanner type="warning" className="mt-4">
                             For security reasons the value above <em>will never be shown again</em>.
