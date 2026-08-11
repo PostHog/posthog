@@ -2,6 +2,8 @@ from datetime import timedelta
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.constants import MAX_INACTIVITY_TIMEOUT_SECONDS, resolve_max_run_duration
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -39,16 +41,15 @@ class TestMaxRunDuration:
         # Default mode (no explicit mode in state) is background.
         assert _context(None).max_run_duration() == timedelta(seconds=DEFAULT_CAP_SECONDS)
 
+    @parameterized.expand(
+        [
+            ("explicit_user_created", Task.OriginProduct.USER_CREATED.value),
+            ("missing_origin", None),
+        ]
+    )
     @override_settings(TASKS_MAX_RUN_DURATION_SECONDS=DEFAULT_CAP_SECONDS)
-    def test_user_created_background_runs_are_uncapped(self):
-        assert (
-            _context(
-                {"mode": "background"},
-                origin_product=Task.OriginProduct.USER_CREATED.value,
-            ).max_run_duration()
-            is None
-        )
-        assert _context({"mode": "background"}, origin_product=None).max_run_duration() is None
+    def test_user_created_background_runs_are_uncapped(self, _name: str, origin_product: str | None):
+        assert _context({"mode": "background"}, origin_product=origin_product).max_run_duration() is None
 
     @override_settings(TASKS_MAX_RUN_DURATION_SECONDS=90)
     def test_setting_override_applies_to_capped_runs(self):
