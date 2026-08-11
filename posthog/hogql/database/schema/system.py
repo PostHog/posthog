@@ -42,6 +42,12 @@ from products.customer_analytics.backend.facade.hogql import (
     accounts,
     custom_property_definitions,
 )
+from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
+
+# Source types that map to a direct-SQL engine, so a source of this type can be live-queried through a
+# connection. Plain strings, not the enum members: these end up in the pickled catalog, which only
+# restores a fixed set of classes. Sorted for a stable printed query.
+LIVE_QUERYABLE_SOURCE_TYPES: list[str] = sorted(str(source_type) for source_type in DIRECT_ENGINE_BY_SOURCE_TYPE)
 
 
 class IngestionWarningsTable(Table):
@@ -542,12 +548,68 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     name="data_warehouse_sources",
     postgres_table_name="posthog_externaldatasource",
     access_scope="external_data_source",
-    description="Configured data warehouse import sources (Stripe, Postgres, Hubspot, etc.); one row per connected source.",
+    description="Configured data warehouse sources (Stripe, Postgres, Hubspot, etc.); one row per connected source. "
+    "Covers both synced sources, whose tables are queryable by name from this catalog, and direct "
+    "connections, whose tables are live-queried by passing the source's id as the query's connection id — "
+    "filter on `is_live_queryable` to find the latter.",
     fields={
-        "id": IntegerDatabaseField(name="id", description="Source id."),
+        "id": StringDatabaseField(
+            name="id",
+            description="Source UUID. Pass it as a query's connection id to live-query a direct connection.",
+        ),
         "team_id": IntegerDatabaseField(name="team_id"),
         "source_type": StringDatabaseField(
             name="source_type", description="Source connector type, e.g. 'Stripe', 'Postgres', 'Hubspot'."
+        ),
+        "status": StringDatabaseField(
+            name="status", description="Latest source-level status, e.g. Running, Paused, Error, Completed."
+        ),
+        "access_method": StringDatabaseField(
+            name="access_method",
+            description="'direct' for a live-query connection (nothing is synced; its tables exist only "
+            "when queried through the connection), or 'warehouse' for a source synced into PostHog.",
+        ),
+        "_direct_query_enabled": BooleanDatabaseField(name="direct_query_enabled", hidden=True),
+        "direct_query_enabled": ExpressionField(
+            name="direct_query_enabled",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_direct_query_enabled"])]),
+            description="1 if this synced source may also be live-queried through a direct connection, "
+            "0 otherwise. Meaningless for sources that are already access_method='direct'.",
+        ),
+        "is_live_queryable": ExpressionField(
+            name="is_live_queryable",
+            # Mirrors `is_direct_capable`: the source type must map to an engine, and the source must
+            # either be a pure direct connection or a synced source opted into live queries. Built as
+            # AST rather than parse_expr with a placeholder: placeholder replacement compiles bytecode,
+            # which would drag posthog.schema onto the django.setup() import path via this module-level call.
+            expr=ast.Call(
+                name="toInt",
+                args=[
+                    ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In,
+                                left=ast.Field(chain=["source_type"]),
+                                right=ast.Tuple(
+                                    exprs=[ast.Constant(value=name) for name in LIVE_QUERYABLE_SOURCE_TYPES]
+                                ),
+                            ),
+                            ast.Or(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["access_method"]),
+                                        right=ast.Constant(value="direct"),
+                                    ),
+                                    ast.Field(chain=["_direct_query_enabled"]),
+                                ]
+                            ),
+                        ]
+                    )
+                ],
+            ),
+            description="1 if this source can be live-queried by passing its id as a query's connection id, "
+            "0 otherwise. Use `WHERE is_live_queryable = 1` to list every connection available for live queries.",
         ),
         "api_version": StringDatabaseField(
             name="api_version",
@@ -610,7 +672,9 @@ data_modeling_views: PostgresTable = PostgresTable(
 data_warehouse_tables: PostgresTable = PostgresTable(
     name="data_warehouse_tables",
     postgres_table_name="posthog_datawarehousetable",
-    description="Tables synced into the data warehouse from external sources; one row per warehouse table.",
+    description="Tables belonging to a data warehouse source; one row per table. A row whose source is a "
+    "direct connection is not queryable by name from this catalog — query it through that connection "
+    "instead, using the source id as the query's connection id.",
     fields={
         "id": StringDatabaseField(name="id", description="Warehouse table UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),

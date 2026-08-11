@@ -9,7 +9,12 @@ import structlog
 from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.auth.service import AuthService, get_auth_service
+from llm_gateway.auth.service import (
+    AuthService,
+    InvalidProjectScopeError,
+    UnauthorizedProjectScopeError,
+    get_auth_service,
+)
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
@@ -50,7 +55,12 @@ async def get_authenticated_user(
     db_pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthenticatedUser:
-    user = await auth_service.authenticate_request(request, db_pool)
+    try:
+        user = await auth_service.authenticate_request(request, db_pool)
+    except InvalidProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid project scope") from exc
+    except UnauthorizedProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied") from exc
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return user

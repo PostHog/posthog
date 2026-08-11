@@ -101,7 +101,7 @@ We <3 contributions big and small:
 
 - Vote on features or get early access to beta functionality in our [roadmap](https://posthog.com/roadmap)
 - Open a PR (see our instructions on [developing PostHog locally](https://posthog.com/handbook/engineering/developing-locally))
-- Submit a [feature request](https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement%2C+feature&template=feature_request.yml) or [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.yml)
+- Submit a feature request on [our roadmap](https://posthog.com/roadmap) or a [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.yml)
 
 For an overview of the codebase structure, see [monorepo layout](docs/internal/monorepo-layout.md) and [products](products/README.md).
 

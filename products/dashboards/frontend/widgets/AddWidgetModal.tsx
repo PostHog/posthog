@@ -17,7 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import {
     DASHBOARD_WIDGET_CATALOG_GROUPS,
     DASHBOARD_WIDGET_PREVIEWS,
-    type DashboardWidgetCatalogEntry,
+    type ResolvedDashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogKey,
     getDashboardWidgetGroupIcon,
     getDashboardWidgetGroupProductIntro,
@@ -42,7 +42,7 @@ type AddWidgetModalProps = {
 
 type AddWidgetCatalogPickerProps = {
     widgetType: DashboardWidgetCatalogKey
-    entry: DashboardWidgetCatalogEntry
+    entry: ResolvedDashboardWidgetCatalogEntry
     selected: boolean
     onToggleWidgetType: (widgetType: string) => void
 }
@@ -65,6 +65,7 @@ function AddWidgetCatalogPicker({
             badge={entry.badge}
             description={entry.description}
             selected={selected}
+            live={entry.live}
             preview={WidgetPreview ? <WidgetPreview /> : <div />}
             onSelect={handleSelect}
         />
