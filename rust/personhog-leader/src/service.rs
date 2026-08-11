@@ -1605,9 +1605,17 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let refence = if let Some(entry) = self.fences.get(&cache_key) {
             if entry.op_id != op_id {
+                let holder = *entry.value();
+                drop(entry);
                 // At most one lifecycle op holds a person; the loser backs
-                // off or aborts.
-                return Err(fenced_status(entry.value()));
+                // off or aborts. The holder may also be a ghost (its op
+                // settled without this leader hearing); kick the lazy heal
+                // like the write paths do, since on a low-traffic person
+                // no other caller will.
+                if let Some(healer) = &self.fence_healer {
+                    healer.maybe_heal(cache_key.clone(), holder);
+                }
+                return Err(fenced_status(&holder));
             }
             true
         } else {

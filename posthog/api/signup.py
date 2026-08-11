@@ -32,7 +32,7 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
+from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
@@ -183,8 +183,15 @@ class SignupSerializer(serializers.Serializer):
 
             value = session_email
 
-        if not settings.DEMO and EmailValidationHelper.user_exists(value):
-            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        if not settings.DEMO:
+            if not self.is_social_signup:
+                reject_plus_addressed_email(value)
+                if EmailValidationHelper.user_exists_with_stripped_alias(value):
+                    raise serializers.ValidationError(
+                        "There is already an account with this email address.", code="unique"
+                    )
+            elif EmailValidationHelper.user_exists(value):
+                raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         return value
 
     def is_email_auto_verified(self):
