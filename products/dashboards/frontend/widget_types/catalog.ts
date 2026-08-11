@@ -198,7 +198,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
             requirement: 'conversations_enabled',
             unavailableTitle: 'Keep customer conversations close to your product data',
             unavailableReason: 'Triage and respond to customer questions with the context you need to solve them.',
-            setupActionLabel: 'Set up Support',
+            setupActionLabel: 'Enable',
             docsHref: 'https://posthog.com/docs/support',
             compactSetupPrompt: true,
         },

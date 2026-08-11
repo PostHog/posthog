@@ -4,6 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { SupportActivationButton } from 'products/conversations/frontend/components/ConversationsDisabledBanner'
+
 import type { WidgetAvailabilityConfig } from '../../widget_types/widgetAvailability'
 import { WIDGET_AVAILABILITY_PRESENTATION } from '../../widget_types/widgetAvailability'
 import { WidgetCardContent } from '../WidgetCard/WidgetCardBody'
@@ -25,6 +27,7 @@ export function WidgetAvailabilitySetupPrompt({
     dashboardId,
 }: WidgetAvailabilitySetupPromptProps): JSX.Element {
     const presentation = WIDGET_AVAILABILITY_PRESENTATION[availability.requirement]
+    const isSupport = availability.requirement === 'conversations_enabled'
 
     return (
         <WidgetCardContent
@@ -44,20 +47,38 @@ export function WidgetAvailabilitySetupPrompt({
                 docsURL={availability.docsHref}
                 actionElementOverride={
                     <div className="flex flex-col items-center gap-4">
-                        <LemonButton
-                            type="primary"
-                            to={presentation.settingsUrl}
-                            onClick={() => {
-                                posthog.capture('dashboard widget cross product activated', {
-                                    widget_type: widgetType,
-                                    widget_id: widgetId,
-                                    dashboard_id: dashboardId,
-                                    cta: availability.requirement,
-                                })
-                            }}
-                        >
-                            {availability.setupActionLabel}
-                        </LemonButton>
+                        {isSupport ? (
+                            <SupportActivationButton
+                                source="dashboard_widget"
+                                className="flex"
+                                widgetType={widgetType}
+                                widgetId={widgetId}
+                                dashboardId={dashboardId}
+                                onClick={() => {
+                                    posthog.capture('dashboard widget cross product activated', {
+                                        widget_type: widgetType,
+                                        widget_id: widgetId,
+                                        dashboard_id: dashboardId,
+                                        cta: availability.requirement,
+                                    })
+                                }}
+                            />
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                to={presentation.settingsUrl}
+                                onClick={() => {
+                                    posthog.capture('dashboard widget cross product activated', {
+                                        widget_type: widgetType,
+                                        widget_id: widgetId,
+                                        dashboard_id: dashboardId,
+                                        cta: availability.requirement,
+                                    })
+                                }}
+                            >
+                                {availability.setupActionLabel}
+                            </LemonButton>
+                        )}
                     </div>
                 }
             />
