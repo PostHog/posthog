@@ -122,9 +122,7 @@ export class RequestStateResolver {
 
         const { features, tools, organizationId, projectId, readOnly } = props
         const contextPromise = reqCtx.getContext()
-        const pinnedSessionContextPromise = projectId
-            ? this.resolveSessionContext(requestContext, projectId)
-            : undefined
+        const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
 
         await reqCtx.tokenCache.setMany({
             ...(organizationId ? { orgId: organizationId } : {}),
@@ -140,7 +138,7 @@ export class RequestStateResolver {
 
         const [context, sessionContext] = await Promise.all([
             contextPromise,
-            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext, cachedProjectId),
+            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext),
         ])
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
@@ -251,14 +249,11 @@ export class RequestStateResolver {
         }
     }
 
-    private async resolveSessionContext(
-        requestContext: MCPRequestContext,
-        projectId: string | undefined
-    ): Promise<MCPSessionContext | null> {
+    private async resolveSessionContext(requestContext: MCPRequestContext): Promise<MCPSessionContext | null> {
         if (!requestContext.mcpSessionId) {
             return null
         }
-        return new McpSessionRedisStore(this.redis, requestContext.mcpSessionId).resolve(requestContext, projectId)
+        return new McpSessionRedisStore(this.redis, requestContext.mcpSessionId).resolve(requestContext)
     }
 
     private async resolveAllFlags(

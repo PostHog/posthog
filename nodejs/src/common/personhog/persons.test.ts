@@ -72,6 +72,9 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     splitPerson: () => ({ splits: [] }),
     setPersonDistinctIdVersionFloor: () => ({}),
     setPersonVersionFloor: () => ({ updated: false }),
+    fencePerson: () => ({}),
+    releaseFence: () => ({}),
+    foldPersonDocument: () => ({}),
 }
 
 function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): {

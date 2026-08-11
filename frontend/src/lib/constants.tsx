@@ -182,13 +182,14 @@ export const FEATURE_FLAGS = {
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
-    AI_OBSERVABILITY_DAILY_DIGEST_SCOUT: 'ai-observability-daily-digest-scout', // owner: #team-ai-observability, gates the daily digest scout button
+    AI_OBSERVABILITY_SELF_DRIVING: 'ai-observability-daily-digest-scout', // owner: #team-ai-observability, gates the AI observability Self-driving tab
     AI_TRAINING: 'ai-training', // owner: @nicowaltz #team-replay #ai-research, gates the AI training opt-out UI and API enforcement
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
     AUTH_FLOW_VARIANT: 'auth-flow-variant', // owner: @fercgomes #team-growth multivariate=legacy,paper-desk,glass; selects the auth flow experience across login, signup, invited signup, and email verification
     BATCH_EXPORT_EARLIEST_BACKFILL: 'batch-export-earliest-backfill', // owner: #team-batch-exports, allow backfilling from beginning of time
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: #team-growth, used to enable custom CSS for teams who want to have fun
+    EXPERIMENT_ACTIVATION_EVENT: 'experiment-activation-event', // owner: #team-experiments, offers an activation event on top of the default exposure instead of legacy custom exposure events
     EXPERIMENT_EXPOSURE_EVENT: 'experiment-exposure-event', // owner: #team-experiments, switches new experiments to the dedicated exposure event
     GAME_CENTER: 'game-center', // owner: everybody, this is just internal for now
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: #team-web-analytics, used to reward beta users for web analytics
@@ -275,6 +276,8 @@ export const FEATURE_FLAGS = {
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
+    CUSTOMER_ANALYTICS_ACCOUNTS_HOGQL_CLEANUP: 'customer-analytics-accounts-hogql-cleanup', // owner: @arthurdedeus #team-customer-analytics, hides account columns that require custom HogQL or data warehouse joins
+    CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES: 'customer-analytics-accounts-postgres', // owner: @arthurdedeus #team-customer-analytics, runs supported Accounts list queries directly in Postgres
     CUSTOMER_ANALYTICS_CSP: 'customer-analytics-csp', // owner: @arthurdedeus #team-customer-analytics, gates the Customer analytics > Accounts settings tab (account_group_type_index dropdown)
     CUSTOMER_ANALYTICS_JOURNEYS: 'customer-analytics-journeys', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_PROFILE_CONFIG_BUTTON: 'customer-profile-config-button', // owner: @arthurdedeus #team-customer-analytics
@@ -310,6 +313,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
+    EXPERIMENT_BEHAVIOR_COMPARISON: 'experiment-behavior-comparison', // owner: @mp-hog #team-experiments
     EXPERIMENT_FLAG_CLEANUP_PR: 'experiment-flag-cleanup-pr', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_RECORDINGS_TAB: 'experiment-recordings-tab', // owner: @mp-hog #team-experiments
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
@@ -468,8 +472,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VIDEO_BASED_SUMMARIZATION: 'replay-video-based-summarization', // owner: #team-replay
-    REPLAY_VISION: 'replay-vision', // owner: #team-replay
-    REPLAY_VISION_ACTIONS: 'replay-vision-actions', // owner: #team-replay
+    REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry
@@ -520,6 +523,7 @@ export const FEATURE_FLAGS = {
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
+    WEB_ANALYTICS_BACK_NAVIGATION_RESET: 'web-analytics-back-navigation-reset', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_BOT_ANALYSIS: 'web-analytics-bot-analysis', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_DRAG_TO_ZOOM: 'web-analytics-drag-to-zoom', // owner: @jordanm-posthog #team-web-analytics

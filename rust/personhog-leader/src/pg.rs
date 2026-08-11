@@ -46,7 +46,7 @@ pub async fn load_person_from_pg(
     // is the truthful answer for a deleted person.
     let row = sqlx::query(&format!(
         "SELECT id, team_id, uuid::text, properties::text AS properties, created_at, version, \
-         is_identified
+         is_identified, last_seen_at
          FROM {table}
          WHERE team_id = $1 AND id = $2 AND is_deleted = false",
     ))
@@ -73,6 +73,7 @@ pub async fn load_person_from_pg(
     let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
     let version: Option<i64> = row.get("version");
     let is_identified: bool = row.get("is_identified");
+    let last_seen_at: Option<chrono::DateTime<chrono::Utc>> = row.get("last_seen_at");
 
     let properties = match serde_json::from_str(properties_text) {
         Ok(value) => value,
@@ -112,5 +113,9 @@ pub async fn load_person_from_pg(
         created_at: created_at.timestamp_millis(),
         version: version.unwrap_or(0),
         is_identified,
+        // The query filters is_deleted = false; a tombstoned row is
+        // answered as not-found above, never loaded.
+        is_deleted: false,
+        last_seen_at: last_seen_at.map(|t| t.timestamp_millis()),
     }))
 }

@@ -585,7 +585,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     if skip_reason or result is None:
         return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found")
 
-    return finalize_hog_eval_result(result, allows_na=allows_na, unit_label="trace")
+    return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="trace")
 
 
 @dataclass

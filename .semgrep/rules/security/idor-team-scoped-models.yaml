@@ -115,11 +115,15 @@ rules:
                               |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
+                              |DataQualityCheck
+                              |DataQualityCheckRun
+                              |DataQualitySuiteRun
                               |Dataset
                               |DatasetItem
                               |DatasetItemVersion
                               |DatasetRevision
                               |DataWarehouseCredential
+                              |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
@@ -260,6 +264,7 @@ rules:
                               |ReplayObservationLabel
                               |ReplayObservationUsage
                               |ReplayScanner
+                              |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
@@ -463,11 +468,15 @@ rules:
                         |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
+                        |DataQualityCheck
+                        |DataQualityCheckRun
+                        |DataQualitySuiteRun
                         |Dataset
                         |DatasetItem
                         |DatasetItemVersion
                         |DatasetRevision
                         |DataWarehouseCredential
+                        |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
@@ -602,6 +611,7 @@ rules:
                         |ReplayObservationLabel
                         |ReplayObservationUsage
                         |ReplayScanner
+                        |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule

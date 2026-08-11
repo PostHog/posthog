@@ -15,6 +15,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.logic.services.living_artifacts import SlackFileDeliveryResult
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
@@ -555,7 +556,7 @@ class TestRelaySlackMessage(TestCase):
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
         self.assertEqual(artifact.location["delivery_status"], "pending")
-        mock_post.assert_called_once_with("<@U123> Here's the trend.")
+        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True)
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
@@ -945,3 +946,69 @@ class TestRelaySlackMessageChunking(TestCase):
 
         self.task_run.refresh_from_db()
         assert "relay-chunked" in self.task_run.state.get("slack_sent_relay_ids", [])
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_footer")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_image_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.deliver_pending_slack_file_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_file_artifacts")
+    def test_answer_composed_with_charts_still_gets_its_footer(
+        self,
+        mock_has_files,
+        mock_deliver,
+        mock_has_images,
+        mock_delete_progress,
+        mock_post,
+        mock_post_footer,
+    ):
+        # The answer rides out inside the composed chart message, leaving no message of its
+        # own to close — without this the reply would carry no provenance at all.
+        mock_has_files.return_value = True
+        mock_has_images.return_value = True
+        mock_deliver.return_value = SlackFileDeliveryResult(answer_posted=True, delivered_count=1)
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-composed-charts",
+                text="Here you go.",
+                user_message_ts="1234.5",
+            )
+        )
+
+        mock_post.assert_not_called()
+        mock_post_footer.assert_called_once()
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_footer")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_image_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.deliver_pending_slack_file_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_file_artifacts")
+    def test_answer_falls_back_to_plain_messages_when_compose_does_not_post(
+        self,
+        mock_has_files,
+        mock_deliver,
+        mock_has_images,
+        mock_delete_progress,
+        mock_post,
+        mock_post_footer,
+    ):
+        # Compose was attempted but the message never landed, so the answer is posted the
+        # ordinary way and closes itself — a second standalone footer would duplicate it.
+        mock_has_files.return_value = True
+        mock_has_images.return_value = True
+        mock_deliver.return_value = SlackFileDeliveryResult(answer_posted=False)
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-compose-failed",
+                text="Here you go.",
+                user_message_ts="1234.5",
+            )
+        )
+
+        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True)
+        mock_post_footer.assert_not_called()

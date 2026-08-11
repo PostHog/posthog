@@ -365,7 +365,7 @@ class RelaySlackMessageInput:
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
+    from products.slack_app.backend.services.slack_messages import load_run_footer, normalize_labeled_mentions_to_bare
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
@@ -427,10 +427,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         user_message_ts=input.user_message_ts,
         mentioning_slack_user_id=mapping.mentioning_slack_user_id,
     )
-    handler = SlackThreadHandler(context)
-
     # Mention resolution, most precise first: the echoed message's recorded
-    # sender, then the live/mapping actors for pre-rollout runs.
+    # sender, then the live/mapping actors for pre-rollout runs. Resolved before the
+    # handler so the footer's links are gated on whoever this reply is actually for.
     mention_from_message = get_message_actor(input.run_id, input.message_id) if input.message_id else None
     target = (
         mention_from_message
@@ -438,6 +437,10 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         or mapping.latest_actor_slack_user_id
         or mapping.mentioning_slack_user_id
     )
+
+    handler = SlackThreadHandler(context, actor_slack_user_id=target)
+    if handler.footer_enabled():
+        handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()
@@ -448,11 +451,17 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         if sections:
             sections[0] = f"{mention_prefix}{sections[0]}"
         answer_posted = deliver_pending_slack_file_artifacts(task_run, answer_sections=sections).answer_posted
+        if answer_posted:
+            # The answer went out inside the composed message, whose blocks are the text
+            # sections and the chart cards, so the footer follows it as its own message.
+            handler.post_footer()
 
     if not answer_posted:
         for index, chunk in enumerate(chunks):
             prefix = mention_prefix if index == 0 else ""
-            handler.post_thread_message(f"{prefix}{chunk}")
+            # This relay carries one agent answer, split only to fit Slack's length cap, so
+            # the last chunk is where the turn ends and the footer belongs.
+            handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks) - 1)
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)
 
