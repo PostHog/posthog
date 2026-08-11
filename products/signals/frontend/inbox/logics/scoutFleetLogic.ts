@@ -32,6 +32,7 @@ import {
     captureScoutAction,
     captureScoutChatStarted,
     captureScoutConfigChanged,
+    captureScoutFleetLoadFailed,
     ScoutChatType,
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
@@ -55,6 +56,10 @@ import type { ScoutTagOption } from '../utils/scoutTags'
 
 type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
+
+// Shown when the project isn't in the scout enrollment set: the config list can't be read and a
+// task kickoff would fail on the backend, so the create and chat CTAs are held back with this reason.
+const SCOUT_NOT_ENROLLED_REASON = "Scouts aren't available for this project yet"
 
 // Which CTA a chat task came from, keyed off the templated prompt so the callers stay untouched.
 const SCOUT_CHAT_TYPES: Record<string, ScoutChatType> = {
@@ -112,6 +117,7 @@ export interface scoutFleetLogicValues {
     }
     enabledCount: number
     expanded: boolean
+    failedChatPrompt: string | null
     fleetFindingsSummary: FleetFindingsSummaryApi | null
     fleetFindingsSummaryLoadedOnce: boolean
     fleetFindingsSummaryLoading: boolean
@@ -128,8 +134,10 @@ export interface scoutFleetLogicValues {
     runsWindowLoadedOnce: boolean
     runsWindowLoading: boolean
     scoutBannerMessage: string | null
+    scoutChatDisabledReason: string | null
     scoutConfigs: SignalScoutConfig[] | null
     scoutConfigsLoading: boolean
+    scoutCreationDisabledReason: string | null
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
     scoutTagOptions: ScoutTagOption[]
@@ -243,8 +251,8 @@ export interface scoutFleetLogicActions {
         prompt: string
         taskLabel: string
     }
-    startScoutChatTaskFailure: () => {
-        value: true
+    startScoutChatTaskFailure: (prompt: string) => {
+        prompt: string
     }
     startScoutChatTaskSuccess: () => {
         value: true
@@ -272,6 +280,11 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         scoutBannerMessage: (scoutMetadata: ScoutMetadataApi | null) => string | null
+        scoutCreationDisabledReason: (scoutMetadata: ScoutMetadataApi | null) => string | null
+        scoutChatDisabledReason: (
+            scoutCreationDisabledReason: string | null,
+            aiConsentDisabledReason: string | null
+        ) => string | null
         rollups: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => Map<string, ScoutRollup>
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -340,7 +353,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             fallbackTitle,
         }),
         startScoutChatTaskSuccess: true,
-        startScoutChatTaskFailure: true,
+        startScoutChatTaskFailure: (prompt: string) => ({ prompt }),
     }),
 
     loaders(({ values }) => ({
@@ -460,6 +473,16 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
+        // The prompt whose last kickoff failed, so its CTA can show a persistent retry state instead
+        // of relying on a toast that fades. Cleared when that prompt is retried or any kickoff succeeds.
+        failedChatPrompt: [
+            null as string | null,
+            {
+                startScoutChatTask: () => null,
+                startScoutChatTaskSuccess: () => null,
+                startScoutChatTaskFailure: (_, { prompt }) => prompt,
+            },
+        ],
         expanded: [
             // Defaults open: the only consumer is the Scout troop setup modal, which should
             // show the troop list immediately rather than a collapsed one-line pulse.
@@ -539,6 +562,21 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         scoutBannerMessage: [
             (s) => [s.scoutMetadata],
             (scoutMetadata: ScoutMetadataApi | null): string | null => scoutMetadata?.banner_message ?? null,
+        ],
+        // Why the create CTA is unavailable: a project that isn't enrolled can't list or create scouts.
+        // Metadata load is best-effort, so an unresolved or failed load leaves `enrolled` undefined and
+        // the CTA stays available — only an explicit `false` holds it back.
+        scoutCreationDisabledReason: [
+            (s) => [s.scoutMetadata],
+            (scoutMetadata: ScoutMetadataApi | null): string | null =>
+                scoutMetadata?.enrolled === false ? SCOUT_NOT_ENROLLED_REASON : null,
+        ],
+        // Why the chat-kickoff CTAs (Suggest a scout, fleet-overview chips) are unavailable: enrollment
+        // first (the task would fail on the backend), then AI data-processing consent.
+        scoutChatDisabledReason: [
+            (s) => [s.scoutCreationDisabledReason, s.aiConsentDisabledReason],
+            (scoutCreationDisabledReason: string | null, aiConsentDisabledReason: string | null): string | null =>
+                scoutCreationDisabledReason ?? aiConsentDisabledReason,
         ],
         rollups: [
             (s) => [s.runsWindow],
@@ -625,6 +663,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        // A null config list renders the error banner but `captureScoutFleetViewed` skips it, so record
+        // the failure here — otherwise a project that can't list scouts leaves no trace in analytics.
+        loadScoutConfigsFailure: ({ errorObject }) => {
+            captureScoutFleetLoadFailed({ statusCode: errorObject?.status ?? null })
+        },
         setScoutTagFilter: ({ tags }) => {
             captureScoutAction({
                 actionType: 'filter_tags',
@@ -780,16 +823,19 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         startScoutChatTask: async ({ prompt, fallbackTitle, taskLabel }) => {
             // Task-kickoff, mirroring inboxTaskKickoffLogic: create an auto-mode cloud
             // task from a templated prompt, then navigate to it. Not a live chat.
-            // The CTAs carry this as a `disabledReason`; this backstops the paths that don't go
-            // through a button press, since the run endpoint enforces no consent of its own.
-            if (values.aiConsentDisabledReason) {
-                lemonToast.error(values.aiConsentDisabledReason)
-                actions.startScoutChatTaskFailure()
-                return
-            }
             const chatType = SCOUT_CHAT_TYPES[prompt]
-            if (chatType) {
-                captureScoutChatStarted({ chatType, surface: 'fleet_list' })
+            const captureOutcome = (success: boolean): void => {
+                if (chatType) {
+                    captureScoutChatStarted({ chatType, surface: 'fleet_list', success })
+                }
+            }
+            // The CTAs carry this as a `disabledReason`; this backstops the paths that don't go
+            // through a button press, since the run endpoint enforces neither consent nor enrollment.
+            if (values.scoutChatDisabledReason) {
+                lemonToast.error(values.scoutChatDisabledReason)
+                captureOutcome(false)
+                actions.startScoutChatTaskFailure(prompt)
+                return
             }
             try {
                 // Deliberately repo-less: these prompts read PostHog data over MCP and never touch
@@ -819,11 +865,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     // failed and still navigate there.
                     lemonToast.error(error?.detail || error?.message || `Failed to run ${taskLabel}`)
                 }
+                captureOutcome(true)
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.id))
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
-                actions.startScoutChatTaskFailure()
+                captureOutcome(false)
+                actions.startScoutChatTaskFailure(prompt)
             }
         },
         startRunsPolling: () => {

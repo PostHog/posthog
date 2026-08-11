@@ -255,4 +255,36 @@ describe('scoutFleetLogic', () => {
 
         expect(router.values.location.pathname).toContain('task-2')
     })
+
+    it('holds back a chat kickoff when the project is not enrolled for scouts', async () => {
+        logic.actions.loadScoutMetadataSuccess({
+            enrolled: false,
+            banner_message: null,
+            limits: { max_runs_per_tick: 1, max_runs_per_day: null, runs_today: 0, runs_remaining_today: null },
+        })
+        const create = jest.spyOn(api.tasks, 'create')
+
+        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
+
+        // The run endpoint checks neither consent nor enrollment, so dropping this guard would create a
+        // task on a project whose scout runs can't execute — the dead-end the CTA lands the user on.
+        expect(create).not.toHaveBeenCalled()
+        expect(logic.values.failedChatPrompt).toEqual(SCOUT_AUTHOR_PROMPT)
+    })
+
+    it('flags the prompt whose kickoff failed, and clears it on the next success', async () => {
+        jest.spyOn(api.tasks, 'create')
+            .mockRejectedValueOnce(new Error('boom'))
+            .mockResolvedValue({ id: 'task-4' } as any)
+        jest.spyOn(api.tasks, 'run').mockResolvedValue({ id: 'task-4' } as any)
+
+        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
+        expect(logic.values.failedChatPrompt).toEqual(SCOUT_AUTHOR_PROMPT)
+
+        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskSuccess'])
+        expect(logic.values.failedChatPrompt).toBeNull()
+    })
 })

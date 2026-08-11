@@ -30,6 +30,7 @@ export const INBOX_EVENTS = {
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
+    SCOUT_FLEET_LOAD_FAILED: 'Scout fleet load failed',
     SCOUT_DETAIL_VIEWED: 'Scout detail viewed',
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
@@ -580,15 +581,30 @@ export function captureInboxOnboardingDecided(params: {
     })
 }
 
-/** A scout CTA kicked off a cloud task ("Suggest a scout", the fleet-overview chips). */
+/**
+ * A scout CTA tried to kick off a cloud task ("Suggest a scout", the fleet-overview chips).
+ * `success` records the outcome so a failed kickoff is visible in data, not only in a recording.
+ */
 export function captureScoutChatStarted(params: {
     chatType: ScoutChatType
     surface: ScoutSurface
+    success: boolean
     skillName?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_CHAT_STARTED, {
         chat_type: params.chatType,
         surface: params.surface,
+        success: params.success,
         skill_name: params.skillName ?? null,
+    })
+}
+
+/**
+ * The fleet config list failed to load, so the section shows its error banner. `captureScoutFleetViewed`
+ * skips a null load, so without this a failed load left no trace outside a session recording.
+ */
+export function captureScoutFleetLoadFailed(params: { statusCode: number | null }): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_FLEET_LOAD_FAILED, {
+        status_code: params.statusCode,
     })
 }

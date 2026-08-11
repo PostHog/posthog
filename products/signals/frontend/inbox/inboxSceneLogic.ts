@@ -374,7 +374,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
-        // A decoded `#createScout=` payload, prefilling the create modal. The user still submits it.
+        // Opens the scene-level scout create modal, or closes it with `null`. A decoded `#createScout=`
+        // payload prefills it; the fleet's "Create scout" button opens it blank with `{}`. The user
+        // still submits it. Hosting the modal here keeps it alive when the fleet section unmounts.
         setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
 

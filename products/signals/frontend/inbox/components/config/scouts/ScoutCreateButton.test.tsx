@@ -74,6 +74,17 @@ describe('scout creation buttons', () => {
         expect(createdTaskDescriptions).toEqual([])
     })
 
+    it('delegates opening to the parent instead of self-hosting when given onClick', () => {
+        const onClick = jest.fn()
+        const { getByText, queryByText } = render(<ScoutCreateButton onClick={onClick} />)
+
+        fireEvent.click(getByText('Create scout'))
+
+        // The inbox hosts the modal at the scene level, so the button must not render its own.
+        expect(onClick).toHaveBeenCalledTimes(1)
+        expect(queryByText('Manual scout form')).toBeNull()
+    })
+
     it('starts the authoring task from the suggest button', async () => {
         const { getByText, queryByText } = render(<ScoutSuggestButton />)
 

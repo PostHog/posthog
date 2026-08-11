@@ -20,8 +20,15 @@ const LazyScoutCreateModal = React.lazy(async () => {
 export interface ScoutCreateButtonProps {
     children?: React.ReactNode
     className?: string
+    /**
+     * When set, the button delegates opening to the parent, which hosts the modal at a stable
+     * location (the inbox scene). This keeps the modal and its typed form alive across a fleet
+     * re-render or a viewport resize. Without it the button hosts the modal itself.
+     */
+    onClick?: () => void
     initialValues?: ScoutCreateInitialValues
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
+    disabledReason?: string | null
     size?: LemonButtonProps['size']
     type?: LemonButtonProps['type']
     'data-attr'?: string
@@ -29,8 +36,10 @@ export interface ScoutCreateButtonProps {
 
 /** Opens the scout form. Paired with `ScoutSuggestButton`, which drafts one with AI instead. */
 export function ScoutCreateButton({
+    onClick,
     initialValues,
     onCreated,
+    disabledReason,
     children = 'Create scout',
     className,
     size = 'small',
@@ -49,14 +58,14 @@ export function ScoutCreateButton({
                 type={type}
                 size={size}
                 icon={<IconPlus />}
-                disabledReason={creationDisabledReason ?? undefined}
-                onClick={() => setIsModalOpen(true)}
+                disabledReason={creationDisabledReason ?? disabledReason ?? undefined}
+                onClick={onClick ?? (() => setIsModalOpen(true))}
                 className={className}
                 data-attr={dataAttr}
             >
                 {children}
             </LemonButton>
-            {isModalOpen ? (
+            {!onClick && isModalOpen ? (
                 <React.Suspense fallback={null}>
                     <LazyScoutCreateModal
                         isOpen

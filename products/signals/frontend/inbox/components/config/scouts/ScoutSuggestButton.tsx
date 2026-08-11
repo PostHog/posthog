@@ -8,6 +8,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { scoutChatRetryButtonProps } from '../../../utils/scoutChatCta'
 import { SCOUT_AUTHOR_PROMPT } from '../../../utils/scoutRunsWindow'
 
 export interface ScoutSuggestButtonProps {
@@ -27,9 +28,14 @@ export function ScoutSuggestButton({
     'data-attr': dataAttr,
 }: ScoutSuggestButtonProps): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
+    const { runningChatPrompt, failedChatPrompt, scoutChatDisabledReason } = useValues(scoutFleetLogic)
     const isStarting = runningChatPrompt === SCOUT_AUTHOR_PROMPT
     const anotherTaskIsStarting = runningChatPrompt !== null && !isStarting
+    const {
+        failed: lastAttemptFailed,
+        status,
+        tooltip,
+    } = scoutChatRetryButtonProps(failedChatPrompt, SCOUT_AUTHOR_PROMPT)
     const creationDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmSkill,
         AccessControlLevel.Editor
@@ -39,18 +45,20 @@ export function ScoutSuggestButton({
         <LemonButton
             type={type}
             size={size}
+            status={status}
+            tooltip={tooltip}
             icon={<IconSparkles />}
             loading={isStarting}
             disabledReason={
                 anotherTaskIsStarting
                     ? 'Starting another task…'
-                    : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
+                    : (creationDisabledReason ?? scoutChatDisabledReason ?? undefined)
             }
             onClick={() => startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')}
             className={className}
             data-attr={dataAttr}
         >
-            {children}
+            {lastAttemptFailed ? 'Try again' : children}
         </LemonButton>
     )
 }

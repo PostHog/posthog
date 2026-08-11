@@ -26,7 +26,7 @@ import { NotActionableTab } from './components/tabs/NotActionableTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
-import { captureInboxPanelViewed } from './inboxAnalytics'
+import { captureInboxPanelViewed, captureScoutAction } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { scoutFleetLogic } from './logics/scoutFleetLogic'
@@ -43,10 +43,12 @@ const LazyScoutCreateModal = React.lazy(async () => {
 })
 
 /**
- * Hosts the `#createScout=` modal at the scene level, not in the fleet section: on wide screens
- * `/inbox/config` bounces to the setup rail, where the fleet section may never mount.
+ * Hosts the scout create modal at the scene level, not in the fleet section. Both the `#createScout=`
+ * deep link and the fleet's "Create scout" button open it through `scoutTemplateDraft`, so the modal
+ * and its typed form survive a fleet re-render or a viewport resize that unmounts the section. On wide
+ * screens `/inbox/config` also bounces to the setup rail, where the fleet section may never mount.
  */
-function ScoutTemplateDraftModal(): JSX.Element | null {
+function ScoutCreateModalHost(): JSX.Element | null {
     const { scoutTemplateDraft } = useValues(inboxSceneLogic)
     const { setScoutTemplateDraft } = useActions(inboxSceneLogic)
 
@@ -59,7 +61,12 @@ function ScoutTemplateDraftModal(): JSX.Element | null {
                 isOpen
                 initialValues={scoutTemplateDraft}
                 onClose={() => setScoutTemplateDraft(null)}
-                onCreated={() => {
+                onCreated={(scout) => {
+                    captureScoutAction({
+                        actionType: 'create_scout',
+                        surface: 'fleet_list',
+                        skillName: scout.config.skill_name,
+                    })
                     // Refresh the fleet list only if it's already mounted — never mount it from here.
                     scoutFleetLogic.findMounted()?.actions.loadScoutConfigs()
                 }}
@@ -336,7 +343,7 @@ export function InboxScene(): JSX.Element {
                 </div>
             )}
 
-            <ScoutTemplateDraftModal />
+            <ScoutCreateModalHost />
         </SceneContent>
     )
 }
