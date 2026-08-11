@@ -554,9 +554,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     }),
 
     trackedActionToUrl(({ values }) => {
-        const buildUrl = ():
-            | [string, Record<string, string | undefined>, undefined, { replace: true }]
-            | undefined => {
+        const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] | undefined => {
             // Only write the URL while the scanner list is the active scene. This logic stays mounted as the
             // new-scanner wizard chunk loads, so a late filter change (e.g. an in-flight list response) must not
             // replace the wizard URL and bounce the user back to the list.
