@@ -123,7 +123,7 @@ class TestMarketingTouchpointsPrecompute(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p1",
             timestamp=datetime(2025, 1, 4, 10, tzinfo=UTC),
-            properties={"$gclid": "abc123"},
+            properties={"gclid": "abc123"},
         )
         # No source and no click id — organic, still excluded.
         _create_event(

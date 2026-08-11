@@ -100,9 +100,12 @@ TRACKED_FIELDS: list[TrackedField] = [
     TrackedField("content", "utm_content", "utm_content_name"),
     TrackedField("term", "utm_term", "utm_term_name"),
     TrackedField("referring_domain", "$referring_domain", None, "$direct"),
-    TrackedField("gclid", "$gclid", click_identifier=True),
-    TrackedField("fbclid", "$fbclid", click_identifier=True),
-    TrackedField("gad_source", "$gad_source", click_identifier=True),
+    # Click identifiers are plain, unprefixed event properties, same as the utm_* ones above.
+    # The $-prefixed forms ($initial_gclid, $entry_gclid) are the derived person and session
+    # properties, and reading those names off an event always yields empty.
+    TrackedField("gclid", "gclid", click_identifier=True),
+    TrackedField("fbclid", "fbclid", click_identifier=True),
+    TrackedField("gad_source", "gad_source", click_identifier=True),
 ]
 
 # Property names of the ad click identifiers. A pageview that carries one of these is a paid
