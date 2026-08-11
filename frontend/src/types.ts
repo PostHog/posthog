@@ -6332,6 +6332,10 @@ export interface WebhookInfo {
     external_status?: WebhookExternalStatus | null
     // Desired provider events not yet on the webhook (manual setup, or created before a new table).
     missing_events?: string[]
+    // Set when the connection's credentials can never create the webhook, so only manual setup is
+    // left. Null means "not known to be blocked", which is the answer for any credential whose
+    // grants can't be introspected.
+    auto_creation_blocked_reason?: string | null
 }
 
 export interface DataModelingJob {
