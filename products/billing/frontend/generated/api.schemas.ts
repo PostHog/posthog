@@ -21,14 +21,22 @@ export interface BillingOverviewResponseApi {
     is_annual_plan_customer?: boolean
     /** @nullable */
     free_trial_until?: string | null
-    current_total_amount_usd?: number
-    current_total_amount_usd_after_discount?: number
-    projected_total_amount_usd?: number
-    projected_total_amount_usd_after_discount?: number
-    projected_total_amount_usd_with_limit?: number
-    projected_total_amount_usd_with_limit_after_discount?: number
-    discount_amount_usd?: number
-    discount_percent?: number
+    /** @nullable */
+    current_total_amount_usd?: string | null
+    /** @nullable */
+    current_total_amount_usd_after_discount?: string | null
+    /** @nullable */
+    projected_total_amount_usd?: string | null
+    /** @nullable */
+    projected_total_amount_usd_after_discount?: string | null
+    /** @nullable */
+    projected_total_amount_usd_with_limit?: string | null
+    /** @nullable */
+    projected_total_amount_usd_with_limit_after_discount?: string | null
+    /** @nullable */
+    discount_amount_usd?: string | null
+    /** @nullable */
+    discount_percent?: number | null
     /** @nullable */
     amount_off_expires_at?: string | null
     /** @nullable */

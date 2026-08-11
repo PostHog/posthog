@@ -1213,6 +1213,30 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_called_once()
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_list_personal_api_key_uses_resolved_team_org_when_current_org_is_stale(self, mock_get_billing):
+        other_org = self.create_organization_with_features([])
+        self.create_team_with_organization(other_org)
+        OrganizationMembership.objects.create(
+            user=self.user,
+            organization=other_org,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        self.user.current_organization = other_org
+        self.user.current_team = self.team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+        mock_get_billing.return_value = create_billing_response(customer=create_billing_customer())
+
+        response = self.client.get(
+            "/api/billing/",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_billing.assert_called_once()
+        self.assertEqual(mock_get_billing.call_args.args[0], self.organization)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
     def test_list_rejects_billing_read_personal_api_key_for_member(self, mock_get_billing):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()

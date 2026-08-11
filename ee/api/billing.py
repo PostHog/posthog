@@ -100,14 +100,16 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
     deactivated = serializers.BooleanField(required=False)
     is_annual_plan_customer = serializers.BooleanField(required=False)
     free_trial_until = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    current_total_amount_usd = serializers.FloatField(required=False)
-    current_total_amount_usd_after_discount = serializers.FloatField(required=False)
-    projected_total_amount_usd = serializers.FloatField(required=False)
-    projected_total_amount_usd_after_discount = serializers.FloatField(required=False)
-    projected_total_amount_usd_with_limit = serializers.FloatField(required=False)
-    projected_total_amount_usd_with_limit_after_discount = serializers.FloatField(required=False)
-    discount_amount_usd = serializers.FloatField(required=False)
-    discount_percent = serializers.FloatField(required=False)
+    current_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    current_total_amount_usd_after_discount = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_after_discount = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_with_limit = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_with_limit_after_discount = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True
+    )
+    discount_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    discount_percent = serializers.FloatField(required=False, allow_null=True)
     amount_off_expires_at = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     startup_program_label = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     startup_program_label_previous = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -735,11 +737,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return {}
 
     def _get_org(self) -> Optional[Organization]:
-        # root-router viewset with param_derived_from_user_current_team — no URL-scoped org to mismatch
-        # nosemgrep: cross-org-bypass-user-organization
-        org = None if self.request.user.is_anonymous else self.request.user.organization
+        if self.request.user.is_anonymous:
+            return None
 
-        return org
+        try:
+            return self.team.organization
+        except Exception:
+            return None
 
     def _get_org_required(self) -> Organization:
         org = self._get_org()
