@@ -827,6 +827,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
+    ("_task_public_channels", _create_public_task_channel),
     ("tags", _create_tag),
     ("task_runs", _create_task_run),
     ("tasks", _create_task),
