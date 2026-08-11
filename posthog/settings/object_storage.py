@@ -36,10 +36,6 @@ OBJECT_STORAGE_TASKS_FOLDER = os.getenv("OBJECT_STORAGE_TASKS_FOLDER", "tasks")
 OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER = os.getenv("OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER", "legal_documents")
 OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "posthog")
 
-# Notebooks SQLV2 frame store (products/notebooks/backend/sql_v2_frame_store.md): stream
-# python-node frame materializations to object storage instead of the Redis JSON transport.
-# Default off — rollout is env-gated per deployment on top of the product feature flag.
-NOTEBOOKS_FRAME_STORE_ENABLED = get_from_env("NOTEBOOKS_FRAME_STORE_ENABLED", False, type_cast=str_to_bool)
 # Endpoint the ClickHouse *cluster* uses to reach the frames bucket for that INSERT — which is
 # NOT always OBJECT_STORAGE_ENDPOINT. CI points OBJECT_STORAGE_ENDPOINT at localhost:19000 for
 # the test process, but ClickHouse runs in docker-compose and reaches object storage by service

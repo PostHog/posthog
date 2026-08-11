@@ -16,7 +16,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -744,8 +744,99 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
 
         assert result == ROUTE_HANDLED_LOCALLY
-        assert mock_claims.call_args.kwargs["team_id"] == other_team.id
         mock_unfurl.assert_called_once_with(event, other_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_without_project_id_follows_workspace_default(self, mock_unfurl):
+        # A short ``/i/:short_id`` link names no project, so the workspace default is the only
+        # signal about which connected project the workspace works in. Picking the oldest install
+        # instead sends the lookup to a team that doesn't hold the insight, and nothing unfurls.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config=self.posthog_code_integration.sensitive_config,
+        )
+        SlackSettings.objects.create(
+            slack_workspace_id="T12345",
+            slack_user_id=None,
+            default_integration=other_integration,
+        )
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [{"url": "https://us.posthog.com/i/abc123"}],
+        }
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_unfurl.assert_called_once_with(event, other_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_ignores_project_named_only_by_an_unfurlable_link(self, mock_unfurl):
+        # Sharing a replay link next to an insight link is routine. The replay carries a project id
+        # but can never be unfurled, so letting it name the project sends the insight lookup to a
+        # team that doesn't hold it — or, across two projects, suppresses the message entirely.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config=self.posthog_code_integration.sensitive_config,
+        )
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [
+                {"url": f"https://us.posthog.com/project/{other_team.id}/replay/abc"},
+                {"url": f"https://us.posthog.com/project/{self.team.pk}/insights/abc123"},
+            ],
+        }
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_unfurl.assert_called_once_with(event, self.posthog_code_integration)
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=None)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_link_shared_for_local_project_ignores_inconclusive_region_probe(self, mock_claims, mock_unfurl):
+        # The link names a project this region holds, which settles ownership on its own. Deferring
+        # to the other region on an inconclusive probe would hand the event to a region with no row
+        # for the workspace, where it is dropped and the unfurl is lost.
+        event = {
+            "type": "link_shared",
+            "channel": "C001",
+            "user": "U123",
+            "message_ts": "1234.5678",
+            "links": [{"url": f"https://eu.posthog.com/project/{self.team.pk}/insights/abc123"}],
+        }
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_claims.assert_not_called()
+        mock_unfurl.assert_called_once_with(event, self.posthog_code_integration)
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
