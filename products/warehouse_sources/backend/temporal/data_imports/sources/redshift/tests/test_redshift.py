@@ -794,6 +794,20 @@ class TestHasDuplicatePrimaryKeys:
             assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
         mock_capture.assert_called_once()
 
+    def test_operational_error_is_propagated(self, impl, cursor, logger):
+        # A connection-level failure (e.g. the SSL connection dropping mid-query) means the probe
+        # never ran — swallowing it as "no duplicate keys" would be a false negative, so it must
+        # propagate instead of being reported to error tracking and defaulted to False.
+        cursor.execute.side_effect = psycopg.OperationalError(
+            "consuming input failed: SSL connection has been closed unexpectedly"
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            with pytest.raises(psycopg.OperationalError):
+                impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
+        mock_capture.assert_not_called()
+
     def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
         # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
         # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.

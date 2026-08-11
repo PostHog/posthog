@@ -651,7 +651,7 @@ describe('sourceWizardLogic', () => {
                 { prefix: 'src', payload: { host: '' }, access_method: 'direct' },
                 { allowBlankSensitiveFields: true }
             )
-            expect(res.payload.host).toBe('Please enter a host')
+            expect(res.payload.host).toBe('Host is required')
         })
     })
 

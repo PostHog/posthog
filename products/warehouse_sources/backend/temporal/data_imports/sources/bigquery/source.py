@@ -166,6 +166,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # carrying this exact wording (so the create/validate path shows it instead of the raw
             # 404). Match it here too so the discovery activity treats it as non-retryable.
             BIGQUERY_DATASET_NOT_FOUND_ERROR: BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            # `bq_client.get_table(...)` in `_build_source_response` (see `bigquery.py`) issues a
+            # direct REST GET rather than a query job, so a dataset deleted or renamed after schema
+            # discovery surfaces as "GET .../tables/<table>?prettyPrint=false: Not found: Dataset
+            # <project>:<dataset>" — with no "was not found in location" suffix, since no query job
+            # (and therefore no queried-region mismatch) is involved. The "was not found in location"
+            # key above only covers the query-job path, so this slips through and retries forever.
+            # Retrying can't recover a deleted dataset; the user must restore or rename it back, or
+            # remove it from the sync. Matched on the stable "Not found: Dataset" wording rather than
+            # the volatile project/dataset id.
+            "Not found: Dataset": BIGQUERY_DATASET_NOT_FOUND_ERROR,
             # A syntactically invalid project/dataset ID (e.g. a value carrying parentheses like
             # "(default)") is rejected as a 400 "Invalid dataset ID ..." / "Invalid project ID ...".
             # Schema discovery re-raises it as `BigQueryInvalidIdentifierError` carrying the friendly
@@ -313,6 +323,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # selection or incremental field to match the table's current schema. Matched on
             # BigQuery's stable wording, not the volatile column name or [row:col] location.
             "Unrecognized name:": "BigQuery couldn't run a query for this source because it referenced a column that no longer exists on the table — usually the configured incremental field, or a column selected for syncing, was renamed or removed. Retrying won't help — please update the source's column selection or incremental field to match the table's current schema, then reconnect the source.",
+            # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
+            # `bigquery.py`) when a column selected for syncing no longer exists on the live table —
+            # the direct-read counterpart of "Unrecognized name:" above, which covers the same drift
+            # on the query-job path (incremental / view / row-filtered reads). The google.api_core
+            # InvalidArgument stringifies as "request failed: The following selected fields do not
+            # exist in the table schema: <col1>, <col2>, ...". It's a deterministic mismatch between
+            # our stored config and the customer's live schema: the same read fails identically on
+            # every retry. The user must update the source's column selection to match the table's
+            # current schema. Matched on the stable wording, not the volatile list of column names.
+            "do not exist in the table schema": "BigQuery couldn't read this table because it referenced columns that no longer exist on it — usually columns selected for syncing were renamed or removed. Retrying won't help — please update the source's column selection to match the table's current schema, then reconnect the source.",
         }
 
     def validate_credentials(
