@@ -84,7 +84,9 @@ def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     Links only resolve when the message points at a single connected repo. Two different
     linked repos is genuine ambiguity, and returning None lets the caller disambiguate
     (the Slack cascade falls through to its discovery agent, then a repo picker) rather
-    than silently starting work in whichever was pasted first.
+    than silently starting work in whichever was pasted first. A link someone labeled
+    `<url|owner/repo>` reads as a typed token and wins outright; Slack writes its own
+    labels as `github.com/owner/repo/…`, which read as links.
 
     Pure helper (no Django / heavy deps) so any product can import it downward from core.
     """

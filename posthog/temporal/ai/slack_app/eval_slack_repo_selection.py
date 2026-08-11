@@ -148,6 +148,19 @@ CASES: list[Case] = [
         expected_stage="cascade",
         expected_outcome="auto",
     ),
+    Case(
+        name="ci_run_link",
+        description="Cascade reads the repo out of a workflow-run link, so a CI ask never reaches the agent.",
+        text_template="@PostHog is this flaky? https://github.com/{first_repo}/actions/runs/30560492835",
+        thread_messages=[
+            {
+                "user": "tester",
+                "text": "@PostHog is this flaky? https://github.com/{first_repo}/actions/runs/30560492835",
+            }
+        ],
+        expected_stage="cascade",
+        expected_outcome="auto",
+    ),
     # --- Haiku gate short-circuits (heuristic + LLM) ---------------------------
     Case(
         name="billing_question",

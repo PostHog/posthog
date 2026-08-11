@@ -54,37 +54,6 @@ AGENT_DIRECTED_MAX_TOKENS = 2048
 AGENT_DIRECTED_TIMEOUT_SECONDS = 20.0
 AGENT_DIRECTED_MAX_RETRIES = 1
 
-# Nothing else in a repo is called "flaky", and a workflow-run URL is only ever CI.
-_CI_UNAMBIGUOUS_PATTERNS = (
-    r"\bde-?flak",
-    r"\bflak(?:y|e|es|iness)\b",
-    r"\bmerge queue\b",
-    r"github\.com/[\w.-]+/[\w.-]+/actions\b",
-)
-# Both halves required, so "check the test dashboard" stays an analytics ask.
-_CI_SUBJECT_PATTERNS = (r"\btests?\b", r"\bspecs?\b", r"\bsuites?\b", r"\bshards?\b", r"\bci\b", r"\bmaster\b")
-_CI_FAILURE_PATTERNS = (
-    r"\bfail(?:s|ed|ing|ure|ures)?\b",
-    r"\bred\b",
-    r"\bbroke(?:n)?\b",
-    r"\btimed?\s?out\b",
-    r"\berror(?:s|ing)?\b",
-)
-
-
-def _is_ci_failure_ask(normalized: str) -> bool:
-    """Whether the conversation is about a broken or flaky CI run.
-
-    Checked first because CI work is code work wearing none of the usual tells — a flaky
-    test report rarely names a file — and because it often mentions a product noun ("the
-    experiment insight test is flaky") that would short-circuit the classifier to no-repo.
-    """
-    if any(re.search(pattern, normalized) for pattern in _CI_UNAMBIGUOUS_PATTERNS):
-        return True
-    return any(re.search(pattern, normalized) for pattern in _CI_SUBJECT_PATTERNS) and any(
-        re.search(pattern, normalized) for pattern in _CI_FAILURE_PATTERNS
-    )
-
 
 def classify_task_needs_repo(
     event_text: str,
@@ -102,9 +71,6 @@ def classify_task_needs_repo(
     """
     conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
     normalized = f"{conversation}\nLatest message: {event_text}".lower()
-
-    if _is_ci_failure_ask(normalized):
-        return True
 
     # Substring match: keep the shortest form that uniquely identifies the
     # concept without colliding with code-review vocabulary. Plurals are used
@@ -159,6 +125,11 @@ def classify_task_needs_repo(
         r"\bserializer\b",
         r"\bviewset\b",
         r"\bmigration\b",
+        # A failing test is code work, but it is usually named after the feature it covers,
+        # so the product terms above would answer no-repo before the model reads the sentence.
+        r"\bci\b",
+        r"\bflak(?:y|e|es|iness)\b",
+        r"\bmerge queue\b",
     )
 
     if any(term in normalized for term in product_debug_terms) and not any(
@@ -184,7 +155,12 @@ def classify_task_needs_repo(
         "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
         "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
         "event names, identification logic, SDK setup) — that's a code fix in their repo → "
-        "needs_repo. When in doubt, lean needs_repo=false — code-focused tasks usually carry "
+        "needs_repo.\n\n"
+        "A failing, broken, or flaky CI run, test suite, or build is work in the team's own "
+        "repository → needs_repo, including when the test is named after a PostHog feature "
+        "('the experiment insight test is flaky'): the subject is their test, not our "
+        "product.\n\n"
+        "When in doubt, lean needs_repo=false — code-focused tasks usually carry "
         "explicit signals (file extensions, 'PR', 'commit', framework names, function or class "
         "names). Analytics, data, and configuration asks are the common case and should not send "
         "us hunting for a repository on a guess.\n\n"

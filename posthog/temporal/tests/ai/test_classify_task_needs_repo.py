@@ -37,24 +37,49 @@ class TestClassifyTaskNeedsRepo:
             ("analytics_hogql", "write a hogql query to count signups by country", False),
             ("flag_search", "find the feature flag for the new onboarding", False),
             ("replay_question", "show me session replays of failed checkouts", False),
-            # Real #flakey-tests asks. None names a file or says "PR"/"commit", and
-            # several carry a product noun that used to short-circuit them to no-repo.
-            (
-                "ci_is_this_flaky",
-                "is this flaky? https://github.com/posthog/posthog/actions/runs/30560492835/job/90936416640",
-                True,
-            ),
-            ("ci_master_broken", "django tests failing on master, investigate", True),
-            ("ci_rust_in_pr", "why is rust CI failing in this PR?", True),
-            ("ci_product_noun_no_longer_short_circuits", "the experiment insight test is flaky", True),
-            ("ci_merge_queue", "seeing a lot of pending failures in the trunk merge queue", True),
-            # The failure word alone is not CI — this is still a product ask.
-            ("product_failure_without_ci_subject", "the dashboard fails to load for this user", False),
         ]
     )
     def test_heuristic_classification(self, _name, text, expected):
         result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
         assert result is expected
+
+    @parameterized.expand(
+        [
+            # Real #flakey-tests asks, each carrying a product noun that short-circuits
+            # the heuristic to no-repo unless the CI vocabulary vetoes it.
+            ("flaky_test_named_after_a_feature", "the experiment insight test is flaky"),
+            ("merge_queue", "the merge queue keeps failing on the experiment insight tests"),
+            ("ci_on_a_product_pr", "CI is red on the dashboard PR, can you take a look"),
+        ]
+    )
+    def test_ci_vocabulary_leaves_the_call_to_the_llm(self, _name, text):
+        assert self._run_with_llm_content(text, '{"needs_repo": true}') is True
+
+    @parameterized.expand(
+        [
+            # Both halves of a CI ask, split across a thread the way people actually talk.
+            # A vocabulary that pairs any subject word with any failure word reads these as
+            # CI and spends a discovery-agent sandbox run on an analytics question.
+            (
+                "tests_and_errors_in_an_analytics_thread",
+                [
+                    {"user": "amy", "text": "we ran some tests on the signup funnel yesterday"},
+                    {"user": "bo", "text": "the numbers look off, error rate is way up in the dashboard"},
+                ],
+                "why did conversion drop?",
+            ),
+            (
+                "master_chatter_beside_a_product_bug",
+                [
+                    {"user": "amy", "text": "just merged that to master"},
+                    {"user": "bo", "text": "the survey widget throws an error on mobile"},
+                ],
+                "what does the data say?",
+            ),
+        ]
+    )
+    def test_product_ask_short_circuits_before_the_llm(self, _name, thread_messages, event_text):
+        assert self._run_with_llm_content(event_text, '{"needs_repo": true}', thread_messages) is False
 
     def test_llm_path_returns_true_when_model_says_needs_repo(self):
         """Ask with no heuristic signal — classifier must defer to the LLM."""
@@ -84,7 +109,9 @@ class TestClassifyTaskNeedsRepo:
         result = self._run_with_llm_content(text, content)
         assert result is expected
 
-    def _run_with_llm_content(self, text: str, content: str) -> bool:
+    def _run_with_llm_content(
+        self, text: str, content: str, thread_messages: list[dict[str, str]] | None = None
+    ) -> bool:
         fake_response = MagicMock()
         fake_response.choices = [MagicMock(message=MagicMock(content=content))]
         fake_client = MagicMock()
@@ -93,7 +120,7 @@ class TestClassifyTaskNeedsRepo:
             "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
             return_value=fake_client,
         ):
-            return classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
+            return classify_task_needs_repo(text, thread_messages or [{"user": "Alessandro", "text": text}])
 
     def test_llm_failure_defaults_to_false(self):
         """A flaky LLM call must not wall users behind the Connect-GitHub gate."""

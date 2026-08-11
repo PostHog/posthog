@@ -319,25 +319,11 @@ class TestPostRepoPickerPrewarm:
 
 
 class TestExtractExplicitRepo:
-    @parameterized.expand(
-        [
-            ("simple", "fix posthog/posthog-js please", "posthog/posthog-js"),
-            ("no_match", "hello world", None),
-            ("case_insensitive", "check PostHog/PostHog", "posthog/posthog"),
-            ("github_url", "see https://github.com/posthog/posthog/issues/1", "posthog/posthog"),
-            ("backticks", "please fix `posthog/posthog-js`", "posthog/posthog-js"),
-            (
-                "slack_link_label",
-                "use <https://github.com/posthog/posthog-js|posthog/posthog-js>",
-                "posthog/posthog-js",
-            ),
-            ("multiple_first_wins", "check posthog/posthog-js then posthog/posthog", "posthog/posthog-js"),
-            ("with_bot_mention", "<@U123> fix posthog/posthog-js", "posthog/posthog-js"),
-        ]
-    )
-    def test_extract_explicit_repo(self, _name, text, expected):
+    # Matching is covered where the helper lives, in posthog/test/test_git.py. All this
+    # wrapper adds is stripping the bot mention off the front of the Slack message.
+    def test_strips_bot_mention_before_matching(self):
         repos = ["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"]
-        assert _extract_explicit_repo(text, repos) == expected
+        assert _extract_explicit_repo("<@U123> fix posthog/posthog-js", repos) == "posthog/posthog-js"
 
 
 class TestParseRulesCommand:

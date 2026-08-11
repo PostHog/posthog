@@ -40,6 +40,7 @@ class TestExtractExplicitRepo:
                 "fix posthog/posthog-js — context: https://github.com/posthog/posthog/pull/1",
                 "posthog/posthog-js",
             ),
+            ("two_bare_tokens_first_wins", "check posthog/posthog-js then posthog/posthog", "posthog/posthog-js"),
             (
                 "two_linked_repos_is_ambiguous",
                 "https://github.com/posthog/posthog/pull/1 broke https://github.com/posthog/posthog-js/actions/runs/2",
