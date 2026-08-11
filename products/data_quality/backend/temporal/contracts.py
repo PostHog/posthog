@@ -6,10 +6,12 @@ single JSON object, so nested dataclasses would not survive ``parse_inputs``.
 
 import dataclasses
 
+from posthog.dataclasses import frozen
+
 from ..facade.enums import SuiteRunStatus, SuiteRunTrigger
 
 
-@dataclasses.dataclass
+@frozen
 class RunCheckSuiteInputs:
     """What to run. Exactly one selector is expected; a suite with no matching checks is not an error.
 
@@ -30,26 +32,26 @@ class RunCheckSuiteInputs:
     created_by_id: int | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class MaterializationGateInputs:
     team_id: int
     node_ids: list[str]
 
 
-@dataclasses.dataclass
+@frozen
 class PreparedSuite:
     suite_run_id: str
     batches: list[list[str]]
 
 
-@dataclasses.dataclass
+@frozen
 class RunCheckBatchInputs:
     team_id: int
     suite_run_id: str
     check_ids: list[str]
 
 
-@dataclasses.dataclass
+@frozen
 class BatchOutcome:
     passed: int = 0
     failed: int = 0
@@ -60,21 +62,21 @@ class BatchOutcome:
     newly_failing_check_ids: list[str] = dataclasses.field(default_factory=list)
 
 
-@dataclasses.dataclass
+@frozen
 class FinalizeCheckSuiteInputs:
     team_id: int
     suite_run_id: str
     outcomes: list[BatchOutcome]
 
 
-@dataclasses.dataclass
+@frozen
 class MarkSuiteFailedInputs:
     team_id: int
     suite_run_id: str
     error: str
 
 
-@dataclasses.dataclass
+@frozen
 class CleanupOutcome:
     compiled_queries_cleared: int = 0
     check_runs_deleted: int = 0
@@ -82,7 +84,7 @@ class CleanupOutcome:
     stale_suites_failed: int = 0
 
 
-@dataclasses.dataclass
+@frozen
 class CheckSuiteResult:
     suite_run_id: str
     status: SuiteRunStatus
