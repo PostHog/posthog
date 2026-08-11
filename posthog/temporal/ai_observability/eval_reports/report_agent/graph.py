@@ -44,6 +44,7 @@ def _compute_metrics(
     period_end: str,
     previous_period_start: str,
     output_type: str = "boolean",
+    true_is_pass: bool = True,
     evaluation_target: str = GENERATION_TARGET,
 ) -> EvalReportMetrics | None:
     """Compute report metrics directly via HogQL (independent of agent state).
@@ -56,7 +57,7 @@ def _compute_metrics(
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
-        definition = get_outcome_definition(output_type)
+        definition = get_outcome_definition(output_type, true_is_pass=true_is_pass)
 
         result_counts, total = _fetch_period_summary(
             team_id, evaluation_id, ts_start, ts_end, definition, evaluation_target
@@ -216,6 +217,7 @@ def run_eval_report_agent(
     previous_period_start: str,
     report_prompt_guidance: str = "",
     output_type: str = "boolean",
+    true_is_pass: bool = True,
     evaluation_target: str = "generation",
     report_id: str = "",
     trace_id: str = "",
@@ -242,6 +244,7 @@ def run_eval_report_agent(
         period_end,
         previous_period_start,
         output_type=output_type,
+        true_is_pass=true_is_pass,
         evaluation_target=evaluation_target,
     )
 
@@ -284,6 +287,7 @@ def run_eval_report_agent(
         evaluation_target=evaluation_target,
         evaluation_prompt=evaluation_prompt,
         output_type=output_type,
+        true_is_pass=true_is_pass,
         period_start=period_start,
         period_end=period_end,
         report_prompt_guidance=report_prompt_guidance,
@@ -309,6 +313,7 @@ def run_eval_report_agent(
         "evaluation_type": evaluation_type,
         "evaluation_target": evaluation_target,
         "output_type": output_type,
+        "true_is_pass": true_is_pass,
         "period_start": period_start,
         "period_end": period_end,
         "previous_period_start": previous_period_start,

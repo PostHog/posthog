@@ -74,8 +74,9 @@ def build_eval_report_system_prompt(
     period_end: str,
     evaluation_target: str = "generation",
     report_prompt_guidance: str = "",
+    true_is_pass: bool = True,
 ) -> str:
-    definition = get_outcome_definition(output_type)
+    definition = get_outcome_definition(output_type, true_is_pass=true_is_pass)
     description_section = f"Description: {evaluation_description}\n" if evaluation_description else ""
     prompt_section = f"Evaluation prompt/criteria:\n```\n{evaluation_prompt}\n```\n" if evaluation_prompt else ""
     guidance_section = ""
@@ -123,11 +124,19 @@ def build_eval_report_system_prompt(
         )
     elif output_type == "boolean":
         evaluated_unit = get_target_descriptor(evaluation_target).unit_label
-        result_semantics = (
-            f"The evaluation returns a boolean. True means the {evaluated_unit} satisfied the configured criteria and false "
-            "means it did not. A fail is not inherently bad: always interpret pass and fail through the evaluation's "
-            "specific criteria rather than treating them as generic quality verdicts."
-        )
+        if true_is_pass:
+            result_semantics = (
+                f"The evaluation returns a boolean. A true result means the {evaluated_unit} satisfied the configured "
+                "criteria and is reported as a **pass**; a false result is reported as a **fail**. Always interpret pass "
+                "and fail through the evaluation's specific criteria rather than as generic quality verdicts."
+            )
+        else:
+            result_semantics = (
+                f"This is a detector-style evaluation: a true result means the {evaluated_unit} matched the configured "
+                f"condition (the thing the evaluation looks for). That flagged result is reported as a **fail**, and a "
+                f"false result as a **pass**. So a fail marks a flagged {evaluated_unit} worth investigating, and the "
+                "fail rate is how often the condition fired — not a generic quality score."
+            )
         analysis_outcome = "fail"
         primary_outcome = "pass"
         reasoning_tool_section = (

@@ -147,9 +147,11 @@ _TARGET_LOOKUP_TS_START_SENTINEL = "2020-01-01T00:00:00+00:00"
 _TARGET_LOOKUP_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
 
 
-def _resolve_output_type(output_type: str | None) -> tuple[str, EvaluationReportOutcomeDefinition]:
+def _resolve_output_type(
+    output_type: str | None, true_is_pass: bool = True
+) -> tuple[str, EvaluationReportOutcomeDefinition]:
     normalized_output_type = output_type or "boolean"
-    return normalized_output_type, get_outcome_definition(normalized_output_type)
+    return normalized_output_type, get_outcome_definition(normalized_output_type, true_is_pass=true_is_pass)
 
 
 def _summary_select_sql(definition: EvaluationReportOutcomeDefinition) -> str:
@@ -177,14 +179,21 @@ def _summary_value_as_int(value: int | float | str | None) -> int:
     return int(value) if value is not None else 0
 
 
-def _outcome_for_result(output_type: str, result: object, applicable: object = None) -> str | None:
+def _outcome_for_result(
+    output_type: str,
+    result: object,
+    applicable: object = None,
+    definition: EvaluationReportOutcomeDefinition | None = None,
+) -> str | None:
     if output_type == "sentiment":
         return result if isinstance(result, str) and result in ("positive", "neutral", "negative") else None
     if applicable is False:
         return "na"
-    outcomes_by_result: dict[object, str] = {True: "pass", False: "fail"}
+    # `result_labels` carries the polarity-aware boolean→outcome mapping, so a detector's
+    # true result resolves to "fail" instead of "pass".
+    labels = definition.result_labels if definition is not None else get_outcome_definition(output_type).result_labels
     try:
-        return outcomes_by_result.get(result)
+        return labels.get(result)
     except TypeError:
         return None
 
@@ -396,7 +405,7 @@ def get_summary_metrics(
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
     ts_prev_start = _ch_ts(state["previous_period_start"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     result_counts, total = _fetch_period_summary(
@@ -432,7 +441,7 @@ def get_result_distribution_over_time(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     # Whitelisted truncation function — `bucket` is an LLM-controlled arg, so pick
@@ -493,7 +502,7 @@ def list_all_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     shared_placeholders = {
@@ -551,7 +560,7 @@ def list_all_eval_results(
     lines = []
     for row in rows:
         target_id = str(row[0]) if row[0] else "?"
-        outcome = _outcome_for_result(output_type, row[1], row[2]) or "?"
+        outcome = _outcome_for_result(output_type, row[1], row[2], definition=definition) or "?"
         score = f" ({row[3]:.2f})" if isinstance(row[3], int | float) else ""
         fields = [f"{outcome}{score}", target_id]
         if output_type != "sentiment":
@@ -590,7 +599,7 @@ def sample_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     if order_by == "score" and output_type != "sentiment":
         return json.dumps({"error": "Score ordering is only available for sentiment results"})
@@ -639,7 +648,7 @@ def sample_eval_results(
     for row in rows:
         entry = {
             target_id_key: str(row[0]) if row[0] else "",
-            "outcome": _outcome_for_result(output_type, row[1], row[3]),
+            "outcome": _outcome_for_result(output_type, row[1], row[3], definition=definition),
         }
         if output_type == "sentiment":
             entry["score"] = row[4]
@@ -873,18 +882,24 @@ def get_generation_detail(
         placeholders=shared_placeholders,
     )
 
+    report_evaluation_id = str(state.get("evaluation_id") or "")
+    report_true_is_pass = bool(state.get("true_is_pass", True))
     evals = []
     for er in eval_rows:
         output_type = str(er[1]) if er[1] else "boolean"
+        row_evaluation_id = str(er[0]) if er[0] else ""
+        # Polarity is a property of the report's own evaluation. Other evaluations on the same
+        # generation have unknown polarity, so they keep the pass-on-true default.
+        row_true_is_pass = report_true_is_pass if row_evaluation_id == report_evaluation_id else True
         try:
-            get_outcome_definition(output_type)
+            definition = get_outcome_definition(output_type, true_is_pass=row_true_is_pass)
         except ValueError:
             continue
         raw_result = er[3] if output_type == "sentiment" else er[2]
         entry = {
-            "evaluation_id": str(er[0]) if er[0] else "",
+            "evaluation_id": row_evaluation_id,
             "output_type": output_type,
-            "outcome": _outcome_for_result(output_type, raw_result, er[6]),
+            "outcome": _outcome_for_result(output_type, raw_result, er[6], definition=definition),
             "reasoning": er[5] or "",
         }
         if output_type == "sentiment":
@@ -1391,7 +1406,7 @@ def get_top_outcome_reasons(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     selected_outcome = outcome or ("negative" if output_type == "sentiment" else "fail")
     outcome_predicate = definition.outcome_predicates.get(selected_outcome)

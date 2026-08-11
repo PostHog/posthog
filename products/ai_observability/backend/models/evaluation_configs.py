@@ -51,6 +51,11 @@ class BooleanOutputConfig(BaseModel):
     """Configuration for boolean output type"""
 
     allows_na: bool = False
+    # Polarity of the boolean result for reporting. True (default) suits pass/fail-style
+    # evaluations, where a true result means the criteria were satisfied and counts as a pass.
+    # Set to False for detector-style evaluations, where a true result flags a problem (e.g.
+    # "struggle detected") and must be reported as a fail, not a pass.
+    true_is_pass: bool = True
 
 
 class SentimentEvalConfig(BaseModel):

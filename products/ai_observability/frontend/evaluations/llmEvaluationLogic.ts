@@ -362,6 +362,9 @@ export interface llmEvaluationLogicActions {
     setAllowsNA: (allowsNA: boolean) => {
         allowsNA: boolean
     }
+    setTrueIsPass: (trueIsPass: boolean) => {
+        trueIsPass: boolean
+    }
     setEvaluationDescription: (description: string) => {
         description: string
     }
@@ -505,6 +508,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
+        setTrueIsPass: (trueIsPass: boolean) => ({ trueIsPass }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
@@ -695,6 +699,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     state && isBooleanEvaluationOutput(state.output_type)
                         ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }
                         : state,
+                setTrueIsPass: (state, { trueIsPass }) =>
+                    state && isBooleanEvaluationOutput(state.output_type)
+                        ? { ...state, output_config: { ...state.output_config, true_is_pass: trueIsPass } }
+                        : state,
                 setTriggerConditions: (state, { conditions }) =>
                     state
                         ? {
@@ -763,6 +771,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         hogTestResults: {
             clearHogTestResults: () => null,
             setAllowsNA: () => null,
+            setTrueIsPass: () => null,
             setEvaluationTarget: () => null,
             setEvaluationType: () => null,
             setHogSource: () => null,
@@ -825,6 +834,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationPrompt: () => true,
                 setEvaluationEnabled: () => true,
                 setAllowsNA: () => true,
+                setTrueIsPass: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setEvaluationType: () => true,

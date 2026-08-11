@@ -89,6 +89,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setEvaluationDescription,
         setEvaluationEnabled,
         setAllowsNA,
+        setTrueIsPass,
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
@@ -713,6 +714,32 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                 : isHog
                                                                   ? 'Evaluation must return true or false'
                                                                   : 'Evaluation returns true or false'}
+                                                        </span>
+                                                    </div>
+                                                </Field>
+                                            )}
+
+                                            {isBooleanOutput && (
+                                                <Field
+                                                    name="true_is_pass"
+                                                    label={
+                                                        <div className="flex items-center gap-1">
+                                                            <span>A true result is a pass</span>
+                                                            <Tooltip title="Leave on for pass/fail evaluations, where a true result means the criteria were satisfied. Turn off for detector-style evaluations, where a true result flags a problem (for example 'struggle detected') and should count as a fail in reports.">
+                                                                <IconInfo className="text-muted text-base" />
+                                                            </Tooltip>
+                                                        </div>
+                                                    }
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <LemonSwitch
+                                                            checked={evaluation.output_config.true_is_pass ?? true}
+                                                            onChange={setTrueIsPass}
+                                                        />
+                                                        <span className="text-muted text-sm">
+                                                            {evaluation.output_config.true_is_pass ?? true
+                                                                ? 'A true result counts as a pass'
+                                                                : 'A true result counts as a fail (detector-style)'}
                                                         </span>
                                                     </div>
                                                 </Field>

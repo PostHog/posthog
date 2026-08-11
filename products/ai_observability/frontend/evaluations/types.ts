@@ -34,6 +34,10 @@ export interface ModelConfiguration {
 
 export interface EvaluationOutputConfig {
     allows_na?: boolean
+    /** Polarity of the boolean result for reporting. True (default) means a true result is a pass.
+     * Set to false for detector-style evaluations, where a true result flags a problem and is reported
+     * as a fail. */
+    true_is_pass?: boolean
 }
 
 /** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
