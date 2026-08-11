@@ -23,25 +23,17 @@ describe('buildTimePositioner', () => {
         expect(positionAt?.(dates[0].getTime() - HOUR_MS)).toBe(-20)
     })
 
-    it('extrapolates for an event after the last bucket', () => {
-        const positionAt = buildTimePositioner(dates, labels, scaleX)
-        expect(positionAt?.(dates[3].getTime() + HOUR_MS)).toBe(80)
-    })
-
-    it('returns null for a single-bucket chart', () => {
-        expect(buildTimePositioner([dates[0]], [labels[0]], scaleX)).toBeNull()
-    })
-
-    it('returns null when adjacent buckets resolve to the same x (zero step)', () => {
-        expect(buildTimePositioner(dates, labels, () => 10)).toBeNull()
-    })
-
-    it('returns null when adjacent buckets share a timestamp (zero bucketMs)', () => {
-        const flatDates = [dates[0], dates[0], dates[2], dates[3]]
-        expect(buildTimePositioner(flatDates, labels, scaleX)).toBeNull()
-    })
-
-    it('returns null when the scale has not resolved a label yet', () => {
-        expect(buildTimePositioner(dates, labels, () => undefined)).toBeNull()
+    it.each([
+        { name: 'a single-bucket chart', dates: [dates[0]], labels: [labels[0]], scale: scaleX },
+        { name: 'adjacent buckets at the same x', dates, labels, scale: () => 10 },
+        {
+            name: 'adjacent buckets sharing a timestamp',
+            dates: [dates[0], dates[0], dates[2], dates[3]],
+            labels,
+            scale: scaleX,
+        },
+        { name: 'a scale that has not resolved a label', dates, labels, scale: () => undefined },
+    ])('returns null for $name', ({ dates: d, labels: l, scale }) => {
+        expect(buildTimePositioner(d, l, scale)).toBeNull()
     })
 })

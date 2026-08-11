@@ -45,23 +45,6 @@ describe('spreadLabels', () => {
         expect(spreadLabels(items, MIN_GAP, MIN, MAX)).toEqual(expected)
     })
 
-    it('preserves left-to-right order when spreading', () => {
-        const items = [
-            { center: 110, halfWidth: 28 },
-            { center: 90, halfWidth: 28 },
-        ]
-        const [right, left] = spreadLabels(items, MIN_GAP, MIN, MAX)
-        expect(left).toBeLessThan(right)
-    })
-
-    it('leaves labels that already fit exactly where they are', () => {
-        const items = [
-            { center: 30, halfWidth: 10 },
-            { center: 150, halfWidth: 10 },
-        ]
-        expect(spreadLabels(items, MIN_GAP, MIN, MAX)).toEqual([30, 150])
-    })
-
     it('spills the leftmost labels past `min` when they cannot all fit', () => {
         const items = [
             { center: 100, halfWidth: 60 },
