@@ -127,6 +127,7 @@ export class PiAgentServer {
   private logFlushQueue: Promise<void> = Promise.resolve();
   private logFlushActive = false;
   private logFlushRequested = false;
+  private autoPublishInstructionDelivered = false;
   private readonly canceledSseControllers = new WeakSet<SseController>();
   private readonly pendingMcpPermissions = new Map<
     string,
@@ -762,10 +763,38 @@ export class PiAgentServer {
     const attachmentText = filePaths.length
       ? `Attached files:\n${filePaths.map((filePath) => `- ${filePath}`).join("\n")}`
       : "";
+    const autoPublishInstruction = this.buildAutoPublishInstruction();
+    if (autoPublishInstruction) {
+      this.autoPublishInstructionDelivered = true;
+    }
     return {
-      content: [content, attachmentText].filter(Boolean).join("\n\n"),
+      content: [autoPublishInstruction, content, attachmentText]
+        .filter(Boolean)
+        .join("\n\n"),
       images,
     };
+  }
+
+  /**
+   * Pi does not consume AgentServer's ACP session system prompt. Carry the
+   * user's cloud auto-publish choice into its first prompt explicitly, just as
+   * prewarmed ACP sessions inject a first-message override after reading run
+   * state. Without this, Pi sees the task but never sees the instruction to
+   * publish the completed change.
+   */
+  private buildAutoPublishInstruction(): string | null {
+    if (
+      this.autoPublishInstructionDelivered ||
+      this.config.autoPublish !== true ||
+      this.config.createPr === false
+    ) {
+      return null;
+    }
+    return [
+      "IMPORTANT — the user has auto-publish enabled for this cloud run.",
+      "After completing and verifying code changes, create a `posthog/` branch, stage the changes, use the `git_signed_commit` tool to create a signed commit, and open a draft pull request with `gh pr create --draft`. Do not stop with local changes waiting for review.",
+      "Do not use `git commit` or `git push`. If this task already has an open pull request for the same work, continue on that PR instead of opening another one.",
+    ].join("\n");
   }
 
   private async dispatchUserMessage(
