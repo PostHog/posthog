@@ -111,23 +111,27 @@ export function autoCaptureEventToDescription(
     }
 
     const getVerb = (): string => eventTypeToVerb[event.properties.$event_type] || 'interacted with'
+    const describedElement =
+        event.properties.$event_type === 'click'
+            ? (event.elements?.find(({ tag_name }) => tag_name === 'a' || tag_name === 'button') ?? event.elements?.[0])
+            : event.elements?.[0]
 
     const getTag = (): string => {
-        if (event.elements?.[0]?.tag_name === 'a') {
+        if (describedElement?.tag_name === 'a') {
             return 'link'
-        } else if (event.elements?.[0]?.tag_name === 'img') {
+        } else if (describedElement?.tag_name === 'img') {
             return 'image'
         }
-        return event.elements?.[0]?.tag_name ?? 'element'
+        return describedElement?.tag_name ?? 'element'
     }
 
     const getValue = (): string | null => {
         if (event.properties.$el_text) {
             return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
-        } else if (event.elements?.[0]?.text) {
-            return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
-        } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
-            return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
+        } else if (describedElement?.text) {
+            return `${shortForm ? '' : 'with text '}"${describedElement.text}"`
+        } else if (describedElement?.attributes?.['attr__aria-label']) {
+            return `${shortForm ? '' : 'with aria label '}"${describedElement.attributes['attr__aria-label']}"`
         }
         return null
     }

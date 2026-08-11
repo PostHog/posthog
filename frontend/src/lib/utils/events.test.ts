@@ -218,6 +218,32 @@ describe('events utils', () => {
                 })
             ).toEqual('clicked button with aria label "Close "main" dialog"')
         })
+
+        it.each([
+            [
+                'link text',
+                [{ tag_name: 'svg' } as ElementType, { tag_name: 'a', text: 'View documentation' } as ElementType],
+                'clicked link with text "View documentation"',
+            ],
+            [
+                'button aria-label',
+                [
+                    { tag_name: 'svg' } as ElementType,
+                    {
+                        tag_name: 'button',
+                        attributes: { 'attr__aria-label': 'Play video' },
+                    } as ElementType,
+                ],
+                'clicked button with aria label "Play video"',
+            ],
+        ])('uses the containing %s when an SVG is clicked', (_, elements, expected) => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements,
+                })
+            ).toEqual(expected)
+        })
     })
 
     describe('getPrimaryPropertyForEvent', () => {
