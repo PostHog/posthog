@@ -3,6 +3,7 @@ from hashlib import sha256
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers
+from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,12 +17,16 @@ from posthog.api.secret_revocation import (
     revoke_leaked_secret,
 )
 from posthog.rate_limit import LeakedKeyReportThrottle
+from posthog.utils import get_instance_region
 
 PUBLIC_REPORT_MORE_INFO = "This key was reported as leaked via PostHog's public key-revocation API."
 
 
 class LeakedKeyReportSerializer(serializers.Serializer):
     token = serializers.CharField(
+        # The longest key we issue is 51 characters. The cap rejects an oversized body
+        # before any hashing or lookup work happens.
+        max_length=200,
         help_text="The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.",
     )
 
@@ -55,12 +60,18 @@ class PublicLeakedKeyReport(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [LeakedKeyReportThrottle]
+    parser_classes = [JSONParser]
+
+    # No scope_object: this endpoint is intentionally public and unscoped, not tied to
+    # a team/org resource, so APIScopePermission's scope model doesn't apply here. It
+    # opts into the public API docs directly instead.
+    include_in_api_docs = True
 
     @validated_request(
         request_serializer=LeakedKeyReportSerializer,
         responses={
             200: OpenApiResponse(response=LeakedKeyReportResponseSerializer, description="Lookup result."),
-            400: OpenApiResponse(description="Missing or blank token."),
+            400: OpenApiResponse(description="The token is missing, blank, or longer than 200 characters."),
             429: OpenApiResponse(description="Too many requests from this IP."),
         },
         summary="Report and revoke a leaked PostHog API key or token",
@@ -69,9 +80,9 @@ class PublicLeakedKeyReport(APIView):
             "personal API key, project secret API key, or OAuth access/refresh token. If the "
             "token is live it is revoked immediately and the owner is notified by email.\n\n"
             'This endpoint only checks the region it is running on. `"found": false` does not '
-            "guarantee the token is safe — if you're not sure which region issued it, also try "
-            "the other region's endpoint: https://app.posthog.com/api/alerts/leaked_key or "
-            "https://eu.posthog.com/api/alerts/leaked_key."
+            "guarantee the token is safe. If you're not sure which region issued it, also try "
+            "the other region's endpoint: https://app.posthog.com/api/revoke_leaked_key or "
+            "https://eu.posthog.com/api/revoke_leaked_key."
         ),
         extensions={"x-product": "core"},
     )
@@ -93,6 +104,9 @@ class PublicLeakedKeyReport(APIView):
                 "type": result.key_type,
                 "token_length": len(token),
                 "token_sha256": sha256(token.encode("utf-8")).hexdigest(),
+                # With no cross-region relay, this is the only signal showing whether
+                # callers in one region are reporting keys the other region issued.
+                "region": get_instance_region(),
             },
         )
 

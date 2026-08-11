@@ -1,4 +1,5 @@
 import json
+import secrets
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
@@ -9,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.leaked_key import PUBLIC_REPORT_MORE_INFO
 from posthog.api.secret_revocation import (
     CANONICAL_OAUTH_ACCESS_TOKEN,
     CANONICAL_OAUTH_REFRESH_TOKEN,
@@ -23,9 +25,10 @@ from posthog.models.oauth import (
     find_oauth_access_token,
     find_oauth_refresh_token,
 )
-from posthog.models.personal_api_key import find_personal_api_key
+from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, find_personal_api_key
 from posthog.models.project_secret_api_key import find_project_secret_api_key
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.rate_limit import LeakedKeyReportThrottle
 from posthog.test.api_keys import create_project_secret_api_key
 
 
@@ -49,7 +52,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
 
     def _post(self, token: str):
         return self.client.post(
-            "/api/alerts/leaked_key",
+            "/api/revoke_leaked_key",
             data=json.dumps({"token": token}),
             content_type="application/json",
         )
@@ -57,6 +60,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
     @parameterized.expand(
         [
             ("personal_api_key", CANONICAL_PERSONAL_API_KEY),
+            ("legacy_personal_api_key", CANONICAL_PERSONAL_API_KEY),
             ("project_secret_api_key", CANONICAL_PROJECT_SECRET_API_KEY),
             ("oauth_access_token", CANONICAL_OAUTH_ACCESS_TOKEN),
             ("oauth_refresh_token", CANONICAL_OAUTH_REFRESH_TOKEN),
@@ -75,7 +79,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
     ) -> None:
         if kind == "personal_api_key":
             token = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
+            key = PersonalAPIKey.objects.create(
                 user=self.user,
                 label="leaked",
                 secure_value=hash_key_value(token),
@@ -85,11 +89,43 @@ class TestPublicLeakedKeyReport(APIBaseTest):
 
             def still_present() -> bool:
                 return find_personal_api_key(token) is not None
+
+            def assert_owner_notified() -> None:
+                mock_send_personal_api_key_exposed.assert_called_once_with(
+                    self.user.id, key.id, mask_key_value(token), PUBLIC_REPORT_MORE_INFO
+                )
+        elif kind == "legacy_personal_api_key":
+            # Keys issued before the phx_ prefix are bare secrets.token_urlsafe(32) output
+            # stored under the legacy PBKDF2 hash. They still authenticate, so they must
+            # still be revocable here.
+            token = secrets.token_urlsafe(32)
+            key = PersonalAPIKey.objects.create(
+                user=self.user,
+                label="leaked legacy",
+                secure_value=hash_key_value(
+                    token, mode="pbkdf2", legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=260000
+                ),
+                mask_value=mask_key_value(token),
+                scopes=["*"],
+            )
+
+            def still_present() -> bool:
+                return find_personal_api_key(token) is not None
+
+            def assert_owner_notified() -> None:
+                mock_send_personal_api_key_exposed.assert_called_once_with(
+                    self.user.id, key.id, mask_key_value(token), PUBLIC_REPORT_MORE_INFO
+                )
         elif kind == "project_secret_api_key":
-            _, token = create_project_secret_api_key(team=self.team, created_by=self.user)
+            project_secret_api_key, token = create_project_secret_api_key(team=self.team, created_by=self.user)
 
             def still_present() -> bool:
                 return find_project_secret_api_key(token) is not None
+
+            def assert_owner_notified() -> None:
+                mock_send_project_secret_api_key_exposed.assert_called_once_with(
+                    self.team.id, project_secret_api_key.id, mask_key_value(token), PUBLIC_REPORT_MORE_INFO
+                )
         elif kind == "oauth_access_token":
             oauth_app = self._create_oauth_app()
             token = "pha_test_leaked_access_token"
@@ -103,6 +139,11 @@ class TestPublicLeakedKeyReport(APIBaseTest):
 
             def still_present() -> bool:
                 return find_oauth_access_token(token) is not None
+
+            def assert_owner_notified() -> None:
+                mock_send_oauth_token_exposed.assert_called_once_with(
+                    self.user.id, "access", mask_key_value(token), PUBLIC_REPORT_MORE_INFO
+                )
         else:
             oauth_app = self._create_oauth_app()
             token = "phr_test_leaked_refresh_token"
@@ -111,11 +152,17 @@ class TestPublicLeakedKeyReport(APIBaseTest):
             def still_present() -> bool:
                 return find_oauth_refresh_token(token) is not None
 
+            def assert_owner_notified() -> None:
+                mock_send_oauth_token_exposed.assert_called_once_with(
+                    self.user.id, "refresh", mask_key_value(token), PUBLIC_REPORT_MORE_INFO
+                )
+
         response = self._post(token)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"found": True, "type": expected_type})
         self.assertFalse(still_present())
+        assert_owner_notified()
 
     @parameterized.expand(
         [
@@ -125,6 +172,10 @@ class TestPublicLeakedKeyReport(APIBaseTest):
             # No PostHog key prefix at all — exercises _detect_canonical_type
             # returning None and skipping every lookup entirely.
             ("no_recognized_prefix_at_all", "not-a-posthog-key-at-all"),
+            # Matches the legacy unprefixed personal-key shape (43 URL-safe chars), so the
+            # personal-key lookup runs and misses. Guards the shape fallback against
+            # false positives.
+            ("legacy_shape_but_not_a_real_key", "x" * 43),
         ]
     )
     def test_unrecognized_token_is_not_found(self, _name: str, token: str) -> None:
@@ -156,3 +207,11 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         response = self._post("")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_repeated_reports_from_one_ip_are_throttled(self) -> None:
+        with patch.object(LeakedKeyReportThrottle, "rate", "1/minute"):
+            first = self._post("phx_not_a_real_key")
+            second = self._post("phx_not_a_real_key")
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

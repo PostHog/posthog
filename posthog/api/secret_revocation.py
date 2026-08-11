@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
@@ -75,12 +76,20 @@ _REVOKERS = {
     CANONICAL_OAUTH_REFRESH_TOKEN: _revoke_oauth_refresh_token,
 }
 
-# Every key type has a reserved prefix (posthog/models/utils.py) enforced at
-# generation time. Auto-detect uses it to run exactly one lookup instead of trying
+# Every key type issued today has a reserved prefix (posthog/models/utils.py) enforced
+# at generation time. Auto-detect uses it to run exactly one lookup instead of trying
 # every type in turn — a token matching no known prefix costs nothing beyond these
 # string comparisons, instead of paying for a personal-API-key lookup's SHA-256 +
 # two rounds of PBKDF2 (PERSONAL_API_KEY_MODES_TO_TRY) on every unrecognized string
 # an anonymous caller submits.
+#
+# Personal API keys are the one exception: those issued before the prefix existed have
+# none, so the map alone would leave the fleet's oldest keys unrevocable.
+# _looks_like_legacy_personal_api_key covers them by shape instead. That widens what
+# reaches the personal-key lookup — any 43-character URL-safe string qualifies,
+# including legacy unprefixed Team.api_token values, which simply miss — but the bound
+# still holds, since an arbitrary string has to match that exact length and alphabet
+# to cost anything at all.
 #
 # Team-level secret tokens (Team.secret_api_token) share SECRET_API_TOKEN_PREFIX
 # with project secret API keys but are deliberately not in this map: unlike these
@@ -96,10 +105,27 @@ _PREFIX_TO_CANONICAL_TYPE = {
 }
 
 
+_LEGACY_PERSONAL_API_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
+
+
+def _looks_like_legacy_personal_api_key(token: str) -> bool:
+    """Personal API keys created before the phx_ prefix (2021-06-23, commit
+    6c9bb2db0fb) are bare secrets.token_urlsafe(32) output: exactly 43 URL-safe
+    base64 characters, no prefix. They're still valid today — PERSONAL_API_KEY_MODES_TO_TRY
+    exists specifically to authenticate them via their legacy hash. This exact
+    length+charset check keeps auto-detect's cost bound intact: only a token
+    matching this precise shape reaches the expensive personal-key lookup,
+    not every unrecognized string.
+    """
+    return bool(_LEGACY_PERSONAL_API_KEY_PATTERN.match(token))
+
+
 def _detect_canonical_type(token: str) -> str | None:
     for prefix, canonical_type in _PREFIX_TO_CANONICAL_TYPE.items():
         if token.startswith(prefix):
             return canonical_type
+    if _looks_like_legacy_personal_api_key(token):
+        return CANONICAL_PERSONAL_API_KEY
     return None
 
 
