@@ -527,6 +527,27 @@ class Task(DeletedMetaFields, models.Model):
             capture_fn=capture_fn,
         )
 
+    def soft_delete_if_unclaimed_prewarm(self, task_run: "TaskRun") -> bool:
+        deleted_at = django_timezone.now()
+        updated = Task.objects.filter(
+            pk=self.pk,
+            deleted=False,
+            title="",
+            description="",
+            runs__id=task_run.id,
+            runs__state__prewarmed=True,
+            runs__state__await_user_message=True,
+        ).update(deleted=True, deleted_at=deleted_at, updated_at=deleted_at)
+        if not updated:
+            return False
+        self.deleted = True
+        self.deleted_at = deleted_at
+        self.updated_at = deleted_at
+        self.capture_event(
+            "task_deleted", {"duration_seconds": round((deleted_at - self.created_at).total_seconds(), 1)}
+        )
+        return True
+
     def delete(self, *args, **kwargs):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
 
