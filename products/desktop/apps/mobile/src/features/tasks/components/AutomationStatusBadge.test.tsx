@@ -27,6 +27,22 @@ describe("AutomationStatusBadge", () => {
     expect(output).not.toContain("Running");
   });
 
+  it("does not call a started run 'Never run'", () => {
+    let renderer!: ReturnType<typeof create>;
+
+    act(() => {
+      renderer = create(
+        createElement(AutomationStatusBadge, {
+          enabled: true,
+          lastRunStatus: "running",
+          lastTaskRunStatus: "started",
+        }),
+      );
+    });
+
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("Never run");
+  });
+
   it("still renders non-running run states", () => {
     let renderer: ReturnType<typeof create> | null = null;
 

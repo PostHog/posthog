@@ -1,12 +1,26 @@
 import { Text } from "@components/text";
-import type { TaskRun } from "@posthog/shared";
+import {
+  type AutomationStatusTone,
+  type AutomationTaskRunStatus,
+  getAutomationStatusPresentation,
+} from "@posthog/core/automations/automationStatus";
 import { View } from "react-native";
-import { getAutomationStatusPresentation } from "../utils/automationStatus";
+
+/** The shared presentation names a tone; only the renderer knows the classes. */
+const TONE_CLASSES: Record<
+  AutomationStatusTone,
+  { container: string; text: string }
+> = {
+  neutral: { container: "bg-gray-4", text: "text-gray-11" },
+  warning: { container: "bg-status-warning/20", text: "text-status-warning" },
+  success: { container: "bg-status-success/20", text: "text-status-success" },
+  error: { container: "bg-status-error/20", text: "text-status-error" },
+};
 
 interface AutomationStatusBadgeProps {
   enabled: boolean;
   lastRunStatus: string | null;
-  lastTaskRunStatus?: TaskRun["status"] | null;
+  lastTaskRunStatus?: AutomationTaskRunStatus | null;
 }
 
 export function AutomationStatusBadge({
@@ -18,6 +32,7 @@ export function AutomationStatusBadge({
     lastRunStatus,
     lastTaskRunStatus,
   });
+  const tone = runStatus ? TONE_CLASSES[runStatus.tone] : null;
 
   return (
     <View className="flex-row flex-wrap gap-2">
@@ -32,11 +47,9 @@ export function AutomationStatusBadge({
           {enabled ? "Enabled" : "Paused"}
         </Text>
       </View>
-      {runStatus ? (
-        <View className={`rounded px-1.5 py-0.5 ${runStatus.className}`}>
-          <Text className={`text-xs ${runStatus.className.split(" ")[1]}`}>
-            {runStatus.label}
-          </Text>
+      {runStatus && tone ? (
+        <View className={`rounded px-1.5 py-0.5 ${tone.container}`}>
+          <Text className={`text-xs ${tone.text}`}>{runStatus.label}</Text>
         </View>
       ) : null}
     </View>
