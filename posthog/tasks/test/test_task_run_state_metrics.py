@@ -34,6 +34,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         status: "TaskRun.Status",
         environment: "Optional[TaskRun.Environment]" = None,
         created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
     ) -> "TaskRun":
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -51,8 +52,14 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             status=status,
             environment=environment,
         )
-        if created_at is not None:
-            TaskRun.objects.filter(pk=run.pk).update(created_at=created_at)
+        # .update() bypasses auto_now, so an explicit updated_at sticks.
+        overrides = {
+            field: value
+            for field, value in (("created_at", created_at), ("updated_at", updated_at))
+            if value is not None
+        }
+        if overrides:
+            TaskRun.objects.filter(pk=run.pk).update(**overrides)
             run.refresh_from_db()
         return run
 
@@ -130,6 +137,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             origin=Task.OriginProduct.SLACK,
             status=TaskRun.Status.QUEUED,
             created_at=long_ago,
+            updated_at=long_ago,
         )
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.QUEUED)
 
@@ -142,6 +150,35 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert age is not None
         # Oldest run was ~30 minutes ago; allow generous slack for test timing.
         assert 1500 < age < 2400
+
+    @parameterized.expand(
+        [
+            # A cloud handoff re-queues an existing run without resetting created_at, so anchoring
+            # the queue wait on created_at would report the whole pre-handoff lifetime as backlog.
+            (apps.get_model("tasks", "TaskRun").Status.QUEUED, 1500, 2400),
+            (apps.get_model("tasks", "TaskRun").Status.IN_PROGRESS, 20000, 23000),
+        ]
+    )
+    def test_age_anchors_queued_on_requeue_and_other_statuses_on_creation(
+        self, status: "TaskRun.Status", low: int, high: int
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        now = timezone.now()
+        self._make_task_run(
+            origin=Task.OriginProduct.SLACK,
+            status=status,
+            created_at=now - timedelta(hours=6),
+            updated_at=now - timedelta(minutes=30),
+        )
+
+        registry = self._run_with_registry()
+
+        age = registry.get_sample_value(
+            "posthog_tasks_oldest_open_run_age_seconds",
+            {"status": status.value, "origin_product": "slack", "run_environment": "cloud"},
+        )
+        assert age is not None
+        assert low < age < high
 
     def test_emits_runs_created_1h_by_origin_and_environment(self) -> None:
         Task = apps.get_model("tasks", "Task")

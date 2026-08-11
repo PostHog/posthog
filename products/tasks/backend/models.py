@@ -462,6 +462,10 @@ class Task(DeletedMetaFields, models.Model):
                 "run_id": str(task_run.id),
                 "mode": mode,
                 "environment": task_run.environment,
+                # The bare `environment` property gets clobbered by the analytics client's
+                # deployment-environment super-property, so ship the run's local/cloud value
+                # under an unclobbered name too — as TaskRun.capture_event already does.
+                "run_environment": task_run.environment,
                 "is_resume": is_resume,
                 "has_pending_message": has_pending,
                 # Loop attribution: this event uses Task.capture_event (not TaskRun's),
