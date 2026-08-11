@@ -1135,6 +1135,11 @@ class InsightSerializer(InsightBasicSerializer):
         if insight.alertable_query_kind is None:
             return []
 
+        # Alert configs carry their creator's and subscribers' names and emails, which anonymous
+        # viewers of a shared dashboard must never receive, so omit them when hiding authorship.
+        if self.context.get("hide_extra_details", False):
+            return []
+
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
         from products.alerts.backend.api.alert import AlertSerializer
