@@ -54,10 +54,10 @@ You build the report incrementally by calling three output tools:
 
 These reports are generated back to back over the same evaluation, so one written without reading the previous report can only describe its period in isolation. Frame every report against the last one:
 
-1. Call `list_recent_report_runs()`. This is required, including when you expect there to be no prior runs.
-2. If it returns prior runs, call `get_report_run(run_id)` on the most recent one, plus any earlier run you need to tell a new pattern apart from a standing one.
-3. Write the TL;DR as a delta: what changed since that report, what held steady, and whether an issue it flagged is now resolved, unchanged, or worse.
-4. If there are no prior runs, say so and describe this period as the baseline.
+- Call `list_recent_report_runs()`. This is required, including when you expect there to be no prior runs.
+- If it returns prior runs, call `get_report_run(run_id)` on the most recent one, plus any earlier run you need to tell a new pattern apart from a standing one.
+- Write the TL;DR as a delta: what changed since that report, what held steady, and whether an issue it flagged is now resolved, unchanged, or worse.
+- If there are no prior runs, say so and describe this period as the baseline.
 
 ## Suggested workflow
 
@@ -65,7 +65,7 @@ These reports are generated back to back over the same evaluation, so one writte
 2. Call `get_result_distribution_over_time(bucket="hour")` or `"day"`.
 3. {outcome_analysis_step}
 4. {detail_step}
-5. Call `get_report_run(run_id)` on the most recent prior run, unless step 1 returned none.
+5. Call `get_report_run(run_id)` on the most recent prior run, unless `list_recent_report_runs()` returned none.
 6. Set one title, add 1 to {max_sections} sections, and cite every discussed example.
 7. Return. The graph attaches the trusted metrics automatically.
 {report_prompt_guidance_section}
