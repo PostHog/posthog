@@ -425,8 +425,10 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// envelope setting) and produces a Kafka-shaped `ProduceRecord` with a
     /// concrete topic and partition key. Keeping it off the `Sink` trait is
     /// what matters for the layering: callers above can prep and publish as
-    /// separate phases. The prep hoist in the plan doc moves the assembly
-    /// and that state up once payloads carry backend-agnostic addresses.
+    /// separate phases. The prep hoist (step 12 of
+    /// `rust/capture/OUTPUTS_REFACTOR_PLAN.md`) moves the assembly and that
+    /// state up once payloads carry backend-agnostic addresses; drop this
+    /// note when it lands.
     ///
     /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `prepare_batch`'s serial fast path call it inline

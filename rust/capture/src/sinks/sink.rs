@@ -40,8 +40,10 @@ pub enum Outcome {
 /// within a batch (v0 accepts client-supplied uuids unchecked). It is
 /// carried anyway so a result is attributable to its event without the
 /// caller holding the input list, which makes the per-event response model
-/// a caller-side change instead of a trait change. Until that model lands,
-/// `fold_results` is the only consumer and ignores it.
+/// (steps 19d and 20 of `rust/capture/OUTPUTS_REFACTOR_PLAN.md`) a
+/// caller-side change instead of a trait change. Until that model lands,
+/// `fold_results` is the only consumer and ignores it; drop this note when
+/// the uuid gains its consumer.
 #[derive(Debug)]
 pub struct SinkResult {
     pub uuid: Uuid,
