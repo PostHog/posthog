@@ -18,6 +18,7 @@ use personhog_leader::fencing::{
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_proto::personhog::types::v1::Person;
+use tokio::sync::Notify;
 use tokio::time::sleep;
 
 use common::{test_kafka_config, KAFKA_BOOTSTRAP};
@@ -372,6 +373,34 @@ async fn a_completed_warm_keeps_its_fence() {
         .produce(0, &test_person(1))
         .await
         .expect("a completed warm keeps a usable fence");
+}
+
+/// A condemnation must nudge its own repair: the fix for a condemned
+/// producer is a convergence-driven heal, and without the nudge that
+/// convergence waits for the next reconcile tick while every write on
+/// the partition bounces. Once per producer: the unusable swap, not the
+/// notify, bounds the nudges.
+#[tokio::test]
+async fn a_condemnation_nudges_repair_once() {
+    let topic = format!("fence_repair_{}", uuid::Uuid::new_v4().simple());
+    let nudge = Arc::new(Notify::new());
+    let producers = fenced_producers(&topic).with_repair_nudge(Arc::clone(&nudge));
+    producers.acquire(3).await.expect("acquire the fence");
+
+    producers.condemn_for_test(3);
+    tokio::time::timeout(Duration::from_secs(5), nudge.notified())
+        .await
+        .expect("a condemnation must nudge the repair pass");
+
+    // The permit was consumed above; a second condemnation of the same
+    // producer takes the unusable-swap early exit and stores no new one.
+    producers.condemn_for_test(3);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(250), nudge.notified())
+            .await
+            .is_err(),
+        "a second condemnation of the same producer must not nudge again"
+    );
 }
 
 /// A producer whose abort exhausted its retries, or whose commit outcome
