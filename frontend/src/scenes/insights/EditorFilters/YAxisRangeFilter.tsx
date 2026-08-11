@@ -32,7 +32,7 @@ export function YAxisRangeFilter(): JSX.Element {
               ? 'Not available while showing percentages'
               : undefined
     const startAtZeroDisabledReason = displayMatches(display, BAR_DISPLAYS)
-        ? 'Bar charts always start at zero'
+        ? 'Bar charts always begin at zero'
         : rangeDisabledReason
 
     // The chart falls back to its automatic range while the pair is inverted, so say why rather
@@ -50,15 +50,13 @@ export function YAxisRangeFilter(): JSX.Element {
     return (
         <div className="p-1 px-2 flex flex-col gap-2 w-64">
             <LemonSwitch
-                label="Start at zero"
+                className="flex-1 w-full"
+                label="Begin at zero"
                 tooltip="When off, the axis starts just below your lowest value instead of at zero, so small changes are easier to see."
                 data-attr="trends-y-axis-start-at-zero"
                 checked={trendsFilter?.yAxisStartAtZero !== false}
                 disabledReason={startAtZeroDisabledReason}
                 onChange={(checked) => updateInsightFilter({ yAxisStartAtZero: checked ? undefined : false })}
-                fullWidth
-                size="small"
-                bordered
             />
             <div className="flex flex-col gap-1">
                 <LemonLabel>Minimum</LemonLabel>
