@@ -60,6 +60,23 @@ export function canvasVersionNavigation(args: {
 }
 
 /**
+ * The draft to auto-open: the newest draft whose build is ready and hasn't
+ * been seen ready before. Staging a draft is the review-flow counterpart of a
+ * publish, which swaps the canvas the moment its build lands; opening the
+ * finished draft gives it the same arrival moment instead of leaving it
+ * hidden behind the Drafts menu. Returns null when nothing newly finished.
+ */
+export function freshReadyDraftId(
+  seenReady: ReadonlySet<string>,
+  drafts: readonly { versionId: string; buildStatus?: string | null }[],
+): string | null {
+  const fresh = drafts.find(
+    (draft) => draft.buildStatus === "ready" && !seenReady.has(draft.versionId),
+  );
+  return fresh?.versionId ?? null;
+}
+
+/**
  * Whether an active browse points at a version the canvas no longer offers
  * (e.g. it was pruned server-side while the canvas was open) and should be
  * cleared. `browseTargetIds` is every id that is a valid browse target —

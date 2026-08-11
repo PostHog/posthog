@@ -3,6 +3,7 @@ import {
   ArrowUUpRightIcon,
   CaretDownIcon,
   ClockCounterClockwiseIcon,
+  PencilSimpleIcon,
   ShapesIcon,
   SidebarSimpleIcon,
   SpinnerGapIcon,
@@ -92,6 +93,7 @@ import { CanvasSidePanel } from "./CanvasSidePanel";
 import { canvasCommentTaskId } from "./canvasCommentTask";
 import {
   canvasVersionNavigation,
+  freshReadyDraftId,
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
@@ -332,6 +334,40 @@ export function FreeformCanvasView({
     setBrowseVersion,
   ]);
 
+  // Auto-open a draft the moment its build finishes, giving a staged draft
+  // the same arrival moment a publish has (the canvas swaps when the build
+  // lands). The first settled fetch is the baseline, so drafts that were
+  // already built don't hijack the view on mount, and each draft opens once.
+  const seenReadyDraftIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!interactive) {
+      seenReadyDraftIdsRef.current = null;
+      return;
+    }
+    if (draftsLoading) return;
+    const readyIds = drafts
+      .filter((draft) => draft.buildStatus === "ready")
+      .map((draft) => draft.versionId);
+    if (seenReadyDraftIdsRef.current === null) {
+      seenReadyDraftIdsRef.current = new Set(readyIds);
+      return;
+    }
+    const fresh = freshReadyDraftId(seenReadyDraftIdsRef.current, drafts);
+    for (const id of readyIds) {
+      seenReadyDraftIdsRef.current.add(id);
+    }
+    if (fresh && !browseVersionId) {
+      setBrowseVersion(threadId, fresh);
+    }
+  }, [
+    interactive,
+    drafts,
+    draftsLoading,
+    browseVersionId,
+    threadId,
+    setBrowseVersion,
+  ]);
+
   // Undo/redo step through the version list relative to the HEAD (which, after
   // a revert, may sit mid-list rather than at versions[0]). The arithmetic is
   // a tested pure helper; only the isGenerating gate is view-local.
@@ -391,7 +427,7 @@ export function FreeformCanvasView({
       );
       setBrowseVersion(threadId, null);
     } catch (error) {
-      toast.error("Couldn't promote draft", {
+      toast.error("Couldn't publish draft", {
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -690,7 +726,7 @@ export function FreeformCanvasView({
                       disabled={isPromoting}
                       onClick={() => void onPromote()}
                     >
-                      {isPromoting ? "Promoting…" : "Promote to live"}
+                      {isPromoting ? "Publishing…" : "Publish draft"}
                     </Button>
                   )}
                   {drafts.length > 0 && (
@@ -809,8 +845,16 @@ export function FreeformCanvasView({
                   className="shrink-0 border-b bg-accent-2 px-3 py-1.5"
                 >
                   <Flex align="center" gap="1" className="text-accent-11">
-                    <ClockCounterClockwiseIcon size={14} />
-                    <Text size="1">Viewing a previous version</Text>
+                    {browsingDraft ? (
+                      <PencilSimpleIcon size={14} />
+                    ) : (
+                      <ClockCounterClockwiseIcon size={14} />
+                    )}
+                    <Text size="1">
+                      {browsingDraft
+                        ? "Viewing a draft. It isn't live yet."
+                        : "Viewing a previous version"}
+                    </Text>
                   </Flex>
                   <Flex align="center" gap="2">
                     <Button
@@ -818,18 +862,28 @@ export function FreeformCanvasView({
                       size="sm"
                       onClick={() => setBrowseVersion(threadId, null)}
                     >
-                      Back to latest
+                      {browsingDraft ? "Back to live" : "Back to latest"}
                     </Button>
-                    {interactive && (
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        disabled={isReverting}
-                        onClick={() => void onRevert()}
-                      >
-                        {isReverting ? "Reverting…" : "Revert"}
-                      </Button>
-                    )}
+                    {interactive &&
+                      (browsingDraft ? (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={isPromoting}
+                          onClick={() => void onPromote()}
+                        >
+                          {isPromoting ? "Publishing…" : "Publish draft"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={isReverting}
+                          onClick={() => void onRevert()}
+                        >
+                          {isReverting ? "Reverting…" : "Revert"}
+                        </Button>
+                      ))}
                   </Flex>
                 </Flex>
                 <Box className="min-h-0 flex-1">
@@ -862,31 +916,43 @@ export function FreeformCanvasView({
                     </EmptyMedia>
                     <EmptyTitle>Preview unavailable</EmptyTitle>
                     <EmptyDescription>
-                      {interactive
-                        ? "This version does not have a saved preview. Revert to rebuild and view it."
-                        : "This version does not have a saved preview. Go back to the latest version to continue."}
+                      {browsingDraft
+                        ? "This draft does not have a preview yet. Publish it to build and make it live."
+                        : interactive
+                          ? "This version does not have a saved preview. Revert to rebuild and view it."
+                          : "This version does not have a saved preview. Go back to the latest version to continue."}
                     </EmptyDescription>
                   </EmptyHeader>
                   <EmptyContent>
                     <Flex align="center" gap="2">
-                      {interactive && (
-                        <Button
-                          variant="primary"
-                          size="default"
-                          disabled={isReverting}
-                          onClick={() => void onRevert()}
-                        >
-                          {isReverting
-                            ? "Reverting…"
-                            : "Revert to this version"}
-                        </Button>
-                      )}
+                      {interactive &&
+                        (browsingDraft ? (
+                          <Button
+                            variant="primary"
+                            size="default"
+                            disabled={isPromoting}
+                            onClick={() => void onPromote()}
+                          >
+                            {isPromoting ? "Publishing…" : "Publish draft"}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="primary"
+                            size="default"
+                            disabled={isReverting}
+                            onClick={() => void onRevert()}
+                          >
+                            {isReverting
+                              ? "Reverting…"
+                              : "Revert to this version"}
+                          </Button>
+                        ))}
                       <Button
                         variant="outline"
                         size="default"
                         onClick={() => setBrowseVersion(threadId, null)}
                       >
-                        Back to latest
+                        {browsingDraft ? "Back to live" : "Back to latest"}
                       </Button>
                     </Flex>
                   </EmptyContent>

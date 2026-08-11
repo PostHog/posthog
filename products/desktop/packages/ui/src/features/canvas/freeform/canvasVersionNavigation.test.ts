@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canvasVersionNavigation,
+  freshReadyDraftId,
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 
@@ -110,6 +111,41 @@ describe("canvasVersionNavigation", () => {
     expect(nav.canUndo).toBe(false);
     expect(nav.canRedo).toBe(false);
     expect(nav.undoTargetId).toBeNull();
+  });
+});
+
+// Guards the auto-open contract: a draft opens exactly once, when its build
+// first turns ready, and never for drafts that were already built (mount) or
+// still building.
+describe("freshReadyDraftId", () => {
+  const seen = new Set(["d-old"]);
+
+  it.each([
+    [
+      "newly ready draft",
+      [{ versionId: "d-new", buildStatus: "ready" }],
+      "d-new",
+    ],
+    [
+      "already-seen ready draft",
+      [{ versionId: "d-old", buildStatus: "ready" }],
+      null,
+    ],
+    [
+      "draft still building",
+      [{ versionId: "d-new", buildStatus: "building" }],
+      null,
+    ],
+    [
+      "newest fresh draft wins (list is newest first)",
+      [
+        { versionId: "d-new", buildStatus: "ready" },
+        { versionId: "d-older", buildStatus: "ready" },
+      ],
+      "d-new",
+    ],
+  ] as const)("%s → %s", (_name, drafts, expected) => {
+    expect(freshReadyDraftId(seen, [...drafts])).toBe(expected);
   });
 });
 
