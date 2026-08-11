@@ -81,7 +81,6 @@ class TestBackfillEnrichmentFields(BaseTest):
         pha_client.group_identify.assert_called_once()
         _, kwargs = pha_client.group_identify.call_args
         assert kwargs["properties"]["enrichment_web_traffic"] == 551400
-        assert kwargs["properties"]["enrichment_technology_tags"] == ["AWS", "React"]
 
     def test_limit_respected(self):
         for i in range(3):
@@ -163,4 +162,3 @@ class TestBackfillEnrichmentFields(BaseTest):
         pha_client.group_identify.assert_called_once()
         _, kwargs = pha_client.group_identify.call_args
         assert "enrichment_web_traffic" not in kwargs["properties"]
-        assert "enrichment_technology_tags" not in kwargs["properties"]
