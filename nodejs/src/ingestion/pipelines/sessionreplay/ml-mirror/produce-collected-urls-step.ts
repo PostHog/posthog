@@ -16,12 +16,32 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
  */
 const PRODUCED_REF_CACHE_MAX = 500_000
 
+/**
+ * Records for one host per Kafka message.
+ *
+ * The Rust collector caps one replay message at 256 URLs of up to 2048 bytes each, which is about
+ * 540 KB if they all share one host. That is under librdkafka's 1 MB default, but only just, and
+ * the bound lives in another crate. This cap keeps the record size inside this file, where the
+ * produce happens.
+ */
+const MAX_URLS_PER_RECORD = 64
+
 /** One record on the fetch topic. The Kafka key is the host, so all URLs here have that one host. */
 export interface CollectedUrlsMessage {
+    /**
+     * The wire format version. The fetcher reads this topic from another deployment, so the two
+     * sides roll separately and a reader needs to know what it is holding.
+     */
+    v: 1
     /** The HMAC pseudonym of the team. The raw team id must not go onto this topic. */
     pseudoTeam: string
-    /** When the mirror saw these URLs. The fetcher drops a message that is too old. */
-    firstSeenMs: number
+    /**
+     * When capture recorded the replay message these URLs came from, not when the mirror produced
+     * them. The fetcher drops a record that is too old, and produce time cannot answer that: a
+     * mirror replaying a backlog would stamp hours-old URLs as fresh, which is the one case the
+     * age check exists for.
+     */
+    capturedAtMs: number
     urls: { ref: string; url: string }[]
 }
 
@@ -46,7 +66,9 @@ export interface CollectedUrlsMessage {
  * The `url` field is the original, unscrubbed URL. It is as sensitive as the raw replay payload, so
  * it goes only into the Kafka value. Log lines and metrics carry hosts and counts only.
  */
-export function createProduceCollectedUrlsStep<T extends { collectedUrls?: CollectedUrl[] }>(
+export function createProduceCollectedUrlsStep<
+    T extends { collectedUrls?: CollectedUrl[]; message: { timestamp?: number } },
+>(
     outputs: IngestionOutputs<MlImageFetchOutput>,
     producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
 ): ProcessingStep<T, T> {
@@ -66,11 +88,19 @@ export function createProduceCollectedUrlsStep<T extends { collectedUrls?: Colle
 
         // Every ref of one replay message belongs to one team, so one parse gives the pseudonym for
         // all of them. The pseudonym comes back out of the ref because the ref is the only place
-        // the collector puts it. A ref that does not parse means the ref format drifted from the
-        // one that `content-ref.ts` defines, and the fetcher would drop such a record anyway.
+        // the collector puts it.
+        //
+        // `source` must be `url`. A `bytes` ref names the bytes of an image the page inlined, and
+        // its hash can never be reproduced from a URL, so producing one here would put a record on
+        // the fetch topic that the fetcher indexes under a hash nothing will ever match. Both kinds
+        // parse, so only this check separates them.
         const parsed = parseImageRef(fresh[0].ref)
-        if (!parsed) {
-            logger.error('🌐', 'ml_image_fetch_ref_unparseable', { count: fresh.length })
+        if (!parsed || parsed.source !== 'url') {
+            logger.error('🌐', 'ml_image_fetch_ref_unusable', {
+                count: fresh.length,
+                source: parsed?.source ?? 'unparseable',
+            })
+            SessionRecordingIngesterMetrics.incrementMlUrlsCollected('ref_unusable', fresh.length)
             return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
         }
 
@@ -86,13 +116,22 @@ export function createProduceCollectedUrlsStep<T extends { collectedUrls?: Colle
         }
         SessionRecordingIngesterMetrics.incrementMlUrlsCollected('queued', fresh.length)
 
-        const firstSeenMs = Date.now()
-        const messages = [...byHost].map(([host, urls]) => ({
-            key: host,
-            value: Buffer.from(
-                JSON.stringify({ pseudoTeam: parsed.pseudoTeam, firstSeenMs, urls } satisfies CollectedUrlsMessage)
-            ),
-        }))
+        // The capture timestamp of the source Kafka record, so the fetcher's age check measures the
+        // age of the replay data rather than the age of this produce.
+        const capturedAtMs = input.message.timestamp ?? Date.now()
+        const messages = [...byHost].flatMap(([host, urls]) =>
+            chunk(urls, MAX_URLS_PER_RECORD).map((slice) => ({
+                key: host,
+                value: Buffer.from(
+                    JSON.stringify({
+                        v: 1,
+                        pseudoTeam: parsed.pseudoTeam,
+                        capturedAtMs,
+                        urls: slice,
+                    } satisfies CollectedUrlsMessage)
+                ),
+            }))
+        )
 
         // The failure handler captures only the refs, so that a produce which is not yet delivered
         // does not hold the URL strings alive longer than the messages themselves.
@@ -120,4 +159,15 @@ export function createProduceCollectedUrlsStep<T extends { collectedUrls?: Colle
             })
         return Promise.resolve(ok({ ...input, collectedUrls: undefined }, [produce]))
     }
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+    if (items.length <= size) {
+        return [items]
+    }
+    const out: T[][] = []
+    for (let i = 0; i < items.length; i += size) {
+        out.push(items.slice(i, i + size))
+    }
+    return out
 }

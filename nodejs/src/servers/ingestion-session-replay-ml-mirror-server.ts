@@ -176,8 +176,8 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                     {
                         pseudonymSecret,
                         // Producing the images is what makes collecting them useful, so the image
-                        // lane follows its producer flag. The URL lane has no producer yet and
-                        // measures on its own, so it follows only its own flag.
+                        // lane follows its producer flag. The URL lane collects on its own flag,
+                        // because collecting alone measures without sending anything anywhere.
                         collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
                         collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
                     },

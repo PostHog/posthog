@@ -15,8 +15,10 @@ import {
 import { isDevEnv } from '~/common/utils/env-utils'
 import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/outputs/producers'
 import {
+    INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER,
     INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER,
     INGESTION_SESSIONREPLAY_PRODUCER,
+    type IngestionSessionreplayMlImageFetchProducer,
     type IngestionSessionreplayMlImageScrubProducer,
     type IngestionSessionreplayProducer,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
@@ -32,6 +34,7 @@ export type SessionReplayProducerName =
     | IngestionDownstreamProducer
     | IngestionSessionreplayProducer
     | IngestionSessionreplayMlImageScrubProducer
+    | IngestionSessionreplayMlImageFetchProducer
 
 export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
@@ -226,6 +229,6 @@ export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConf
         // before an offset commit. That producer has the short `message.timeout.ms` which that
         // drain needs, and it keeps both lanes out of the queue that the DLQ and the overflow
         // topic use. Point this key at another producer if the two lanes must not share a queue.
-        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_PRODUCER: INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_PRODUCER: INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER,
     }
 }

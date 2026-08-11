@@ -8,6 +8,7 @@ import { createProduceCollectedUrlsStep } from './produce-collected-urls-step'
 
 describe('produceCollectedUrlsStep', () => {
     const PSEUDO_TEAM = 'a'.repeat(32)
+    const CAPTURED_AT = 1_700_000_000_000
     let queued: { key: string; value: Buffer }[][]
     let outputs: IngestionOutputs<MlImageFetchOutput>
     let queueMessages: jest.Mock
@@ -22,14 +23,14 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     function collected(hash: string, host: string, url: string): CollectedUrl {
-        return { ref: `image:${PSEUDO_TEAM}:${hash.padEnd(22, 'x')}`, url, host }
+        return { ref: `imageurl:${PSEUDO_TEAM}:${hash.padEnd(22, 'x')}`, url, host }
     }
 
     function decode(batch: { key: string; value: Buffer }[]) {
         return batch.map((message) => ({ key: message.key, value: parseJSON(message.value.toString()) }))
     }
 
-    async function run<T extends { collectedUrls?: CollectedUrl[] }>(
+    async function run<T extends { collectedUrls?: CollectedUrl[]; message: { timestamp?: number } }>(
         step: ReturnType<typeof createProduceCollectedUrlsStep<T>>,
         input: T
     ) {
@@ -42,10 +43,13 @@ describe('produceCollectedUrlsStep', () => {
     }
 
     it('sends one message per host, keyed by that host, and strips the URLs from the element', async () => {
+        // The clock is moved far from CAPTURED_AT on purpose: the record must carry the capture
+        // time of the replay message, not the time the mirror produced it.
         jest.useFakeTimers().setSystemTime(new Date('2026-08-10T00:00:00.000Z'))
         try {
             const step = createProduceCollectedUrlsStep(outputs)
             const result = await run(step, {
+                message: { timestamp: CAPTURED_AT },
                 collectedUrls: [
                     collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?sig=1'),
                     collected('h2', 'img.other.com', 'https://img.other.com/b.png'),
@@ -59,15 +63,16 @@ describe('produceCollectedUrlsStep', () => {
                 {
                     key: 'cdn.example.com',
                     value: {
+                        v: 1,
                         pseudoTeam: PSEUDO_TEAM,
-                        firstSeenMs: Date.parse('2026-08-10T00:00:00.000Z'),
+                        capturedAtMs: CAPTURED_AT,
                         urls: [
                             {
-                                ref: `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
+                                ref: `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
                                 url: 'https://cdn.example.com/a.jpg?sig=1',
                             },
                             {
-                                ref: `image:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
+                                ref: `imageurl:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
                                 url: 'https://cdn.example.com/c.jpg',
                             },
                         ],
@@ -76,10 +81,14 @@ describe('produceCollectedUrlsStep', () => {
                 {
                     key: 'img.other.com',
                     value: {
+                        v: 1,
                         pseudoTeam: PSEUDO_TEAM,
-                        firstSeenMs: Date.parse('2026-08-10T00:00:00.000Z'),
+                        capturedAtMs: CAPTURED_AT,
                         urls: [
-                            { ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`, url: 'https://img.other.com/b.png' },
+                            {
+                                ref: `imageurl:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
+                                url: 'https://img.other.com/b.png',
+                            },
                         ],
                     },
                 },
@@ -91,8 +100,8 @@ describe('produceCollectedUrlsStep', () => {
 
     it('passes through elements with no collected URLs without producing', async () => {
         const step = createProduceCollectedUrlsStep(outputs)
-        await run(step, { collectedUrls: undefined })
-        await run(step, { collectedUrls: [] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: undefined })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [] })
         expect(queueMessages).not.toHaveBeenCalled()
     })
 
@@ -100,8 +109,8 @@ describe('produceCollectedUrlsStep', () => {
         const step = createProduceCollectedUrlsStep(outputs)
         const first = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
         const second = collected('h2', 'cdn.example.com', 'https://cdn.example.com/b.jpg')
-        await run(step, { collectedUrls: [first] })
-        await run(step, { collectedUrls: [first, second] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first, second] })
         expect(
             queued.map((batch) => decode(batch).map((m) => m.value.urls.map((u: { ref: string }) => u.ref)))
         ).toEqual([[[first.ref]], [[second.ref]]])
@@ -112,13 +121,34 @@ describe('produceCollectedUrlsStep', () => {
         const step = createProduceCollectedUrlsStep(outputs)
         const entry = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
 
-        const result = await run(step, { collectedUrls: [entry] })
+        const result = await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
         expect(result.type).toBe(PipelineResultType.OK)
 
-        await run(step, { collectedUrls: [entry] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
         expect(queueMessages).toHaveBeenCalledTimes(2)
         // The second produce succeeded, so the ref dedups from then on.
-        await run(step, { collectedUrls: [entry] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
         expect(queueMessages).toHaveBeenCalledTimes(2)
+    })
+
+    it('refuses to produce a ref whose hash names bytes rather than a URL', async () => {
+        // A bytes ref comes from an image the page inlined, and its hash cannot be reproduced from
+        // any URL. Producing one would put a record on the fetch topic that the fetcher indexes
+        // under a hash nothing will ever match. Both prefixes parse, so only the source check
+        // separates them.
+        const step = createProduceCollectedUrlsStep(outputs, 100)
+
+        await run(step, {
+            message: { timestamp: CAPTURED_AT },
+            collectedUrls: [
+                {
+                    ref: `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
+                    url: 'https://img.example.com/a.png',
+                    host: 'img.example.com',
+                },
+            ],
+        })
+
+        expect(queueMessages).not.toHaveBeenCalled()
     })
 })
