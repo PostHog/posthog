@@ -30,6 +30,17 @@ describe('GuidedWizardStepper', () => {
         expect(screen.getByText('First').closest('button')).not.toHaveAttribute('aria-current')
     })
 
+    it('renders each step dataAttr as a data-attr on its button', () => {
+        render(
+            <GuidedWizardStepper
+                steps={STEPS.map((step) => ({ ...step, dataAttr: `wizard-step-${step.step}` }))}
+                currentStep="first"
+            />
+        )
+
+        expect(screen.getByText('Second').closest('button')).toHaveAttribute('data-attr', 'wizard-step-second')
+    })
+
     it('calls onStepClick with the clicked step', () => {
         const onStepClick = jest.fn()
         render(<GuidedWizardStepper steps={STEPS} currentStep="second" onStepClick={onStepClick} />)

@@ -7,6 +7,8 @@ export interface GuidedWizardStep<Step extends string = string> {
     step: Step
     label: string
     optional?: boolean
+    /** Rendered as data-attr on the step button, for autocapture analytics. */
+    dataAttr?: string
 }
 
 export interface GuidedWizardStepperProps<Step extends string> {
@@ -14,6 +16,7 @@ export interface GuidedWizardStepperProps<Step extends string> {
     currentStep: Step
     onStepClick?: (step: Step) => void
     stepErrors?: Partial<Record<Step, string[]>>
+    className?: string
     'aria-label'?: string
 }
 
@@ -22,6 +25,7 @@ export function GuidedWizardStepper<Step extends string>({
     currentStep,
     onStepClick,
     stepErrors = {},
+    className,
     'aria-label': ariaLabel = 'Wizard progress',
 }: GuidedWizardStepperProps<Step>): JSX.Element {
     // A current step outside the list (e.g. a template picker shown before the stepper) sorts before the first step
@@ -37,7 +41,7 @@ export function GuidedWizardStepper<Step extends string>({
     }
 
     return (
-        <nav className="flex items-center" aria-label={ariaLabel}>
+        <nav className={cn('flex items-center', className)} aria-label={ariaLabel}>
             {steps.map((step, index) => {
                 const isCompleted = currentOrder > index
                 const isCurrent = currentStep === step.step
@@ -49,6 +53,7 @@ export function GuidedWizardStepper<Step extends string>({
                         type="button"
                         onClick={() => handleStepClick(step.step, index)}
                         disabled={isBlocked}
+                        data-attr={step.dataAttr}
                         className={cn(
                             'group flex items-center gap-1.5 px-2 py-1 rounded',
                             'transition-all duration-150',

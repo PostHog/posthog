@@ -9,6 +9,7 @@ import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -29,11 +30,11 @@ import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEP_ORDER,
+    STEP_LABELS,
     ScannerEditorStep,
     scannerEditorSceneLogic,
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
-import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
@@ -95,12 +96,21 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
 
-    const stepErrors: Record<ScannerEditorStep, boolean> = {
-        template: false,
-        self_driving: false,
-        configure: showScannerErrors && !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
+    const stepperSteps: GuidedWizardStep<ScannerEditorStep>[] = visibleSteps.map((visibleStep) => ({
+        step: visibleStep,
+        label: STEP_LABELS[visibleStep],
+        dataAttr: `vision-editor-step-${visibleStep}`,
+    }))
+
+    const stepErrors: Partial<Record<ScannerEditorStep, string[]>> = {
+        configure:
+            showScannerErrors && (scannerValidationErrors?.name || scannerValidationErrors?.scanner_config)
+                ? ['This step has errors to fix']
+                : undefined,
         triggers:
-            showScannerErrors && (scannerValidationErrors?.sampling_rate != null || durationValidationError != null),
+            showScannerErrors && (scannerValidationErrors?.sampling_rate != null || durationValidationError != null)
+                ? ['This step has errors to fix']
+                : undefined,
     }
 
     // Validate the current step and move on: submit routes to the next visible step on success.
@@ -133,11 +143,13 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
                     />
-                    <ScannerEditorStepper
+                    <GuidedWizardStepper
+                        steps={stepperSteps}
                         currentStep={step}
-                        steps={visibleSteps}
                         onStepClick={goToStep}
                         stepErrors={stepErrors}
+                        className="flex-wrap justify-center gap-y-1"
+                        aria-label="Scanner editor progress"
                     />
                     {step === 'template' ? (
                         <>

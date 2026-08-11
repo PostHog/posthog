@@ -13,6 +13,12 @@ export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     triggers: 2,
     self_driving: 3,
 }
+export const STEP_LABELS: Record<ScannerEditorStep, string> = {
+    template: 'Template',
+    configure: 'Configure',
+    triggers: 'Scan conditions',
+    self_driving: 'Self-driving',
+}
 
 /** Earliest step rendering an errored form field; must match which step component mounts which fields. */
 export function firstErroredScannerStep(errors: {
