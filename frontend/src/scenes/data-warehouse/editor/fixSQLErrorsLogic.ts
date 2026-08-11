@@ -19,10 +19,12 @@ export interface fixSQLErrorsLogicValues {
 export interface fixSQLErrorsLogicActions {
     fixErrors: (
         query: string,
-        error?: string
+        error?: string,
+        connectionId?: string
     ) => {
         error: string | undefined
         query: string
+        connectionId: string | undefined
     }
     fixErrorsFailure: (
         error: string,
@@ -36,12 +38,14 @@ export interface fixSQLErrorsLogicActions {
         payload?: {
             error: string | undefined
             query: string
+            connectionId: string | undefined
         }
     ) => {
         response: Response
         payload?: {
             error: string | undefined
             query: string
+            connectionId: string | undefined
         }
     }
 }
@@ -51,14 +55,14 @@ export type fixSQLErrorsLogicType = MakeLogicType<fixSQLErrorsLogicValues, fixSQ
 export const fixSQLErrorsLogic = kea<fixSQLErrorsLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'fixSQLErrorsLogic']),
     actions({
-        fixErrors: (query: string, error?: string) => ({ query, error }),
+        fixErrors: (query: string, error?: string, connectionId?: string) => ({ query, error, connectionId }),
     }),
     loaders({
         response: [
             null as Response | null,
             {
-                fixErrors: async ({ query, error }) => {
-                    const response = await api.fixHogQLErrors.fix(query, error)
+                fixErrors: async ({ query, error, connectionId }) => {
+                    const response = await api.fixHogQLErrors.fix(query, error, connectionId)
 
                     return response as Response
                 },

@@ -733,10 +733,12 @@ export interface sqlEditorLogicActions {
     } // draftsLogic
     fixErrors: (
         query: string,
-        error?: string | undefined
+        error?: string | undefined,
+        connectionId?: string | undefined
     ) => {
         error: string | undefined
         query: string
+        connectionId: string | undefined
     } // fixSQLErrorsLogic
     fixErrorsFailure: (
         error: string,
@@ -751,12 +753,14 @@ export interface sqlEditorLogicActions {
             | {
                   error: string | undefined
                   query: string
+                  connectionId: string | undefined
               }
             | undefined
     ) => {
         payload?: {
             error: string | undefined
             query: string
+            connectionId: string | undefined
         }
         response: Response
     } // fixSQLErrorsLogic
