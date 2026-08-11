@@ -87,6 +87,7 @@ import type {
   SignalReport,
   SignalReportArtefact,
   SignalReportArtefactsResponse,
+  SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -109,6 +110,7 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   buildAgentAnalyticsQueries,
   type HogQLGrid,
@@ -1591,11 +1593,15 @@ export class PostHogAPIClient {
   async getCloudTaskConfigOptions(
     adapter: Adapter = "claude",
   ): Promise<CloudTaskConfigOption[]> {
+    const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
       path: url.pathname,
+      parameters: {
+        header: buildPosthogProjectHeaderRecord(teamId),
+      },
     });
     return buildCloudTaskConfigOptions(
       normalizeGatewayModelsResponse(await response.json()),
@@ -2485,15 +2491,22 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side).
-  async resolveTaskChannel(name: string): Promise<TaskChannel> {
+  // Resolve-or-create a public channel by name (idempotent server-side). `star`
+  // only applies when this call creates the channel; an existing one keeps the
+  // requester's star as it was.
+  async resolveTaskChannel(
+    name: string,
+    options: { star: boolean },
+  ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify({ name }) },
+      overrides: {
+        body: JSON.stringify({ name, star: options.star }),
+      },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);
@@ -4305,6 +4318,41 @@ export class PostHogAPIClient {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || "Failed to update signal report state");
+    }
+
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
+   * Refund a report's billed PR. The server freezes the billing path, archives
+   * the report, and kicks off the billing credit when one is due; it also
+   * enforces eligibility, so callers only gate for display.
+   */
+  async refundSignalReport(
+    reportId: string,
+    input: { reason: SignalReportRefundReason; note?: string },
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/refund/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any non-2xx, so
+    // unwrap that into the endpoint's clean `error` message (e.g. the eligibility failures)
+    // rather than surfacing the raw string.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Failed to refund this report's PR"),
+      );
     }
 
     return (await response.json()) as SignalReport;
@@ -6849,6 +6897,34 @@ export class PostHogAPIClient {
       throw new Error(data.error);
     }
     return { results: data.results ?? [], columns: data.columns ?? [] };
+  }
+
+  /**
+   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
+   * the team's project and returns the raw response. `refresh: "blocking"`
+   * serves a fresh-enough cached result and computes synchronously otherwise —
+   * the same mode PostHog insights use. Backs inbox report charts, whose query
+   * nodes are scout-authored and arrive unparsed.
+   */
+  async runQuery(
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ query, refresh: "blocking" }),
+      },
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (typeof data.error === "string" && data.error) {
+      throw new Error(data.error);
+    }
+    return data;
   }
 
   /**

@@ -175,6 +175,7 @@ export interface RoleLookupResponseApi {
  * * `google-search-console` - Google Search Console
  * * `google-sheets` - Google Sheets
  * * `hubspot` - Hubspot
+ * * `instagram` - Instagram
  * * `intercom` - Intercom
  * * `jira` - Jira
  * * `linear` - Linear
@@ -224,6 +225,7 @@ export const IntegrationKindEnumApi = {
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
+    Instagram: 'instagram',
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',
@@ -491,6 +493,7 @@ export interface IntegrationAccessRequestApi {
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -652,6 +655,7 @@ export type IntegrationsListParams = {
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -712,6 +716,7 @@ export const IntegrationsListKind = {
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
+    Instagram: 'instagram',
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',
