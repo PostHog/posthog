@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Optional, cast
 from uuid import UUID, uuid4
 
@@ -699,6 +700,48 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(data["results"][0]["person_uuid"], str(person.uuid))
         self.assertEqual(data["results"][0]["status"], "pending")
         self.assertIsNone(data["results"][0]["delete_verified_at"])
+
+    @parameterized.expand(
+        [
+            # (request time, cut-off, verified?, expected pending_reason)
+            (
+                "before_cutoff",
+                datetime(2021, 8, 1, tzinfo=UTC),
+                datetime(2021, 8, 10, tzinfo=UTC),
+                False,
+                "eligible_for_next_run",
+            ),
+            (
+                "after_cutoff",
+                datetime(2021, 8, 20, tzinfo=UTC),
+                datetime(2021, 8, 10, tzinfo=UTC),
+                False,
+                "awaiting_processing_window",
+            ),
+            ("already_verified", datetime(2021, 8, 20, tzinfo=UTC), datetime(2021, 8, 10, tzinfo=UTC), True, None),
+            ("cutoff_unknown", datetime(2021, 8, 20, tzinfo=UTC), None, False, None),
+        ]
+    )
+    @mock.patch("posthog.api.person.get_person_deletion_watermark")
+    def test_deletion_status_reports_pending_reason(
+        self, _name, created_at, watermark, verified, expected_reason, mock_watermark
+    ):
+        mock_watermark.return_value = watermark
+        person = _create_person(team=self.team, distinct_ids=[_name], immediate=True)
+
+        deletion = AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.team.id,
+            key=str(person.uuid),
+            delete_verified_at=datetime(2021, 8, 25, tzinfo=UTC) if verified else None,
+        )
+        # created_at is auto_now_add, so set the request time after the row exists.
+        AsyncDeletion.objects.filter(pk=deletion.pk).update(created_at=created_at)
+
+        response = self.client.get("/api/person/deletion_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["results"][0]["pending_reason"], expected_reason)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deletion_status_filters_by_status(self):

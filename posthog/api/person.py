@@ -54,7 +54,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.deletion import reset_deleted_person_distinct_ids
+from posthog.models.person.deletion import get_person_deletion_watermark, reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
@@ -308,9 +308,28 @@ class AsyncDeletionStatusSerializer(serializers.Serializer):
     delete_verified_at = serializers.DateTimeField(
         help_text="When the deletion was verified complete. Null if still pending.", allow_null=True
     )
+    pending_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why a still-pending deletion has not run yet. 'eligible_for_next_run' means the request will run "
+            "on the next scheduled deletion job. 'awaiting_processing_window' means the request is newer than the "
+            "data that job can reach, so it waits for a later run. Null when the deletion is complete or the state "
+            "cannot be determined."
+        ),
+    )
 
     def get_status(self, obj: AsyncDeletion) -> str:
         return "completed" if obj.delete_verified_at else "pending"
+
+    @extend_schema_field(
+        serializers.ChoiceField(choices=["eligible_for_next_run", "awaiting_processing_window"], allow_null=True)
+    )
+    def get_pending_reason(self, obj: AsyncDeletion) -> Optional[str]:
+        if obj.delete_verified_at:
+            return None
+        watermark = self.context.get("deletion_watermark")
+        if watermark is None:
+            return None
+        return "eligible_for_next_run" if obj.created_at <= watermark else "awaiting_processing_window"
 
 
 class DeletionStatusQueryParamsSerializer(serializers.Serializer):
@@ -655,7 +674,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "delete_events",
                 OpenApiTypes.BOOL,
-                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
+                description="If true, the person's events are queued for deletion. Deletion runs on a scheduled batch job rather than immediately, so it can take some time. Check progress with the deletion_status endpoint.",
                 default=False,
             ),
         ],
@@ -771,7 +790,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def deletion_status(self, request: request.Request, **kwargs):
         """
-        List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed.
+        List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed. For a pending deletion, `pending_reason` tells you whether it will run on the next scheduled job or is still waiting for its turn.
         """
         params = DeletionStatusQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -793,7 +812,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         paginator = DeletionStatusPagination()
         page = paginator.paginate_queryset(queryset, request)
-        serializer = AsyncDeletionStatusSerializer(page, many=True)
+        # Only pay for the ClickHouse cut-off lookup when the page has a pending deletion to classify.
+        watermark = get_person_deletion_watermark() if any(row.delete_verified_at is None for row in page) else None
+        serializer = AsyncDeletionStatusSerializer(page, many=True, context={"deletion_watermark": watermark})
         return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(

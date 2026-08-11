@@ -623,7 +623,7 @@ export const getPersonsDeletionStatusListUrl = (projectId: string, params?: Pers
 }
 
 /**
- * List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed.
+ * List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed. For a pending deletion, `pending_reason` tells you whether it will run on the next scheduled job or is still waiting for its turn.
  */
 export const personsDeletionStatusList = async (
     projectId: string,

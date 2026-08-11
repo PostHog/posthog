@@ -326,6 +326,13 @@ export interface PersonBulkDeleteResponseApi {
     deletion_errors?: PersonBulkDeleteResponseApiDeletionErrorsItem[]
 }
 
+export type PendingReasonEnumApi = (typeof PendingReasonEnumApi)[keyof typeof PendingReasonEnumApi]
+
+export const PendingReasonEnumApi = {
+    EligibleForNextRun: 'eligible_for_next_run',
+    AwaitingProcessingWindow: 'awaiting_processing_window',
+} as const
+
 export interface AsyncDeletionStatusApi {
     /** The UUID of the person whose events are queued for deletion. */
     person_uuid: string
@@ -338,6 +345,8 @@ export interface AsyncDeletionStatusApi {
      * @nullable
      */
     delete_verified_at: string | null
+    /** Why a still-pending deletion has not run yet. 'eligible_for_next_run' means the request will run on the next scheduled deletion job. 'awaiting_processing_window' means the request is newer than the data that job can reach, so it waits for a later run. Null when the deletion is complete or the state cannot be determined. */
+    readonly pending_reason: PendingReasonEnumApi | null
 }
 
 export interface PaginatedAsyncDeletionStatusListApi {

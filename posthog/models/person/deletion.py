@@ -2,17 +2,61 @@ import datetime as dt
 from dataclasses import dataclass, field
 from typing import Optional
 
+from django.core.cache import cache
+
 import structlog
 from rest_framework.exceptions import NotFound
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
+from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id, get_persons_by_uuids
 
 logger = structlog.get_logger(__name__)
 
 # personhog clamps uuid lookups at 250 per request; batch to match.
 _PERSONHOG_UUID_BATCH = 250
+
+_DELETION_WATERMARK_CACHE_KEY = "person-deletion-override-watermark"
+_DELETION_WATERMARK_CACHE_TTL_SECONDS = 300
+
+
+def get_person_deletion_watermark() -> Optional[dt.datetime]:
+    """Return the oldest person-override timestamp, the cut-off the deletes job uses.
+
+    A queued person event deletion is only picked up by the scheduled deletes job once its
+    request time is at or before this timestamp (see ``load_pending_deletions`` in
+    ``posthog/dags/deletes.py``). Callers use it to tell an eligible request apart from one that
+    still waits for the cut-off to advance. The value moves slowly, so it is cached briefly.
+    Returns None when the cut-off cannot be determined, so callers degrade to "unknown".
+    """
+    cached = cache.get(_DELETION_WATERMARK_CACHE_KEY)
+    if cached is not None:
+        # An empty string is the cached "unavailable" sentinel; cache.get returns None on a miss.
+        return cached or None
+
+    watermark = _read_person_deletion_watermark()
+    cache.set(_DELETION_WATERMARK_CACHE_KEY, watermark or "", _DELETION_WATERMARK_CACHE_TTL_SECONDS)
+    return watermark
+
+
+def _read_person_deletion_watermark() -> Optional[dt.datetime]:
+    try:
+        rows = sync_execute(f"SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}")
+    except Exception:
+        logger.exception("Failed to read person deletion watermark")
+        return None
+
+    if not rows or rows[0][0] is None:
+        return None
+
+    watermark = rows[0][0]
+    # An empty overrides table makes ClickHouse return the epoch rather than NULL; treat it as unknown.
+    if watermark.year < 2000:
+        return None
+    if watermark.tzinfo is None:
+        watermark = watermark.replace(tzinfo=dt.UTC)
+    return watermark
 
 
 def reset_all_deleted_person_distinct_ids(team_id: int, version: int = 2500):
