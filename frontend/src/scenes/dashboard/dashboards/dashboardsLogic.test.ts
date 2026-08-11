@@ -108,7 +108,7 @@ describe('dashboardsLogic', () => {
                     'Revenue/Q3/A'
                 )
             }).toDispatchActions([
-                dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: 'Revenue/Q3' }),
+                dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: 'Revenue/Q3/A' }),
             ])
         })
 
@@ -119,7 +119,7 @@ describe('dashboardsLogic', () => {
                     'Marketing/A',
                     'A'
                 )
-            }).toDispatchActions([dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: '' })])
+            }).toDispatchActions([dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: 'A' })])
         })
 
         it('hands a moved folder to the model to re-parent', async () => {

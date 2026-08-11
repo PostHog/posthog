@@ -405,7 +405,7 @@ export function convertFileSystemEntryToTreeDataItem({
  *   - splitPath("a")              => ["a"]
  *   - splitPath("")               => []
  */
-export function splitPath(path: string | undefined): string[] {
+export function splitPath(path: string | null | undefined): string[] {
     if (!path) {
         return []
     }
@@ -425,6 +425,37 @@ export function splitPath(path: string | undefined): string[] {
     }
     segments.push(current)
     return segments.filter((s) => s !== '')
+}
+
+/**
+ * Rewrite `path` for a folder that moved from `oldPath` to `newPath`, or return null when it sat
+ * outside that folder. Compares segment by segment, so a sibling whose name merely starts with the
+ * moved folder's name is left alone and an escaped separator inside a name is not mistaken for one.
+ */
+export function reparentPath(path: string | null | undefined, oldPath: string, newPath: string): string | null {
+    const segments = splitPath(path)
+    const from = splitPath(oldPath)
+    if (segments.length < from.length || from.some((segment, index) => segments[index] !== segment)) {
+        return null
+    }
+    return joinPath([...splitPath(newPath), ...segments.slice(from.length)])
+}
+
+export function parentPath(path: string | null | undefined): string {
+    return joinPath(splitPath(path).slice(0, -1))
+}
+
+/**
+ * Whether a file system row is of `type`. A trailing slash makes `type` a prefix covering several
+ * internal types, e.g. "hog/" matches "hog/site_destination" — see `ProjectTreeRef`.
+ */
+export function matchesRefType(rowType: string | undefined, type: string): boolean {
+    return type.endsWith('/') ? !!rowType?.startsWith(type) : rowType === type
+}
+
+/** The file system list filter for a ref type, honouring the same trailing-slash convention. */
+export function refTypeParams(type: string): { type?: string; type__startswith?: string } {
+    return type.endsWith('/') ? { type__startswith: type } : { type }
 }
 
 export function joinPath(path: string[]): string {

@@ -35,6 +35,10 @@ import {
     formatUrlAsName,
     isGroupViewShortcut,
     joinPath,
+    matchesRefType,
+    parentPath,
+    refTypeParams,
+    reparentPath,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -973,17 +977,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 deleteTypeAndRef: (state, { type, ref }) => {
                     const newState = { ...state }
                     for (const [folder, files] of Object.entries(newState)) {
-                        if (
-                            files.some(
-                                (file) =>
-                                    (type.endsWith('/') ? file.type?.startsWith(type) : file.type === type) &&
-                                    file.ref === ref
-                            )
-                        ) {
+                        if (files.some((file) => matchesRefType(file.type, type) && file.ref === ref)) {
                             newState[folder] = files.filter(
-                                (file) =>
-                                    (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
-                                    file.ref !== ref
+                                (file) => !matchesRefType(file.type, type) || file.ref !== ref
                             )
                         }
                     }
@@ -995,18 +991,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     for (const folder of Object.keys(newState)) {
                         if (folder === oldParentFolder) {
                             newState[folder] = newState[folder].filter((i) => i.id !== item.id)
-                            const newParentFolder = joinPath(splitPath(newPath).slice(0, -1))
+                            const newParentFolder = parentPath(newPath)
                             newState[newParentFolder] = [
                                 ...(newState[newParentFolder] ?? []),
                                 { ...item, path: newPath },
                             ]
-                        } else if (folder === oldPath || folder.startsWith(oldPath + '/')) {
-                            const newFolder = newPath + folder.slice(oldPath.length)
+                            continue
+                        }
+                        const newFolder = reparentPath(folder, oldPath, newPath)
+                        if (newFolder !== null) {
                             newState[newFolder] = [
                                 ...(newState[newFolder] ?? []),
-                                ...newState[folder].map((item) => ({
-                                    ...item,
-                                    path: newFolder + item.path.slice(folder.length),
+                                ...newState[folder].map((entry) => ({
+                                    ...entry,
+                                    path: reparentPath(entry.path, folder, newFolder) ?? entry.path,
                                 })),
                             ]
                             delete newState[folder]
@@ -1320,11 +1318,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 if (!projectTreeRef || !projectTreeRef.type || !projectTreeRef.ref) {
                     return null
                 }
-                const treeItem = projectTreeRef.type.endsWith('/')
-                    ? sortedItems.find(
-                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
-                      )
-                    : sortedItems.find((item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref)
+                const treeItem = sortedItems.find(
+                    (item) => matchesRefType(item.type, projectTreeRef.type) && item.ref === projectTreeRef.ref
+                )
                 return treeItem ?? null
             },
         ],
@@ -1662,9 +1658,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             }
         },
         syncTypeAndRef: async ({ type, ref }) => {
-            const items = await (type.endsWith('/')
-                ? api.fileSystem.list({ type__startswith: type, ref })
-                : api.fileSystem.list({ type, ref }))
+            const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
             if (items.users?.length > 0) {
                 actions.addLoadedUsers(items.users)
             }

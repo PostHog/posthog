@@ -14,7 +14,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -552,9 +551,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             if (item.type !== 'dashboard' || !item.ref || item.shortcut) {
                 return
             }
-            dashboardsModel.actions.patchDashboardFolders({
-                [item.ref]: joinPath(splitPath(newPath).slice(0, -1)),
-            })
+            dashboardsModel.actions.patchDashboardFolders({ [item.ref]: newPath })
             // Only rows that actually landed lose their tick, so a failed move keeps its selection.
             const awaiting = cache.awaitingMove
             if (awaiting?.ids.delete(Number(item.ref))) {

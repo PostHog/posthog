@@ -14,11 +14,17 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { parentPath, reparentPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { Node } from '../queries/schema/schema-general'
+
+/** A dashboard's folder is its file system path without the dashboard's own name, so the two move together. */
+function filedAt<T extends DashboardBasicType | DashboardType<QueryBasedInsightModel>>(dashboard: T, path: string): T {
+    return { ...dashboard, file_system_path: path, folder: parentPath(path) }
+}
 
 export function mergeTileTextUpdatesIntoDashboard(
     dashboard: DashboardType<QueryBasedInsightModel>,
@@ -185,8 +191,8 @@ export interface dashboardsModelActions {
               }
         payload?: string
     }
-    patchDashboardFolders: (folders: Record<string, string>) => {
-        folders: Record<string, string>
+    patchDashboardFolders: (paths: Record<string, string>) => {
+        paths: Record<string, string>
     }
     pinDashboard: (
         id: number,
@@ -354,7 +360,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
-        patchDashboardFolders: (folders: Record<string, string>) => ({ folders }),
+        patchDashboardFolders: (paths: Record<string, string>) => ({ paths }),
         reparentDashboardFolders: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
         addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
@@ -606,30 +612,30 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     ...state,
                     [dashboard.id]: { ...dashboard, _highlight: true },
                 }),
-                patchDashboardFolders: (state, { folders }) => {
-                    const patched = Object.entries(folders).filter(([id]) => state[id])
+                patchDashboardFolders: (state, { paths }) => {
+                    const patched = Object.entries(paths).filter(([id]) => state[id])
                     if (patched.length === 0) {
                         return state
                     }
                     return {
                         ...state,
-                        ...Object.fromEntries(patched.map(([id, folder]) => [id, { ...state[id], folder }])),
+                        ...Object.fromEntries(patched.map(([id, path]) => [id, filedAt(state[id], path)])),
                     }
                 },
                 reparentDashboardFolders: (state, { oldPath, newPath }) => {
-                    const moved = Object.values(state).filter(
-                        ({ folder }) => folder && (folder === oldPath || folder.startsWith(`${oldPath}/`))
-                    )
+                    const moved = Object.values(state)
+                        .map(
+                            (dashboard) =>
+                                [dashboard, reparentPath(dashboard.file_system_path, oldPath, newPath)] as const
+                        )
+                        .filter((pair): pair is [(typeof pair)[0], string] => pair[1] !== null)
                     if (moved.length === 0) {
                         return state
                     }
                     return {
                         ...state,
                         ...Object.fromEntries(
-                            moved.map((dashboard) => [
-                                dashboard.id,
-                                { ...dashboard, folder: newPath + dashboard.folder!.slice(oldPath.length) },
-                            ])
+                            moved.map(([dashboard, path]) => [dashboard.id, filedAt(dashboard, path)])
                         ),
                     }
                 },
