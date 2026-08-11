@@ -7,6 +7,7 @@ use common::sim_leader::SimLeader;
 use sqlx::postgres::PgPoolOptions;
 use tonic::{Code, Request};
 
+use personhog_identity::config::IdentityTables;
 use personhog_identity::lifecycle::engine::{Engine, EngineConfig};
 use personhog_identity::lifecycle::validation::MAX_DELETE_BATCH_SIZE;
 use personhog_identity::lifecycle::PersonHogLifecycleService;
@@ -36,7 +37,12 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
             attempt_alert_threshold: 5,
         },
     ));
-    let service = PersonHogLifecycleService::new(engine, Arc::new(SimLeader::new(pool)));
+    let tables = IdentityTables::real();
+    let service = PersonHogLifecycleService::new(
+        engine,
+        Arc::new(SimLeader::new(pool, tables.person.clone())),
+        tables,
+    );
     service
         .delete_persons(Request::new(request))
         .await

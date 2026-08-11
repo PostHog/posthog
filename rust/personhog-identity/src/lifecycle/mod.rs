@@ -36,10 +36,14 @@ pub struct PersonHogLifecycleService {
 }
 
 impl PersonHogLifecycleService {
-    pub fn new(engine: Arc<Engine>, leader: Arc<dyn LifecycleLeader>) -> Self {
+    pub fn new(
+        engine: Arc<Engine>,
+        leader: Arc<dyn LifecycleLeader>,
+        tables: crate::config::IdentityTables,
+    ) -> Self {
         Self {
             engine,
-            delete_driver: DeleteDriver::new(leader),
+            delete_driver: DeleteDriver::new(leader, tables),
         }
     }
 }

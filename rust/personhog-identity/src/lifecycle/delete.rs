@@ -34,6 +34,7 @@ use personhog_proto::personhog::types::v1::{
     FencePersonRequest, LifecycleOpType, ReleaseFenceRequest, ReleaseOutcome,
 };
 
+use crate::config::IdentityTables;
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
@@ -144,11 +145,13 @@ fn record_outcomes(outcome: &Value) {
 
 pub struct DeleteDriver {
     leader: Arc<dyn LifecycleLeader>,
+    tables: IdentityTables,
 }
 
 impl DeleteDriver {
-    pub fn new(leader: Arc<dyn LifecycleLeader>) -> Self {
-        Self { leader }
+    pub fn new(leader: Arc<dyn LifecycleLeader>, tables: IdentityTables) -> Self {
+        tables.validate().expect("invalid identity table set");
+        Self { leader, tables }
     }
 }
 
@@ -170,9 +173,9 @@ impl OpDriver for DeleteDriver {
             ))
         })?;
         match step {
-            DeleteStep::Started => mark(pool, op).await,
+            DeleteStep::Started => mark(pool, &self.tables.person, op).await,
             DeleteStep::Marked => seal(pool, self.leader.as_ref(), op).await,
-            DeleteStep::Sealed => unmap(pool, op).await,
+            DeleteStep::Sealed => unmap(pool, &self.tables, op).await,
             DeleteStep::Unmapped => complete(pool, self.leader.as_ref(), op).await,
         }
     }
@@ -193,7 +196,7 @@ fn parse_request(op: &OpRow) -> Result<DeleteRequest, SagaError> {
 /// `skipped_conflict`. Requested ids with no live person row get no row at
 /// all — they surface as `not_found` in the outcome. If nothing was claimed
 /// the op aborts here, before anything was mutated.
-async fn mark(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaError> {
     let request = parse_request(op)?;
     let team_id = op.team_id as i32;
     let mut tx = pool.begin().await?;
@@ -218,19 +221,20 @@ async fn mark(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
     to_claim.sort_unstable();
     to_claim.dedup();
 
-    let live = sqlx::query!(
+    let live_sql = format!(
         r#"
-        SELECT id, uuid FROM posthog_person
+        SELECT id, uuid FROM {person_table}
         WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false
         ORDER BY id
-        "#,
-        team_id,
-        &to_claim,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    let live_ids: Vec<i64> = live.iter().map(|p| p.id).collect();
-    let live_uuids: Vec<Uuid> = live.iter().map(|p| p.uuid).collect();
+        "#
+    );
+    let live: Vec<(i64, Uuid)> = sqlx::query_as(&live_sql)
+        .bind(team_id)
+        .bind(&to_claim)
+        .fetch_all(&mut *tx)
+        .await?;
+    let live_ids: Vec<i64> = live.iter().map(|(id, _)| *id).collect();
+    let live_uuids: Vec<Uuid> = live.iter().map(|(_, uuid)| *uuid).collect();
 
     // The mark: inserting the row is claiming the person; a unique violation
     // on the partial mark index IS the conflict with another live op.
@@ -261,8 +265,8 @@ async fn mark(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         .collect();
     let conflicted_uuids: Vec<Uuid> = live
         .iter()
-        .filter(|p| conflicted_ids.contains(&p.id))
-        .map(|p| p.uuid)
+        .filter(|(id, _)| conflicted_ids.contains(id))
+        .map(|(_, uuid)| *uuid)
         .collect();
     if !conflicted_ids.is_empty() {
         sqlx::query!(
@@ -287,20 +291,21 @@ async fn mark(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
     // and the insert lands on a corpse. Remove such marks here, in the
     // same transaction: the person reports as not_found and is never
     // touched again. From here on the mark keeps every held person alive.
-    sqlx::query!(
+    let corpse_sql = format!(
         r#"
         DELETE FROM lifecycle_op_person lop
         WHERE lop.op_id = $1 AND lop.status = 'marked'
           AND NOT EXISTS (
-              SELECT 1 FROM posthog_person p
+              SELECT 1 FROM {person_table} p
               WHERE p.team_id = $2 AND p.id = lop.person_id AND p.is_deleted = false
           )
-        "#,
-        op.op_id,
-        team_id,
-    )
-    .execute(&mut *tx)
-    .await?;
+        "#
+    );
+    sqlx::query(&corpse_sql)
+        .bind(op.op_id)
+        .bind(team_id)
+        .execute(&mut *tx)
+        .await?;
 
     let claims: i64 = sqlx::query_scalar!(
         r#"
@@ -478,7 +483,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
 /// at sealed + 1 so the tombstone outranks every write the old incarnation
 /// ever produced. Revival (a later create on the same key) upserts above
 /// this version.
-async fn unmap(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
     let mut tx = pool.begin().await?;
 
@@ -493,18 +498,20 @@ async fn unmap(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
     .await?;
     victims.sort_unstable();
 
-    let tombstoned = sqlx::query!(
+    let tombstone_pdi_sql = format!(
         r#"
-        UPDATE posthog_persondistinctid
+        UPDATE {pdi_table}
         SET is_deleted = true, version = COALESCE(version, 0) + 1
         WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
-        RETURNING person_id, distinct_id, version as "version!"
+        RETURNING person_id, distinct_id, version
         "#,
-        team_id,
-        &victims,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+        pdi_table = tables.person_distinct_id,
+    );
+    let tombstoned: Vec<(i64, String, i64)> = sqlx::query_as(&tombstone_pdi_sql)
+        .bind(team_id)
+        .bind(&victims)
+        .fetch_all(&mut *tx)
+        .await?;
 
     // Record the tombstoned mappings per victim in the same commit — this is
     // what a later ClickHouse emission (or an operator) reads back.
@@ -513,8 +520,10 @@ async fn unmap(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
     for victim in &victims {
         let rows: Vec<Value> = tombstoned
             .iter()
-            .filter(|r| r.person_id == *victim)
-            .map(|r| serde_json::json!({"distinct_id": r.distinct_id, "version": r.version}))
+            .filter(|(person_id, _, _)| person_id == victim)
+            .map(|(_, distinct_id, version)| {
+                serde_json::json!({"distinct_id": distinct_id, "version": version})
+            })
             .collect();
         if !rows.is_empty() {
             moved_ids.push(*victim);
@@ -537,38 +546,48 @@ async fn unmap(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         .await?;
     }
 
-    sqlx::query!(
-        "DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)",
-        &victims
-    )
-    .execute(&mut *tx)
-    .await?;
+    // posthog_cohortpeople has no shadow mirror and no team_id column, so it
+    // is only addressable by real posthog_person ids. On any other person
+    // table the victim ids come from that table's own sequence and would
+    // collide with unrelated persons' cohort rows — skip the clear entirely.
+    if tables.person == "posthog_person" {
+        sqlx::query!(
+            "DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)",
+            &victims
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
-    sqlx::query!(
-        "DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = ANY($2)",
-        team_id,
-        &victims
-    )
-    .execute(&mut *tx)
-    .await?;
+    let delete_overrides_sql = format!(
+        "DELETE FROM {} WHERE team_id = $1 AND person_id = ANY($2)",
+        tables.ff_hash_key_override
+    );
+    sqlx::query(&delete_overrides_sql)
+        .bind(team_id)
+        .bind(&victims)
+        .execute(&mut *tx)
+        .await?;
 
-    sqlx::query!(
+    let tombstone_sql = format!(
         r#"
-        UPDATE posthog_person p
+        UPDATE {person_table} p
         SET is_deleted = true,
-            properties = '{}'::jsonb,
-            properties_last_updated_at = '{}'::jsonb,
-            properties_last_operation = '{}'::jsonb,
+            properties = '{{}}'::jsonb,
+            properties_last_updated_at = '{{}}'::jsonb,
+            properties_last_operation = '{{}}'::jsonb,
             version = (lop.sealed->>'version')::bigint + 1
         FROM lifecycle_op_person lop
         WHERE lop.op_id = $1 AND lop.status = 'sealed'
           AND p.team_id = $2 AND p.id = lop.person_id
         "#,
-        op.op_id,
-        team_id,
-    )
-    .execute(&mut *tx)
-    .await?;
+        person_table = tables.person,
+    );
+    sqlx::query(&tombstone_sql)
+        .bind(op.op_id)
+        .bind(team_id)
+        .execute(&mut *tx)
+        .await?;
 
     if !advance_step_in_tx(
         &mut tx,
