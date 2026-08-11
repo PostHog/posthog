@@ -1011,6 +1011,7 @@ class TaskActivityEvent(models.TextChoices):
     RUN_STARTED = "run_started", "Run started"
     RUN_FAILED = "run_failed", "Run failed"
     AWAITING_INPUT = "awaiting_input", "Awaiting input"
+    COMMITS_PUSHED = "commits_pushed", "Commits pushed"
     ARTIFACT_CREATED = "artifact_created", "Artifact created"
     ARTIFACT_REVISED = "artifact_revised", "Artifact revised"
     CANVAS_CREATED = "canvas_created", "Canvas created"

@@ -122,6 +122,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCancelRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
+    TaskRunCommitsRequestSerializer,
     TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
@@ -1366,6 +1367,41 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)
+
+    @validated_request(
+        request_serializer=TaskRunCommitsRequestSerializer,
+        responses={
+            204: OpenApiResponse(description="Push recorded"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Record a push",
+        description=(
+            "Announce the commits one push put on the run's branch. Called by the signed-commit "
+            "tool, which is the only actor that observes the push: the commits are created "
+            "through GitHub's API from inside the sandbox, so no webhook sees them. Keyed on the "
+            "head SHA, so a retried call records the push once."
+        ),
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="commits",
+        required_scopes=["task:write"],
+    )
+    def commits(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        recorded = tasks_facade.record_task_run_commits(
+            pk,
+            task_id,
+            self.team_id,
+            branch=request.validated_data["branch"],
+            repository=request.validated_data.get("repository") or "",
+            commits=request.validated_data["commits"],
+        )
+        if not recorded:
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @validated_request(
         request_serializer=TaskRunAppendLogRequestSerializer,

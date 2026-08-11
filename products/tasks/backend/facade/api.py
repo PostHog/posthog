@@ -241,6 +241,7 @@ __all__ = [
     "task_comment_mentions_allowed",
     "list_task_artifacts",
     "list_task_comments",
+    "record_task_run_commits",
     "retrieve_task_comment",
     "update_sandbox_environment",
     "update_task",
@@ -6450,6 +6451,23 @@ def retrieve_task_comment(
         raise ValueError("Invalid task comment cursor") from None
 
 
+def record_task_run_commits(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    branch: str,
+    repository: str,
+    commits: Sequence[dict],
+) -> bool:
+    """Announce a push on the run's task. ``False`` when the run isn't visible to the caller."""
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).select_related("task").first()
+    if run is None:
+        return False
+    post_commits_pushed_event(run, branch=branch, repository=repository, commits=list(commits))
+    return True
+
+
 def list_mentions(
     team_id: int, user_id: int | None, *, since: datetime | None = None, limit: int = 100
 ) -> list[contracts.TaskMentionDTO]:
@@ -7108,6 +7126,67 @@ def post_artifact_event(artifact: TaskArtifact, *, revised: bool, run_id: str | 
         )
     except Exception:
         logger.exception("Failed to post artifact event", extra={"artifact_id": str(artifact.id)})
+
+
+# Commit subjects are agent-authored and land in a shared row; bound them, and bound how
+# many of one push the row lists.
+_COMMIT_SUBJECT_LIMIT = 120
+_COMMITS_PER_EVENT_LIMIT = 10
+
+
+def post_commits_pushed_event(
+    run: TaskRun,
+    *,
+    branch: str,
+    repository: str,
+    commits: Sequence[dict],
+) -> None:
+    """Record the commits one push put on a task's branch.
+
+    Reported by the signed-commit tool the agent uses, which is the only actor that knows a
+    push happened: the commits are created through GitHub's API from inside the sandbox, so
+    no webhook to this deployment observes them.
+
+    Keyed on the head SHA, so a retried tool call announces the push once. Best-effort and
+    never raises — an announcement must not fail the commit it announces.
+    """
+    try:
+        head_sha = str(commits[-1].get("sha") or "") if commits else ""
+        if not head_sha:
+            return
+        task = _emittable_task(run.task_id, run.team_id, event=TaskActivityEvent.COMMITS_PUSHED)
+        if task is None:
+            return
+        entries = [
+            {
+                "sha": str(commit.get("sha") or ""),
+                "subject": str(commit.get("subject") or "")[:_COMMIT_SUBJECT_LIMIT],
+                "url": str(commit.get("url") or ""),
+            }
+            for commit in commits[-_COMMITS_PER_EVENT_LIMIT:]
+            if commit.get("sha")
+        ]
+        if not entries:
+            return
+        count = len(commits)
+        emit_task_event(
+            task,
+            event=TaskActivityEvent.COMMITS_PUSHED,
+            content=f"{count} commit{'s' if count != 1 else ''} pushed to {branch}"
+            if branch
+            else f"{count} commits pushed",
+            payload={
+                "run_id": str(run.id),
+                "branch": branch,
+                "repository": repository,
+                "commits": entries,
+                # The row says "and N more" from this; entries are capped above.
+                "total": count,
+            },
+            event_key=head_sha,
+        )
+    except Exception:
+        logger.exception("Failed to post commits-pushed event", extra={"task_id": str(run.task_id)})
 
 
 def post_pr_closed_event(run: TaskRun, pr_url: str, *, merged: bool, actor: str | None = None) -> None:

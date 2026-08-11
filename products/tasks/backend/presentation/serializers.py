@@ -798,6 +798,24 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     )
 
 
+class TaskRunCommitSerializer(serializers.Serializer):
+    sha = serializers.CharField(max_length=64, help_text="Commit SHA.")
+    subject = serializers.CharField(
+        required=False, allow_blank=True, help_text="Commit headline; truncated for display."
+    )
+    url = serializers.URLField(required=False, allow_blank=True, help_text="Commit URL on the host.")
+
+
+class TaskRunCommitsRequestSerializer(serializers.Serializer):
+    """A push the signed-commit tool made, oldest commit first."""
+
+    branch = serializers.CharField(max_length=255, help_text="Branch the commits landed on.")
+    repository = serializers.CharField(
+        max_length=255, allow_blank=True, required=False, help_text="Repository as owner/repo."
+    )
+    commits = TaskRunCommitSerializer(many=True, help_text="Commits in the push, oldest first.")
+
+
 class TaskRunErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
