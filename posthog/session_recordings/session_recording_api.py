@@ -1980,7 +1980,9 @@ class SessionRecordingViewSet(
         # Path cleaning rules run through ClickHouse (RE2), replay triggers run through posthog-js
         # (JavaScript). Lookahead is legal in one engine and not the other, so the prompt needs to
         # know which surface asked. Default to JavaScript, the more permissive engine.
-        engine = AI_REGEX_ENGINE_RE2 if request.data.get("engine") == AI_REGEX_ENGINE_RE2 else AI_REGEX_ENGINE_JAVASCRIPT
+        engine = (
+            AI_REGEX_ENGINE_RE2 if request.data.get("engine") == AI_REGEX_ENGINE_RE2 else AI_REGEX_ENGINE_JAVASCRIPT
+        )
 
         messages = create_openai_messages(
             system_content=clean_prompt_whitespace(build_ai_regex_prompt(engine)),
