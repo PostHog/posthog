@@ -455,15 +455,14 @@ TEAM_CONFIG_FIELDS = (
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
+# Fields a plain project member may write. Limited to the ones internal flows need — onboarding
+# progress and primary-dashboard pinning. Product toggles the settings UI gates behind
+# useRestrictedArea(Admin) (session replay, autocapture, surveys, web vitals) are NOT here: they
+# stay in the admin set so the API matches what the UI already claims.
 TEAM_CONFIG_MEMBER_FIELDS = (
     "completed_snippet_onboarding",
     "has_completed_onboarding_for",
     "onboarding_tasks",
-    "session_recording_opt_in",
-    "autocapture_exceptions_opt_in",
-    "autocapture_web_vitals_opt_in",
-    "autocapture_web_vitals_allowed_metrics",
-    "surveys_opt_in",
     "primary_dashboard",
 )
 TEAM_CONFIG_MEMBER_FIELDS_SET = set(TEAM_CONFIG_MEMBER_FIELDS)

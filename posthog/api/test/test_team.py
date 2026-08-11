@@ -3196,6 +3196,13 @@ _ADMIN_GATED_TEAM_CONFIG_FIELDS: list[tuple[str, Any, str]] = [
     # capture_dead_clicks defaults to False so True is observable. Exposed by
     # TeamSerializer but NOT by ProjectBackwardCompatSerializer — env-only.
     ("capture_dead_clicks", True, "capture_dead_clicks"),
+    # Product toggles the settings UI gates behind useRestrictedArea(Admin) — session replay,
+    # autocapture exceptions/web vitals, and surveys. A MEMBER must not flip these via the API.
+    ("session_recording_opt_in", True, "session_recording_opt_in"),
+    ("autocapture_exceptions_opt_in", True, "autocapture_exceptions_opt_in"),
+    ("autocapture_web_vitals_opt_in", True, "autocapture_web_vitals_opt_in"),
+    ("autocapture_web_vitals_allowed_metrics", ["CLS"], "autocapture_web_vitals_allowed_metrics"),
+    ("surveys_opt_in", True, "surveys_opt_in"),
 ]
 
 # Subset of _ADMIN_GATED_TEAM_CONFIG_FIELDS that are also patchable via /api/projects/
@@ -3212,10 +3219,6 @@ _ADMIN_GATED_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
 # after the fix — captured as positive regression tests so the security fix doesn't
 # silently break onboarding for invitees.
 _MEMBER_SAFE_TEAM_CONFIG_FIELDS: list[tuple[str, Any, str]] = [
-    ("session_recording_opt_in", True, "session_recording_opt_in"),
-    ("autocapture_exceptions_opt_in", True, "autocapture_exceptions_opt_in"),
-    ("autocapture_web_vitals_opt_in", True, "autocapture_web_vitals_opt_in"),
-    ("surveys_opt_in", True, "surveys_opt_in"),
     ("has_completed_onboarding_for", {"product_analytics": True}, "has_completed_onboarding_for"),
     ("completed_snippet_onboarding", True, "completed_snippet_onboarding"),
 ]

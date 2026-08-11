@@ -75,6 +75,11 @@ RECIPES: dict[str, Recipe] = {
     "conversations": _enable_conversations,
 }
 
+# Opt-ins a member may set through the enablement recipes even though the settings API now gates
+# them behind project admin. The recipes are server-owned and cannot weaken masking, so letting a
+# member seed Signals data with them is safe.
+MEMBER_SAFE_ENABLEMENT_FIELDS = {"session_recording_opt_in", "autocapture_exceptions_opt_in"}
+
 
 class ProductEnablementSerializer(serializers.Serializer):
     products = serializers.ListField(
@@ -116,7 +121,9 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         # conversations + replay masking are admin-only on the normal Team-update API; replicate that
         # gate so this endpoint can't be a bypass (error_tracking + the replay opt-in stay member-safe).
-        admin_fields = touched & TEAM_CONFIG_ADMIN_FIELDS_SET
+        # The replay/error-tracking opt-ins are admin-only on the settings API, but here they are
+        # server-owned recipes a member may run to seed Signals data, so keep them member-safe.
+        admin_fields = touched & (TEAM_CONFIG_ADMIN_FIELDS_SET - MEMBER_SAFE_ENABLEMENT_FIELDS)
         if admin_fields:
             level = self.user_permissions.team(team).effective_membership_level
             if level is None or level < OrganizationMembership.Level.ADMIN:
