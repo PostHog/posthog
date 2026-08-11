@@ -2,6 +2,13 @@
 // so it must be directory-safe: lowercase letters, numbers, and hyphens only.
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
+export function normalizeChannelName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 // Returns an error message for an invalid name, or null when valid. Empty is
 // treated as valid here — callers already gate on a non-empty trimmed value, so
 // this validator only judges the character set.

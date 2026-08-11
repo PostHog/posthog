@@ -1,4 +1,7 @@
-import { validateChannelName } from "@posthog/core/canvas/channelName";
+import {
+  normalizeChannelName,
+  validateChannelName,
+} from "@posthog/core/canvas/channelName";
 import {
   Button,
   Dialog,
@@ -386,7 +389,9 @@ export function CreateChannelModal({
                   placeholder="e.g. mobile"
                   maxLength={MAX_CONTEXT_NAME_LENGTH}
                   disabled={busy}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) =>
+                    setName(normalizeChannelName(e.target.value))
+                  }
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();

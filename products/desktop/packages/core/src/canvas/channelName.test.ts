@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { validateChannelName } from "./channelName";
+import { normalizeChannelName, validateChannelName } from "./channelName";
+
+describe("normalizeChannelName", () => {
+  it.each([
+    ["My New Space", "my-new-space"],
+    ["  Product   Analytics  ", "product-analytics"],
+    ["Mobile_App.v2", "mobile-app-v2"],
+    ["already-valid", "already-valid"],
+    ["café 🚀", "caf"],
+  ])("normalizes %j to %j", (name, expected) => {
+    expect(normalizeChannelName(name)).toBe(expected);
+  });
+});
 
 describe("validateChannelName", () => {
   it.each([
