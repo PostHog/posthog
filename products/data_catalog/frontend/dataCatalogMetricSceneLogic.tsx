@@ -59,6 +59,7 @@ export interface dataCatalogMetricSceneLogicValues {
     metric: DataCatalogMetricApi | null
     metricLoading: boolean
     mutating: boolean
+    pendingDefinitionEdit: boolean
     runResult: DataCatalogMetricRunApi | null
     runResultLoading: boolean
 }
@@ -140,6 +141,9 @@ export interface dataCatalogMetricSceneLogicActions {
     setMutating: (mutating: boolean) => {
         mutating: boolean
     }
+    setPendingDefinitionEdit: (pendingDefinitionEdit: boolean) => {
+        pendingDefinitionEdit: boolean
+    }
     startEditingMarkdown: () => {
         value: true
     }
@@ -179,6 +183,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         setDraftSql: (draftSql: string) => ({ draftSql }),
         setDraftMarkdown: (draftMarkdown: string) => ({ draftMarkdown }),
         startEditingMarkdown: true,
+        setPendingDefinitionEdit: (pendingDefinitionEdit: boolean) => ({ pendingDefinitionEdit }),
     }),
     loaders(({ props }) => ({
         metric: [
@@ -231,6 +236,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 setDraftMarkdown: (_, { draftMarkdown }) => draftMarkdown,
             },
         ],
+        pendingDefinitionEdit: [
+            false,
+            {
+                setPendingDefinitionEdit: (_, { pendingDefinitionEdit }) => pendingDefinitionEdit,
+            },
+        ],
     }),
     selectors({
         breadcrumbs: [
@@ -250,6 +261,11 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             actions.setDraftSql(definitionField(metric, 'query'))
             actions.setDraftMarkdown(definitionField(metric, 'markdown'))
+            // Deferred until the metric is loaded, otherwise the draft sync above would wipe the seeded template.
+            if (values.pendingDefinitionEdit) {
+                actions.setPendingDefinitionEdit(false)
+                actions.startEditingMarkdown()
+            }
         },
         setMetric: ({ metric }) => {
             actions.setDraftSql(definitionField(metric, 'query'))
@@ -354,7 +370,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         },
     })),
     urlToAction(({ actions }) => ({
-        [urls.dataCatalogMetric(':name')]: () => {
+        [urls.dataCatalogMetric(':name')]: (_, searchParams) => {
+            if (searchParams.edit === 'definition') {
+                actions.setPendingDefinitionEdit(true)
+                // Consume the param so refresh or back does not reopen the editor.
+                router.actions.replace(router.values.location.pathname)
+            }
             actions.loadMetric()
         },
     })),

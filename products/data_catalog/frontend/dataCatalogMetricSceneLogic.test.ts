@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -189,6 +190,24 @@ describe('dataCatalogMetricSceneLogic', () => {
 
         expect(dataCatalogMetricsPartialUpdate).not.toHaveBeenCalled()
         expect(lemonToast.error).toHaveBeenCalled()
+    })
+
+    it('opens the markdown editor once loaded when arriving with ?edit=definition', async () => {
+        jest.clearAllMocks()
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
+            buildMetric({ name: 'stub_metric', definition_kind: null, definition: null, status: 'proposed' })
+        )
+        const stubLogic = dataCatalogMetricSceneLogic({ name: 'stub_metric' })
+        stubLogic.mount()
+        await expectLogic(stubLogic).toDispatchActions(['loadMetricSuccess'])
+
+        router.actions.push(urls.dataCatalogMetric('stub_metric'), { edit: 'definition' })
+        await expectLogic(stubLogic).toDispatchActions(['loadMetricSuccess'])
+
+        expect(stubLogic.values.editingDefinition).toBe(true)
+        expect(stubLogic.values.draftMarkdown).toEqual(MARKDOWN_DEFINITION_TEMPLATE)
+        expect(router.values.searchParams.edit).toBeUndefined()
+        stubLogic.unmount()
     })
 
     it('issues no requests for a traversal-shaped metric name', async () => {
