@@ -148,9 +148,10 @@ def toDate(input):
     if isinstance(input, int) or isinstance(input, float):
         dt = datetime.datetime.fromtimestamp(input)
     else:
-        dt = _parse_date_like(input)
-        if dt is None:
+        parsed = _parse_date_like(input)
+        if parsed is None:
             raise ValueError(f"Could not parse date: {input}")
+        dt = parsed
     return {
         "__hogDate__": True,
         "year": dt.year,
