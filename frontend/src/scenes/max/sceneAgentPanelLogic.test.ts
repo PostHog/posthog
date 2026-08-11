@@ -165,6 +165,30 @@ describe('sceneAgentPanelLogic', () => {
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
     })
 
+    // Flags re-resolve throughout a session (identify, reloadFeatureFlags), so the late-gate retry
+    // must be one-shot per scene: closing the panel from a non-Max tab records no dismissal, which
+    // would otherwise leave the user exposed to a surprise re-open on the next flags response.
+    it('does not reopen the panel on a later feature flag response after the user closed it', async () => {
+        setFlags(allFlags)
+
+        await expectLogic(logic, () => {
+            logic.actions.sceneEntered('workflow')
+        }).toFinishAllListeners()
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
+
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+        await expectLogic(logic, () => {
+            sidePanelStateLogic.actions.closeSidePanel(SidePanelTab.Support)
+        }).toFinishAllListeners()
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+
+        await expectLogic(logic, () => {
+            setFlags(allFlags)
+        }).toFinishAllListeners()
+
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+    })
+
     it('does not record a dismissal for scenes registered after the panel was closed', async () => {
         setFlags(allFlags)
 
