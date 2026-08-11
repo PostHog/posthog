@@ -1088,6 +1088,7 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     History = 'history',
     Alerts = 'alerts',
+    Notifications = 'notifications',
 }
 
 export enum ReplayTabs {
@@ -4364,7 +4365,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     evaluation_contexts: string[]
-    usage_dashboard?: number
+    usage_dashboard?: number | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
@@ -4372,7 +4373,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
-    _should_create_usage_dashboard?: boolean
     last_called_at?: string | null
     is_used_in_replay_settings?: boolean
 }
@@ -5472,6 +5472,7 @@ export const INTEGRATION_KINDS = [
     'github',
     'gitlab',
     'meta-ads',
+    'instagram',
     'clickup',
     'reddit-ads',
     'databricks',
@@ -7266,6 +7267,7 @@ export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'mcp-tool-error'
+    | 'pa-rageclick'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'

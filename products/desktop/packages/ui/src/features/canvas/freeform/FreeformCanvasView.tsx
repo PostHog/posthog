@@ -82,6 +82,7 @@ import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
 import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
 import { CanvasSidePanel } from "./CanvasSidePanel";
 import { canvasCommentTaskId } from "./canvasCommentTask";
+import { canvasSidePanelVisibility } from "./canvasSidePanelVisibility";
 import {
   canvasVersionNavigation,
   shouldClearCanvasBrowse,
@@ -131,7 +132,7 @@ export function FreeformCanvasView({
     setClearTextSelectionKey((key) => key + 1);
   }, []);
   const collapsed = useCanvasChatPanelStore((s) => s.collapsed);
-  const panelTab = useCanvasChatPanelStore((s) => s.tab);
+  const panelViewOpen = useCanvasChatPanelStore((s) => s.viewOpen);
   const setCollapsed = useCanvasChatPanelStore((s) => s.setCollapsed);
   const panelWidth = useCanvasChatPanelStore((s) => s.width);
   const setPanelWidth = useCanvasChatPanelStore((s) => s.setWidth);
@@ -529,11 +530,18 @@ export function FreeformCanvasView({
     !headCode &&
     !generatingPanelDismissed;
   // The side panel exists once there's a canvas or an active run (edit mode),
-  // or while the generating default holds (any mode).
-  const showPanel =
-    (interactive && (hasContent || !!effectiveTaskId)) || generatingPanelOpen;
-  const showCommentsPanel =
-    panelTab === "comments" && !collapsed && !!commentTaskId;
+  // while the generating default holds (any mode), or once it was opened from
+  // view mode — a tested pure helper.
+  const panelVisibility = canvasSidePanelVisibility({
+    interactive,
+    hasContent,
+    hasActiveTask: !!effectiveTaskId,
+    generatingPanelOpen,
+    viewOpen: panelViewOpen,
+    collapsed,
+    hasCommentTask: !!commentTaskId,
+  });
+  const showPanel = panelVisibility.editing;
   // Build failures/progress surface in view mode too — the toolbar renders
   // there only while it has something to say.
   const hasBuildSignal =
@@ -852,7 +860,7 @@ export function FreeformCanvasView({
         </Box>
       </Flex>
 
-      {(showPanel || showCommentsPanel) && (
+      {(panelVisibility.editing || panelVisibility.viewing) && (
         <ResizableSidebar
           open={(!collapsed || generatingPanelOpen) && !waitingForHeroExit}
           width={panelWidth}
@@ -867,6 +875,7 @@ export function FreeformCanvasView({
           <CanvasSidePanel
             effectiveTaskId={effectiveTaskId}
             commentTaskId={commentTaskId}
+            interactive={interactive}
             onMinimize={() => {
               setCollapsed(true);
               setGeneratingPanelDismissed(true);
