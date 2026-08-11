@@ -94,6 +94,20 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         assert self._dm_channels() == []
 
+    def test_inactive_user_does_not_receive_a_dm(self):
+        self.author.is_active = False
+        self.author.save(update_fields=["is_active"])
+        comment = self._comment()
+
+        send_comment_slack_dms(
+            team_id=self.team.id,
+            comment_id=comment.id,
+            task_id=self.task.id,
+            recipients={self.author.id: TaskCommentActivity.Kind.MENTION},
+        )
+
+        assert self._dm_channels() == []
+
     def test_project_member_without_access_does_not_receive_a_dm(self):
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}

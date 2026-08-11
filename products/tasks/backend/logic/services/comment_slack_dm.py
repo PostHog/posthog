@@ -166,7 +166,7 @@ def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mappi
     # setting is opt-in, so an absent key means off and there's no default to merge in.
     opted_in = {
         user_id
-        for user_id, partial in User.objects.filter(id__in=list(recipients)).values_list(
+        for user_id, partial in User.objects.filter(id__in=list(recipients), is_active=True).values_list(
             "id", "partial_notification_settings"
         )
         if isinstance(partial, dict) and partial.get(SLACK_DM_SETTING) is True
