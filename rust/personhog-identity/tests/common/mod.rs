@@ -2,6 +2,8 @@
 // and none of them uses every helper.
 #![allow(dead_code)]
 
+pub mod sim_leader;
+
 use std::sync::Arc;
 
 use rand::Rng;
@@ -65,13 +67,17 @@ impl TestContext {
         person_id
     }
 
-    /// An engine over this context's pool, tuned for tests: short lease and
-    /// poll so lease-contention tests run in milliseconds.
+    /// An engine over this context's pool, tuned for tests: a short poll
+    /// so contention tests run in milliseconds, and a lease long enough
+    /// that a live test's op never looks expired to the suite's single
+    /// sweep test (in lifecycle_merge_tests), which would otherwise claim
+    /// and drive it with the wrong harness. Lease-expiry tests seed
+    /// explicit lease_expires_at values instead of waiting this out.
     pub fn engine(&self) -> personhog_identity::lifecycle::engine::Engine {
         personhog_identity::lifecycle::engine::Engine::new(
             self.pool.clone(),
             personhog_identity::lifecycle::engine::EngineConfig {
-                lease: std::time::Duration::from_secs(5),
+                lease: std::time::Duration::from_secs(300),
                 execute_timeout: std::time::Duration::from_secs(10),
                 poll_interval: std::time::Duration::from_millis(25),
                 attempt_alert_threshold: 5,

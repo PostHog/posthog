@@ -1737,6 +1737,7 @@ export interface TrendsFilterApi {
     /** Goal Lines */
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
+    /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query instead of only hiding their buckets. Still accepted so existing API clients keep working. */
     hideWeekends?: boolean | null
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
     legendPosition?: LegendPositionApi | null
@@ -2568,6 +2569,7 @@ export const PathTypeApi = {
 } as const
 
 export interface PathCleaningFilterApi {
+    /** The replacement for the matched path. Use angle-bracket placeholders (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\1` to `\9` for a group and `\0` for the whole match. */
     alias?: string | null
     order?: number | null
     regex?: string | null

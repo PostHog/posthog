@@ -89,7 +89,7 @@ detector (`[TMPRL1101]`). Two mechanisms bound this:
 
 `backend/services/sandbox.py` — Protocol-based abstraction. `get_sandbox_class()` returns `DockerSandbox` when `SANDBOX_PROVIDER=docker` (requires `DEBUG=True`), otherwise `ModalSandbox`.
 
-- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds images from `backend/sandbox/images/Dockerfile.sandbox-base`.
+- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds the published agent from `backend/sandbox/images/Dockerfile.sandbox-base` by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` to build local agent packages in a cached image layer.
 - **ModalSandbox** (`backend/services/modal_sandbox.py`) — Production. Port 8080, gVisor isolation, Modal connect tokens for authenticated access. Images from `ghcr.io/posthog/posthog-sandbox-base`.
 
 ### Agent server and runner

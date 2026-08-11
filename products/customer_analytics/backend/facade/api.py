@@ -1344,7 +1344,7 @@ def _resolve_person_source_schema(source: CustomPropertySource, user_access_cont
     schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
     schema = (
         schema_model.objects.filter(id=source.external_data_schema_id, team_id=source.team_id)
-        .select_related("source")
+        .select_related("source", "table")
         .first()
     )
     if schema is None:
@@ -1354,6 +1354,19 @@ def _resolve_person_source_schema(source: CustomPropertySource, user_access_cont
     ):
         return None
     return schema
+
+
+def _schema_table_name(schema: Any) -> str:
+    """The bound table as it is named in HogQL, so the UI shows the name the table picker offered.
+    Falls back to the schema name when the first sync hasn't created the table yet. The HogQL import
+    is deferred to keep the heavy database module off this module's import path."""
+    from posthog.hogql.database.database import (
+        get_data_warehouse_table_name,  # noqa: PLC0415 — keeps HogQL off the import path
+    )
+
+    if schema.table_id is None:
+        return schema.name
+    return get_data_warehouse_table_name(schema.source, schema.table.name)
 
 
 def _schema_schedule(schema: Any) -> tuple[float | None, datetime | None]:
@@ -1390,6 +1403,8 @@ def _to_custom_property_source_view(
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: contracts.CustomPropertySyncRunView | None = None
+    external_data_source: UUID | None = None
+    table_name: str | None = None
     if isinstance(enrichment, _ResolveEnrichmentInline):
         schema = _resolve_person_source_schema(source, user_access_control)
         latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
@@ -1399,6 +1414,8 @@ def _to_custom_property_source_view(
     if schema is not None:
         sync_frequency_interval_seconds, next_sync_at = _schema_schedule(schema)
         latest_run = _to_sync_run_view(latest) if latest is not None else None
+        external_data_source = schema.source_id
+        table_name = _schema_table_name(schema)
 
     # A person source's sync status (raw error text, failure streak, last-synced time) is produced by
     # the underlying billable warehouse source, so it's warehouse-derived metadata gated the same way as
@@ -1427,6 +1444,8 @@ def _to_custom_property_source_view(
         sync_frequency_interval_seconds=sync_frequency_interval_seconds,
         next_sync_at=next_sync_at,
         latest_run=latest_run,
+        external_data_source=external_data_source,
+        table_name=table_name,
     )
 
 
@@ -1445,7 +1464,7 @@ def _batch_source_enrichment(
         schema.id: schema
         for schema in schema_model.objects.filter(
             id__in={s.external_data_schema_id for s in person_sources}, team_id=team_id
-        ).select_related("source")
+        ).select_related("source", "table")
     }
     # Latest run per source in one query: DISTINCT ON (source_id) keeps the newest row per source.
     latest_run_by_source_id: dict[Any, CustomPropertySyncRun] = {
@@ -2656,6 +2675,16 @@ def _cap_to_field_length(field_name: str, value: str) -> str:
     return value[:max_length]
 
 
+def _enqueue_meeting_rematch(team_id: int, account_id: str) -> None:
+    try:
+        current_app.send_task(
+            "customer_analytics.rematch_account_meetings",
+            kwargs={"team_id": team_id, "account_id": account_id},
+        )
+    except Exception as error:
+        capture_exception(error)
+
+
 def update_account(
     account: Account,
     *,
@@ -2663,11 +2692,13 @@ def update_account(
     external_id: str | None | _Unset = _UNSET,
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
+    allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
     written; ``properties`` replaces the stored JSON wholesale. Product-internal — takes and
     returns the model, so it must not be called across the product boundary."""
     update_fields: list[str] = []
+    matching_expanded = False
     if not isinstance(name, _Unset):
         account.name = _cap_to_field_length("name", name)
         update_fields.append("name")
@@ -2675,13 +2706,25 @@ def update_account(
         account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
         update_fields.append("external_id")
     if not isinstance(properties, _Unset):
-        account._properties = _ModelAccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
+        previous_properties = account.properties
+        validated_properties = _ModelAccountProperties.from_input(properties)
+        known_emails_added = set(validated_properties.known_emails) - set(previous_properties.known_emails)
+        email_domains_added = set(validated_properties.email_domains) - set(previous_properties.email_domains)
+        matching_changed = set(validated_properties.known_emails) != set(previous_properties.known_emails) or set(
+            validated_properties.email_domains
+        ) != set(previous_properties.email_domains)
+        if matching_changed and not allow_matching_updates:
+            raise ResourceForbiddenError
+        matching_expanded = bool(known_emails_added or email_domains_added)
+        account._properties = validated_properties.model_dump(mode="json", exclude_unset=True)
         update_fields.append("_properties")
     if not isinstance(slack_summary_cadence, _Unset):
         account.slack_summary_cadence = slack_summary_cadence
         update_fields.append("slack_summary_cadence")
     if update_fields:
         account.save(update_fields=update_fields)
+    if matching_expanded:
+        transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
     return account
 
 
@@ -2761,6 +2804,7 @@ def update_account_for_view(
     organization_id,
     user: "User",
     was_impersonated: bool,
+    allow_matching_updates: bool = False,
 ) -> contracts.AccountView:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
@@ -2775,6 +2819,7 @@ def update_account_for_view(
         update_kwargs["properties"] = input.properties if input.properties is not None else {}
     if input.slack_summary_cadence_provided:
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
+    update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:
         with transaction.atomic():

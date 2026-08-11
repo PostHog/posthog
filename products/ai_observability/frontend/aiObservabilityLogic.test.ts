@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -236,6 +237,35 @@ describe('aiObservabilitySharedLogic', () => {
 
         expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
         expect(router.values.searchParams).toMatchObject({ trace_search: 'walrus' })
+    })
+})
+
+describe('aiObservabilitySharedLogic AI event detection', () => {
+    let logic: ReturnType<typeof aiObservabilitySharedLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        sceneLogic.mount()
+        router.actions.push(urls.aiObservabilityTraces())
+        logic = aiObservabilitySharedLogic({})
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('waits for the project before probing for AI events', async () => {
+        // Probing without a project id throws, and the setup poll would repeat that every 20s.
+        projectLogic.actions.loadCurrentProjectSuccess(null)
+        logic.mount()
+
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadAIEventDefinition'])
+    })
+
+    it('probes for AI events once the project is known', async () => {
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadAIEventDefinition'])
     })
 })
 

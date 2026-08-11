@@ -6,6 +6,7 @@ import {
   computeStickyAnchor,
   countFlatRows,
   flattenTurnRows,
+  keyTurnRows,
   nextThreadFollowState,
   type StickyAnchorEntry,
   sampleThreadScroll,
@@ -55,6 +56,44 @@ function agentTurn(
 ): AgentTurn {
   return { type: "agent_turn", id, items: items as AgentTurn["items"], prompt };
 }
+
+describe("keyTurnRows", () => {
+  const thought = sessionUpdate("t1");
+  const tool1 = sessionUpdate("c1");
+  const tool2 = sessionUpdate("c2");
+
+  const skillAction = (id: string): TurnRow => ({
+    type: "skill_button_action",
+    id,
+    buttonId: "review" as never,
+  });
+
+  // A row whose id moves while the row stays in place. Keying on the id remounts it, and the
+  // scroller engine answers that remount by scrolling to the first user message.
+  it.each([
+    {
+      name: "tool grouping moves a turn's id to its first tool call",
+      before: [userMessage("u1"), agentTurn("t1", [thought, tool1])],
+      after: [
+        userMessage("u1"),
+        agentTurn("c1", [toolGroup("c1", [thought, tool1, tool2])]),
+      ],
+      keys: ["user-turn-0", "agent-turn-0"],
+    },
+    {
+      name: "a skill-button row swaps its optimistic id for the real one",
+      before: [
+        userMessage("u1"),
+        skillAction("optimistic-1700000000000-ab12cd"),
+      ],
+      after: [userMessage("u1"), skillAction("turn-1-skill-action")],
+      keys: ["user-turn-0", "skill-action-0"],
+    },
+  ])("holds the key steady when $name", ({ before, after, keys }) => {
+    expect(keyTurnRows(before).map((r) => r.key)).toEqual(keys);
+    expect(keyTurnRows(after).map((r) => r.key)).toEqual(keys);
+  });
+});
 
 describe("flattenTurnRows", () => {
   it("passes standalone rows through with ordinal keys for user messages", () => {
