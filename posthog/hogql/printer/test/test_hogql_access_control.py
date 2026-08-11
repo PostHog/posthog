@@ -321,6 +321,46 @@ class TestAccessControlGuard(BaseTest):
         assert f"notIn(toString(system__dashboard_tiles.dashboard_id), %({deny_key})s)" in sql
         assert "notIn(toString(system__dashboard_tiles.id)" not in sql
 
+    def test_account_custom_property_values_guard_filters_account_fk(self):
+        # The hidden EAV tables scope by a direct team guard, so the per-account deny set
+        # must be declared on the table itself (account_id FK) - without it a member denied
+        # an account could read its property values by selecting the hidden table directly.
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource="account", resource_id="acct-42", access_level="none")
+
+        for table in ("_account_custom_property_values", "_account_custom_property_values_history"):
+            context = HogQLContext(
+                team_id=self.team.pk,
+                team=self.team,
+                user=self.user,
+                enable_select_queries=True,
+            )
+            prepared = prepare_ast_for_printing(
+                parse_select(f"SELECT id FROM system.{table}"),
+                context=context,
+                dialect="clickhouse",
+            )
+            assert prepared is not None
+            sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+            deny_keys = [k for k in context.values if k.endswith("_sensitive") and isinstance(context.values[k], list)]
+            assert len(deny_keys) == 1, table
+            assert context.values[deny_keys[0]] == ["acct-42"], table
+            assert f"notIn(toString(system__{table}.account_id), %({deny_keys[0]})s)" in sql, table
+
 
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""

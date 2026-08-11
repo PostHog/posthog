@@ -14,6 +14,7 @@ import re
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
@@ -56,6 +57,21 @@ _ALLOWED_METHODS = ("GET", *_METHODS_WITH_BODY)
 # per-region base URL (never from here), so the netloc can't be changed; this just keeps the path a
 # well-formed relative path and blocks obvious traversal.
 _SAFE_PATH = re.compile(r"^[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$")
+# How long the target's own identity (project id, org, region) is reused before being read again. It
+# changes only when the user reconnects against a different project, so a stale window this short is
+# invisible, while the cache removes a cross-region round trip from the front of every session.
+CONNECTION_TARGET_CACHE_SECONDS = 300
+
+
+@dataclass(frozen=True, kw_only=True)
+class ForwardResult:
+    """One forwarded request's outcome. `gateway_error` marks a failure raised on this side — target
+    unreachable, too slow, response too large — as opposed to a status the target itself returned, so
+    a caller can mirror it as the outer HTTP status instead of reporting a 200 that carries a 502."""
+
+    status: int
+    data: Any
+    gateway_error: bool = False
 
 
 def _connection_access_token(integration: Integration) -> str:
@@ -129,6 +145,86 @@ def _inflight_slot(integration_id: int) -> Iterator[bool]:
             pass
 
 
+def _forward_through_connection(
+    integration: Integration,
+    method: str,
+    path: str,
+    *,
+    query: dict[str, Any] | None = None,
+    data: Any = None,
+) -> ForwardResult:
+    """Replay one request against the connected project, injecting the connection's token."""
+    token = _connection_access_token(integration)
+    base = posthog_connect_base_url(integration.config.get("region"))
+
+    raw = bytearray()
+    timed_out = False
+    try:
+        with _inflight_slot(integration.id) as acquired:
+            if not acquired:
+                raise Throttled(detail="Too many concurrent requests through this PostHog connection.")
+            res = requests.request(
+                method,
+                f"{base}/{path}",
+                params=query or None,
+                json=data if method in _METHODS_WITH_BODY else None,
+                headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
+                timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
+                # A compromised/misconfigured target must not be able to 30x us into resending the
+                # bearer token to another origin.
+                allow_redirects=False,
+                # Stream so an oversized body is capped below rather than fully buffered by requests.
+                stream=True,
+            )
+            with res:
+                # Bound the *total* time we hold a worker, not just each socket read. A target that
+                # trickles a long-lived stream (SSE keepalives, say) would otherwise keep this read
+                # alive past the in-flight lease below and defeat the concurrency cap. Stop at the
+                # size cap or the wall-clock deadline, whichever comes first.
+                deadline = monotonic() + CONNECTION_FORWARD_TIMEOUT_SECONDS
+                for chunk in res.iter_content(chunk_size=65536):
+                    raw += chunk
+                    if len(raw) > CONNECTION_MAX_RESPONSE_BYTES:
+                        break
+                    if monotonic() > deadline:
+                        timed_out = True
+                        break
+    except requests.RequestException as err:
+        logger.warning(
+            "posthog_connection_forward_unreachable",
+            integration_id=integration.id,
+            region=integration.config.get("region"),
+            error=str(err),
+        )
+        return ForwardResult(
+            status=status.HTTP_502_BAD_GATEWAY,
+            data={"error": "The target project could not be reached."},
+            gateway_error=True,
+        )
+
+    if timed_out:
+        return ForwardResult(
+            status=status.HTTP_504_GATEWAY_TIMEOUT,
+            data={"error": "The target project took too long to respond."},
+            gateway_error=True,
+        )
+
+    if len(raw) > CONNECTION_MAX_RESPONSE_BYTES:
+        return ForwardResult(
+            status=status.HTTP_502_BAD_GATEWAY,
+            data={"error": "The target project's response was too large."},
+            gateway_error=True,
+        )
+
+    try:
+        body = json.loads(raw) if raw else None
+    except ValueError:
+        body = None
+    # Pass the target's status and body straight through. The target owns the residency policy for
+    # what its responses contain, so no scrub happens on this side.
+    return ForwardResult(status=res.status_code, data=body)
+
+
 class PostHogConnectionForwardSerializer(serializers.Serializer):
     method = serializers.ChoiceField(
         choices=list(_ALLOWED_METHODS), help_text="HTTP method to use against the target project's API."
@@ -149,6 +245,21 @@ class PostHogConnectionForwardResponseSerializer(serializers.Serializer):
     data = serializers.JSONField(help_text="The target project's response body, passed through.")  # type: ignore[assignment]
 
 
+class PostHogConnectionTargetSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        help_text="Project id to use in target API paths. It is the connected project's id, not this one's."
+    )
+    project_name = serializers.CharField(help_text="Name of the connected project.")
+    organization_id = serializers.CharField(help_text="Id of the organization the connected project belongs to.")
+    organization_name = serializers.CharField(help_text="Name of the organization the connected project belongs to.")
+    region = serializers.CharField(help_text="Cloud region the connected project lives in, e.g. `US` or `EU`.")
+    base_url = serializers.CharField(help_text="Base URL requests through this connection are sent to.")
+
+
+class PostHogConnectionTargetErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Why the connected project's context could not be read.")
+
+
 # A `posthog` connection is an integration kind, so route its codegen (frontend types, MCP tools)
 # to the integrations product rather than the core bucket this module's path would otherwise imply.
 @extend_schema(extensions={"x-product": "integrations"})
@@ -160,9 +271,18 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = PostHogConnectionForwardSerializer
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action == "forward":
+        if self.action in ("forward", "target"):
             return [PostHogConnectionForwardThrottle(), *super().get_throttles()]
         return super().get_throttles()
+
+    def _authorized_connection(self, request: Request, pk: str | None) -> Integration:
+        # Refuse to forward a request that itself arrived through a connection, so a same-region (or
+        # cross-region) connection can't be chained into itself and tie up workers one hop at a time.
+        if request.headers.get(CONNECTION_MARKER_HEADER):
+            raise ValidationError("A request forwarded through a PostHog connection cannot be forwarded again.")
+        integration = self._get_connection(pk)
+        _enforce_caller_covers_connection_scopes(request, integration)
+        return integration
 
     def _get_connection(self, pk: str | None) -> Integration:
         if pk is None:
@@ -185,89 +305,64 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="forward", required_scopes=["integration:write"])
     def forward(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
-        # Refuse to forward a request that itself arrived through a connection, so a same-region (or
-        # cross-region) connection can't be chained into itself and tie up workers one hop at a time.
-        if request.headers.get(CONNECTION_MARKER_HEADER):
-            raise ValidationError("A request forwarded through a PostHog connection cannot be forwarded again.")
-
-        integration = self._get_connection(pk)
-        _enforce_caller_covers_connection_scopes(request, integration)
+        integration = self._authorized_connection(request, pk)
 
         serializer = PostHogConnectionForwardSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
 
-        method = payload["method"]
-        path = _validate_target_path(payload["path"])
-        token = _connection_access_token(integration)
-        base = posthog_connect_base_url(integration.config.get("region"))
+        result = _forward_through_connection(
+            integration,
+            payload["method"],
+            _validate_target_path(payload["path"]),
+            query=payload.get("query"),
+            data=payload.get("data"),
+        )
+        body = {"status": result.status, "data": result.data}
+        # A failure on this side is mirrored as the outer status too, so a caller that only reads the
+        # HTTP status still sees it. A status the target itself returned rides inside a 200.
+        return Response(body, status=result.status if result.gateway_error else status.HTTP_200_OK)
 
-        raw = bytearray()
-        timed_out = False
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=PostHogConnectionTargetSerializer),
+            502: OpenApiResponse(response=PostHogConnectionTargetErrorSerializer),
+        },
+        summary="Read the connected project's identity",
+        description="Resolve which project, organization and region a PostHog connection points at, so callers can build target API paths without reading `api/users/@me/` through the connection first.",
+    )
+    @action(detail=True, methods=["get"], url_path="target", required_scopes=["integration:read"])
+    def target(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        integration = self._authorized_connection(request, pk)
+
+        cache_key = f"posthog_connection_target:{integration.id}"
         try:
-            with _inflight_slot(integration.id) as acquired:
-                if not acquired:
-                    raise Throttled(detail="Too many concurrent requests through this PostHog connection.")
-                res = requests.request(
-                    method,
-                    f"{base}/{path}",
-                    params=payload.get("query") or None,
-                    json=payload.get("data") if method in _METHODS_WITH_BODY else None,
-                    headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
-                    timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
-                    # A compromised/misconfigured target must not be able to 30x us into resending the
-                    # bearer token to another origin.
-                    allow_redirects=False,
-                    # Stream so an oversized body is capped below rather than fully buffered by requests.
-                    stream=True,
-                )
-                with res:
-                    # Bound the *total* time we hold a worker, not just each socket read. A target that
-                    # trickles a long-lived stream (SSE keepalives, say) would otherwise keep this read
-                    # alive past the in-flight lease below and defeat the concurrency cap. Stop at the
-                    # size cap or the wall-clock deadline, whichever comes first.
-                    deadline = monotonic() + CONNECTION_FORWARD_TIMEOUT_SECONDS
-                    for chunk in res.iter_content(chunk_size=65536):
-                        raw += chunk
-                        if len(raw) > CONNECTION_MAX_RESPONSE_BYTES:
-                            break
-                        if monotonic() > deadline:
-                            timed_out = True
-                            break
-        except requests.RequestException as err:
-            logger.warning(
-                "posthog_connection_forward_unreachable",
-                integration_id=integration.id,
-                region=integration.config.get("region"),
-                error=str(err),
-            )
+            cached = cache.get(cache_key)
+        except Exception:
+            cached = None
+        if cached:
+            return Response(cached)
+
+        result = _forward_through_connection(integration, "GET", "api/users/@me/")
+        me = result.data if isinstance(result.data, dict) else {}
+        team = me.get("team") or {}
+        organization = me.get("organization") or {}
+        if result.status != status.HTTP_200_OK or not team.get("id"):
             return Response(
-                {"status": status.HTTP_502_BAD_GATEWAY, "data": {"error": "The target project could not be reached."}},
+                {"error": "The connected project's identity could not be read. Reconnect the connection."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        if timed_out:
-            return Response(
-                {
-                    "status": status.HTTP_504_GATEWAY_TIMEOUT,
-                    "data": {"error": "The target project took too long to respond."},
-                },
-                status=status.HTTP_504_GATEWAY_TIMEOUT,
-            )
-
-        if len(raw) > CONNECTION_MAX_RESPONSE_BYTES:
-            return Response(
-                {
-                    "status": status.HTTP_502_BAD_GATEWAY,
-                    "data": {"error": "The target project's response was too large."},
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
+        payload = {
+            "project_id": team["id"],
+            "project_name": team.get("name") or "",
+            "organization_id": str(organization.get("id") or ""),
+            "organization_name": organization.get("name") or "",
+            "region": (integration.config.get("region") or "").upper(),
+            "base_url": posthog_connect_base_url(integration.config.get("region")),
+        }
         try:
-            body = json.loads(raw) if raw else None
-        except ValueError:
-            body = None
-        # Pass the target's status and body straight through. The target owns the residency policy for
-        # what its responses contain, so no scrub happens on this side.
-        return Response({"status": res.status_code, "data": body})
+            cache.set(cache_key, payload, timeout=CONNECTION_TARGET_CACHE_SECONDS)
+        except Exception:
+            pass
+        return Response(payload)

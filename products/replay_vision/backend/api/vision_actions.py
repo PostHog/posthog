@@ -28,7 +28,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
-from posthog.models.user import User
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
@@ -51,7 +50,8 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
-from products.replay_vision.backend.scanner_access import is_uuid, readable_scanner_ids
+from products.replay_vision.backend.scanner_access import readable_scanner_ids, selection_target_ids
+from products.replay_vision.backend.scanner_config import acting_user
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
@@ -433,11 +433,11 @@ class VisionActionSerializer(serializers.ModelSerializer):
         requested = [str(s) for s in (selection.get("scanner_ids") or ([scanner.id] if scanner else []))]
         if not requested:
             return
-        request = self.context.get("request")
-        if request is None or not getattr(request.user, "is_authenticated", False):
+        user = acting_user(self.context)
+        if user is None or not getattr(user, "is_authenticated", False):
             return
         team = self.context["get_team"]()
-        readable = set(readable_scanner_ids(request.user, team, requested))
+        readable = set(readable_scanner_ids(user, team, requested))
         if set(requested) - readable:
             raise serializers.ValidationError(
                 {"scanner": "You don't have access to one or more scanners this action targets."}
@@ -538,8 +538,8 @@ class VisionActionSerializer(serializers.ModelSerializer):
         demote.update(is_scanner_digest=False)
 
     def _authorize_demotions(self, actions: QuerySet[VisionAction]) -> None:
-        request = self.context.get("request")
-        if request is None or not getattr(request.user, "is_authenticated", False):
+        user = acting_user(self.context)
+        if user is None or not getattr(user, "is_authenticated", False):
             return
         # The bound scanner is the promotion target (already editor-checked upstream); the exposure is
         # each demoted digest's selection.scanner_ids, which _validate_scanner_access guards on a direct
@@ -551,7 +551,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if not requested:
             return
         team = self.context["get_team"]()
-        readable = set(readable_scanner_ids(request.user, team, list(requested)))
+        readable = set(readable_scanner_ids(user, team, list(requested)))
         if requested - readable:
             raise serializers.ValidationError(
                 {"is_scanner_digest": "You don't have access to a scanner the current digest reads from."}
@@ -559,7 +559,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
-        user = cast(User, self.context["request"].user)
+        user = acting_user(self.context)
         if validated_data.get("is_scanner_digest"):
             self._demote_existing_digest(validated_data["scanner"])
             if self._has_derived_digest_name(validated_data):
@@ -589,12 +589,6 @@ class VisionActionSerializer(serializers.ModelSerializer):
         raise error
 
 
-def _selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
-    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`."""
-    configured = (selection or {}).get("scanner_ids") or []
-    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
-
-
 def _check_action_scanner_access(
     view: TeamAndOrgViewSetMixin, scanner: ReplayScanner, selection: dict[str, Any] | None
 ) -> None:
@@ -606,7 +600,7 @@ def _check_action_scanner_access(
     scanner's data into another scanner's summary.
     """
     view.check_object_permissions(view.request, scanner)
-    other_ids = _selection_target_ids(scanner.id, selection)
+    other_ids = selection_target_ids(scanner.id, selection)
     if not other_ids:
         return
     other_scanners = ReplayScanner.objects.filter(team_id=scanner.team_id, id__in=other_ids)
@@ -718,7 +712,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # action that looks created but never delivers.
         with transaction.atomic():
             action = serializer.save()
-            provision_delivery(action, request=self.request, team=self.team)
+            provision_delivery(action, user=acting_user(self.get_serializer_context()), team=self.team)
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
@@ -742,7 +736,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # enabled flag, or the name (each destination is named after the action). Cadence/selection
             # edits don't touch the destinations, so they must not churn them.
             if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
-                provision_delivery(action, request=self.request, team=self.team)
+                provision_delivery(action, user=acting_user(self.get_serializer_context()), team=self.team)
 
     def perform_destroy(self, instance: VisionAction) -> None:
         archive_delivery(instance, team=self.team)

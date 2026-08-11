@@ -2,6 +2,7 @@
 //! trait method's logic lives in its own submodule (`resolve`,
 //! `stub_create`), keyed by the metrics operation label.
 
+mod distinct_ids;
 mod resolve;
 mod stub_create;
 
@@ -13,7 +14,7 @@ use sqlx::postgres::PgPool;
 use personhog_common::grpc::{current_client_name, current_method_name};
 
 use crate::storage::error::StorageResult;
-use crate::storage::types::{Person, PersonStub, StubOutcome};
+use crate::storage::types::{DistinctIdMapping, Person, PersonStub, StubOutcome};
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
 const POOL_LABEL: &str = "primary";
@@ -46,6 +47,23 @@ impl IdentityStorage for PostgresIdentityStorage {
         let labels = Self::query_labels("resolve_distinct_ids");
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
         resolve::resolve_distinct_ids(&self.primary_pool, keys).await
+    }
+
+    async fn get_distinct_ids_for_persons(
+        &self,
+        team_id: i64,
+        person_ids: &[i64],
+        limit_per_person: Option<i64>,
+    ) -> StorageResult<Vec<DistinctIdMapping>> {
+        let labels = Self::query_labels("get_distinct_ids_for_persons");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+        distinct_ids::get_distinct_ids_for_persons(
+            &self.primary_pool,
+            team_id,
+            person_ids,
+            limit_per_person,
+        )
+        .await
     }
 
     async fn create_person_stubs(&self, stubs: &[PersonStub]) -> StorageResult<Vec<StubOutcome>> {

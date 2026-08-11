@@ -20,7 +20,6 @@ from prometheus_client import Counter
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
-from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
@@ -909,6 +908,11 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
     # Cache device info on signup to skip login notification for this device
     if user.last_login is None:
+        # Deferred: importing posthog.geoip loads the MaxMind DB into memory at import time,
+        # which lands on the django.setup() path via this app's ready() and blows the startup
+        # import budget. Keep it at call time so only the signup path pays for it.
+        from posthog.geoip import get_geoip_properties  # noqa: PLC0415
+
         short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
         country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
