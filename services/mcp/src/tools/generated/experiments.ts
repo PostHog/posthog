@@ -53,7 +53,14 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    omitResponseFields,
+    withInformationalResponse,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
@@ -1268,7 +1275,7 @@ const ExperimentsSessionEventDeltasCreateSchema = ExperimentsSessionEventDeltasC
 
 const experimentsSessionEventDeltasCreate = (): ToolBase<
     typeof ExperimentsSessionEventDeltasCreateSchema,
-    WithPostHogUrl<Schemas.ExperimentSessionEventDeltaResponse>
+    WithInformationalResponse<WithPostHogUrl<Schemas.ExperimentSessionEventDeltaResponse>>
 > => ({
     name: 'experiments-session-event-deltas-create',
     schema: ExperimentsSessionEventDeltasCreateSchema,
@@ -1278,7 +1285,11 @@ const experimentsSessionEventDeltasCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/session_event_deltas/`,
         })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+        return withInformationalResponse(
+            await withPostHogUrl(context, result, `/experiments/${params.id}`),
+            'experiment-watch-cards',
+            'Use it only to point the user at recordings worth watching for this experiment.'
+        )
     },
 })
 

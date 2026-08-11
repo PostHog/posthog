@@ -373,6 +373,23 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
     @rank_anything
     @patch.object(session_event_deltas, "MAX_METRIC_CARD_EVENTS", 1)
+    def test_a_recovered_metric_event_takes_its_display_order_slot_back(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC])
+        # `purchase` outranks `signup` on the metrics page, and wins a comparison candidate, so
+        # `signup` takes the one shortcut slot at first. When purchase's comparison card then dies
+        # on the replay existence check, purchase must reclaim the slot rather than land after
+        # signup or beside it over budget.
+        self._arm("control", [["purchase", "signup"], ["purchase", "signup"], ["signup"], ["signup"]])
+        for _ in range(4):
+            self._session(variants=["test"], events=["purchase", "signup"], recorded=False)
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "metric")] == [("purchase", "control")]
+
+    @rank_anything
+    @patch.object(session_event_deltas, "MAX_METRIC_CARD_EVENTS", 1)
     def test_metric_shortcut_cards_follow_the_experiments_own_metric_order(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC])
         # The metrics page lists the signup metric first, while the stored order still has purchase

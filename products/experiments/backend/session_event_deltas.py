@@ -522,31 +522,47 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         # A metric's property filters narrow the recordings behind its *shortcut* cards only. A
         # comparison card was ranked on the bare event name, so filtering its recordings would show
         # a narrower set than the one that earned it the card, and could leave it with none.
-        cards = _resolve_cards(
+        resolved = _resolve_cards(
             setup,
             candidates=[*comparison_candidates, *metric_cards],
             metric_nodes=_shortcut_nodes(metric_cards, nodes_by_metric_event),
             covered_from=scan.covered_from,
         )
+        comparison_cards = [card for card in resolved if card.kind != WatchCardKind.METRIC]
+        shortcut_by_pair = {(card.event, card.variant): card for card in resolved if card.kind == WatchCardKind.METRIC}
 
-        # A suppressed shortcut leaned on the comparison card that suppressed it, and that card can
-        # still die on the replay existence check. Offer the shortcut route to the metric events
-        # left with no card at all, so an event the experiment measures doesn't vanish from the
-        # shelf just because the one arm that earned its comparison card had nothing recorded.
-        surviving_events = {card.event for card in cards}
-        recovered = _metric_card_candidates(
-            [named for named in named_metric_events if named.event in carded_events],
+        # The shortcut selection is decided again now that survival is known: a comparison
+        # candidate that died on the replay existence check must not keep suppressing its event's
+        # shortcuts, or an event the experiment measures vanishes from the shelf just because the
+        # one arm that earned its comparison card had nothing recorded. Re-running the selection,
+        # rather than appending a recovery batch, keeps the shelf inside MAX_METRIC_CARD_EVENTS
+        # and keeps a recovered event at its display-order position instead of after lower-ranked
+        # ones, which can also displace a lower-ranked event's already-resolved shortcut cards.
+        final_shortcuts = _metric_card_candidates(
+            named_metric_events,
             arm_keys=qualified_arms,
             never_linked=exposure.never_linked,
-            carded_events=surviving_events,
+            carded_events={card.event for card in comparison_cards},
         )
-        if recovered:
-            cards += _resolve_cards(
-                setup,
-                candidates=recovered,
-                metric_nodes=_shortcut_nodes(recovered, nodes_by_metric_event),
-                covered_from=scan.covered_from,
+        queried_events = {card.event for card in metric_cards}
+        unqueried = [card for card in final_shortcuts if card.event not in queried_events]
+        if unqueried:
+            shortcut_by_pair.update(
+                {
+                    (card.event, card.variant): card
+                    for card in _resolve_cards(
+                        setup,
+                        candidates=unqueried,
+                        metric_nodes=_shortcut_nodes(unqueried, nodes_by_metric_event),
+                        covered_from=scan.covered_from,
+                    )
+                }
             )
+        cards = comparison_cards + [
+            shortcut_by_pair[(card.event, card.variant)]
+            for card in final_shortcuts
+            if (card.event, card.variant) in shortcut_by_pair
+        ]
 
     result = ExperimentWatchResult(
         cards=cards,
