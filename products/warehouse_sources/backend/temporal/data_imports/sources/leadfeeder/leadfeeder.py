@@ -32,7 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
     PageNumberPaginator,
-    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
@@ -230,14 +229,17 @@ def _unified_accounts_endpoint() -> Endpoint:
     # `meta.page_count` field. The client-level PageNumberPaginator's total-pages stop check silently
     # no-ops when that field is absent (it falls through to "has next page"), and `stop_after_empty_page`
     # never fires either since the page is never empty — so without this override, a sync would keep
-    # requesting page[num]=2, 3, ... forever. Override with a paginator that always stops after one page;
+    # requesting page[num]=2, 3, ... forever. Override with a page-number paginator capped at one page
+    # via `maximum_page`: it still requests `page[num]=1` like every other unified endpoint (so a vendor
+    # response that *does* start paginating accounts one day is requested consistently), but the
+    # `maximum_page=1` cap makes it stop after that one request no matter what the body contains —
     # accounts is a small dimension table (see LEADFEEDER_ENDPOINTS), so a single page is authoritative.
     accounts_config = LEADFEEDER_ENDPOINTS[_ACCOUNTS_RESOURCE]
     return {
         "path": accounts_config.unified_path,
         "params": _unified_base_params(),
         "data_selector": "data",
-        "paginator": SinglePagePaginator(),
+        "paginator": PageNumberPaginator(base_page=1, page_param="page[num]", maximum_page=1),
     }
 
 
