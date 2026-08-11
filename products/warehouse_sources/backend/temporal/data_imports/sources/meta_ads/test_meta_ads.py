@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _is_transient_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
+    _next_smaller_chunk_size,
     _next_smaller_limit,
     _override_limit,
     _raise_meta_api_error,
@@ -920,6 +921,24 @@ class TestNextSmallerLimit:
         assert _next_smaller_limit(current) == expected
 
 
+class TestNextSmallerChunkSize:
+    @pytest.mark.parametrize(
+        "current,expected",
+        [
+            (30, 7),
+            (7, 1),
+            # Smallest rung, so no further fallback is available.
+            (1, None),
+            # A resumed sync can carry a size between rungs; it picks the largest below it.
+            (14, 7),
+            # A resumed size above the largest rung steps down to that rung.
+            (60, 30),
+        ],
+    )
+    def test_step(self, current: int, expected: int | None) -> None:
+        assert _next_smaller_chunk_size(current) == expected
+
+
 class TestMidChunkLimitFallback:
     URL = "https://graph.facebook.com/v20/act_1/insights"
     PARAMS: dict[str, Any] = {"fields": "ad_id", "limit": 500, "level": "ad", "access_token": "tok"}
@@ -1035,9 +1054,11 @@ class TestMidChunkLimitFallback:
         sent_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert sent_params["limit"] == 100
 
-    def test_exhausting_limit_ladder_raises(self) -> None:
+    def test_exhausting_limit_ladder_falls_back_to_smaller_chunk(self) -> None:
         manager = _build_manager()
         timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        # 04-01..04-08 is one 30-day attempt clamped to the range end. Once the limit
+        # ladder bottoms out mid-chunk, 7-day chunks cover it: 04-01..04-07, 04-08.
         responses = [
             # Initial chunk: page 1 + cursor.
             _mock_response(
@@ -1049,6 +1070,59 @@ class TestMidChunkLimitFallback:
             ),
             # All limits in PAGE_LIMIT_FALLBACK_SIZES time out.
             *[_mock_response(500, timeout_body) for _ in PAGE_LIMIT_FALLBACK_SIZES],
+            _mock_response(200, {"data": [{"ad_id": "2"}], "paging": {}}),
+            _mock_response(200, {"data": [{"ad_id": "3"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-01", "until": "2026-04-08"}, None, manager
+                )
+            )
+
+        assert [b[0]["ad_id"] for b in batches] == ["1", "2", "3"]
+
+        # Every rung was tried on the same cursor before the chunk narrowed.
+        cursor_calls = [c.args[0] for c in mock_get.return_value.get.call_args_list[1:4]]
+        assert cursor_calls == [
+            f"https://graph.facebook.com/v20/act_1/insights?after=p1&limit={limit}"
+            for limit in PAGE_LIMIT_FALLBACK_SIZES
+        ]
+
+        # The restarted chunk re-requests the window from its first day, at 7 days,
+        # keeping the smallest limit so the request only ever gets cheaper.
+        restart_params = mock_get.return_value.get.call_args_list[4].kwargs["params"]
+        assert json.loads(restart_params["time_range"]) == {"since": "2026-04-01", "until": "2026-04-07"}
+        assert restart_params["limit"] == PAGE_LIMIT_FALLBACK_SIZES[-1]
+
+        # The restart drops the saved cursor, which still encodes the wider window.
+        restart_save: MetaAdsResumeConfig = next(
+            s.args[0] for s in manager.save_state.call_args_list if s.args[0].chunk_size_days == 7
+        )
+        assert restart_save.chunk_since == "2026-04-01"
+        assert restart_save.chunk_next_url is None
+
+    def test_exhausting_both_ladders_mid_chunk_raises(self) -> None:
+        manager = _build_manager()
+        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        responses = [
+            # Initial chunk: page 1 + cursor.
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # Every page limit on the cursor times out, and so does the restarted
+            # chunk at each remaining size (7 days, then 1 day).
+            *[_mock_response(500, timeout_body) for _ in PAGE_LIMIT_FALLBACK_SIZES],
+            _mock_response(500, timeout_body),
+            _mock_response(500, timeout_body),
         ]
 
         with mock.patch(
@@ -1062,6 +1136,9 @@ class TestMidChunkLimitFallback:
             assert next(gen) == [{"ad_id": "1"}]
             with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
                 list(gen)
+
+        # Both ladders terminate rather than looping on the smallest request.
+        assert mock_get.return_value.get.call_count == len(responses)
 
     def test_non_timeout_mid_chunk_error_does_not_retry(self) -> None:
         manager = _build_manager()
