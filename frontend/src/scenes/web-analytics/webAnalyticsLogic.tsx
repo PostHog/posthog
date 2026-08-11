@@ -156,11 +156,11 @@ export interface webAnalyticsLogicValues {
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
     authorizedDomains: string[] // webAnalyticsFilterLogic
-    compareFilter: CompareFilter // webAnalyticsFilterLogic
     countryFilter: string | null // webAnalyticsFilterLogic
     deviceTypeFilter: DeviceType | null // webAnalyticsFilterLogic
     domainFilter: string | null // webAnalyticsFilterLogic
     hasHostFilter: boolean // webAnalyticsFilterLogic
+    rawCompareFilter: CompareFilter // webAnalyticsFilterLogic
     rawWebAnalyticsFilters: WebAnalyticsPropertyFilters // webAnalyticsFilterLogic
     referrerFilter: string | null // webAnalyticsFilterLogic
     selectedHost: string | null // webAnalyticsFilterLogic
@@ -174,6 +174,7 @@ export interface webAnalyticsLogicValues {
     _sourceTab: string | null
     activeHoursTab: string
     breadcrumbs: Breadcrumb[]
+    compareFilter: CompareFilter
     controls: {
         filterTestAccounts: boolean
         includeHostPath: boolean
@@ -712,7 +713,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'deviceTypeFilter',
                 'countryFilter',
                 'referrerFilter',
-                'compareFilter',
+                'compareFilter as rawCompareFilter',
                 'hasHostFilter',
                 'validatedDomainFilter',
                 'selectedHost',
@@ -1143,6 +1144,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
     }),
     selectors({
+        compareFilter: [
+            (s) => [s.rawCompareFilter, s.dateFilter],
+            (rawCompareFilter: CompareFilter, dateFilter: DateFilterState): CompareFilter =>
+                // An all-time range starts at the first event, so there is no earlier period left to
+                // compare it against. The stored preference is left untouched so that it applies
+                // again as soon as the range becomes a bounded one.
+                dateFilter.dateFrom === 'all' ? { compare: false } : rawCompareFilter,
+        ],
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
@@ -3066,7 +3075,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 _graphsTab,
                 isPathCleaningEnabled,
                 shouldFilterTestAccounts,
-                compareFilter,
+                rawCompareFilter,
                 productTab,
                 webVitalsPercentile,
                 domainFilter,
@@ -3139,8 +3148,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (shouldFilterTestAccounts != null) {
                 urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
             }
-            if (compareFilter) {
-                urlParams.set('compare_filter', JSON.stringify(compareFilter))
+            // The stored preference goes in the URL rather than the effective value, so that an
+            // all-time range does not overwrite it with the comparison it suppresses.
+            if (rawCompareFilter) {
+                urlParams.set('compare_filter', JSON.stringify(rawCompareFilter))
             } else {
                 urlParams.delete('compare_filter')
             }
@@ -3347,7 +3358,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (
                 compare_filter &&
                 isCompareFilter(compare_filter) &&
-                !objectsEqual(compare_filter, values.compareFilter)
+                !objectsEqual(compare_filter, values.rawCompareFilter)
             ) {
                 actions.setCompareFilter(compare_filter)
             }

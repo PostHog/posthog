@@ -319,6 +319,40 @@ describe('webAnalyticsLogic precompute payload', () => {
     })
 })
 
+describe('webAnalyticsLogic compare filter', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // An all-time range has no earlier period, and comparing against one made the tiles report the
+    // first day of data as the previous period's total. The stored preference has to survive the
+    // switch, so that returning to a bounded range compares again without the user re-enabling it.
+    it('drops the comparison for an all-time range and applies it again for a bounded one', async () => {
+        logic.actions.setCompareFilter({ compare: true })
+
+        logic.actions.setDates('all', null)
+        await expectLogic(logic).toMatchValues({ compareFilter: { compare: false } })
+
+        logic.actions.setDates('-7d', null)
+        await expectLogic(logic).toMatchValues({ compareFilter: { compare: true } })
+    })
+})
+
 describe('webAnalyticsLogic URL restoration', () => {
     let logic: ReturnType<typeof webAnalyticsLogic.build>
 
