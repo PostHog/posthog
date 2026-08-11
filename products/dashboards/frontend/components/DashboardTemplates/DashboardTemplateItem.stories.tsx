@@ -80,21 +80,6 @@ function DashboardTemplateItemGallery(): JSX.Element {
             </section>
 
             <section className="flex flex-col gap-2">
-                <h3 className="text-sm font-semibold m-0">Disabled (create in flight)</h3>
-                <div className="w-72">
-                    <TemplateItem
-                        template={sampleTemplate}
-                        onClick={onClick}
-                        index={5}
-                        data-attr="story-template-item-disabled"
-                        size="default"
-                        showCover
-                        disabled
-                    />
-                </div>
-            </section>
-
-            <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold m-0">Featured large with heart</h3>
                 <div className="w-full max-w-xl">
                     <TemplateItem
