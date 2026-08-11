@@ -267,11 +267,11 @@ export function LogsAlertSimulation({
     const hasAutomaticallyRun = useRef(false)
 
     useEffect(() => {
-        if (autoRun && !hasAutomaticallyRun.current) {
+        if (autoRun && !hasAutomaticallyRun.current && !simulationResult && !simulationResultLoading) {
             hasAutomaticallyRun.current = true
             simulateAlert()
         }
-    }, [autoRun, simulateAlert])
+    }, [autoRun, simulateAlert, simulationResult, simulationResultLoading])
 
     const simulation = (
         <div className="space-y-4">

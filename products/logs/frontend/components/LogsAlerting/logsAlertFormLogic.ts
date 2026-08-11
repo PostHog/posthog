@@ -328,8 +328,8 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     cooldown_minutes: form.cooldownMinutes,
                 }
 
+                let savedAlertId: string
                 try {
-                    let savedAlertId: string
                     if (props.alert) {
                         const patch: PatchedLogsAlertConfigurationApi = { ...payload }
                         await logsAlertsPartialUpdate(projectId, props.alert.id, patch)
@@ -340,16 +340,6 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                         savedAlertId = created.id
                         lemonToast.success('Alert created')
                     }
-
-                    if (values.pendingNotifications.length > 0) {
-                        const notifLogic = logsAlertNotificationLogic({ alertId: props.alert?.id })
-                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
-                    }
-
-                    actions.loadAlerts()
-                    if (!props.alert) {
-                        props.onCreateSuccess?.()
-                    }
                 } catch (e: any) {
                     const message =
                         typeof e?.detail === 'string'
@@ -359,6 +349,33 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                               : 'Failed to save alert'
                     lemonToast.error(message)
                     throw e
+                }
+
+                try {
+                    if (values.pendingNotifications.length > 0) {
+                        const notifLogic = logsAlertNotificationLogic({ alertId: props.alert?.id })
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
+                    }
+                } catch (e: any) {
+                    if (!props.alert) {
+                        lemonToast.error('Alert created, but notifications could not be configured.')
+                        actions.loadAlerts()
+                        props.onCreateSuccess?.()
+                        return form
+                    }
+                    const message =
+                        typeof e?.detail === 'string'
+                            ? e.detail
+                            : typeof e?.message === 'string'
+                              ? e.message
+                              : 'Failed to save alert'
+                    lemonToast.error(message)
+                    throw e
+                }
+
+                actions.loadAlerts()
+                if (!props.alert) {
+                    props.onCreateSuccess?.()
                 }
                 return form
             },
