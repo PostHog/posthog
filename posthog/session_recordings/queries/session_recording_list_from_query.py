@@ -55,7 +55,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     BASE_QUERY: str = """
         SELECT s.session_id,
             any(s.team_id),
-            any(s.distinct_id),
+            argMaxIf(s.distinct_id, s.max_last_timestamp, notEmpty(s.distinct_id)),
             min(s.min_first_timestamp) as start_time,
             max(s.max_last_timestamp) as end_time,
             dateDiff('SECOND', start_time, end_time) as duration,

@@ -424,7 +424,7 @@ class SessionReplayEvents:
         query = """
             SELECT
                 session_id,
-                any(distinct_id) as distinct_id,
+                argMaxIf(distinct_id, max_last_timestamp, notEmpty(distinct_id)) as distinct_id,
                 min(min_first_timestamp) as start_time,
                 max(max_last_timestamp) as end_time,
                 dateDiff('SECOND', start_time, end_time) as duration,
@@ -566,7 +566,7 @@ class SessionReplayEvents:
         query = f"""
             SELECT
                 session_id,
-                any(distinct_id) as distinct_id,
+                argMaxIf(distinct_id, max_last_timestamp, notEmpty(distinct_id)) as distinct_id,
                 min(min_first_timestamp) as start_time,
                 max(max_last_timestamp) as end_time,
                 dateDiff('SECOND', start_time, end_time) as duration,

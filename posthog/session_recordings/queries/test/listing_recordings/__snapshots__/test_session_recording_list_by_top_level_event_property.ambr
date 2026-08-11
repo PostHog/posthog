@@ -3,7 +3,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -51,7 +51,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -99,7 +99,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -147,7 +147,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -195,7 +195,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -245,7 +245,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -295,7 +295,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -345,7 +345,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -395,7 +395,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -445,7 +445,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -495,7 +495,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -543,7 +543,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -591,7 +591,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -639,7 +639,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -687,7 +687,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -735,7 +735,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -783,7 +783,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -831,7 +831,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -879,7 +879,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -929,7 +929,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -979,7 +979,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1029,7 +1029,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1079,7 +1079,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1129,7 +1129,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1179,7 +1179,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1227,7 +1227,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1275,7 +1275,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
@@ -1323,7 +1323,7 @@
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
-         any(s.distinct_id) AS `any(s.distinct_id)`,
+         argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id)) AS `argMaxIf(s.distinct_id, toTimeZone(s.max_last_timestamp, 'UTC'), notEmpty(s.distinct_id))`,
          min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,

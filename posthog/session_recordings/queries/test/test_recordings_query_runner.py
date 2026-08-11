@@ -68,6 +68,29 @@ class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert recording.viewers == []
         assert recording.snapshot_source == SnapshotSource.WEB
 
+    def test_picks_last_distinct_id_for_session_with_several(self):
+        # A visitor goes from anonymous to identified inside one session, so the
+        # session carries more than one distinct_id. The list must return the
+        # post-identify one deterministically, not an arbitrary pick.
+        self._produce_replay(
+            "session-1",
+            distinct_id="anon-user",
+            first_timestamp="2021-01-01T12:00:00",
+            last_timestamp="2021-01-01T12:05:00",
+        )
+        self._produce_replay(
+            "session-1",
+            distinct_id="identified-user",
+            first_timestamp="2021-01-01T12:05:00",
+            last_timestamp="2021-01-01T12:10:00",
+        )
+
+        runner = RecordingsQueryRunner(query=RecordingsQuery(), team=self.team)
+        response = runner.calculate()
+
+        assert len(response.results) == 1
+        assert response.results[0].distinct_id == "identified-user"
+
     def test_respects_limit(self):
         for i in range(5):
             self._produce_replay(f"session-{i}")
