@@ -16,6 +16,7 @@ import {
     RealNotebookNodeEdit,
     getEditableNodeAttributeKeys,
     getHiddenInsertCommandKeysForFeatureFlags,
+    getMarkdownNotebookNodeTitle,
     getMarkdownNodeAttributeLabel,
     getMarkdownRegistryForFeatureFlags,
     getQueryTitle,
@@ -102,6 +103,24 @@ describe('markdownNotebookRegistry', () => {
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.Recording.exclusiveEditPanel).toBeUndefined()
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlag.exclusiveEditPanel).toBeUndefined()
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlagCodeExample.exclusiveEditPanel).toBeUndefined()
+    })
+
+    it('uses the canvas prompt instead of its UUID as the suggested title', () => {
+        const prompt = 'Make a spinning 3D globe showing signups by country'
+
+        expect(
+            getMarkdownNotebookNodeTitle(
+                {
+                    id: 'canvas-node',
+                    type: 'component',
+                    tagName: 'BlueBird',
+                    props: { id: 'canvas-uuid', prompt },
+                },
+                NotebookNodeType.Canvas,
+                KNOWN_NODES[NotebookNodeType.Canvas],
+                'Canvas'
+            )
+        ).toBe(prompt)
     })
 
     it.each([
