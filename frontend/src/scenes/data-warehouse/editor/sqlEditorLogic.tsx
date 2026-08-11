@@ -736,9 +736,9 @@ export interface sqlEditorLogicActions {
         error?: string | undefined,
         connectionId?: string | undefined
     ) => {
+        connectionId: string | undefined
         error: string | undefined
         query: string
-        connectionId: string | undefined
     } // fixSQLErrorsLogic
     fixErrorsFailure: (
         error: string,
@@ -751,16 +751,16 @@ export interface sqlEditorLogicActions {
         response: Response,
         payload?:
             | {
+                  connectionId: string | undefined
                   error: string | undefined
                   query: string
-                  connectionId: string | undefined
               }
             | undefined
     ) => {
         payload?: {
+            connectionId: string | undefined
             error: string | undefined
             query: string
-            connectionId: string | undefined
         }
         response: Response
     } // fixSQLErrorsLogic

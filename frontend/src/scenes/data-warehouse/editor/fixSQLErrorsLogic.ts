@@ -22,9 +22,9 @@ export interface fixSQLErrorsLogicActions {
         error?: string,
         connectionId?: string
     ) => {
+        connectionId: string | undefined
         error: string | undefined
         query: string
-        connectionId: string | undefined
     }
     fixErrorsFailure: (
         error: string,
@@ -36,16 +36,16 @@ export interface fixSQLErrorsLogicActions {
     fixErrorsSuccess: (
         response: Response,
         payload?: {
+            connectionId: string | undefined
             error: string | undefined
             query: string
-            connectionId: string | undefined
         }
     ) => {
         response: Response
         payload?: {
+            connectionId: string | undefined
             error: string | undefined
             query: string
-            connectionId: string | undefined
         }
     }
 }
