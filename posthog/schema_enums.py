@@ -2531,6 +2531,8 @@ class ExternalDataSourceType(StrEnum):
     SEVALLA = "Sevalla"
     MOTION = "Motion"
     FRAMER = "Framer"
+    WHMCS = "WHMCS"
+    MSG91 = "MSG91"
 
 
 class ExternalQueryErrorCode(StrEnum):
