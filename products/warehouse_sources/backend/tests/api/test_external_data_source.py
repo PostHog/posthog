@@ -11545,6 +11545,51 @@ class TestExternalDataSourceSetup(APIBaseTest):
         customer = schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME)
         assert customer.sync_type in ("incremental", "append", "full_refresh")
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_leaves_unreadable_tables_disabled(self, _mock_validate, _mock_sync_views, _mock_person_join):
+        # One-shot setup used to enable every default-on table regardless of the per-table scope
+        # probe, so an OAuth connection whose grant excludes a resource queued a sync that could
+        # only ever 403. The picker already honored the probe; setup did not.
+        denied = {STRIPE_CUSTOMER_RESOURCE_NAME: "Requires the customer_read permission"}
+        with patch.object(
+            StripeSource,
+            "get_endpoint_permissions",
+            side_effect=lambda config, team_id, endpoints, **kwargs: {name: denied.get(name) for name in endpoints},
+        ):
+            response = self._setup_stripe()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        schemas = ExternalDataSchema.objects.filter(source_id=response.json()["id"])
+        assert schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME).should_sync is False
+        # Every other readable table still gets the normal polling default.
+        assert schemas.filter(should_sync=True).exists()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_ignores_a_probe_that_denies_every_table(self, _mock_validate, _mock_sync_views, _mock_person_join):
+        # Stripe reports a probe it couldn't run as a per-table reason rather than raising, so an
+        # unreachable provider marks everything denied. Setup has no UI to show that, and honoring
+        # it would silently create a source with nothing enabled.
+        with patch.object(
+            StripeSource,
+            "get_endpoint_permissions",
+            side_effect=lambda config, team_id, endpoints, **kwargs: dict.fromkeys(endpoints, "Connection error"),
+        ):
+            response = self._setup_stripe()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        schemas = ExternalDataSchema.objects.filter(source_id=response.json()["id"])
+        assert schemas.filter(should_sync=True).exists()
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(False, "Missing Stripe API key"),
