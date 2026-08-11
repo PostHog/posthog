@@ -224,12 +224,30 @@ def _unified_single_resource(
     return rest_api_resource(rest_config, team_id, job_id, None)
 
 
-def _unified_account_ids(client: ClientConfig, team_id: int, job_id: str) -> Iterator[str]:
+def _unified_accounts_endpoint() -> Endpoint:
+    # /v1/accounts returns its whole result set in one unpaginated, non-empty response with no
+    # `meta.page_count` field. The client-level PageNumberPaginator's total-pages stop check silently
+    # no-ops when that field is absent (it falls through to "has next page"), and `stop_after_empty_page`
+    # never fires either since the page is never empty — so without this override, a sync would keep
+    # requesting page[num]=2, 3, ... forever. Override with a page-number paginator capped at one page
+    # via `maximum_page`: it still requests `page[num]=1` like every other unified endpoint (so a vendor
+    # response that *does* start paginating accounts one day is requested consistently), but the
+    # `maximum_page=1` cap makes it stop after that one request no matter what the body contains —
+    # accounts is a small dimension table (see LEADFEEDER_ENDPOINTS), so a single page is authoritative.
     accounts_config = LEADFEEDER_ENDPOINTS[_ACCOUNTS_RESOURCE]
+    return {
+        "path": accounts_config.unified_path,
+        "params": _unified_base_params(),
+        "data_selector": "data",
+        "paginator": PageNumberPaginator(base_page=1, page_param="page[num]", maximum_page=1),
+    }
+
+
+def _unified_account_ids(client: ClientConfig, team_id: int, job_id: str) -> Iterator[str]:
     resource = _unified_single_resource(
         client,
         _ACCOUNTS_RESOURCE,
-        {"path": accounts_config.unified_path, "params": _unified_base_params(), "data_selector": "data"},
+        _unified_accounts_endpoint(),
         team_id,
         job_id,
         _flatten_top_level,
@@ -253,10 +271,17 @@ def _unified_leadfeeder_source(
     client = _unified_client_config(api_key)
 
     if not config.fan_out_over_accounts:
+        # Accounts needs its own bounded paginator (see _unified_accounts_endpoint); other non-fan-out
+        # endpoints, if any are added later, keep the client-level page_count-driven paginator.
+        single_endpoint: Endpoint = (
+            _unified_accounts_endpoint()
+            if endpoint == _ACCOUNTS_RESOURCE
+            else {"path": config.unified_path, "params": _unified_base_params(), "data_selector": "data"}
+        )
         resource = _unified_single_resource(
             client,
             endpoint,
-            {"path": config.unified_path, "params": _unified_base_params(), "data_selector": "data"},
+            single_endpoint,
             team_id,
             job_id,
             _flatten_top_level,

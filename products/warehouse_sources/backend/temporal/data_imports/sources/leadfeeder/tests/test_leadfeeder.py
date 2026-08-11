@@ -382,6 +382,26 @@ class TestUnifiedRequests:
         assert requests[0]["params"]["page[size]"] == 100
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_accounts_pagination_stops_without_meta_page_count(self, MockSession) -> None:
+        # The real /v1/accounts endpoint returns its whole result set in one response with no
+        # `meta.page_count` field at all (unlike the paginated child endpoints, modelled by
+        # _unified_response). The client-level PageNumberPaginator's total-pages stop check silently
+        # no-ops when that field is missing, and the page is never empty either, so it would otherwise
+        # keep requesting page[num]=2, 3, ... forever. Accounts must use a paginator that always stops
+        # after a single page regardless of what the response body contains.
+        session = MockSession.return_value
+        body = {"data": [{"id": "1", "type": "account", "attributes": {}}]}
+        resp = Response()
+        resp.status_code = 200
+        resp._content = json.dumps(body).encode()
+        requests = _wire_full(session, [resp])
+
+        rows = _rows(_source("accounts", _make_manager(), api_version=LEADFEEDER_API_2026_08_07))
+
+        assert rows == [{"id": "1", "type": "account"}]
+        assert len(requests) == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     @freeze_time("2026-07-02")
     def test_leads_fan_out_hits_visitor_companies_with_account_id_query(self, MockSession) -> None:
         session = MockSession.return_value
