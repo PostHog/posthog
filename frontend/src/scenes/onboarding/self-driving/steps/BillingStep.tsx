@@ -46,7 +46,7 @@ export function BillingStep({ onContinue, completing }: { onContinue: () => void
                         See pricing
                     </LemonButton>
                     <LemonButton type="primary" status="alt" onClick={onContinue} loading={completing}>
-                        Go to your inbox
+                        Go to the Inbox
                     </LemonButton>
                 </div>
             </div>

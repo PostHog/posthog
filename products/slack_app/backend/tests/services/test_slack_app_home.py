@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import json
+import importlib
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
@@ -23,8 +24,10 @@ from django.core.exceptions import ValidationError
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
@@ -44,6 +47,8 @@ from products.slack_app.backend.services.slack_app_home import (
     MODAL_BLOCK_REASONING_EFFORT,
     MODAL_BLOCK_RUNTIME_ADAPTER,
     AccountState,
+    GitHubAccount,
+    GitHubState,
     PreferenceSource,
     ProjectChoice,
     ProjectState,
@@ -188,6 +193,10 @@ def _stub_picker_facade():
     # the stdlib `ModuleType` rejects them outright, and ruff B010 reverts any
     # `setattr` workaround back to attribute syntax.
     fake: Any = ModuleType(facade_name)
+    # Seed from the real module so overriding a handful of functions doesn't hide the
+    # rest of its namespace from anything else that imports it while the swap is in
+    # place — the tasks serializers pull a dozen constants from here.
+    fake.__dict__.update(vars(importlib.import_module(facade_name)))
     fake.RuntimeAdapter = _RuntimeAdapter()
     fake.get_supported_reasoning_efforts = fake_get_supported
     fake.get_reasoning_effort_error = fake_get_error
@@ -469,6 +478,105 @@ class TestRenderHomeView:
         )
 
 
+class TestLinkedAccountsCard:
+    def _view(self, *, account_state=None, github_state=None) -> dict:
+        return render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            account_state=account_state,
+            github_state=github_state,
+        )
+
+    def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
+        return [
+            (block["text"]["text"], block.get("accessory"))
+            for block in view["blocks"]
+            if block.get("type") == "section" and block["text"]["text"].startswith(("*PostHog*", "*GitHub*"))
+        ]
+
+    def _row(self, view: dict, prefix: str) -> tuple[str, dict | None]:
+        return next(row for row in self._rows(view) if row[0].startswith(prefix))
+
+    @pytest.mark.parametrize(
+        "user_resolved,connected,credentials_usable,expected_button,expected_style",
+        [
+            (True, True, True, "Manage GitHub", None),
+            # A row whose tokens went stale is what the task flow refuses to run on,
+            # so the card has to ask for a reconnect rather than read as connected.
+            (True, True, False, "Reconnect GitHub", "primary"),
+            (True, False, False, "Connect GitHub", "primary"),
+            (False, False, False, None, None),
+        ],
+    )
+    def test_github_button_matches_connection_state(
+        self, user_resolved, connected, credentials_usable, expected_button, expected_style
+    ):
+        accounts = (GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),) if connected else ()
+        view = self._view(
+            github_state=GitHubState(
+                user_resolved=user_resolved,
+                accounts=accounts,
+                credentials_usable=credentials_usable,
+                settings_url="https://app/project/1/settings/user-personal-integrations",
+            )
+        )
+        text, button = self._row(view, "*GitHub*")
+        if expected_button is None:
+            # Without a resolved PostHog user we can't say anything about their
+            # GitHub, so the row points at account linking instead.
+            assert button is None
+            assert "Link your PostHog account first" in _all_text(view)
+            return
+        assert button is not None
+        assert button["text"]["text"] == expected_button
+        assert button["url"] == "https://app/project/1/settings/user-personal-integrations"
+        assert button.get("style") == expected_style
+        if connected:
+            assert ("✅" in text) is credentials_usable
+
+    def test_every_connected_installation_is_listed(self):
+        view = self._view(
+            github_state=GitHubState(
+                user_resolved=True,
+                accounts=(
+                    GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),
+                    GitHubAccount(installation_id="2", login="octocat", account_name="PostHog"),
+                ),
+                credentials_usable=True,
+                settings_url="https://app/settings",
+            )
+        )
+        text, _button = self._row(view, "*GitHub*")
+        assert "`octocat`" in text
+        # Installation on an org the login differs from names both sides.
+        assert "`octocat` on *PostHog*" in text
+
+    def test_each_account_carries_its_own_button(self):
+        view = self._view(
+            account_state=AccountState(enabled=True, linked_email="user@posthog.com"),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
+        )
+        rows = self._rows(view)
+        assert [text.split("\n")[0] for text, _ in rows] == ["*PostHog*", "*GitHub*"]
+        # Disconnect belongs to the PostHog row, Connect GitHub to its own.
+        assert rows[0][1] is not None and rows[0][1]["action_id"] == ACTION_UNLINK_ACCOUNT
+        assert rows[1][1] is not None and rows[1][1]["text"]["text"] == "Connect GitHub"
+
+    def test_github_row_stands_alone_when_account_linking_is_off(self):
+        view = self._view(
+            account_state=AccountState(enabled=False),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
+        )
+        rows = self._rows(view)
+        assert len(rows) == 1
+        assert rows[0][0].startswith("*GitHub*")
+        assert ACTION_UNLINK_ACCOUNT not in _all_text(view)
+
+
+_TASK_TITLES = ("Fix flaky retention test", "Refactor mention dispatcher")
+
+
 class TestTasksCard:
     def _kwargs(self, **overrides):
         base = {
@@ -505,7 +613,9 @@ class TestTasksCard:
             if (
                 block.get("type") == "section"
                 and isinstance(block.get("text"), dict)
-                and "https://app/project/" in block["text"].get("text", "")
+                and "|Fix flaky retention test>" in block["text"].get("text", "")
+                or block.get("type") == "section"
+                and "|Refactor mention dispatcher>" in block.get("text", {}).get("text", "")
             ):
                 title = block["text"]["text"]
                 neighbour = blocks[index + 1] if index + 1 < len(blocks) else None
@@ -540,10 +650,11 @@ class TestTasksCard:
         # Title is the full-size mrkdwn section; meta lives under it in a
         # context block so Slack renders it smaller/dimmer than the title.
         title, sub = items[0]
-        assert title == "*<https://app/project/1/tasks/abc|Fix flaky retention test>*"
+        # The title opens the Slack thread — the conversation this row summarises.
+        assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
         assert "🔄 in progress" in sub
         assert "`posthog/posthog`" in sub
-        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in sub
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub
         assert "_Updated 5m ago_" in sub
 
@@ -562,9 +673,9 @@ class TestTasksCard:
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
         title, sub = self._task_items(view, expected_count=1)[0]
-        assert title == "*<https://app/project/1/tasks/abc|Fix flaky retention test>*"
+        assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
         # The supporting context block stacks the error message above the
-        # standard status/repo/thread/PR/updated meta. Error never replaces
+        # standard status/repo/links/PR/updated meta. Error never replaces
         # the surrounding state.
         sub_rows = sub.split("\n\n")
         assert len(sub_rows) == 2
@@ -573,9 +684,35 @@ class TestTasksCard:
         assert sub_rows[0] == "`boom: timed out waiting for runner stack trace omitted`"
         assert "❌ failed" in sub_rows[1]
         assert "`posthog/posthog`" in sub_rows[1]
-        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in sub_rows[1]
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub_rows[1]
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
         assert "_Updated 5m ago_" in sub_rows[1]
+
+    @pytest.mark.parametrize(
+        "desktop_url,expected",
+        [
+            ("posthog-code://task/abc", "<posthog-code://task/abc|View on desktop>"),
+            (None, None),
+        ],
+    )
+    def test_desktop_link_appears_only_for_a_viewer_who_can_open_it(self, desktop_url, expected):
+        # A `posthog-code://` link dead-ends for anyone without the app, so it rides
+        # alongside the web link rather than replacing it.
+        state = TasksState(
+            items=(self._item(desktop_url=desktop_url),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, sub = self._task_items(view, expected_count=1)[0]
+
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub
+        if expected:
+            assert expected in sub
+        else:
+            assert "View on desktop" not in sub
 
     def test_task_with_no_repo_or_pr_skips_those_meta_parts(self):
         state = TasksState(
@@ -814,10 +951,12 @@ class TestTasksControlsRepublishTheList:
             )
 
     def _published_titles(self, view: dict) -> list[str]:
+        # A row's title is a bold link — to its Slack thread, so the target is not a
+        # task URL — followed by the meta line in a context block.
         titles = []
         for block in view["blocks"]:
             text = (block.get("text") or {}).get("text", "")
-            if text.startswith("*<") and "/tasks/" in text:
+            if text.startswith("*<") and text.endswith(">*"):
                 titles.append(text.split("|", 1)[1].rstrip(">*"))
         return titles
 
@@ -912,6 +1051,55 @@ class TestHandleAppHomeOpened:
     def test_noop_when_user_missing(self, slack_integration, mock_slack_client, flag_on):
         handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
+
+    def _github_row(self, user: User, login: str) -> UserIntegration:
+        return UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=f"install-{login}",
+            config={"github_user": {"login": login}, "account": {"name": login}},
+            sensitive_config={"user_access_token": "gho_x", "user_refresh_token": "ghr_x"},
+        )
+
+    def test_github_card_lists_only_the_opening_users_installations(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        organization = slack_integration.team.organization
+        opener = User.objects.create_and_join(organization, "opener@posthog.com", None)
+        colleague = User.objects.create_and_join(organization, "colleague@posthog.com", None)
+        self._github_row(opener, "opener-gh")
+        self._github_row(colleague, "colleague-gh")
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            email=opener.email,
+        )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert "opener-gh" in text
+        assert "colleague-gh" not in text
+
+    def test_deactivated_user_is_not_resolved_from_their_slack_identity(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        organization = slack_integration.team.organization
+        offboarded = User.objects.create_and_join(organization, "offboarded@posthog.com", None)
+        self._github_row(offboarded, "offboarded-gh")
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            email=offboarded.email,
+        )
+        offboarded.is_active = False
+        offboarded.save(update_fields=["is_active"])
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert "offboarded-gh" not in text
+        assert "Link your PostHog account first" in text
 
 
 # ---------------------------------------------------------------------------
