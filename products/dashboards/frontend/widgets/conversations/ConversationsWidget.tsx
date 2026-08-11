@@ -148,21 +148,24 @@ function ConversationsWidgetRow({
                         </div>
                     </div>
                     <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-                        <span
-                            className={cn('truncate', ticket.unread_team_count > 0 && 'font-medium text-primary')}
-                            title={ticketTitle(ticket)}
-                        >
-                            {stripMarkdown(ticketTitle(ticket))}
-                        </span>
-                        {ticket.unread_team_count > 0 ? (
-                            <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
+                        <div className="flex min-w-0 items-center gap-2">
+                            <span
+                                className={cn('truncate', ticket.unread_team_count > 0 && 'font-medium text-primary')}
+                                title={ticketTitle(ticket)}
+                            >
+                                {stripMarkdown(ticketTitle(ticket))}
+                            </span>
+                            {ticket.unread_team_count > 0 ? (
+                                <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
+                            ) : null}
+                        </div>
+                        {ticket.sla_due_at ? (
+                            <div className="ml-auto shrink-0 text-xs text-muted">
+                                SLA due{' '}
+                                <SlaDisplay slaDueAt={ticket.sla_due_at} showPopover={false} className="text-xs" />
+                            </div>
                         ) : null}
                     </div>
-                    {ticket.sla_due_at ? (
-                        <div className="text-xs text-muted">
-                            SLA due <SlaDisplay slaDueAt={ticket.sla_due_at} showPopover={false} className="text-xs" />
-                        </div>
-                    ) : null}
                 </div>
             </Link>
             <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
