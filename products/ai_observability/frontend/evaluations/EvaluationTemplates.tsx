@@ -162,7 +162,7 @@ function TemplatePicker({
     const showStartWithAi = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]
 
     return (
-        <div className="flex flex-col items-center justify-center py-8" style={{ minHeight }}>
+        <div className="flex flex-col shrink-0 items-center justify-center py-8" style={{ minHeight }}>
             <div className="w-full max-w-5xl px-4">
                 {showBackButton && (
                     <div className="mb-6">
