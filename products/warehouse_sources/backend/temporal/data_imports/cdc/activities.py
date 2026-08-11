@@ -233,7 +233,7 @@ class CDCExtractActivity:
         self.all_table_names: set[str] = set()
         # Wall-clock start, set in run(); drives cdc_extraction_duration_seconds.
         self._run_started_at: float | None = None
-        # Shadow buffered-ingress state (CDC_BUFFER_SHADOW_WRITE). Writer is lazy so
+        # Shadow buffered-ingress state (dwh-cdc-buffer-shadow flag). Writer is lazy so
         # runs with shadow off never touch S3 setup; the per-schema file index keeps
         # same-position-range batches (a split transaction) from overwriting each other.
         self._shadow_buffer_writer: CDCBufferWriter | None = None
@@ -619,7 +619,7 @@ class CDCExtractActivity:
     _SHADOW_MAX_CONSECUTIVE_FAILURES = 3
 
     def _maybe_shadow_write_buffer(self, schema: ExternalDataSchema, table_name: str, table: pa.Table) -> None:
-        """Shadow-write one micro-batch to the S3 change buffer (CDC_BUFFER_SHADOW_WRITE).
+        """Shadow-write one micro-batch to the S3 change buffer (dwh-cdc-buffer-shadow flag).
 
         Validation-only while the legacy path stays authoritative: failures are
         swallowed (metric + log) so shadow can never fail an extraction, and the

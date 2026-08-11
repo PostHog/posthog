@@ -1,7 +1,7 @@
 """Validate CDC shadow-buffer files against the legacy sourcebatch lane.
 
-Read-only exit gate for the buffered-ingress flip: while CDC_BUFFER_SHADOW_WRITE
-is on, the legacy path stays authoritative and this command reconciles what the
+Read-only exit gate for the buffered-ingress flip: while the dwh-cdc-buffer-shadow
+flag is on, the legacy path stays authoritative and this command reconciles what the
 shadow wrote against what legacy dispatched over the same time window.
 
 Checks per CDC schema:

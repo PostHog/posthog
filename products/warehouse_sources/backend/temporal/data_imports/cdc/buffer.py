@@ -22,10 +22,10 @@ positions with differently-shaped files. Writers therefore call
 past the position the retry re-reads from is superseded and removed. A schema
 reset (TRUNCATE / lost slot) invalidates the whole prefix — `purge_buffer_prefix`.
 
-Enablement is two gates ANDed: `settings.CDC_BUFFER_SHADOW_WRITE` (deployment kill
-switch, set per environment in charts) and the `dwh-cdc-buffer-shadow` feature flag
-(per project, so a soak covers a couple of projects rather than every CDC source on
-the worker). Evaluated once per extraction run, never per flush.
+Enablement is the `dwh-cdc-buffer-shadow` feature flag alone (per team, so a soak
+covers a couple of projects rather than every CDC source on the worker). Evaluated
+once per extraction run, never per flush, and fail-closed: a flag-service outage
+leaves the lane off, so there is no path to accidental enablement.
 
 Retention: no TTL exists yet; resets and CDC-disable purge, ordinary settled files
 do not expire. An S3 lifecycle rule on `cdc_producer/` is tracked for the fleet-wide
@@ -56,9 +56,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 BUFFER_ROOT_FOLDER = "cdc_producer"
 
-# Per-project gate for the shadow lane, ANDed with settings.CDC_BUFFER_SHADOW_WRITE (the
-# deployment kill switch). Both must be true to write, so the soak can run on a couple of
-# projects rather than every CDC source on the worker.
+# Per-team gate for the shadow lane — the single on/off control. Fail-closed on
+# evaluation errors, so the soak can only ever shrink, never grow, by accident.
 SHADOW_WRITE_FLAG = "dwh-cdc-buffer-shadow"
 
 _SEQ_WIDTH = 20  # zero-pad width covering the full u64 range
@@ -75,9 +74,6 @@ def is_shadow_write_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
     Never raises: a flag-service failure leaves the lane off, which costs a gap in
     validation data — the legacy path is unaffected either way.
     """
-    if not settings.CDC_BUFFER_SHADOW_WRITE:
-        return False
-
     from posthog.models.team import Team
 
     try:

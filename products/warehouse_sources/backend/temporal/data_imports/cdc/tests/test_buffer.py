@@ -57,11 +57,9 @@ class TestBufferFileName:
 
 
 class TestIsShadowWriteEnabled:
-    """Both gates must agree: the deployment setting AND the per-project flag."""
+    """The per-team flag is the single gate, and it fails closed."""
 
-    def _call(self, *, setting: bool, flag, team_lookup_ok: bool = True) -> bool:
-        from django.test import override_settings
-
+    def _call(self, *, flag, team_lookup_ok: bool = True) -> bool:
         from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import is_shadow_write_enabled
 
         team = MagicMock(uuid="team-uuid", id=2, organization_id="org-uuid")
@@ -72,7 +70,6 @@ class TestIsShadowWriteEnabled:
 
         flag_fn = MagicMock(side_effect=flag) if callable(flag) else MagicMock(return_value=flag)
         with (
-            override_settings(CDC_BUFFER_SHADOW_WRITE=setting),
             patch.dict("sys.modules", {"posthog.models.team": MagicMock(Team=team_manager)}),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.posthoganalytics.feature_enabled",
@@ -83,20 +80,14 @@ class TestIsShadowWriteEnabled:
         self._last_flag_call = flag_fn
         return result
 
-    def test_requires_both_gates(self):
-        assert self._call(setting=True, flag=True) is True
-        assert self._call(setting=True, flag=False) is False
-        assert self._call(setting=False, flag=True) is False
-
-    def test_setting_off_skips_the_flag_call_entirely(self):
-        # The kill switch must not depend on the flag service being reachable.
-        self._call(setting=False, flag=True)
-        self._last_flag_call.assert_not_called()
+    def test_follows_the_flag(self):
+        assert self._call(flag=True) is True
+        assert self._call(flag=False) is False
 
     def test_passes_team_scoped_targeting_context(self):
         # team_id drives the release conditions (warehouse per-team rollout convention),
         # so a soak covers single teams rather than whole orgs.
-        self._call(setting=True, flag=True)
+        self._call(flag=True)
         kwargs = self._last_flag_call.call_args.kwargs
         assert kwargs["person_properties"]["team_id"] == "2"
         assert kwargs["groups"]["project"] == "2"
@@ -105,10 +96,10 @@ class TestIsShadowWriteEnabled:
         def boom(*_a, **_k):
             raise RuntimeError("flag service down")
 
-        assert self._call(setting=True, flag=boom) is False
+        assert self._call(flag=boom) is False
 
     def test_team_lookup_failure_disables_rather_than_raises(self):
-        assert self._call(setting=True, flag=True, team_lookup_ok=False) is False
+        assert self._call(flag=True, team_lookup_ok=False) is False
 
 
 class TestCDCBufferWriter:
