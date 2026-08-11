@@ -37,7 +37,7 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
 )
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
-    actor_personal_github_is_usable,
+    clear_sandbox_github_identity,
     get_actor_distinct_id,
     get_imported_mcp_server_configs,
     get_pr_authorship_mode,
@@ -484,11 +484,11 @@ def _resolve_live_sandbox(state: dict[str, Any] | None) -> Any:
 def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str, Any] | None) -> bool:
     """Bind the sandbox's in-place GitHub credentials to this message's actor.
 
-    On an actor transition: re-inject the new actor's token if they have usable
-    access, otherwise log the sandbox out (strip the token from the git remote
-    and env) so the previous actor's GitHub identity can never be used by a
-    follow-up actor who lacks access. Reauthorization for that actor is surfaced
-    by the existing credential-refresh path, unchanged.
+    Runs on every turn, for every actor: re-inject the acting user's token if they
+    have usable access, otherwise log the sandbox out (strip the token from the git
+    remote and env). Someone can connect or disconnect their GitHub between any two
+    messages, so the sandbox is never assumed to still reflect the last turn — and a
+    follow-up actor can never inherit the previous actor's identity.
 
     Only USER-authored runs carry per-actor identity — BOT runs share one
     installation token, so every actor is already the same identity. This
@@ -519,11 +519,10 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
         return True
 
-    # The same actor across turns still gets re-checked, so a connection revoked mid-thread
-    # strips the token now rather than whenever the refresh loop next runs.
+    # Re-established every turn rather than skipped when the actor is unchanged: they can connect
+    # or disconnect their GitHub between any two messages, and the sandbox can lose its token to a
+    # resume or snapshot restore. Apply the token whenever one resolves, clear it when none does.
     same_actor = get_sandbox_github_identity_user(scope) == actor_user.id
-    if same_actor and actor_personal_github_is_usable(actor_user):
-        return True
 
     # Failing closed protects a *different* follow-up actor from inheriting the previous one's
     # token. When the actor is unchanged and simply revoked their own connection there is nobody
@@ -619,7 +618,10 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
             )
             return not fail_closed
         if cleared:
-            mark_sandbox_github_identity(scope, actor_user.id)
+            # Leave the sandbox unmarked: it now holds nobody's token, and marking it would make
+            # the next turn read "already reflects this actor" and skip re-crediting them if they
+            # reconnect.
+            clear_sandbox_github_identity(scope)
             logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
             return True
         logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, fail_closed=fail_closed)

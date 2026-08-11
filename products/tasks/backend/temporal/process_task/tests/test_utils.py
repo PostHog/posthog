@@ -15,7 +15,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
     McpServerConfig,
     RunState,
-    actor_personal_github_is_usable,
     build_imported_mcp_server_configs,
     build_sandbox_environment_variables,
     get_git_identity_env_vars,
@@ -1337,23 +1336,3 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
 
         self.task_run.refresh_from_db()
         assert self.task_run.state == state_before
-
-
-class TestActorPersonalGithubIsUsable(_AuthorshipFixture):
-    @parameterized.expand(
-        [
-            ("connected", True, True),
-            ("revoked", False, False),
-            ("stale", None, False),
-        ]
-    )
-    def test_reflects_the_current_connection(self, _name: str, connected: bool | None, expected: bool) -> None:
-        if connected is True:
-            self.connect_personal_github()
-        elif connected is None:
-            self.connect_personal_github(usable=False)
-
-        assert actor_personal_github_is_usable(self.user) is expected
-
-    def test_no_actor_cannot_author(self) -> None:
-        assert actor_personal_github_is_usable(None) is False

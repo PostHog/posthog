@@ -484,6 +484,10 @@ def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:
     return get_tasks_cache().get(_sandbox_identity_cache_key(kind, scope))
 
 
+def _clear_sandbox_identity(kind: str, scope: str) -> None:
+    get_tasks_cache().delete(_sandbox_identity_cache_key(kind, scope))
+
+
 def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
     """Record whose OAuth token the sandbox's live MCP session holds.
 
@@ -500,20 +504,28 @@ def get_sandbox_mcp_session_user(scope: str) -> int | None:
 
 
 def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
-    """Record which actor the sandbox's in-place GitHub credentials reflect.
+    """Record which actor's token the sandbox's in-place GitHub credentials hold.
 
-    The value is the actor whose token was applied, or who was logged out (no
-    usable access) — either way the sandbox no longer carries a *different*
-    actor's identity. Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an
-    absent entry reads as "must re-establish", which is always safe because
-    re-establishing re-applies or clears rather than trusting stale creds.
+    Only a sandbox that actually carries a token is marked. A logged-out sandbox is
+    left unmarked (see `clear_sandbox_github_identity`) so the next turn re-establishes
+    rather than reading "already reflects this actor" and skipping — otherwise an actor
+    who reconnects after a logout would never get their credentials back.
+
+    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an absent entry reads as
+    "must re-establish", which is always safe because re-establishing re-applies or
+    clears rather than trusting stale creds.
     """
     _mark_sandbox_identity("github-identity", scope, user_id)
 
 
+def clear_sandbox_github_identity(scope: str) -> None:
+    """Forget which actor the sandbox's GitHub credentials held, after logging it out."""
+    _clear_sandbox_identity("github-identity", scope)
+
+
 def get_sandbox_github_identity_user(scope: str) -> int | None:
-    """Actor id the sandbox's GitHub credentials were last bound to (or logged
-    out for) within the freshness window, or None when unknown."""
+    """Actor id whose GitHub token the sandbox currently holds within the freshness
+    window, or None when it holds none or is unknown."""
     return _get_sandbox_identity_user("github-identity", scope)
 
 
@@ -1295,17 +1307,6 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
         return PrAuthorshipMode.BOT
 
     return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
-
-
-def actor_personal_github_is_usable(actor_user: User | None) -> bool:
-    """Whether the actor's personal GitHub connection can still mint a token.
-
-    Asked on every follow-up turn to notice a connection revoked mid-run, so it stays a
-    local read and deliberately ignores repository scope: whether that install reaches a
-    particular repo is the rebind path's question, and answering it here would fail every
-    turn for anyone whose cached repo list is merely incomplete.
-    """
-    return user_github_integration_is_usable(get_user_github_integration(actor_user, allow_refresh=False))
 
 
 def upgrade_run_to_user_authorship(
