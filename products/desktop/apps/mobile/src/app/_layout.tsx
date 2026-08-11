@@ -21,6 +21,7 @@ import {
 } from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { PendingPromptRecovery } from "@/features/tasks/components/PendingPromptRecovery";
+import { PinnedSnapshotSync } from "@/features/tasks/components/PinnedSnapshotSync";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { MODAL_PRESENTATION } from "@/lib/navigation";
 import {
@@ -239,6 +240,7 @@ export default function RootLayout() {
               <RootLayoutNav isConnected={isConnected} />
               <OfflineBanner isConnected={isConnected} />
               <PendingPromptRecovery />
+              <PinnedSnapshotSync />
             </View>
             <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
           </QueryClientProvider>

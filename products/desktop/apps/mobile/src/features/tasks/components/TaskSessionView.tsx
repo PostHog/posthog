@@ -775,7 +775,9 @@ function ThinkingIndicator() {
   );
 }
 
-function ConnectingIndicator() {
+/** Also rendered standalone by the task screen while a cached snapshot stands
+ *  in for a session that has not delivered its first payload yet. */
+export function ConnectingIndicator() {
   const [dots, setDots] = useState(1);
   const elapsed = useElapsedTimer();
   const themeColors = useThemeColors();

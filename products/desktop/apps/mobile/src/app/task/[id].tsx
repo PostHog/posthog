@@ -39,7 +39,10 @@ import { PrDiffStatsBadge } from "@/features/tasks/components/PrDiffStatsBadge";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { StopRunButton } from "@/features/tasks/components/StopRunButton";
 import { TaskNotFound } from "@/features/tasks/components/TaskNotFound";
-import { TaskSessionView } from "@/features/tasks/components/TaskSessionView";
+import {
+  ConnectingIndicator,
+  TaskSessionView,
+} from "@/features/tasks/components/TaskSessionView";
 import { buildCloudPromptBlocks } from "@/features/tasks/composer/attachments/buildCloudPrompt";
 import type { PendingAttachment } from "@/features/tasks/composer/attachments/types";
 import {
@@ -63,6 +66,7 @@ import {
   pendingTaskPromptStoreApi,
   usePendingTaskPrompt,
 } from "@/features/tasks/stores/pendingTaskPromptStore";
+import { usePinnedSnapshotStore } from "@/features/tasks/stores/pinnedSnapshotStore";
 import { useTaskSessionStore } from "@/features/tasks/stores/taskSessionStore";
 import {
   isRunConfigNewer,
@@ -147,6 +151,11 @@ export default function TaskDetailScreen() {
   useActiveTaskAnalyticsContext(task?.signal_report ?? null);
 
   const session = taskId ? getSessionForTask(taskId) : undefined;
+
+  // Cached tail of this task's last session, present only for pinned tasks.
+  const snapshot = usePinnedSnapshotStore((state) =>
+    taskId ? state.snapshots[taskId] : undefined,
+  );
 
   // Optimistic echo set by the new-task screen (or the terminal-resume path
   // below) so the user's prompt appears in the thread immediately, before
@@ -790,10 +799,19 @@ export default function TaskDetailScreen() {
     !!session &&
     session.status === "connecting" &&
     session.events.length === 0;
-  // Suppress the full-screen overlay when we have an optimistic prompt to
-  // show — the user just submitted and seeing their own text + a connecting
-  // indicator is friendlier than a blank spinner.
-  const showLoading = (loading || isHistoryLoading) && !optimisticPrompt;
+  // A pinned task's cached tail stands in until the live session delivers its
+  // first payload, at which point the live events replace it wholesale — the
+  // two are never merged, because the snapshot is a strict subset that the
+  // session is about to resend in full.
+  const showSnapshot =
+    !!snapshot && snapshot.events.length > 0 && !(session?.events.length ?? 0);
+  const viewEvents = showSnapshot ? snapshot.events : (session?.events ?? []);
+  // Suppress the full-screen overlay when we have an optimistic prompt or a
+  // cached snapshot to show — the user just submitted, or reopened a pinned
+  // task, and seeing real content + a connecting indicator is friendlier than
+  // a blank spinner.
+  const showLoading =
+    (loading || isHistoryLoading) && !optimisticPrompt && !showSnapshot;
   const showAutomationContext =
     fromAutomation === "1" || task?.origin_product === "automation";
   const automationContextLabel =
@@ -854,6 +872,17 @@ export default function TaskDetailScreen() {
         }
       />
       <Animated.View className="flex-1" style={contentPosition}>
+        {/* Slim bar over the cached tail: the thread on screen is real but
+            stale, and this says so until the live session takes over. */}
+        {showSnapshot && (
+          <View
+            className="absolute inset-x-0 z-10 border-gray-5 border-b bg-background py-1"
+            style={{ top: modalTopOffset(insets.top) + 52 }}
+          >
+            <ConnectingIndicator />
+          </View>
+        )}
+
         {showAutomationContext && automationContextLabel && (
           <View
             className="absolute inset-x-3 z-10 rounded-lg border border-accent-6 bg-accent-2 px-3 py-2"
@@ -875,7 +904,7 @@ export default function TaskDetailScreen() {
             top header's space (paddingBottom in an inverted list) plus a
             small visual buffer at the bottom. */}
         <TaskSessionView
-          events={session?.events ?? []}
+          events={viewEvents}
           taskId={taskId}
           runId={task?.latest_run?.id}
           pendingPermissions={session?.pendingPermissions}

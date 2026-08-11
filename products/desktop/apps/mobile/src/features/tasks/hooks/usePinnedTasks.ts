@@ -73,5 +73,8 @@ export function usePinnedTasks() {
     isPinned,
     togglePin,
     isLoading: query.isLoading,
+    /** The list reflects the server. An empty list before this is not "nothing
+     *  is pinned", so callers that delete on absence must wait for it. */
+    hasLoaded: query.isSuccess,
   };
 }
