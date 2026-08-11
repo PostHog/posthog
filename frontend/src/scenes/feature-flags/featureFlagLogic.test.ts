@@ -324,6 +324,47 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('saveFeatureFlag navigation', () => {
+        it('keeps the canonical redirect when the feature flag page saves', async () => {
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            const replaceSpy = jest.spyOn(router.actions, 'replace')
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlagSuccess(logic.values.featureFlag)
+                }).toFinishAllListeners()
+
+                expect(replaceSpy).toHaveBeenCalledWith(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            } finally {
+                replaceSpy.mockRestore()
+            }
+        })
+
+        it('keeps the current route when an embedded editor saves a feature flag', async () => {
+            const notebookUrl = urls.notebook('embedded-flag')
+            router.actions.push(notebookUrl)
+            const embeddedPathname = router.values.location.pathname
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlagSuccess(logic.values.featureFlag)
+            }).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe(embeddedPathname)
+        })
+
+        it('keeps the current route when an embedded editor save requires approval', async () => {
+            const notebookUrl = urls.notebook('embedded-flag')
+            router.actions.push(notebookUrl)
+            const embeddedPathname = router.values.location.pathname
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlagFailure('Approval required', { status: 409 })
+            }).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe(embeddedPathname)
+        })
+    })
+
     describe('setMultivariateEnabled functionality', () => {
         it('adds default variants when enabling multivariate', async () => {
             await expectLogic(logic).toMatchValues({

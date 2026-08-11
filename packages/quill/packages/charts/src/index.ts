@@ -135,7 +135,8 @@ export type {
 export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
-export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export { DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
