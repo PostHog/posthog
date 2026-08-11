@@ -44,10 +44,10 @@ tools:
             intended target — list them with canvas-list first.
         param_overrides:
             channel_id:
-                description: >-
-                    Id of the channel to create the canvas in — the channel the task was created in, from the task's
-                    context. Use channel-list only to resolve a channel the user named; never pick a channel from the
-                    listing yourself (the personal #me channel is not a default).
+                description:
+                    "Id of the channel to create the canvas in — the channel the task was created in, from the task's context.
+                    Use channel-list only to resolve a channel the user named; never pick a channel from the listing
+                    yourself (the personal #me channel is not a default)."
     canvas-draft-create:
         operation: canvases_draft_create
         enabled: true
@@ -62,12 +62,13 @@ tools:
             Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is
             validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so
             viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT
-            way to save a change — the user previews and promotes it; use canvas-publish-create only for a first
-            version or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued build, and `capability_widening`
-            — how the draft's declared capabilities grow the live version's (insights, capture events, inline queries,
-            network origins) — so added access is visible before shipping. Poll canvas-builds-retrieve until the draft's
-            build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`, then
-            make it live with canvas-promote-create. Declare runtime capabilities in `project.capabilities`.
+            way to save a change — the user previews and promotes it; use canvas-publish-create only for a first version
+            or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued
+            build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights,
+            capture events, inline queries, network origins) — so added access is visible before shipping. Poll
+            canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve
+            passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime
+            capabilities in `project.capabilities`.
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.
