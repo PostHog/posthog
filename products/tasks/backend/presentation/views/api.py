@@ -151,7 +151,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskStagedArtifactsPrepareUploadResponseSerializer,
     TaskSummariesRequestSerializer,
     TaskSummarySerializer,
-    TaskUpdateSerializer,
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
@@ -508,13 +507,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             api_scopes=get_authenticator_scopes(authenticator),
         )
 
-    @extend_schema(request=TaskUpdateSerializer, responses={200: TaskSerializer})
+    @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
     def update(self, request, pk=None, **kwargs):
         return self.partial_update(request, pk=pk, **kwargs)
 
-    @extend_schema(request=TaskUpdateSerializer, responses={200: TaskSerializer})
+    @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
     def partial_update(self, request, pk=None, **kwargs):
-        serializer = self._write_serializer(request.data, partial=True, serializer_class=TaskUpdateSerializer)
+        serializer = self._write_serializer(request.data, partial=True)
         task = tasks_facade.update_task(
             pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
         )

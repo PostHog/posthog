@@ -51,7 +51,7 @@ import type {
     PatchedTaskAutomationWriteApi,
     PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
-    PatchedTaskUpdateApi,
+    PatchedTaskWriteApi,
     PinnedTaskIdsResponseApi,
     RepositoryReadinessResponseApi,
     SandboxComputePricingApi,
@@ -120,7 +120,7 @@ import type {
     TaskSummariesRequestApi,
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
-    TaskUpdateApi,
+    TaskWriteApi,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksListParams,
@@ -1302,14 +1302,14 @@ export const getTasksUpdateUrl = (projectId: string, id: string) => {
 export const tasksUpdate = async (
     projectId: string,
     id: string,
-    taskUpdateApi?: TaskUpdateApi,
+    taskWriteApi?: TaskWriteApi,
     options?: RequestInit
 ): Promise<TaskDetailDTOApi> => {
     return apiMutator<TaskDetailDTOApi>(getTasksUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskUpdateApi),
+        body: JSON.stringify(taskWriteApi),
     })
 }
 
@@ -1323,14 +1323,14 @@ export const getTasksPartialUpdateUrl = (projectId: string, id: string) => {
 export const tasksPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedTaskUpdateApi?: PatchedTaskUpdateApi,
+    patchedTaskWriteApi?: PatchedTaskWriteApi,
     options?: RequestInit
 ): Promise<TaskDetailDTOApi> => {
     return apiMutator<TaskDetailDTOApi>(getTasksPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaskUpdateApi),
+        body: JSON.stringify(patchedTaskWriteApi),
     })
 }
 

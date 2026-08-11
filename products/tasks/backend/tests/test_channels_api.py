@@ -301,8 +301,8 @@ class ChannelsAPITestCase(TestCase):
         )
 
         clear = self.client.patch(f"{self._tasks_url()}{task['id']}/", {"channel": None}, format="json")
-        self.assertEqual(clear.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(str(Task.objects.get(id=task["id"]).channel_id), private_space_id)
+        self.assertEqual(clear.status_code, status.HTTP_200_OK)
+        self.assertIsNone(Task.objects.get(id=task["id"]).channel_id)
 
     def test_project_member_can_delete_an_empty_public_space(self):
         channel_id = self.client.post(self._channels_url(), {"name": "empty"}).json()["id"]

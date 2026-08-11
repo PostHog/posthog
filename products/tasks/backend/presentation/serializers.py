@@ -636,7 +636,7 @@ class TaskWriteSerializer(serializers.Serializer):
         queryset=Integration.objects.none(),
         required=False,
         allow_null=True,
-        help_text="Space this task belongs to. Omit it when creating a task to use your private #me space.",
+        help_text="Channel this task is owned by (the channel it was kicked off in).",
     )
 
     def __init__(self, *args, **kwargs):
@@ -767,14 +767,6 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"github_user_integration": "Signal report tasks use the team GitHub integration."}
             )
-        return attrs
-
-
-class TaskUpdateSerializer(TaskWriteSerializer):
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        attrs = super().validate(attrs)
-        if "channel" in attrs and attrs["channel"] is None:
-            raise serializers.ValidationError({"channel": "Choose a space to move this task."})
         return attrs
 
 
