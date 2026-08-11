@@ -93,6 +93,17 @@ export interface Task {
   latest_run?: TaskRun;
 }
 
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
+}
+
 /**
  * A backend task channel — the single channel identity: it owns the task feed,
  * threads, instructions (CONTEXT.md) and filed canvases. `personal` is the
