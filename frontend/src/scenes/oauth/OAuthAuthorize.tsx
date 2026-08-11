@@ -163,8 +163,15 @@ export const OAuthAuthorize = (): JSX.Element => {
     } = useActions(oauthAuthorizeLogic)
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { guardAvailableFeature, hasAvailableFeature } = useValues(upgradeModalLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+
+    // A free plan allows one project. When that allowance is spent, the create button must look
+    // unavailable here. Otherwise a click opens the upgrade modal in the middle of authorization.
+    const projectLimitReached = !hasAvailableFeature(
+        AvailableFeature.ORGANIZATIONS_PROJECTS,
+        currentOrganization?.teams?.length
+    )
 
     const handleShowCreateProject = (): void => {
         guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => setShowCreateProject(true), {
@@ -326,7 +333,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                             onCancel={() => setShowCreateProject(false)}
                                         />
                                     ) : (
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-3">
                                             <div className="flex-1 min-w-0">
                                                 <LemonSelect
                                                     fullWidth
@@ -357,10 +364,15 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                 disabledReason={
                                                     !selectedOrganization
                                                         ? 'Select an organization first'
-                                                        : (projectCreationForbiddenReason ?? undefined)
+                                                        : (projectCreationForbiddenReason ??
+                                                          (projectLimitReached
+                                                              ? "You've reached your plan's project limit. Upgrade in billing to add more projects."
+                                                              : undefined))
                                                 }
                                                 onClick={handleShowCreateProject}
-                                            />
+                                            >
+                                                New project
+                                            </LemonButton>
                                         </div>
                                     )}
                                 </div>
