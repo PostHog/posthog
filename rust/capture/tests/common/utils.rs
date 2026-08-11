@@ -88,7 +88,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
         outputs_completeness_check_enabled: true,
-        capture_analytics_ai_events_topic: None,
+        capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
         capture_analytics_ai_events_overflow_topic: None,
         kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_metrics_topic: "ingestion_metrics".to_string(),
@@ -148,22 +148,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
-    ai_s3_bucket: None,
-    ai_s3_prefix: "llma/".to_string(),
-    ai_s3_endpoint: None,
-    ai_s3_region: "us-east-1".to_string(),
-    ai_s3_access_key_id: None,
-    ai_s3_secret_access_key: None,
     ai_gateway_signing_secret: None,
-    ai_sink_mode: capture::config::AiSinkMode::Primary,
-    ai_secondary_allowlist_tokens: None,
-    ai_secondary_kafka_hosts: None,
-    ai_secondary_kafka_topic: None,
-    ai_secondary_kafka_tls: false,
-    ai_secondary_kafka_client_id: String::new(),
-    capture_analytics_ai_events_mode: capture::config::AiSinkMode::Primary,
-    capture_analytics_ai_events_allowlist_tokens: None,
-    capture_analytics_ai_events_percentage: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -220,6 +205,7 @@ pub struct ServerHandle {
     pub addr: SocketAddr,
     shutdown: tokio_util::sync::CancellationToken,
     client: reqwest::Client,
+    event_restriction_service: Option<capture::event_restrictions::EventRestrictionService>,
 }
 
 impl ServerHandle {
@@ -311,6 +297,9 @@ impl ServerHandle {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
         config.ai_gateway_signing_secret = Some(secret.to_string());
+        // The gateway tests send `$ai_*` events, which route to the AI topic;
+        // point it at the same ephemeral topic so the consumer sees them.
+        config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }
@@ -337,6 +326,7 @@ impl ServerHandle {
         let handles = setup::register_components(&mut manager, &config);
         let _monitor = manager.monitor_background();
         let components = setup::build_components(config, sink_env, handles).await;
+        let event_restriction_service = components.event_restriction_service.clone();
 
         tokio::spawn(async move { serve(listener, components).await });
 
@@ -349,6 +339,26 @@ impl ServerHandle {
             addr,
             shutdown: shutdown_token,
             client,
+            event_restriction_service,
+        }
+    }
+
+    /// Wait for the event restriction service's first successful load. Entries
+    /// written to Redis before boot are guaranteed visible after this returns,
+    /// because a refresh fetches every restriction type and swaps the manager
+    /// atomically.
+    pub async fn wait_for_restrictions_loaded(&self) {
+        let service = self
+            .event_restriction_service
+            .as_ref()
+            .expect("server booted without event restrictions enabled");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !service.has_loaded() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "event restrictions not loaded within 10s"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -599,48 +609,8 @@ impl EphemeralTopic {
     pub fn next_message_with_headers(
         &self,
     ) -> anyhow::Result<(serde_json::Value, std::collections::HashMap<String, String>)> {
-        use std::collections::HashMap;
-
-        // Retry on transient Kafka errors like NotCoordinator
-        let mut retries = 0;
-        const MAX_RETRIES: u32 = 10;
-
-        loop {
-            match self.consumer.poll(self.read_timeout) {
-                Some(Ok(message)) => {
-                    // Parse the payload
-                    let body = message.payload().expect("empty kafka message");
-                    let event = serde_json::from_slice(body)?;
-
-                    // Parse the headers
-                    let mut headers = HashMap::new();
-                    if let Some(message_headers) = message.headers() {
-                        for header in message_headers.iter() {
-                            if let Some(value) = header.value {
-                                if let Ok(value_str) = std::str::from_utf8(value) {
-                                    headers.insert(header.key.to_string(), value_str.to_string());
-                                }
-                            }
-                        }
-                    }
-
-                    return Ok((event, headers));
-                }
-                Some(Err(err)) => {
-                    // Check if it's a transient error that should be retried
-                    let err_str = err.to_string();
-                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
-                        && retries < MAX_RETRIES
-                    {
-                        retries += 1;
-                        std::thread::sleep(Duration::from_millis(100));
-                        continue;
-                    }
-                    bail!("kafka read error: {err}");
-                }
-                None => bail!("kafka read timeout"),
-            }
-        }
+        let (_key, event, headers) = self.next_message_full()?;
+        Ok((event, headers))
     }
 
     /// Like `next_message_with_headers`, also returning the partition key, so

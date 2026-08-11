@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -13,6 +14,7 @@ from llm_gateway.rate_limiting.billable_credits_throttle import bucket_block_app
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
+from llm_gateway.services.billing_period_resolver import resolve_billing_period
 from llm_gateway.services.plan_resolver import (
     POSTHOG_CODE_PRODUCT,
     PlanResolver,
@@ -77,11 +79,14 @@ async def get_usage(
 ) -> UsageResponse:
     runner: ThrottleRunner = request.app.state.throttle_runner
 
-    plan_info, quota_status = await resolve_plan_and_quota(
-        request,
-        user_id=user.user_id,
-        team_id=user.team_id,
-        product=product,
+    (plan_info, quota_status), organization_billing_period = await asyncio.gather(
+        resolve_plan_and_quota(
+            request,
+            user_id=user.user_id,
+            team_id=user.team_id,
+            product=product,
+        ),
+        resolve_billing_period(request, user.team_id),
     )
     now = datetime.now(tz=UTC)
 
@@ -124,8 +129,10 @@ async def get_usage(
             sustained_status = _to_cost_limit_status(empty, now=now)
 
     billing_period_end: datetime | None = None
-    if plan_info.billing_period:
+    raw_period_end = organization_billing_period.current_period_end if organization_billing_period else None
+    if raw_period_end is None and plan_info.billing_period:
         raw_period_end = plan_info.billing_period.current_period_end
+    if raw_period_end is not None:
         try:
             billing_period_end = parse_iso_utc(raw_period_end)
         except (ValueError, TypeError) as exc:

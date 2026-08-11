@@ -14,12 +14,10 @@ use utils::*;
 
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
-use capture::config::AiSinkMode;
 use redis::Commands;
 use reqwest::StatusCode;
 use serde_json::json;
 use std::num::NonZeroU32;
-use std::time::Duration;
 
 /// Writes restriction entries at the production Redis key for one restriction
 /// type, deleting the key on drop. The production repository reads
@@ -52,13 +50,6 @@ impl Drop for RestrictionKey {
     }
 }
 
-/// The restriction refresh task's first tick runs at boot, after the entries
-/// above are already in Redis; one beat of delay keeps the first request from
-/// racing that initial load.
-async fn wait_for_restriction_load() {
-    tokio::time::sleep(Duration::from_secs(1)).await;
-}
-
 #[tokio::test]
 async fn it_routes_dlq_redirected_events_to_the_dlq_topic() -> Result<()> {
     setup_tracing();
@@ -78,8 +69,11 @@ async fn it_routes_dlq_redirected_events_to_the_dlq_topic() -> Result<()> {
     config.kafka.kafka_dlq_topic = dlq_topic.topic_name().to_string();
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
+    // A failed first load (tight Redis timeout on a busy runner) retries on
+    // the next tick; keep that tick close so the loaded-state wait recovers.
+    config.event_restrictions_refresh_interval_secs = 1;
     let server = ServerHandle::for_config(config).await;
-    wait_for_restriction_load().await;
+    server.wait_for_restrictions_loaded().await;
 
     let event = json!({
         "token": token,
@@ -139,8 +133,11 @@ async fn it_routes_custom_redirected_events_to_the_admin_topic() -> Result<()> {
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
+    // A failed first load (tight Redis timeout on a busy runner) retries on
+    // the next tick; keep that tick close so the loaded-state wait recovers.
+    config.event_restrictions_refresh_interval_secs = 1;
     let server = ServerHandle::for_config(config).await;
-    wait_for_restriction_load().await;
+    server.wait_for_restrictions_loaded().await;
 
     let event = json!({
         "token": token,
@@ -183,9 +180,7 @@ async fn it_routes_diverted_ai_events_to_the_ai_topic() -> Result<()> {
 
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
-    config.capture_analytics_ai_events_mode = AiSinkMode::SecondaryAllowlist;
-    config.capture_analytics_ai_events_allowlist_tokens = Some(token.clone());
-    config.kafka.capture_analytics_ai_events_topic = Some(ai_topic.topic_name().to_string());
+    config.kafka.capture_analytics_ai_events_topic = ai_topic.topic_name().to_string();
     let server = ServerHandle::for_config(config).await;
 
     let batch = json!([
@@ -240,9 +235,7 @@ async fn it_routes_forced_ai_events_to_ai_overflow_when_the_valve_is_armed() -> 
 
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
-    config.capture_analytics_ai_events_mode = AiSinkMode::SecondaryAllowlist;
-    config.capture_analytics_ai_events_allowlist_tokens = Some(token.clone());
-    config.kafka.capture_analytics_ai_events_topic = Some(ai_topic.topic_name().to_string());
+    config.kafka.capture_analytics_ai_events_topic = ai_topic.topic_name().to_string();
     config.kafka.capture_analytics_ai_events_overflow_topic =
         Some(ai_overflow_topic.topic_name().to_string());
     config.overflow_enabled = true;

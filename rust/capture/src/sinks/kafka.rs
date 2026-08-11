@@ -20,7 +20,7 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::ordering::OrderingGuarantee;
-use crate::pipeline::{self, Address, AddressDecision, Lane, Pipeline};
+use crate::pipeline::{self, Address, Lane, Pipeline};
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Output, OutputRegistry};
@@ -42,9 +42,8 @@ use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
     /// Lifecycle handle this producer reports liveness to. `None` for a producer
-    /// whose health must not gate the pod (e.g. the non-critical side of a
-    /// `SplitKafkaSink`) — it still produces and emits metrics, it just doesn't
-    /// drive a manager component.
+    /// whose health must not gate the pod — it still produces and emits
+    /// metrics, it just doesn't drive a manager component.
     liveness: Option<lifecycle::Handle>,
 }
 
@@ -199,30 +198,43 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
-/// Bridge a pure address decision to the sink's configured [`Output`]. The
-/// sink owns this mapping only until the outputs layer exists to own the
-/// address → output table. [`pipeline::resolve`] never pairs a pipeline with
-/// a lane it does not have (heatmaps never overflow, only analytics reroutes
-/// historical), so the collapsed arms below map those unreachable pairs to
-/// the pipeline's main output rather than growing an error path every caller
-/// would have to handle.
-fn output_for(decision: &AddressDecision) -> Output {
-    match &decision.address {
-        Address::Dlq => Output::Dlq,
-        Address::Custom(topic) => Output::Custom(topic.clone()),
-        Address::Lane { pipeline, lane } => match (pipeline, lane) {
-            (Pipeline::Analytics, Lane::Main) => Output::AnalyticsMain,
-            (Pipeline::Analytics, Lane::Overflow) => Output::AnalyticsOverflow,
-            (Pipeline::Analytics, Lane::Historical) => Output::AnalyticsHistorical,
-            (Pipeline::Ai, Lane::Main | Lane::Historical) => Output::AiMain,
-            (Pipeline::Ai, Lane::Overflow) => Output::AiOverflow,
-            (Pipeline::Warnings, _) => Output::ClientWarningsMain,
-            (Pipeline::Heatmaps, _) => Output::HeatmapsMain,
-            (Pipeline::ErrorTracking, _) => Output::ErrorTrackingMain,
-            (Pipeline::Replay, Lane::Main | Lane::Historical) => Output::SessionReplayMain,
-            (Pipeline::Replay, Lane::Overflow) => Output::SessionReplayOverflow,
-        },
+/// Map a lane address to the sink's configured [`Output`]. The sink owns
+/// this mapping only until the outputs layer exists to own the address →
+/// output table. Every `(pipeline, lane)` pair is spelled out so that a new
+/// lane, or a change making an unbacked pair reachable, has to visit this
+/// match instead of being absorbed by a wildcard. `None` marks a pair
+/// [`pipeline::resolve`] never produces — no output backs it, and the caller
+/// dlqs the event (the typed-per-pipeline-lanes step makes these pairs
+/// unrepresentable).
+fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Output> {
+    match (pipeline, lane) {
+        (Pipeline::Analytics, Lane::Main) => Some(Output::AnalyticsMain),
+        (Pipeline::Analytics, Lane::Overflow) => Some(Output::AnalyticsOverflow),
+        (Pipeline::Analytics, Lane::Historical) => Some(Output::AnalyticsHistorical),
+        (Pipeline::Ai, Lane::Main) => Some(Output::AiMain),
+        (Pipeline::Ai, Lane::Overflow) => Some(Output::AiOverflow),
+        (Pipeline::Ai, Lane::Historical) => None,
+        (Pipeline::Warnings, Lane::Main) => Some(Output::ClientWarningsMain),
+        (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
+        (Pipeline::Heatmaps, Lane::Main) => Some(Output::HeatmapsMain),
+        (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
+        (Pipeline::ErrorTracking, Lane::Main) => Some(Output::ErrorTrackingMain),
+        (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
+        (Pipeline::Replay, Lane::Main) => Some(Output::SessionReplayMain),
+        (Pipeline::Replay, Lane::Overflow) => Some(Output::SessionReplayOverflow),
+        (Pipeline::Replay, Lane::Historical) => None,
     }
+}
+
+/// The dlq output's contract: count the reroute and stamp the dlq header set.
+fn dlq_reroute_effects(headers: &mut common_types::CapturedEventHeaders, reason: &'static str) {
+    counter!("capture_events_rerouted_dlq", &[("reason", reason)]).increment(1);
+
+    headers.set_dlq_reason(reason.to_string());
+    // Unlike with our node code, DLQ step will always be static.
+    headers.set_dlq_step("capture".to_string());
+    headers
+        .set_dlq_timestamp(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
 }
 
 /// The default KafkaSink using rdkafka's FutureProducer
@@ -453,9 +465,38 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // The address decision is pure metadata policy, owned by the pipeline
         // layer; the sink bridges it to an output, resolves that against its
         // topic config, realizes the key policy against the values it owns,
-        // and applies the target-implied side effects.
+        // and applies the address-implied side effects in the same match —
+        // the dlq output's contract includes the dlq header set, and both
+        // admin redirects count their reroutes.
         let decision = pipeline::resolve(&metadata, self.topics.ai_events_overflow_armed())?;
-        let target = output_for(&decision);
+        let target = match decision.address {
+            Address::Dlq => {
+                dlq_reroute_effects(&mut headers, "event_restriction");
+                Output::Dlq
+            }
+            Address::Custom(topic) => {
+                counter!(
+                    "capture_events_rerouted_custom_topic",
+                    &[("reason", "event_restriction")]
+                )
+                .increment(1);
+                Output::Custom(topic)
+            }
+            Address::Lane { pipeline, lane } => match lane_output(pipeline, lane) {
+                Some(output) => output,
+                // A pair `resolve` never produces: no output backs it, so
+                // the event goes to the dlq — preserved and replayable —
+                // instead of being processed through a lane with the wrong
+                // semantics. Loud, because reaching this arm means a change
+                // made the pair producible without giving it an output.
+                None => {
+                    debug_assert!(false, "no output backs ({pipeline:?}, {lane:?})");
+                    error!("no output backs ({pipeline:?}, {lane:?}), publishing to the dlq");
+                    dlq_reroute_effects(&mut headers, "unbacked_lane");
+                    Output::Dlq
+                }
+            },
+        };
 
         let topic: &str = self.topics.topic_for(&target);
 
@@ -471,34 +512,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     .ok_or(CaptureError::MissingSessionId)?,
             ),
         };
-
-        // Output-implied side effects: the dlq output's contract includes the
-        // dlq header set, and both redirect outputs count their reroutes.
-        match target {
-            Output::Dlq => {
-                counter!(
-                    "capture_events_rerouted_dlq",
-                    &[("reason", "event_restriction")]
-                )
-                .increment(1);
-
-                // DLQ reason cannot be known beyond being triggered by an event restriction.
-                headers.set_dlq_reason("event_restriction".to_string());
-                // Unlike with our node code, DLQ step will always be static.
-                headers.set_dlq_step("capture".to_string());
-                headers.set_dlq_timestamp(
-                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                );
-            }
-            Output::Custom(_) => {
-                counter!(
-                    "capture_events_rerouted_custom_topic",
-                    &[("reason", "event_restriction")]
-                )
-                .increment(1);
-            }
-            _ => {}
-        }
 
         if let Some(encoding) = serializer.content_encoding() {
             headers.set_content_encoding(encoding.to_string());
@@ -791,7 +804,7 @@ mod tests {
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
             outputs_completeness_check_enabled: true,
-            capture_analytics_ai_events_topic: None,
+            capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
             capture_analytics_ai_events_overflow_topic: None,
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
@@ -2464,45 +2477,6 @@ mod tests {
                 format!("{:?}", records[0].headers),
                 format!("{:?}", records[1].headers)
             );
-        }
-
-        #[tokio::test]
-        async fn ai_events_missing_topic_falls_back_to_main() {
-            // Should be impossible in production (startup validation), but a
-            // misconfigured sink must degrade to the main topic, not error.
-            let producer = MockKafkaProducer::new();
-            let mut topics = test_topics();
-            topics.ai_events = None;
-            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
-
-            let input = EventInput {
-                data_type: DataType::AiEvents,
-                ..Default::default()
-            };
-            sink.send(create_test_event(&input)).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, MAIN_TOPIC);
-            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
-        }
-
-        #[tokio::test]
-        async fn ai_events_empty_topic_falls_back_to_main() {
-            let producer = MockKafkaProducer::new();
-            let mut topics = test_topics();
-            topics.ai_events = Some(String::new());
-            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
-
-            let input = EventInput {
-                data_type: DataType::AiEvents,
-                ..Default::default()
-            };
-            sink.send(create_test_event(&input)).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
         // ==================== RedirectToTopic ====================

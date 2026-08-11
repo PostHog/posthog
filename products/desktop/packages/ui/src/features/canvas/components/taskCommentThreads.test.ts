@@ -3,7 +3,7 @@ import type { PrConversationComment, PrReviewThread } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import type { CommentSource } from "./taskArtifactRows";
 import {
-  byNewestActivity,
+  byNewestThread,
   prCommentThreads,
   resourceCommentThreads,
   threadSourceOptions,
@@ -59,6 +59,9 @@ describe("resourceCommentThreads", () => {
       "root",
       "reply",
     ]);
+    // The reply is newer, but ordering follows the root: replying must not move
+    // the thread out from under whoever is reading it.
+    expect(threads[0].startedAt).toBe("2024-01-01T00:00:00Z");
   });
 
   // A resolve/reopen reply is thread state, not something anyone said.
@@ -82,7 +85,7 @@ describe("resourceCommentThreads", () => {
 
     expect(threads[0].resolved).toBe(true);
     expect(threads[0].entries).toHaveLength(1);
-    expect(threads[0].lastActivityAt).toBe("2024-01-01T00:00:00Z");
+    expect(threads[0].startedAt).toBe("2024-01-01T00:00:00Z");
   });
 });
 
@@ -148,7 +151,8 @@ describe("prCommentThreads", () => {
       threadNodeId: "node-1",
       filePath: "src/App.tsx",
     });
-    expect(thread.lastActivityAt).toBe("2024-01-01T00:05:00Z");
+    // The thread's own start, so a reply can't re-rank it in the list.
+    expect(thread.startedAt).toBe("2024-01-01T00:00:00Z");
   });
 
   it("makes each conversation comment its own unresolvable thread", () => {
@@ -194,7 +198,7 @@ describe("prCommentThreads", () => {
   });
 });
 
-describe("threadSourceOptions / byNewestActivity", () => {
+describe("threadSourceOptions / byNewestThread", () => {
   it("lists each source once and sorts newest first", () => {
     const threads = [
       ...resourceCommentThreads(
@@ -216,7 +220,7 @@ describe("threadSourceOptions / byNewestActivity", () => {
           },
         ],
       ),
-    ].sort(byNewestActivity);
+    ].sort(byNewestThread);
 
     expect(threads[0].entries[0].body).toBe("new");
     // Options follow list order, which is newest-first, and carry the kind so
@@ -251,7 +255,7 @@ describe("threadSourceOptions / byNewestActivity", () => {
         ],
         [fileSource, taskSource],
       ),
-    ].sort(byNewestActivity);
+    ].sort(byNewestThread);
 
     expect(threadSourceOptions(threads).map((option) => option.kind)).toEqual([
       "task",

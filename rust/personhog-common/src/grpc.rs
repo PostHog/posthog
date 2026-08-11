@@ -23,6 +23,17 @@ use tower::{Layer, Service};
 /// Header name for client identification in gRPC metadata.
 const CLIENT_NAME_HEADER: &str = "x-client-name";
 
+/// Metadata key marking a FAILED_PRECONDITION as a definitive semantic
+/// refusal rather than a routing-race rejection. The router bounces and
+/// retries bare FAILED_PRECONDITION (handoff fences, ownership races,
+/// person fences — conditions that clear in watch or healer time) and
+/// surfaces exhaustion as retriable UNAVAILABLE; a response carrying this
+/// key is a final answer about the request itself and must pass through
+/// to the caller unchanged, or a fail-closed refusal degrades into an
+/// infinite retry loop. The value is a short reason slug for
+/// observability.
+pub const SEMANTIC_REFUSAL_METADATA_KEY: &str = "x-semantic-refusal";
+
 /// Header name for caller-tag attribution in gRPC metadata.
 /// Identifies the code path / feature area within a service that
 /// triggered the request (e.g., "api/feature-flags", "celery/cohort-calculation").

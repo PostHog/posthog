@@ -339,13 +339,14 @@ describe('updateFeatureFlag 409 handling', () => {
     ])(
         'shows approval toast with "$expected" when toggling active=$active gets a 409',
         async ({ active, expected }) => {
-            const error = { status: 409, data: { change_request_id: 'cr-123' } }
+            const error = { status: 409, data: { change_request_id: 'cr-123', code: 'approval_required' } }
             jest.spyOn(api, 'update').mockRejectedValueOnce(error)
 
             logic.actions.updateFeatureFlag({ id: 1, payload: { active } })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected)
+            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected, 'approval_required')
+            expect(posthog.captureException).not.toHaveBeenCalled()
         }
     )
 
@@ -367,6 +368,8 @@ describe('updateFeatureFlag 409 handling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
+        // A non-approval 409 stays visible to error tracking; only approval-shaped ones are suppressed
+        expect(posthog.captureException).toHaveBeenCalledWith(error)
     })
 })
 

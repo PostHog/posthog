@@ -17,5 +17,6 @@ export const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
     Completed: 'success',
     Failed: 'danger',
     Cancelled: 'muted',
+    Skipped: 'muted',
     Modified: 'warning',
 }

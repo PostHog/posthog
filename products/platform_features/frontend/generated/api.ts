@@ -904,6 +904,13 @@ export const getCommentsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/comments/`
 }
 
+/**
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
+ */
 export const commentsCreate = async (
     projectId: string,
     commentApi?: NonReadonly<CommentApi>,
