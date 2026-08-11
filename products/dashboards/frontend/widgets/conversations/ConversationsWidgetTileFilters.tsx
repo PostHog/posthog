@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { IconSearch } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -24,7 +26,7 @@ import {
 
 function priorityFilterLabel(priorities: ConversationsTicketPriority[]): string {
     if (priorities.length === 0) {
-        return 'All priorities'
+        return 'Priority'
     }
     if (priorities.length === 1) {
         return (
@@ -93,15 +95,29 @@ function ConversationsSearchFilter({
     }, [value])
 
     return (
-        <LemonInput
-            size="small"
-            type="search"
-            className="min-w-48"
-            value={draft}
-            placeholder="Requester, subject, or message"
-            onChange={setDraft}
-            onBlur={() => onChange(draft)}
-        />
+        <LemonDropdown
+            overlay={
+                <LemonInput
+                    size="small"
+                    type="search"
+                    className="w-80"
+                    value={draft}
+                    placeholder="Requester, subject, or message"
+                    onChange={setDraft}
+                    onBlur={() => onChange(draft)}
+                    autoFocus
+                />
+            }
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconSearch />}
+                {...clearFilterButtonProps(value ? () => onChange('') : null, 'Clear search filter')}
+            >
+                Search
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
@@ -136,11 +152,12 @@ export function ConversationsWidgetTileFilters({
     }
     return (
         <WidgetTileFiltersBar dataAttr="conversations-widget-filters">
-            <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
+            <div className="flex w-full min-w-0 flex-nowrap items-center gap-2">
                 <LemonSelect
                     size="small"
                     value={status}
                     options={CONVERSATIONS_TICKET_STATUS_OPTIONS}
+                    renderButtonContent={(option) => (option?.value === 'all' ? 'Status' : (option?.label ?? 'Status'))}
                     onChange={(value) => {
                         if (value) {
                             const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { status: value })
@@ -159,6 +176,9 @@ export function ConversationsWidgetTileFilters({
                     size="small"
                     value={channel}
                     options={CONVERSATIONS_TICKET_CHANNEL_OPTIONS}
+                    renderButtonContent={(option) =>
+                        option?.value === 'all' ? 'Channel' : (option?.label ?? 'Channel')
+                    }
                     onChange={(value) => {
                         const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { channel: value })
                         void persistConfigNow(nextConfig)
@@ -166,6 +186,7 @@ export function ConversationsWidgetTileFilters({
                 />
                 <AssigneeMultiSelect
                     value={assignees}
+                    emptyLabel="Assignee"
                     onChange={(value) => {
                         const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), {
                             assignees: value as ConversationsTicketAssignee[],
