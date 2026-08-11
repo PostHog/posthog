@@ -20,11 +20,14 @@ export class PersonhogLifecycleOperations {
     /**
      * Destroy persons through the durable delete saga. An OK response
      * means the sync-plane work is committed and the owning leaders have
-     * produced the death documents. The saga is keyed by op_id and the
-     * caller must supply one derived from the delete's identity: the
-     * same id across retries attaches to the existing operation instead
-     * of starting a new one, which keeps a retried delete from
-     * misreading its own earlier success as not_found.
+     * produced the death documents. The saga is keyed by op_id, and the
+     * caller must scope one to a single deletion attempt — never derive
+     * it from the target rows, because deletion tombstones a row and
+     * creation revives it with the same id, so a row-derived id would
+     * attach a later independent delete to the completed operation and
+     * leave the revived person live. Re-runs converge through the
+     * outcomes instead: not_found means gone, skipped_conflict means a
+     * live operation holds the person and the caller retries after it.
      */
     async deletePersons(
         teamId: number,

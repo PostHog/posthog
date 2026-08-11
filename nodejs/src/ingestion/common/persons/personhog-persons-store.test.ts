@@ -227,7 +227,7 @@ describe('PersonhogPersonsStore', () => {
         expect(fetched?.id).toBe('7')
     })
 
-    it('deletes run the lifecycle saga with a deterministic op id and publish nothing', async () => {
+    it('deletes run the lifecycle saga with a fresh op id per call and publish nothing', async () => {
         repository.deletePersons.mockResolvedValue(new Map([['7', 'deleted']]))
         const bound = store.forBatch(0)
         const messages = await bound.deletePerson(person, 'd1')
@@ -236,10 +236,13 @@ describe('PersonhogPersonsStore', () => {
         expect(teamId).toBe(1)
         expect(ids).toEqual(['7'])
 
-        // A retry derives the same op id, attaching to the same saga
-        // operation instead of starting a fresh one.
+        // Deletion tombstones and creation revives the same row id, so a
+        // second delete of the same person must be its own operation: an
+        // id derived from the rows would attach to the completed saga and
+        // report the revived person deleted while it stays live.
         await bound.deletePerson(person, 'd1')
-        expect(repository.deletePersons.mock.calls[1][2]).toBe(opId)
+        const secondOpId = repository.deletePersons.mock.calls[1][2]
+        expect(secondOpId).not.toBe(opId)
 
         repository.deletePersons.mockResolvedValue(new Map([['7', 'not_found']]))
         const none = await bound.deletePerson(person, 'd1')

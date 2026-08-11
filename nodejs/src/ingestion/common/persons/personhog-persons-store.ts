@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
+import { randomUUID } from 'node:crypto'
 import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
-import { v5 as uuidv5 } from 'uuid'
 
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogPropertiesSizeError } from '~/common/personhog/persons'
@@ -42,13 +42,6 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
-
-/**
- * Namespace for deterministic delete op ids: uuidv5 over the delete's
- * identity (team + sorted person ids) makes retries attach to the same
- * lifecycle operation instead of starting a fresh one.
- */
-const DELETE_OP_NAMESPACE = 'f1bc1c46-64f0-4b4f-9126-b0d8375a8a03'
 
 /** The event name stamped on creation calls; per-event names are consumed at fold time. */
 const CREATE_EVENT_NAME = '$create_person'
@@ -352,11 +345,17 @@ export class PersonhogPersonsStore {
      * work commits and the owning leaders produce the death documents
      * before the RPC returns, and the changelog carries the deletion to
      * every downstream (ClickHouse included), so nothing is emitted here.
-     * The op id derives deterministically from the delete's identity, so
-     * a retry attaches to the same operation and observes its recorded
-     * outcome; a recreated person has a new row id, so re-deletes never
-     * collide. A person held by another live lifecycle operation fails
-     * the batch so redelivery retries after it finishes.
+     * Each call is its own saga operation under a fresh op id. Deriving
+     * the id from the target rows would be wrong: deletion tombstones
+     * the row and creation revives it in place with the same numeric id,
+     * so a later, independent delete of the revived person would attach
+     * to the completed operation and return its recorded outcome while
+     * the person stays live. A fresh id makes the revived delete a real
+     * one, and redelivery converges through the outcome vocabulary
+     * instead of attachment: an earlier attempt's completed work answers
+     * not_found (gone either way), and a person held by a still-live
+     * operation answers skipped_conflict, which fails the batch so
+     * redelivery retries after that operation finishes.
      */
     async deletePersons(persons: InternalPerson[], _distinctId: string, batchId?: number): Promise<PersonMessage[]> {
         if (persons.length === 0) {
@@ -364,7 +363,7 @@ export class PersonhogPersonsStore {
         }
         const teamId = persons[0].team_id
         const sortedIds = persons.map((person) => person.id).sort()
-        const opId = uuidv5(`${teamId}:${sortedIds.join(',')}`, DELETE_OP_NAMESPACE)
+        const opId = randomUUID()
         const outcomes = await this.repository.deletePersons(teamId, sortedIds, opId, CALLER_TAG)
         for (const person of persons) {
             const outcome = outcomes.get(person.id)
