@@ -19,6 +19,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.endpoints.backend.materialization_transforms import MaterializationNotSupportedError
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -1390,6 +1391,24 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_preview_transform_failure_returns_400_not_500(self):
+        # A query shape the transform can't handle (the eligibility check passed, the transform
+        # still rejected it) must read as a 400 with a reason, not an uncaught 500.
+        self._create_endpoint_with_variables("transform-fails")
+
+        with mock.patch(
+            "products.endpoints.backend.logic.materialization.EndpointMaterializationService.preview",
+            side_effect=MaterializationNotSupportedError("nested aggregate not supported"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/transform-fails/materialization_preview/",
+                {},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "nested aggregate not supported" in response.json()["error"]
 
     def test_reenable_materialization_without_bucket_overrides_clears_old_value(self):
         from products.endpoints.backend.models import EndpointVersion

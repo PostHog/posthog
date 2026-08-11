@@ -17,6 +17,7 @@ jest.mock('lib/api', () => ({
             get: jest.fn(),
             run: jest.fn(),
             listVersions: jest.fn().mockResolvedValue({ results: [] }),
+            getMaterializationPreview: jest.fn(),
         },
     },
     ApiConfig: {
@@ -265,6 +266,28 @@ describe('endpointSceneLogic', () => {
             logic.actions.regenerateMaterializationSuggestion()
             await expectLogic(logic).toFinishAllListeners()
             expect(endpointsMaterializationSuggestionCreate).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('materialization preview', () => {
+        it('degrades a failed preview into a can-not-materialize reason instead of throwing', async () => {
+            const hogqlEndpoint = {
+                ...endpoint,
+                query: { kind: 'HogQLQuery', query: 'SELECT count() FROM events' },
+            }
+            ;(api.endpoint.getMaterializationPreview as jest.Mock).mockRejectedValue({ detail: 'Transform rejected' })
+
+            logic.actions.loadEndpointSuccess(hogqlEndpoint)
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadMaterializationPreview()
+            }).toFinishAllListeners()
+
+            expect(logic.values.materializationPreview).toMatchObject({
+                can_materialize: false,
+                reason: 'Transform rejected',
+            })
         })
     })
 })

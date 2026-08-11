@@ -562,7 +562,22 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 }
                 const version = values.viewingVersion?.version
                 const overrides = Object.keys(values.bucketOverrides).length > 0 ? values.bucketOverrides : undefined
-                return await api.endpoint.getMaterializationPreview(endpoint.name, version, overrides)
+                try {
+                    return await api.endpoint.getMaterializationPreview(endpoint.name, version, overrides)
+                } catch (error: any) {
+                    // Degrade a failed preview into the "can't materialize" banner the tab already renders,
+                    // so a backend error reads as an in-tab message instead of an uncaught error.
+                    return {
+                        can_materialize: false,
+                        reason:
+                            error?.detail || error?.message || 'Could not load the materialization preview. Try again.',
+                        transformed_query: null,
+                        execution_query: null,
+                        display_execution_query: null,
+                        range_pairs: [],
+                        aggregates: [],
+                    }
+                }
             },
         },
         endpointResult: {

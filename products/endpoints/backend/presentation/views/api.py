@@ -35,6 +35,8 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.documentation import extend_schema
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
@@ -74,6 +76,7 @@ from products.endpoints.backend.facade.api import (
 )
 from products.endpoints.backend.facade.enums import ENDPOINT_NAME_REGEX, ENDPOINTS_LOG_SOURCE
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
+from products.endpoints.backend.materialization_transforms import MaterializationNotSupportedError
 from products.endpoints.backend.presentation.serializers import (
     EndpointMaterializationConditionsSerializer,
     EndpointMaterializationSerializer,
@@ -663,7 +666,16 @@ class EndpointViewSet(
             validate_bucket_overrides(bucket_overrides)
 
         service = EndpointMaterializationService(self.team, request)
-        return Response(dataclasses.asdict(service.preview(endpoint, version, bucket_overrides)))
+        try:
+            preview = service.preview(endpoint, version, bucket_overrides)
+        except (ExposedHogQLError, MaterializationNotSupportedError) as e:
+            # The eligibility check passed but the transform still rejected this query shape.
+            # Surface it as a request problem rather than a 500.
+            return Response(
+                {"error": f"This query can't be previewed for materialization. Reason: {e}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(dataclasses.asdict(preview))
 
     @validated_request(
         EndpointMaterializationSuggestionRequestSerializer,

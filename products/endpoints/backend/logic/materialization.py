@@ -368,7 +368,11 @@ class EndpointMaterializationService:
         bucket_overrides: dict[str, str] | None = None,
     ) -> MaterializationPreview:
         """Preview the materialization transform without enabling it."""
-        can_mat, reason = version.can_materialize()
+        try:
+            can_mat, reason = version.can_materialize()
+        except Exception as e:
+            capture_exception(e, {"endpoint_version_id": str(version.id), "team_id": self.team.pk})
+            return MaterializationPreview.cant_materialize(ELIGIBILITY_CHECK_FAILED_REASON)
         if not can_mat:
             return MaterializationPreview.cant_materialize(reason)
 
