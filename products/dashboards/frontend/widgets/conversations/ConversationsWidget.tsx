@@ -6,6 +6,7 @@ import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@post
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { stripMarkdown } from 'lib/utils/markdown'
@@ -115,6 +116,7 @@ function TicketSlaIcon({ slaDueAt }: { slaDueAt: string | null }): JSX.Element |
         icon = <IconClock className="text-warning" />
         tooltip = 'SLA due soon'
     }
+    tooltip = `${tooltip}. Due ${dayjs(slaDueAt).fromNow()}`
 
     return (
         <Tooltip title={tooltip}>
