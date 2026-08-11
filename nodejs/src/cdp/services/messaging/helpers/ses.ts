@@ -18,7 +18,10 @@ const SnsEnvelopeSchema = z.object({
     Token: z.string().optional(),
     TopicArn: z.string(),
     Subject: z.string().optional(),
-    Message: z.string(), // either SES event JSON (Notification) or a confirmation message
+    Message: z.string(), // either SES event JSON (Notification) or human-readable confirmation text
+    // Top-level on (Un)SubscribeConfirmation payloads and part of their signed string, so it must
+    // survive schema parsing for signature verification to succeed.
+    SubscribeURL: z.string().optional(),
     Timestamp: z.string(),
     SignatureVersion: z.enum(['1']),
     Signature: z.string(),
@@ -394,7 +397,7 @@ export class SesWebhookHandler {
         } else if (m.Type === 'SubscriptionConfirmation' || m.Type === 'UnsubscribeConfirmation') {
             pushKV('Message', m.Message)
             pushKV('MessageId', m.MessageId)
-            pushKV('SubscribeURL', (m as any).SubscribeURL) // present in confirmation payload body, not in envelope schema
+            pushKV('SubscribeURL', m.SubscribeURL)
             pushKV('Timestamp', m.Timestamp)
             pushKV('Token', m.Token!)
             pushKV('TopicArn', m.TopicArn)
@@ -484,19 +487,19 @@ export class SesWebhookHandler {
         // Handle confirmation flow
         if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'SubscriptionConfirmation') {
             logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
-            // Confirm by visiting SubscribeURL (contained in the *message JSON*, not envelope.Message field here)
-            // We need to fetch the inner message JSON to get SubscribeURL
-            const env = parsed.envelope
-            const inner = parseJSON(env.Message) as { SubscribeURL?: string }
-            logger.info('[SesWebhookHandler] confirming subscription', { inner })
-            if (inner.SubscribeURL) {
-                if (!this.isValidSnsSubscribeUrl(inner.SubscribeURL)) {
+            // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
+            const subscribeUrl = parsed.envelope.SubscribeURL
+            if (subscribeUrl) {
+                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
                     logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
-                        url: inner.SubscribeURL,
+                        url: subscribeUrl,
                     })
                     return { status: 403, body: { error: 'Invalid SubscribeURL' } }
                 }
-                await this.fetchText(inner.SubscribeURL)
+                await this.fetchText(subscribeUrl)
+            } else {
+                logger.warn('[SesWebhookHandler] SubscriptionConfirmation without SubscribeURL - cannot confirm')
+                return { status: 400, body: { error: 'Missing SubscribeURL' } }
             }
             return { status: 200, body: { ok: true } }
         }

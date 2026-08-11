@@ -46,6 +46,7 @@ from products.marketing_analytics.backend.services.data_source_health import (
 )
 from products.marketing_analytics.backend.services.event_suggestions import CandidateEvent, EventSuggestionsResponse
 from products.marketing_analytics.backend.services.mapping_suggester import (
+    CampaignMappingSuggestion,
     CatalogueEntry,
     CurrentMapping,
     RawUnmatchedSample,
@@ -718,6 +719,26 @@ class TestFormatUtmMappingSuggestionsForLlm(BaseTest):
         result = _format_utm_mapping_suggestions_for_llm(response)
         assert "facebook_paid" in result
         assert "Meta Ads" in result
+
+    def test_campaign_suggestions_shown(self):
+        # The tool returns the response dict as its artifact, but Max composes its reply from this
+        # string. A section missing here is a suggestion the user is never told about.
+        suggestion = CampaignMappingSuggestion(
+            integration="google_ads",
+            integration_display_name="Google Ads",
+            suggested_clean_name="autumn_clearance",
+            raw_campaign_values=["autum_clearnce"],
+            confidence=0.72,
+            method="fuzzy_exact_scope",
+            reason="'autum_clearnce' — 150 events, 93% similar to Google Ads campaign 'autumn_clearance'.",
+            event_count_30d=150,
+        )
+        response = self._make_empty_response()
+        response.campaign_suggestions = [suggestion]
+        result = _format_utm_mapping_suggestions_for_llm(response)
+        assert "autum_clearnce" in result
+        assert "autumn_clearance" in result
+        assert "Google Ads" in result
 
     def test_no_suggestions_shows_none(self):
         result = _format_utm_mapping_suggestions_for_llm(self._make_empty_response())

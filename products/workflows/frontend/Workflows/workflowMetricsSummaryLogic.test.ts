@@ -200,17 +200,17 @@ describe('buildEmailMetricRows', () => {
 })
 
 describe('buildPushMetricRows', () => {
-    it('maps sent/skipped/failed per action and defaults missing totals to 0', () => {
+    it('maps sent/skipped/failed/opened per action and defaults missing totals to 0', () => {
         const rows = buildPushMetricRows(
             [
                 { id: 'p1', name: 'Reminder' },
                 { id: 'p2', name: 'Promo' },
             ],
-            { p1: { push_sent: 50, push_skipped: 20, push_failed: 3 } }
+            { p1: { push_sent: 50, push_skipped: 20, push_failed: 3, push_opened: 12 } }
         )
         expect(rows).toEqual([
-            { id: 'p1', push: 'Reminder', sent: 50, skipped: 20, failed: 3 },
-            { id: 'p2', push: 'Promo', sent: 0, skipped: 0, failed: 0 },
+            { id: 'p1', push: 'Reminder', sent: 50, skipped: 20, failed: 3, opened: 12 },
+            { id: 'p2', push: 'Promo', sent: 0, skipped: 0, failed: 0, opened: 0 },
         ])
     })
 })

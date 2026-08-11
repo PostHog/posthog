@@ -4,7 +4,7 @@ mod integration_utils;
 use async_trait::async_trait;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
-use capture::config::{AiRouting, CaptureMode};
+use capture::config::CaptureMode;
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
     RestrictionScope, RestrictionType,
@@ -194,7 +194,6 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None,                     // v1_sink_router
         8,                        // capture_v1_scatter_gather_min_batch
         options.ai_gateway_signing_secret,
-        AiRouting::Primary,                // ai_routing
         false,                             // ai_events_overflow_enabled
         options.ingestion_warning_emitter, // ingestion_warning_emitter
     );

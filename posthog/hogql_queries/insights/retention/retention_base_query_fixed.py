@@ -623,11 +623,21 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # mode the only element ever read is start_event_timestamps[1] (the minimum), so a single-element array is
         # equivalent. A null anchor (first-ever occurrence not matching filters) or an out-of-window anchor both
         # fail the window check and yield an empty array, excluding the actor.
+        bucketed_anchor: ast.Expr = self.query_date_range.date_to_start_of_interval_hogql(anchor_expr)
+        if self.query_date_range.interval_name in ("hour", "day"):
+            # The legacy shape builds start_event_timestamps via groupUniqArrayIf, whose result type drops
+            # the DateTime timezone (Array(DateTime) in the server default, UTC on Cloud). This array literal
+            # would instead keep the team timezone carried by the anchor. dateDiff — the custom-brackets
+            # bucketing — evaluates each operand's calendar day in its own timezone, so for teams east of UTC
+            # a team-tz-typed anchor lands every return one bracket early (next-day returns collapse into
+            # day 0 and get dropped). Pin the aggregate's type so both shapes bucket identically. Week/month
+            # buckets are Date-typed (timezoneless) in both shapes and toTimeZone would not accept them.
+            bucketed_anchor = ast.Call(name="toTimeZone", args=[bucketed_anchor, ast.Constant(value="UTC")])
         return parse_expr(
             "if({within_window}, [{bucketed_anchor}], [])",
             {
                 "within_window": self.events_timestamp_filter(field=anchor_expr),
-                "bucketed_anchor": self.query_date_range.date_to_start_of_interval_hogql(anchor_expr),
+                "bucketed_anchor": bucketed_anchor,
             },
         )
 

@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
-use capture::config::{AiRouting, CaptureMode};
+use capture::config::CaptureMode;
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
@@ -175,20 +175,19 @@ fn setup_ai_test_router() -> Router {
         1_i64,
         false,
         0.0_f32,
-        26_214_400,         // 25MB default for AI endpoint
-        None,               // body_chunk_read_timeout_ms
-        256,                // body_read_chunk_size_kb
-        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-        None,               // overflow_limiter
-        None,               // ai_events_overflow_limiter
-        None,               // replay_overflow_limiter
-        None,               // v1_sink_router
-        8,                  // capture_v1_scatter_gather_min_batch
-        None,               // ai_gateway_signing_secret
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        26_214_400,       // 25MB default for AI endpoint
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     )
 }
 
@@ -242,7 +241,6 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         None,
         8,
         None,
-        AiRouting::Primary,
         false,
         warning_emitter,
     );
@@ -1300,20 +1298,19 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         1_i64,
         false,
         0.0_f32,
-        26_214_400,         // 25MB default for AI endpoint
-        None,               // body_chunk_read_timeout_ms
-        256,                // body_read_chunk_size_kb
-        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-        None,               // overflow_limiter
-        None,               // ai_events_overflow_limiter
-        None,               // replay_overflow_limiter
-        None,               // v1_sink_router
-        8,                  // capture_v1_scatter_gather_min_batch
-        None,               // ai_gateway_signing_secret
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        26_214_400,       // 25MB default for AI endpoint
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -1963,26 +1960,25 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None, // event_restriction_service
         None, // recorder_handle
         CaptureMode::Events,
-        None,               // concurrency_limit
-        25 * 1024 * 1024,   // event_size_limit
-        false,              // enable_historical_rerouting
-        1,                  // historical_rerouting_threshold_days
-        false,              // is_mirror_deploy
-        0.0,                // verbose_sample_percent
-        26_214_400,         // ai_max_sum_of_parts_bytes
-        None,               // body_chunk_read_timeout_ms
-        256,                // body_read_chunk_size_kb
-        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-        None,               // overflow_limiter
-        None,               // ai_events_overflow_limiter
-        None,               // replay_overflow_limiter
-        None,               // v1_sink_router
-        8,                  // capture_v1_scatter_gather_min_batch
-        None,               // ai_gateway_signing_secret
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        None,             // concurrency_limit
+        25 * 1024 * 1024, // event_size_limit
+        false,            // enable_historical_rerouting
+        1,                // historical_rerouting_threshold_days
+        false,            // is_mirror_deploy
+        0.0,              // verbose_sample_percent
+        26_214_400,       // ai_max_sum_of_parts_bytes
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2182,19 +2178,18 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
-        None,               // body_chunk_read_timeout_ms
-        256,                // body_read_chunk_size_kb
-        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-        None,               // overflow_limiter
-        None,               // ai_events_overflow_limiter
-        None,               // replay_overflow_limiter
-        None,               // v1_sink_router
-        8,                  // capture_v1_scatter_gather_min_batch
-        None,               // ai_gateway_signing_secret
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2344,14 +2339,13 @@ fn setup_ai_test_router_with_overflow_limiter(
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         Some(overflow_limiter),
-        None,               // ai_events_overflow_limiter
-        None,               // replay_overflow_limiter
-        None,               // v1_sink_router
-        8,                  // capture_v1_scatter_gather_min_batch
-        None,               // ai_gateway_signing_secret
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        None,  // ai_events_overflow_limiter
+        None,  // replay_overflow_limiter
+        None,  // v1_sink_router
+        8,     // capture_v1_scatter_gather_min_batch
+        None,  // ai_gateway_signing_secret
+        false, // ai_events_overflow_enabled
+        None,  // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2490,9 +2484,8 @@ fn ai_router(
         None,
         8,
         Some(GW_SECRET.to_string()),
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        false, // ai_events_overflow_enabled
+        None,  // ingestion_warning_emitter
     );
     (router, sink_clone)
 }

@@ -56,8 +56,16 @@ class PersonPropertyRowSink:
         self._attempt_token = str(int(time.time()))
         self._projection: list[PersonPropertySourceProjection] | None = None
         self._projection_resolved = False
+        self._fs_cache: pa_fs.S3FileSystem | None = None
 
     def _get_fs(self) -> pa_fs.S3FileSystem:
+        # Cached per instance: stage_chunk() calls this once per chunk, and a sink lives for a
+        # whole sync (potentially thousands of chunks). A fresh S3FileSystem per call opens its
+        # own AWS SDK client/connections that outlive the call, exhausting the process' file
+        # descriptor limit over a long sync.
+        if self._fs_cache is not None:
+            return self._fs_cache
+
         if settings.USE_LOCAL_SETUP:
             ensure_bucket_exists(
                 f"s3://{self._get_path_prefix()}",
@@ -65,13 +73,15 @@ class PersonPropertyRowSink:
                 settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 settings.OBJECT_STORAGE_ENDPOINT,
             )
-            return pa_fs.S3FileSystem(
+            self._fs_cache = pa_fs.S3FileSystem(
                 access_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
                 secret_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
             )
+        else:
+            self._fs_cache = pa_fs.S3FileSystem()
 
-        return pa_fs.S3FileSystem()
+        return self._fs_cache
 
     def _get_schema_prefix(self) -> str:
         return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_sync/{self.team_id}/{self.schema_id}"

@@ -831,6 +831,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-alerting',
+                'logs-anomalies',
                 'logs-patterns-view',
                 'llm-analytics-datasets',
                 'replay-video-based-summarization',
@@ -862,7 +863,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'posthog-connect',
             ])
         )
-        expect(flags).toHaveLength(30)
+        expect(flags).toHaveLength(31)
     })
 
     it('every loops tool is gated on the loops flag', () => {

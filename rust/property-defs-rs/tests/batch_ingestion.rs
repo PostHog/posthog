@@ -274,9 +274,6 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
         is_numerical: false,
         event_type: PropertyParentType::Event,
         group_type_index: None,
-        property_type_format: None,
-        volume_30_day: None,
-        query_usage_30_day: None,
     };
 
     let initial_updates = vec![Update::Property(initial_prop)];
@@ -309,9 +306,6 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
         is_numerical: true,
         event_type: PropertyParentType::Event,
         group_type_index: None,
-        property_type_format: None,
-        volume_30_day: None,
-        query_usage_30_day: None,
     };
 
     let updated_updates = vec![Update::Property(updated_prop)];
@@ -368,9 +362,6 @@ fn prop(
         is_numerical,
         event_type,
         group_type_index: None,
-        property_type_format: None,
-        volume_30_day: None,
-        query_usage_30_day: None,
     })
 }
 

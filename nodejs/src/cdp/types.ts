@@ -249,6 +249,7 @@ export type MinimalAppMetric = {
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'
+        | 'push_opened'
         | 'quota_limited'
         | 'conversion'
         | 'exited_workflow_changed'
