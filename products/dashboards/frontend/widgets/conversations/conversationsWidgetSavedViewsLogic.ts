@@ -1,6 +1,5 @@
-import { MakeLogicType, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -41,7 +40,10 @@ export type conversationsWidgetSavedViewsLogicType = MakeLogicType<
 
 export const conversationsWidgetSavedViewsLogic = kea<conversationsWidgetSavedViewsLogicType>([
     path(['products', 'dashboards', 'widgets', 'conversations', 'conversationsWidgetSavedViewsLogic']),
-    connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
+    connect(() => ({
+        actions: [teamLogic, ['loadCurrentTeamSuccess']],
+        values: [teamLogic, ['currentProjectId']],
+    })),
     loaders(({ values }) => ({
         savedViews: {
             __default: [] as TicketViewApi[],
@@ -86,7 +88,7 @@ export const conversationsWidgetSavedViewsLogic = kea<conversationsWidgetSavedVi
     afterMount(({ actions }) => {
         actions.loadSavedViews()
     }),
-    subscriptions(({ actions }) => ({
-        currentProjectId: () => actions.loadSavedViews(),
+    listeners(({ actions }) => ({
+        loadCurrentTeamSuccess: () => actions.loadSavedViews(),
     })),
 ])

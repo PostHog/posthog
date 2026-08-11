@@ -1,14 +1,18 @@
 from datetime import datetime, timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
+
+from posthog.models import Team
 
 from products.conversations.backend.models import Ticket, TicketAssignment, TicketView
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_specs.registry import get_widget_registry_entry, validate_widget_config
 
 
+@freeze_time("2026-08-10 12:00:00")
 class TestConversationsRecentTicketsWidget(BaseTest):
     def test_saved_view_id_validation_matches_ticket_view_short_id(self) -> None:
         validated = validate_widget_config("conversations_recent_tickets", {"savedViewId": "123456789012"})
@@ -129,7 +133,7 @@ class TestConversationsRecentTicketsWidget(BaseTest):
     def test_missing_or_cross_team_saved_view_falls_back_to_direct_filters(self) -> None:
         matching = self._ticket(1, "open", 1)
         self._ticket(2, "resolved", 2)
-        other_team = self.create_team(organization=self.organization)
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
         other_view = TicketView.objects.create(
             team=other_team,
             name="Other project view",
