@@ -96,8 +96,14 @@ export class SessionRecordingIngesterMetrics {
 
     private static readonly mlUrlHostsPerMessage = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_url_hosts_per_message',
-        help: 'Distinct hosts among the URLs collected from one message. The fetch topic is keyed by host, so this is how many Kafka messages one replay message becomes, and how concentrated a page is on one CDN',
-        buckets: [1, 2, 3, 5, 8, 13, 21, 34],
+        help: 'Distinct hosts among the URLs collected from one message, observed for every message including those with none. The fetch topic is keyed by host, so this is how many Kafka messages one replay message becomes, and how concentrated a page is on one CDN',
+        buckets: [0, 1, 2, 3, 5, 8, 13, 21, 34, 55],
+    })
+
+    private static readonly mlUrlsPerMessage = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_urls_per_message',
+        help: 'URLs collected from one message that carried at least one. The counter alone gives a mean; sizing the fetch lane needs the tail',
+        buckets: [1, 2, 5, 10, 25, 50, 100, 256],
     })
 
     private static readonly mlImageBytesProduced = new Counter({
@@ -165,6 +171,10 @@ export class SessionRecordingIngesterMetrics {
 
     public static observeMlUrlHostsPerMessage(hosts: number): void {
         this.mlUrlHostsPerMessage.observe(hosts)
+    }
+
+    public static observeMlUrlsPerMessage(urls: number): void {
+        this.mlUrlsPerMessage.observe(urls)
     }
 
     public static incrementMlImageBytesProduced(bytes: number): void {

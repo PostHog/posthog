@@ -14,6 +14,88 @@ const TS0: f64 = 1_700_000_000_000.0;
 const PSEUDO_TEAM: &str = "0123456789abcdef0123456789abcdef";
 const URL_KEY: &str = "0123456789abcdef0123456789abcdef";
 
+fn payload_tagged(tag: &str, attrs: Value) -> Vec<u8> {
+    let inner = json!({
+        "event": "$snapshot_items",
+        "properties": {
+            "$session_id": "s",
+            "$window_id": "w",
+            "$snapshot_items": [{
+                "type": 3,
+                "timestamp": TS0,
+                "data": { "source": 0, "adds": [{
+                    "parentId": 1,
+                    "nextId": null,
+                    "node": {
+                        "type": 2, "tagName": tag, "id": 42,
+                        "attributes": attrs, "childNodes": []
+                    }
+                }] }
+            }]
+        }
+    });
+    json!({ "distinct_id": "d", "data": inner.to_string() })
+        .to_string()
+        .into_bytes()
+}
+
+fn collect_urls_of(tag: &str, attrs: Value) -> Vec<String> {
+    let allow = AllowLists::default();
+    let mut hosts = Vec::new();
+    for byte_walk in [true, false] {
+        let mut bytes = payload_tagged(tag, attrs.clone());
+        let msg = anonymize_kafka_payload_collecting(
+            &allow,
+            &mut bytes,
+            AnonymizeOpts {
+                byte_walk,
+                image_policy: ImagePolicy::Inline,
+            },
+            None,
+            None,
+            Some(UrlCollection {
+                pseudo_team: PSEUDO_TEAM.to_string(),
+                url_key: URL_KEY.to_string(),
+            }),
+        )
+        .expect("anonymize should succeed");
+        hosts.push(format!("byte_walk={byte_walk}:{}", msg.meta.urls.len()));
+    }
+    hosts
+}
+
+#[test]
+fn only_an_image_bearing_tag_has_its_src_collected() {
+    // TagKind::Media also covers video, audio and track, whose src is a movie, a sound file, or a
+    // WebVTT subtitle document. The fetch lane is sized to download images.
+    for tag in ["img", "image", "picture"] {
+        assert_eq!(
+            collect_urls_of(tag, json!({ "src": "https://cdn.example.com/a.png" })),
+            vec!["byte_walk=true:1", "byte_walk=false:1"],
+            "{tag} src should be collected"
+        );
+    }
+    for tag in ["video", "audio", "track", "source"] {
+        assert_eq!(
+            collect_urls_of(tag, json!({ "src": "https://cdn.example.com/movie.mp4" })),
+            vec!["byte_walk=true:0", "byte_walk=false:0"],
+            "{tag} src is not an image and must not be collected"
+        );
+    }
+}
+
+#[test]
+fn a_video_poster_is_still_collected() {
+    // poster only exists on a video and always names a still image.
+    assert_eq!(
+        collect_urls_of(
+            "video",
+            json!({ "poster": "https://cdn.example.com/poster.jpg" })
+        ),
+        vec!["byte_walk=true:1", "byte_walk=false:1"]
+    );
+}
+
 fn payload(attrs: Value) -> Vec<u8> {
     let inner = json!({
         "event": "$snapshot_items",

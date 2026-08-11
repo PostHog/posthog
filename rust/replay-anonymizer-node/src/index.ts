@@ -130,12 +130,14 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * the raw team id or master secret) enable the image-collection lane: inlined images are replaced
  * with `image:<pseudoTeam>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
  * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
- * the scrub topic. Passing one without the other throws.
+ * the scrub topic.
  *
  * `urlKey` enables the URL-collection lane alongside it: a remote image's `src` is replaced with a
  * ref of the same shape, and its original URL comes back in `meta.urls` for the caller to hand to
- * the fetch lane. It needs `pseudoTeam` too, since the ref embeds it, and throws without one. The
- * two lanes are independent: either, both, or neither.
+ * the fetch lane.
+ *
+ * The two lanes are independent: either, both, or neither. Both need `pseudoTeam`, because the ref
+ * embeds it, so a `contentKey` or a `urlKey` without one throws.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,

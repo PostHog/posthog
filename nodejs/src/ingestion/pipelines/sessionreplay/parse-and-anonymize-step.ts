@@ -72,11 +72,15 @@ export interface ParseAndAnonymizeStepOutput extends ParseMessageStepOutput {
 export interface ImageCollectionConfig {
     /** The ML pseudonym HMAC key; only its per-team derivatives (never the key) cross the FFI. */
     pseudonymSecret: string | Buffer
+    /** Replace inlined images with refs and return their bytes for the scrub topic. */
+    collectImages: boolean
     /**
-     * Also collect the URLs of remote images. Off until the fetch lane can consume them; with it
-     * off a remote image keeps the media placeholder it has today.
+     * Replace a remote image's `src` with a ref and return its URL for the fetch lane.
+     *
+     * Independent of `collectImages`. The two lanes have separate destinations and separate
+     * rollouts, so tying them together would make the URL measurement wait on the scrub lane.
      */
-    collectUrls?: boolean
+    collectUrls: boolean
 }
 
 /**
@@ -97,7 +101,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
     // carries no unkeyed content digest; it never crosses the FFI as the raw secret.
     interface TeamImageKeys {
         pseudoTeam: string
-        contentKey: string
+        contentKey?: string
         urlKey?: string
     }
     const teamKeysCache = new Map<number, TeamImageKeys>()
@@ -123,7 +127,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             }
             keys = {
                 pseudoTeam,
-                contentKey,
+                contentKey: imageCollection.collectImages ? contentKey : undefined,
                 urlKey: imageCollection.collectUrls
                     ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, String(teamId))
                     : undefined,
@@ -263,7 +267,9 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             snapshot_library: meta.snapshotLibrary,
         }
 
-        const collectedImages = teamKeys ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images) : undefined
+        const collectedImages = teamKeys?.contentKey
+            ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images)
+            : undefined
         const collectedUrls = teamKeys?.urlKey ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
@@ -300,21 +306,24 @@ function unpackCollectedImages(
 /**
  * Turn the addon's `meta.urls` into produce-ready records.
  *
- * Also reports how many distinct hosts they span, because the fetch topic is keyed by host: that
- * number is how many Kafka messages one replay message becomes, and it is the measurement the
- * dry-run phase exists to take.
+ * The host count is observed for every message, including the ones that carried no URL at all.
+ * The fetch topic is keyed by host, so that distribution is how many Kafka messages one replay
+ * message becomes. Observing only the messages that carried a URL would report the fan-out of an
+ * image-heavy page as if it were the fan-out of every page, and the whole point of this step is to
+ * size a topic from that number.
  */
 function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
-    if (!meta.urls?.length) {
-        return undefined
-    }
     const urls: CollectedUrl[] = []
     const hosts = new Set<string>()
-    for (const entry of meta.urls) {
+    for (const entry of meta.urls ?? []) {
         urls.push({ ref: imageRef(pseudoTeam, entry.hash), url: entry.url, host: entry.host })
         hosts.add(entry.host)
     }
-    SessionRecordingIngesterMetrics.incrementMlUrlsCollected('collected', urls.length)
     SessionRecordingIngesterMetrics.observeMlUrlHostsPerMessage(hosts.size)
+    if (urls.length === 0) {
+        return undefined
+    }
+    SessionRecordingIngesterMetrics.incrementMlUrlsCollected('collected', urls.length)
+    SessionRecordingIngesterMetrics.observeMlUrlsPerMessage(urls.length)
     return urls
 }

@@ -300,13 +300,26 @@ describeAddon('native image collection', () => {
         expect(result.lines!.toString()).not.toContain('image:')
     })
 
-    it('rejects when pseudoTeam and contentKey are not passed together', async () => {
+    it('rejects a per-team key with no pseudonym to attribute it to', async () => {
+        // Each lane's ref embeds the pseudonym, so a key without one would mint refs that nothing
+        // can attribute to a team. That fails loudly rather than collecting under a blank prefix.
         rustAddon!.initAnonymizer({ text: [], url: [] })
         await expect(
-            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, undefined)
-        ).rejects.toThrow('must be passed together')
-        await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, CONTENT_KEY)
-        ).rejects.toThrow('must be passed together')
+        ).rejects.toThrow('require pseudoTeam')
+        await expect(
+            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
+        ).rejects.toThrow('require pseudoTeam')
+    })
+
+    it('runs either collection lane without the other', async () => {
+        // The URL lane measures before any fetch topic exists, so it must not need the image lane.
+        rustAddon!.initAnonymizer({ text: [], url: [] })
+        const imagesOnly = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, CONTENT_KEY)
+        expect(imagesOnly.failed).toBe(false)
+        // A pseudonym with neither key collects nothing and is not an error.
+        const neither = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, undefined)
+        expect(neither.failed).toBe(false)
+        expect(neither.lines!.toString()).not.toContain('image:')
     })
 })

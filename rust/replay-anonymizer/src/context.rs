@@ -162,7 +162,11 @@ impl<'a> Ctx<'a> {
     }
 
     /// Drain the collected URLs (hash-sorted). Empty when URL collection was off.
-    pub fn into_collected_urls(&mut self) -> Vec<CollectedUrl> {
+    ///
+    /// Takes the collector rather than `self`, because the caller drains the images afterwards and
+    /// that call consumes the context. A second call therefore returns nothing, which is why this
+    /// is not named `into_`.
+    pub fn take_collected_urls(&mut self) -> Vec<CollectedUrl> {
         match self.url_collector.take() {
             Some(collector) => collector.into_inner().into_urls(),
             None => Vec::new(),

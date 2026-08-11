@@ -518,7 +518,7 @@ fn anonymize_snapshot_data_inner(
         None => anonymize_via_tree_mut(&ctx, distinct_id, inner)?,
     };
     msg.meta.urls = ctx
-        .into_collected_urls()
+        .take_collected_urls()
         .into_iter()
         .map(|u| UrlEntry {
             hash: u.hash,

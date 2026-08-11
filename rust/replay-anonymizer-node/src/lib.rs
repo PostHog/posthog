@@ -102,21 +102,24 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     // The URL lane is enabled independently of the image lane, but it needs the same pseudonym, so
     // a urlKey without a pseudoTeam is a mis-keyed ref rather than a partial opt-in.
     let url_key = opt_string_arg(&mut cx, 4)?;
+    // Each lane needs the pseudonym, because its ref embeds it, and its own per-team key. A key
+    // without the pseudonym would mint refs nothing can attribute, so it fails loudly instead.
+    if pseudo_team.is_none() && (content_key.is_some() || url_key.is_some()) {
+        return cx.throw_error("contentKey and urlKey each require pseudoTeam");
+    }
     let image_collection = match (pseudo_team.clone(), content_key) {
         (Some(pseudo_team), Some(content_key)) => Some(ImageCollection {
             pseudo_team,
             content_key,
         }),
-        (None, None) => None,
-        _ => return cx.throw_error("pseudoTeam and contentKey must be passed together"),
+        _ => None,
     };
     let url_collection = match (pseudo_team, url_key) {
         (Some(pseudo_team), Some(url_key)) => Some(UrlCollection {
             pseudo_team,
             url_key,
         }),
-        (_, None) => None,
-        (None, Some(_)) => return cx.throw_error("urlKey requires pseudoTeam"),
+        _ => None,
     };
     // Created on the JS thread so every offset shares one monotonic origin: the task-start mark
     // becomes the threadpool queue wait, and no wall clock is involved.
