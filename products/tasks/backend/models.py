@@ -450,6 +450,7 @@ class Task(DeletedMetaFields, models.Model):
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
+            queued_at=django_timezone.now(),
             **({"environment": environment} if environment else {}),
             state=state,
             branch=branch,
@@ -1870,6 +1871,12 @@ class TaskRun(models.Model):
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # When the run last entered QUEUED. `created_at` can't stand in for it because
+    # `prepare_for_cloud_handoff` re-queues an existing run without resetting it, and
+    # `updated_at` can't either because any unrelated write to a still-queued run would
+    # move it. Null on rows queued before this field existed; readers fall back to
+    # `created_at`, which is exact for a run that was only ever queued once.
+    queued_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task_run"
@@ -1946,6 +1953,7 @@ class TaskRun(models.Model):
         """
         self.status = self.Status.QUEUED
         self.environment = self.Environment.CLOUD
+        self.queued_at = django_timezone.now()
         self.completed_at = None
         self.error_message = None
 
@@ -1976,6 +1984,7 @@ class TaskRun(models.Model):
             update_fields=[
                 "status",
                 "environment",
+                "queued_at",
                 "completed_at",
                 "error_message",
                 "state",

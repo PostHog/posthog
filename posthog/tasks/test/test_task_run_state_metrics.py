@@ -35,6 +35,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         environment: "Optional[TaskRun.Environment]" = None,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
+        queued_at: Optional[datetime] = None,
     ) -> "TaskRun":
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -55,7 +56,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         # .update() bypasses auto_now, so an explicit updated_at sticks.
         overrides = {
             field: value
-            for field, value in (("created_at", created_at), ("updated_at", updated_at))
+            for field, value in (("created_at", created_at), ("updated_at", updated_at), ("queued_at", queued_at))
             if value is not None
         }
         if overrides:
@@ -137,7 +138,6 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             origin=Task.OriginProduct.SLACK,
             status=TaskRun.Status.QUEUED,
             created_at=long_ago,
-            updated_at=long_ago,
         )
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.QUEUED)
 
@@ -155,12 +155,17 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         [
             # A cloud handoff re-queues an existing run without resetting created_at, so anchoring
             # the queue wait on created_at would report the whole pre-handoff lifetime as backlog.
-            (apps.get_model("tasks", "TaskRun").Status.QUEUED, 1500, 2400),
-            (apps.get_model("tasks", "TaskRun").Status.IN_PROGRESS, 20000, 23000),
+            ("requeued_by_handoff", apps.get_model("tasks", "TaskRun").Status.QUEUED, 30, 1500, 2400),
+            # An unrelated write to a still-queued run advances updated_at, so anchoring on
+            # updated_at would make a genuinely stranded run look newly queued.
+            ("written_while_still_queued", apps.get_model("tasks", "TaskRun").Status.QUEUED, 360, 20000, 23000),
+            # Rows queued before queued_at existed fall back to created_at.
+            ("queued_before_the_field_existed", apps.get_model("tasks", "TaskRun").Status.QUEUED, None, 20000, 23000),
+            ("in_progress_reports_lifetime", apps.get_model("tasks", "TaskRun").Status.IN_PROGRESS, 30, 20000, 23000),
         ]
     )
-    def test_age_anchors_queued_on_requeue_and_other_statuses_on_creation(
-        self, status: "TaskRun.Status", low: int, high: int
+    def test_oldest_age_anchors_queued_runs_on_queued_at(
+        self, _name: str, status: "TaskRun.Status", queued_minutes_ago: Optional[int], low: int, high: int
     ) -> None:
         Task = apps.get_model("tasks", "Task")
         now = timezone.now()
@@ -169,6 +174,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             status=status,
             created_at=now - timedelta(hours=6),
             updated_at=now - timedelta(minutes=30),
+            queued_at=None if queued_minutes_ago is None else now - timedelta(minutes=queued_minutes_ago),
         )
 
         registry = self._run_with_registry()
