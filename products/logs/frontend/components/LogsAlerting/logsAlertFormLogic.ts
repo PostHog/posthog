@@ -356,7 +356,8 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 try {
                     if (values.pendingNotifications.length > 0) {
                         const notifLogic = logsAlertNotificationLogic({ alertId: props.alert?.id })
-                        notificationsConfigured = await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
+                        notificationsConfigured = notifLogic.values.pendingNotifications.length === 0
                     }
                 } catch {
                     notificationsConfigured = false

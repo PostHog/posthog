@@ -421,7 +421,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         createPendingHogFunctions: async ({ alertId }) => {
             const pending = values.pendingNotifications
             if (pending.length === 0) {
-                return true
+                return
             }
 
             const projectId = String(values.currentProjectId)
@@ -445,6 +445,9 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
 
             const failedNotifications = pending.filter((_, i) => results[i].status === 'rejected')
 
+            actions.loadExistingHogFunctions(alertId)
+            actions.destinationsChanged()
+
             if (failedNotifications.length > 0) {
                 lemonToast.error(
                     `Alert saved, but ${failedNotifications.length} notification(s) failed to create. Reopen the alert to add them again.`
@@ -456,10 +459,6 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                 }
                 actions.clearPendingNotifications()
             }
-
-            actions.loadExistingHogFunctions(alertId)
-            actions.destinationsChanged()
-            return failedNotifications.length === 0
         },
     })),
 

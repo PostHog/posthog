@@ -180,7 +180,13 @@ function SimulationSummary({
     )
 }
 
-function SimulationIncidents({ incidents }: { incidents: Incident[] }): JSX.Element | null {
+function SimulationIncidents({
+    incidents,
+    threshold,
+}: {
+    incidents: Incident[]
+    threshold: number
+}): JSX.Element | null {
     if (incidents.length === 0) {
         return null
     }
@@ -250,7 +256,7 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
             </p>
             <SimulationChart result={result} />
             <SimulationSummary result={result} incidents={incidents} />
-            <SimulationIncidents incidents={incidents} />
+            <SimulationIncidents incidents={incidents} threshold={result.threshold_count} />
         </div>
     )
 }
