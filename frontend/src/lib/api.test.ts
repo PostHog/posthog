@@ -1,7 +1,7 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest, normalizeApiPath } from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -306,9 +306,11 @@ describe('API helper', () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body) }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
             expect(error).toBeInstanceOf(ApiError)
-            // Method + path so occurrences are triageable in error tracking
-            expect(error.message).toContain('[GET /api/environments/2/insights]')
+            // Method + normalized path so occurrences group in error tracking; the exact path
+            // (with the project ID) stays on requestPath for triage
+            expect(error.message).toContain('[GET /api/environments/:id/insights]')
             expect(error.message).toContain('status 200')
+            expect(error.requestPath).toBe('/api/environments/2/insights')
             // No `status`: a 2xx on an ApiError would make retry/recovery checks
             // (`status === undefined || status >= 500`) treat this transient failure as a client error
             expect(error.status).toBeUndefined()
@@ -317,7 +319,7 @@ describe('API helper', () => {
         it('carries the actual request method in the malformed-body error', async () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('<html></html>') }))
             const error = await api.create('api/environments/2/insights', {}).catch((e) => e)
-            expect(error.message).toContain('[POST /api/environments/2/insights]')
+            expect(error.message).toContain('[POST /api/environments/:id/insights]')
         })
 
         it('surfaces a body stream that fails mid-read as an ApiError instead of null', async () => {
@@ -340,6 +342,50 @@ describe('API helper', () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
+        })
+    })
+
+    describe('error grouping', () => {
+        it.each([
+            ['/api/projects/2/conversations/tickets/', '/api/projects/:id/conversations/tickets/'],
+            [
+                '/api/projects/2/conversations/tickets/0198f8a4-0923-7bae-a663-64807d65f4bd/messages/',
+                '/api/projects/:id/conversations/tickets/:uuid/messages/',
+            ],
+            ['/api/environments/2/insights', '/api/environments/:id/insights'],
+            // Non-ID segments are left alone so different endpoints still group apart
+            ['/api/organizations/current/members', '/api/organizations/current/members'],
+        ])('normalizes %s to %s', (pathname, expected) => {
+            expect(normalizeApiPath(pathname)).toBe(expected)
+        })
+
+        it('gives the same non-OK message for the same failure on different resources', async () => {
+            const failing = (url: string): any => ({
+                ok: false,
+                status: 503,
+                statusText: '',
+                url,
+                json: () => Promise.reject(new Error('empty body')),
+            })
+
+            fakeFetch.mockResolvedValue(
+                failing('/api/projects/2/conversations/tickets/aaaaaaaa-0000-0000-0000-000000000000/messages/')
+            )
+            const first = await api
+                .get('api/projects/2/conversations/tickets/aaaaaaaa-0000-0000-0000-000000000000/messages')
+                .catch((e) => e)
+
+            fakeFetch.mockResolvedValue(
+                failing('/api/projects/2/conversations/tickets/bbbbbbbb-1111-1111-1111-111111111111/messages/')
+            )
+            const second = await api
+                .get('api/projects/2/conversations/tickets/bbbbbbbb-1111-1111-1111-111111111111/messages')
+                .catch((e) => e)
+
+            expect(first.message).toBe(second.message)
+            expect(first.message).toContain(':uuid')
+            // The exact resource is still recoverable off the message
+            expect(first.requestPath).not.toBe(second.requestPath)
         })
     })
 

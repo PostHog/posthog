@@ -371,8 +371,31 @@ export async function getJSONOrNull(response: Response): Promise<any> {
     }
 }
 
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Replace per-request path segments — numeric IDs and UUIDs — with stable placeholders. Error
+ * tracking fingerprints on the exception message, so a raw path bakes the project ID and resource
+ * UUID into it: the same failure on two tickets then opens two issues and nothing ever groups.
+ * The exact path is preserved on `ApiError.requestPath` for triage.
+ */
+export function normalizeApiPath(pathname: string): string {
+    return pathname
+        .split('/')
+        .map((segment) => {
+            if (/^\d+$/.test(segment)) {
+                return ':id'
+            }
+            if (UUID_SEGMENT.test(segment)) {
+                return ':uuid'
+            }
+            return segment
+        })
+        .join('/')
+}
+
 function apiErrorFallback(response: Response, method: string, url: string): string {
-    const pathname = new URL(url, location.origin).pathname
+    const pathname = normalizeApiPath(new URL(url, location.origin).pathname)
     return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
 }
 
@@ -394,8 +417,13 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * real status stays in the message for triage.
  */
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
-    const requestContext = (): string =>
-        `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    const pathname = new URL(url, location.origin).pathname
+    const requestContext = (): string => `[${method} ${normalizeApiPath(pathname)}] (status ${response.status})`
+    const failWith = (message: string): ApiError => {
+        const error = new ApiError(message)
+        error.requestPath = pathname
+        return error
+    }
     let text: string
     try {
         text = await response.text()
@@ -405,7 +433,7 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
         }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
         // the response is unusable, so surface it instead of handing callers a null.
-        throw new ApiError(`Failed to read response body ${requestContext()}`)
+        throw failWith(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
         return null
@@ -413,7 +441,7 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
     try {
         return JSON.parse(text)
     } catch {
-        throw new ApiError(`Malformed JSON response ${requestContext()}`)
+        throw failWith(`Malformed JSON response ${requestContext()}`)
     }
 }
 

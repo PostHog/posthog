@@ -1,6 +1,18 @@
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+/** The pathname of a request URL, or null when the URL is missing or unparseable. */
+function pathnameOrNull(url: string | undefined): string | null {
+    if (!url) {
+        return null
+    }
+    try {
+        return new URL(url, location.origin).pathname
+    } catch {
+        return null
+    }
+}
+
 /** A 403 with DRF's `permission_denied` code — the user lacks access to the resource itself. */
 export function isAccessDeniedError(error: { status?: number; code?: string | null }): boolean {
     return error.status === 403 && error.code === 'permission_denied'
@@ -27,6 +39,13 @@ export class ApiError extends Error {
 
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
+
+    /**
+     * The exact request path (with project IDs, UUIDs, etc.). Kept off the message — which error
+     * tracking fingerprints on — so identical failures on different resources group into one issue,
+     * while triage can still see which resource failed.
+     */
+    requestPath: string | null = null
 
     constructor(
         message?: string,
@@ -59,7 +78,9 @@ export class ApiError extends Error {
             (value): value is string => typeof value === 'string'
         )
 
-        return new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
+        const error = new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
+        error.requestPath = pathnameOrNull(response.url)
+        return error
     }
 
     /**

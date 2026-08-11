@@ -2,10 +2,19 @@ import { MakeLogicType, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { conversationsTicketsMessagesList } from '../../generated/api'
 import type { TicketMessageApi } from '../../generated/api.schemas'
+
+/** A transient transport failure — an aborted fetch or a 5xx — the UI already degrades on. */
+function isTransientTransportError(error: unknown): boolean {
+    if ((error as { name?: string } | null)?.name === 'AbortError') {
+        return true
+    }
+    return error instanceof ApiError && (error.status ?? 0) >= 500
+}
 
 export interface TicketPreviewLogicProps {
     ticketId: string
@@ -97,7 +106,12 @@ export const ticketPreviewLogic = kea<ticketPreviewLogicType>([
 
                         return { firstMessages: first.results, lastMessage, hiddenCount, error: false }
                     } catch (e) {
-                        posthog.captureException(e)
+                        // Aborted fetches and 5xx responses are transient transport failures the
+                        // error state already handles — don't report them, or the inbox fills with
+                        // ungroupable noise. Only capture genuinely unexpected failures.
+                        if (!isTransientTransportError(e)) {
+                            posthog.captureException(e)
+                        }
                         return { firstMessages: [], lastMessage: null, hiddenCount: 0, error: true }
                     }
                 },
