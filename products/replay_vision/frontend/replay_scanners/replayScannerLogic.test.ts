@@ -741,6 +741,19 @@ describe('replayScannerLogic', () => {
             expect(String(router.values.searchParams.page)).toBe('3')
         })
 
+        it('round-trips score bounds through the URL without swapping min and max', async () => {
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationScoreRange(3, 8)
+            }).toFinishAllListeners()
+            expect(String(router.values.searchParams.min_score)).toBe('3')
+            expect(String(router.values.searchParams.max_score)).toBe('8')
+
+            router.actions.push(urls.replayVision('sid'), { min_score: 7, max_score: 9 })
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(scannedLogic.values.observationMinScoreFilter).toBe(7)
+            expect(scannedLogic.values.observationMaxScoreFilter).toBe(9)
+        })
+
         it('drops default state from the URL', async () => {
             await expectLogic(scannedLogic, () => {
                 scannedLogic.actions.setObservationsPage(1)

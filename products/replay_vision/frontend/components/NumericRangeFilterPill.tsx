@@ -58,7 +58,7 @@ export function NumericRangeFilterPill({
                                 min={scaleMin}
                                 max={scaleMax}
                                 placeholder={scaleMin !== undefined ? String(scaleMin) : undefined}
-                                value={min ?? undefined}
+                                value={min ?? NaN}
                                 onChange={(value) => onChange(toNumericBound(value), max)}
                                 className="flex-1"
                             />
@@ -71,7 +71,7 @@ export function NumericRangeFilterPill({
                                 min={scaleMin}
                                 max={scaleMax}
                                 placeholder={scaleMax !== undefined ? String(scaleMax) : undefined}
-                                value={max ?? undefined}
+                                value={max ?? NaN}
                                 onChange={(value) => onChange(min, toNumericBound(value))}
                                 className="flex-1"
                             />
