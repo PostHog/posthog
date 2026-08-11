@@ -90,6 +90,18 @@ skipped. `system.*` remotes are always resolvable. The `posthog` data cluster is
 for `local`, `@absent` elsewhere. A tiny `known_drift_skip` covers real proxy/storage drift pending
 a fix.
 
+## The cloud seam: vendored layers and the compose gate
+
+posthog-cloud-infra composes its cloud envs (dev, prod-us, prod-eu) from base layers vendored out of this directory at a pinned `base-ref` — today `roles/shared/` and `roles/data/shared/`, growing as roles migrate.
+Editing a vendored layer therefore changes compositions in another repo.
+Two consequences:
+
+- The **Cloud compose gate** job (in `ci-clickhouse-hcl-schema.yml`) dispatches to posthog-cloud-infra and composes the cloud envs against your PR head; it fails when a change breaks composition there (a patch that no longer resolves, a redeclaration, a validation error).
+- A change that composes cleanly may still legitimately _shift_ cloud goldens (say, a new column on `_event_base`) — that regen happens in cloud-infra's next `base-ref` bump PR, not here, and is expected.
+
+The events family is the canonical example: `roles/data/shared/` declares `_event_base` + `sharded_events` + `events` once; cloud env deltas (mat\_ columns, env specs) live as patches in cloud-infra's `overrides/`.
+Schema changes to those tables belong in `roles/data/shared/`, never re-declared per env.
+
 ## Making a change (edit HCL → migration)
 
 Run from the repo root. All the scripts below call `hclexp` through `bin/hclexp`,

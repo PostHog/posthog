@@ -2345,6 +2345,7 @@ For git operations while detached:
       gatewayUrl,
       region,
       (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     );
   }
 
@@ -2356,6 +2357,7 @@ For git operations while detached:
     const gatewayModels = await fetchGatewayModels({
       gatewayUrl,
       authToken: (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      projectId: this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     });
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,

@@ -12,7 +12,6 @@ import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
-import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
@@ -272,7 +271,6 @@ export const DisplayOptions = {
     MultipleYAxes: { label: () => <ShowMultipleYAxesFilter /> },
     TrendLines: { label: () => <ShowTrendLinesFilter /> },
     HideIncompleteFunnelPeriods: { label: () => <HideIncompleteConversionWindowPeriodsFilter /> },
-    HideWeekends: { label: () => <HideWeekendsFilter /> },
     Annotations: { label: () => <ShowAnnotationsFilter /> },
     ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
     Unit: { label: () => <UnitPicker /> },
