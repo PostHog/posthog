@@ -308,6 +308,70 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(existing_user.first_name, "Hoggy")
 
     @pytest.mark.skip_on_multitenancy
+    def test_signup_disallowed_with_plus_addressed_email(self):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "john+alias@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Email addresses with a '+' aren't supported. Please use your primary email address.",
+                code="plus_addressing_not_allowed",
+                attr="email",
+            ),
+        )
+        self.assertEqual(User.objects.count(), 0)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_disallowed_on_stripped_alias_collision(self):
+        User.objects.create(email="jane+old@posthog.com", first_name="Jane")
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "jane@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "There is already an account with this email address.",
+                code="unique",
+                attr="email",
+            ),
+        )
+        self.assertEqual(User.objects.count(), 1)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_social_signup_allows_plus_addressed_email(self):
+        # Social signup is deliberately out of scope for the plus-addressing rules.
+        session = self.client.session
+        session["backend"] = "google-oauth2"
+        session["email"] = "social+alias@posthog.com"
+        session["user_name"] = "Social User"
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup/",
+            {
+                "first_name": "Social",
+                "organization_name": "Social Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(User.objects.filter(email="social+alias@posthog.com").exists())
+
+    @pytest.mark.skip_on_multitenancy
     def test_signup_normalizes_email_to_lowercase(self):
         """Test that new signups normalize email addresses to lowercase."""
         unique_id = uuid.uuid4().hex[:8]
