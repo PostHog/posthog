@@ -709,11 +709,24 @@ const MODAL_MANAGED_SENT_PROPERTY_KEYS = new Set<string>([
 function getCustomSentProperties(
     filters: HogFunctionType['filters']
 ): NonNullable<CyclotronJobFilterEvents['properties']> {
-    const savedSentEvent = (filters?.events ?? []).find((event) => event.id === SurveyEventName.SENT)
-    return (savedSentEvent?.properties ?? []).filter((property) => {
-        const key = 'key' in property && typeof property.key === 'string' ? property.key : null
-        return key === null || (!MODAL_MANAGED_SENT_PROPERTY_KEYS.has(key) && !isSurveyResponsePropertyKey(key))
-    })
+    // Union across every sent branch rather than the first one: a restriction added through the full
+    // editor can sit on any single branch, and per-event properties are AND'd, so losing it widens
+    // delivery. Keyed by value because the same restriction normally exists on every branch, and
+    // object identity would let copies pile up on each re-save.
+    const byValue = new Map<string, NonNullable<CyclotronJobFilterEvents['properties']>[number]>()
+    for (const event of filters?.events ?? []) {
+        if (event.id !== SurveyEventName.SENT) {
+            continue
+        }
+        for (const property of event.properties ?? []) {
+            const key = 'key' in property && typeof property.key === 'string' ? property.key : null
+            if (key !== null && (MODAL_MANAGED_SENT_PROPERTY_KEYS.has(key) || isSurveyResponsePropertyKey(key))) {
+                continue
+            }
+            byValue.set(JSON.stringify(property), property)
+        }
+    }
+    return Array.from(byValue.values())
 }
 
 export function mergeResponseFiltersIntoExistingFilters(

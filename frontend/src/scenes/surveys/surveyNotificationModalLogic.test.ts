@@ -3,6 +3,7 @@ import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     EventPropertyFilter,
+    HogFunctionType,
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
@@ -131,7 +132,9 @@ describe('surveyNotificationModalLogic', () => {
         })
     })
 
-    it('keeps a restriction added outside the modal when rebuilding the sent branches', () => {
+    // The full Hog editor can put a restriction on either sent branch, so both indexes have to
+    // survive the rebuild. Properties are AND'd, so losing one would widen delivery.
+    it.each([0, 1])('keeps a restriction added outside the modal on sent branch %s', (branchIndex) => {
         const customRestriction: EventPropertyFilter = {
             key: '$browser',
             type: PropertyFilterType.Event,
@@ -139,7 +142,8 @@ describe('surveyNotificationModalLogic', () => {
             operator: PropertyOperator.Exact,
         }
         const saved = getSurveyNotificationFilters('survey-abc', false)
-        saved.events![0].properties = [...(saved.events![0].properties ?? []), customRestriction]
+        const branch = saved.events![branchIndex]
+        branch.properties = [...(branch.properties ?? []), customRestriction]
 
         const merged = mergeResponseFiltersIntoExistingFilters(
             saved,
@@ -149,9 +153,43 @@ describe('surveyNotificationModalLogic', () => {
 
         const sentBranches = merged?.events?.filter((event) => event.id === SurveyEventName.SENT)
         expect(sentBranches).toHaveLength(2)
-        // Properties are AND'd, so losing this on one branch would widen delivery.
-        for (const branch of sentBranches ?? []) {
-            expect(branch.properties).toContainEqual(customRestriction)
+        for (const sentBranch of sentBranches ?? []) {
+            expect(sentBranch.properties).toContainEqual(customRestriction)
+        }
+    })
+
+    it('does not accumulate copies of a custom restriction across repeated saves', () => {
+        const customRestriction: EventPropertyFilter = {
+            key: '$browser',
+            type: PropertyFilterType.Event,
+            value: 'Chrome',
+            operator: PropertyOperator.Exact,
+        }
+        const saved = getSurveyNotificationFilters('survey-abc', false)
+        saved.events![0].properties = [...(saved.events![0].properties ?? []), customRestriction]
+
+        // Reloading between saves is what makes this bite: the restriction lands on both branches,
+        // and coming back from the API they are equal but distinct objects, so a merge that
+        // deduplicated by object identity would keep both copies and double them on every save.
+        const reload = (filters: HogFunctionType['filters']): HogFunctionType['filters'] =>
+            JSON.parse(JSON.stringify(filters))
+        let merged = mergeResponseFiltersIntoExistingFilters(
+            saved,
+            getSurveyNotificationFilters('survey-abc', false),
+            []
+        )
+        merged = mergeResponseFiltersIntoExistingFilters(
+            reload(merged),
+            getSurveyNotificationFilters('survey-abc', false),
+            []
+        )
+
+        const sentBranches = merged?.events?.filter((event) => event.id === SurveyEventName.SENT)
+        for (const sentBranch of sentBranches ?? []) {
+            const copies = (sentBranch.properties ?? []).filter(
+                (property) => 'key' in property && property.key === customRestriction.key
+            )
+            expect(copies).toHaveLength(1)
         }
     })
 })
