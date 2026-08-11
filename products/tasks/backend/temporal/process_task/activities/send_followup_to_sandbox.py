@@ -37,7 +37,6 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
 )
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
-    clear_sandbox_github_identity,
     get_actor_distinct_id,
     get_imported_mcp_server_configs,
     get_pr_authorship_mode,
@@ -618,10 +617,11 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
             )
             return not fail_closed
         if cleared:
-            # Leave the sandbox unmarked: it now holds nobody's token, and marking it would make
-            # the next turn read "already reflects this actor" and skip re-crediting them if they
-            # reconnect.
-            clear_sandbox_github_identity(scope)
+            # Still record the actor: the marker tells owner-scoped refreshes that this sandbox is
+            # bound away from the run owner, and clearing it would let the scheduled refresh inject
+            # the owner's token into this actor's session. It does not gate the rebind — every turn
+            # re-establishes — so a reconnect is still picked up.
+            mark_sandbox_github_identity(scope, actor_user.id)
             logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
             return True
         logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, fail_closed=fail_closed)

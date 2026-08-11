@@ -461,8 +461,8 @@ class TestSandboxGithubIdentityGate:
     def test_reconnecting_after_a_logout_rebinds_the_actor(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):
-        # Revoke, then reconnect. The logout must not leave the sandbox marked as reflecting this
-        # actor, or the cheap skip would read "already theirs" and never restore their token.
+        # Revoke, then reconnect. The logout leaves the sandbox marked against this actor, and the
+        # reconnect must still be picked up — no marker check may short-circuit the rebind.
         mock_authorship.return_value = PrAuthorshipMode.USER
         mock_resolve.return_value = MagicMock()
         mock_clear.return_value = True
@@ -470,7 +470,7 @@ class TestSandboxGithubIdentityGate:
         mark_sandbox_github_identity("run-1", 42)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
-        assert get_sandbox_github_identity_user("run-1") is None
+        assert get_sandbox_github_identity_user("run-1") == 42
 
         mock_get_token.return_value = "ghu_reconnected"
         mock_apply.return_value = True
@@ -519,8 +519,9 @@ class TestSandboxGithubIdentityGate:
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
         mock_apply.assert_not_called()
         mock_clear.assert_called_once()
-        # Logged out: the sandbox holds nobody's token, so it must not read as reflecting this actor.
-        assert get_sandbox_github_identity_user("run-1") is None
+        # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
+        # run owner, and must not inject the owner's token into this actor's session.
+        assert get_sandbox_github_identity_user("run-1") == 42
 
     def test_apply_failure_falls_back_to_logout(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -552,8 +553,9 @@ class TestSandboxGithubIdentityGate:
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
         mock_apply.assert_called_once()
         mock_clear.assert_called_once()
-        # Logged out: the sandbox holds nobody's token, so it must not read as reflecting this actor.
-        assert get_sandbox_github_identity_user("run-1") is None  # logout confirmed, bound to new actor
+        # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
+        # run owner, and must not inject the owner's token into this actor's session.
+        assert get_sandbox_github_identity_user("run-1") == 42  # logout confirmed, bound to new actor
 
     def test_no_sandbox_handle_fails_closed(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -615,8 +617,9 @@ class TestSandboxGithubIdentityGate:
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
         mock_apply.assert_not_called()
         mock_clear.assert_called_once()
-        # Logged out: the sandbox holds nobody's token, so it must not read as reflecting this actor.
-        assert get_sandbox_github_identity_user("run-1") is None
+        # Still marked: owner-scoped refreshes read this to know the sandbox is bound away from the
+        # run owner, and must not inject the owner's token into this actor's session.
+        assert get_sandbox_github_identity_user("run-1") == 42
 
 
 class TestSendFollowupActivityRefreshOrdering:

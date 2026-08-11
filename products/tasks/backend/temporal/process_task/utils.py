@@ -484,10 +484,6 @@ def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:
     return get_tasks_cache().get(_sandbox_identity_cache_key(kind, scope))
 
 
-def _clear_sandbox_identity(kind: str, scope: str) -> None:
-    get_tasks_cache().delete(_sandbox_identity_cache_key(kind, scope))
-
-
 def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
     """Record whose OAuth token the sandbox's live MCP session holds.
 
@@ -504,12 +500,11 @@ def get_sandbox_mcp_session_user(scope: str) -> int | None:
 
 
 def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
-    """Record which actor's token the sandbox's in-place GitHub credentials hold.
+    """Record which actor the sandbox's in-place GitHub credentials reflect.
 
-    Only a sandbox that actually carries a token is marked. A logged-out sandbox is
-    left unmarked (see `clear_sandbox_github_identity`) so the next turn re-establishes
-    rather than reading "already reflects this actor" and skipping — otherwise an actor
-    who reconnects after a logout would never get their credentials back.
+    The value is the actor whose token was applied, or who was logged out (no usable
+    access) — either way the sandbox no longer carries a *different* actor's identity,
+    which is what owner-scoped refreshes check before re-applying the owner's token.
 
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an absent entry reads as
     "must re-establish", which is always safe because re-establishing re-applies or
@@ -518,14 +513,9 @@ def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
     _mark_sandbox_identity("github-identity", scope, user_id)
 
 
-def clear_sandbox_github_identity(scope: str) -> None:
-    """Forget which actor the sandbox's GitHub credentials held, after logging it out."""
-    _clear_sandbox_identity("github-identity", scope)
-
-
 def get_sandbox_github_identity_user(scope: str) -> int | None:
-    """Actor id whose GitHub token the sandbox currently holds within the freshness
-    window, or None when it holds none or is unknown."""
+    """Actor id the sandbox's GitHub credentials were last bound to (or logged
+    out for) within the freshness window, or None when unknown."""
     return _get_sandbox_identity_user("github-identity", scope)
 
 
