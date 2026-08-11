@@ -21,6 +21,7 @@ enum NotificationBlock {
     EtWeeklyDigest = 'et-weekly-digest',
     WaWeeklyDigest = 'wa-weekly-digest',
     CommentMentions = 'comment-mentions',
+    CodeCommentsSlackDm = 'code-comments-slack-dm',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
 }
@@ -40,6 +41,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     error_tracking_issue_assigned: true,
     error_tracking_weekly_digest: true,
     discussions_mentioned: true,
+    code_comments_slack_dm: false,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
     materialized_view_sync_failed: false,
@@ -495,6 +497,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Comment mentions"
                     description="Get notified when someone mentions you in a discussion on any project"
                     dataAttr="discussions_mentioned_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.CodeCommentsSlackDm]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="code_comments_slack_dm"
+                    label="PostHog Code comments in Slack"
+                    description="Get a Slack DM when someone mentions you, replies to your comment, or comments on something you own. Requires linking your Slack account under Personal integrations."
+                    dataAttr="code_comments_slack_dm_enabled"
                 />
             </div>
         ),
