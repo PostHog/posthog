@@ -488,16 +488,16 @@ class TestLinkedAccountsCard:
             github_state=github_state,
         )
 
-    def _fields(self, view: dict) -> list[str]:
-        for block in view["blocks"]:
-            if block.get("type") == "section" and block.get("fields"):
-                return [field["text"] for field in block["fields"]]
-        return []
-
-    def _url_buttons(self, view: dict) -> list[dict]:
+    def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
+        """The (text, accessory) pair of each account row on the card."""
         return [
-            element for block in view["blocks"] for element in block.get("elements", []) or [] if element.get("url")
+            (block["text"]["text"], block.get("accessory"))
+            for block in view["blocks"]
+            if block.get("type") == "section" and block["text"]["text"].startswith(("*PostHog*", "*GitHub*"))
         ]
+
+    def _row(self, view: dict, prefix: str) -> tuple[str, dict | None]:
+        return next(row for row in self._rows(view) if row[0].startswith(prefix))
 
     @pytest.mark.parametrize(
         "user_resolved,accounts,expected_button",
@@ -519,16 +519,17 @@ class TestLinkedAccountsCard:
                 settings_url="https://app/project/1/settings/user-personal-integrations",
             )
         )
-        buttons = self._url_buttons(view)
+        _text, button = self._row(view, "*GitHub*")
         if expected_button is None:
             # Without a resolved PostHog user we can't say anything about their
-            # GitHub, so the card points at account linking instead.
-            assert buttons == []
+            # GitHub, so the row points at account linking instead.
+            assert button is None
             assert "Link your PostHog account first" in _all_text(view)
         else:
-            assert [b["text"]["text"] for b in buttons] == [expected_button]
-            assert buttons[0]["url"] == "https://app/project/1/settings/user-personal-integrations"
-            assert buttons[0].get("style") == (None if accounts else "primary")
+            assert button is not None
+            assert button["text"]["text"] == expected_button
+            assert button["url"] == "https://app/project/1/settings/user-personal-integrations"
+            assert button.get("style") == (None if accounts else "primary")
 
     def test_every_connected_installation_is_listed(self):
         view = self._view(
@@ -541,30 +542,31 @@ class TestLinkedAccountsCard:
                 settings_url="https://app/settings",
             )
         )
-        github_field = next(field for field in self._fields(view) if field.startswith("*GitHub*"))
-        assert "`octocat`" in github_field
+        text, _button = self._row(view, "*GitHub*")
+        assert "`octocat`" in text
         # Installation on an org the login differs from names both sides.
-        assert "`octocat` on *PostHog*" in github_field
+        assert "`octocat` on *PostHog*" in text
 
-    def test_posthog_and_github_render_as_two_columns(self):
+    def test_each_account_carries_its_own_button(self):
         view = self._view(
             account_state=AccountState(enabled=True, linked_email="user@posthog.com"),
             github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
         )
-        fields = self._fields(view)
-        assert len(fields) == 2
-        assert fields[0].startswith("*PostHog*")
-        assert fields[1].startswith("*GitHub*")
+        rows = self._rows(view)
+        assert [text.split("\n")[0] for text, _ in rows] == ["*PostHog*", "*GitHub*"]
+        # Disconnect belongs to the PostHog row, Connect GitHub to its own.
+        assert rows[0][1] is not None and rows[0][1]["action_id"] == ACTION_UNLINK_ACCOUNT
+        assert rows[1][1] is not None and rows[1][1]["text"]["text"] == "Connect GitHub"
 
-    def test_github_column_stands_alone_when_account_linking_is_off(self):
+    def test_github_row_stands_alone_when_account_linking_is_off(self):
         view = self._view(
             account_state=AccountState(enabled=False),
             github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
         )
-        fields = self._fields(view)
-        assert len(fields) == 1
-        assert fields[0].startswith("*GitHub*")
-        assert ACTION_UNLINK_ACCOUNT not in _action_ids(view)
+        rows = self._rows(view)
+        assert len(rows) == 1
+        assert rows[0][0].startswith("*GitHub*")
+        assert ACTION_UNLINK_ACCOUNT not in _all_text(view)
 
 
 _TASK_TITLES = ("Fix flaky retention test", "Refactor mention dispatcher")

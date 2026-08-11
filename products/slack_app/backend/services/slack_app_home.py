@@ -672,77 +672,76 @@ def _linked_accounts_section_blocks(
     account_state: AccountState | None,
     github_state: GitHubState | None,
 ) -> list[dict]:
-    """Render the linked-accounts card: PostHog and GitHub side by side.
+    """Render the linked-accounts card: one row per account.
 
-    Block Kit lays `section.fields` out in two columns, so each account gets
-    its own column with the buttons for both sharing one actions row below.
-    The PostHog column only appears when `is_slack_app_oauth_enabled` returned
-    True; the GitHub column is independent of that flag.
+    A row is a section carrying that account's status, with its button as the
+    right-aligned `accessory`. Block Kit allows at most one accessory per
+    section and renders `actions` blocks full width, so a row apiece is the
+    only layout that keeps each button next to the account it acts on.
+    The PostHog row only appears when `is_slack_app_oauth_enabled` returned
+    True; the GitHub row is independent of that flag.
     """
-    fields: list[dict] = []
-    actions: list[dict] = []
+    rows: list[dict] = []
 
     if account_state and account_state.enabled:
-        fields.append({"type": "mrkdwn", "text": _posthog_account_field(account_state)})
-        actions.extend(_posthog_account_actions(account_state))
+        rows.append(_account_row(_posthog_account_text(account_state), _posthog_account_button(account_state)))
 
     if github_state is not None:
-        fields.append({"type": "mrkdwn", "text": _github_account_field(github_state)})
-        actions.extend(_github_account_actions(github_state))
+        rows.append(_account_row(_github_account_text(github_state), _github_account_button(github_state)))
 
-    if not fields:
+    if not rows:
         return []
 
-    blocks: list[dict] = [
+    return [
         _section_title(
             "🔗 Linked accounts",
             "Who @PostHog acts as: your PostHog user, and the GitHub account it opens pull requests with.",
         ),
-        {"type": "section", "fields": fields},
+        *rows,
     ]
-    if actions:
-        blocks.append({"type": "actions", "elements": actions})
-    return blocks
 
 
-def _posthog_account_field(account_state: AccountState) -> str:
+def _account_row(text: str, button: dict | None) -> dict:
+    row: dict[str, Any] = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+    if button:
+        row["accessory"] = button
+    return row
+
+
+def _posthog_account_text(account_state: AccountState) -> str:
     if account_state.linked_email:
         return f"*PostHog*\n✅ Connected as {account_state.linked_email}"
     return "*PostHog*\nNot connected. Link your Slack identity so @PostHog knows it's you without matching on email."
 
 
-def _posthog_account_actions(account_state: AccountState) -> list[dict]:
+def _posthog_account_button(account_state: AccountState) -> dict | None:
     if account_state.linked_email:
-        return [
-            {
-                "type": "button",
-                "action_id": ACTION_UNLINK_ACCOUNT,
-                "style": "danger",
-                "text": {"type": "plain_text", "text": "Disconnect PostHog", "emoji": True},
-                "confirm": {
-                    "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "@PostHog will fall back to matching your Slack email against PostHog users until you link again.",
-                    },
-                    "confirm": {"type": "plain_text", "text": "Disconnect"},
-                    "deny": {"type": "plain_text", "text": "Cancel"},
-                },
-            }
-        ]
-    if not account_state.link_url:
-        return []
-    return [
-        {
+        return {
             "type": "button",
-            "url": account_state.link_url,
-            "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
-            "style": "primary",
+            "action_id": ACTION_UNLINK_ACCOUNT,
+            "style": "danger",
+            "text": {"type": "plain_text", "text": "Disconnect", "emoji": True},
+            "confirm": {
+                "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "@PostHog will fall back to matching your Slack email against PostHog users until you link again.",
+                },
+                "confirm": {"type": "plain_text", "text": "Disconnect"},
+                "deny": {"type": "plain_text", "text": "Cancel"},
+            },
         }
-    ]
+    if not account_state.link_url:
+        return None
+    return {
+        "type": "button",
+        "url": account_state.link_url,
+        "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
+        "style": "primary",
+    }
 
 
-def _github_account_field(github_state: GitHubState) -> str:
+def _github_account_text(github_state: GitHubState) -> str:
     if not github_state.user_resolved:
         return "*GitHub*\nLink your PostHog account first, so we know whose GitHub to look up."
     if github_state.accounts:
@@ -751,9 +750,9 @@ def _github_account_field(github_state: GitHubState) -> str:
     return "*GitHub*\nNot connected. Connect it so @PostHog opens pull requests as you."
 
 
-def _github_account_actions(github_state: GitHubState) -> list[dict]:
+def _github_account_button(github_state: GitHubState) -> dict | None:
     if not github_state.user_resolved or not github_state.settings_url:
-        return []
+        return None
     connected = bool(github_state.accounts)
     button: dict[str, Any] = {
         "type": "button",
@@ -766,7 +765,7 @@ def _github_account_actions(github_state: GitHubState) -> list[dict]:
     }
     if not connected:
         button["style"] = "primary"
-    return [button]
+    return button
 
 
 def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
