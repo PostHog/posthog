@@ -637,6 +637,36 @@ class TestRESTClient:
         assert mock_session.send.call_count == 2
         mock_sleep.assert_called_once_with(45.0)
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_send_request_respects_x_ratelimit_reset_header(self, MockSession, mock_sleep, mock_datetime) -> None:
+        # SendGrid answers 429 with the common ``X-RateLimit-Reset`` epoch header and no
+        # ``Retry-After``; its Email Activity endpoint allows 6 requests/minute, so falling back
+        # to the short exponential backoff would exhaust the attempt budget inside one window.
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"errors": [{"message": "too many requests"}]}, status_code=429)
+        rate_limited.url = "https://api.sendgrid.com/v3/messages"
+        rate_limited.headers["X-RateLimit-Reset"] = str(int(now.timestamp()) + 30)
+        ok = _make_response({"results": [{"id": 1}]})
+
+        mock_session.send.side_effect = [rate_limited, ok]
+
+        client = RESTClient(base_url="https://api.sendgrid.com/v3")
+        pages = list(client.paginate(path="/messages", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+        mock_sleep.assert_called_once_with(30.0)
+
     @patch("tenacity.nap.time.sleep")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
