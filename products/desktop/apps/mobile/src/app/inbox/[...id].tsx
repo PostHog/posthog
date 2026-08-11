@@ -1,8 +1,10 @@
 import { Text } from "@components/text";
+import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import {
   formatSignalReportSummaryMarkdown,
   inboxStatusLabel,
 } from "@posthog/core/inbox/reportPresentation";
+import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { DISMISSAL_REASON_OPTIONS } from "@posthog/shared";
 import type {
   ActionabilityJudgmentContent,
@@ -35,10 +37,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useUserQuery } from "@/features/auth";
+import { useAuthStore, useUserQuery } from "@/features/auth";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { getReportRepository } from "@/features/inbox/api";
-import { buildCreatePrReportPrompt } from "@/features/inbox/buildCreatePrReportPrompt";
 import { CreatePrFeedbackSheet } from "@/features/inbox/components/CreatePrFeedbackSheet";
 import { DiscussReportSheet } from "@/features/inbox/components/DiscussReportSheet";
 import {
@@ -152,6 +153,8 @@ export default function ReportDetailScreen() {
   const posthog = usePostHog();
   const { data: report, isLoading, error } = useInboxReport(reportId ?? null);
   const { data: me } = useUserQuery();
+  const cloudRegion = useAuthStore((s) => s.cloudRegion);
+  const projectId = useAuthStore((s) => s.projectId);
   const [reportRepo, setReportRepo] = useState<string | null>(null);
   const [dismissOpen, setDismissOpen] = useState(false);
   const [discussOpen, setDiscussOpen] = useState(false);
@@ -303,8 +306,18 @@ export default function ReportDetailScreen() {
         has_feedback: !!feedback,
         ...(feedback ? { feedback_text: feedback.slice(0, 500) } : {}),
       });
+      // Web URL rather than a `posthog-code://` deep link: the prompt runs in a
+      // cloud task and may be echoed into the PR, where only an https link works.
+      const reportUrl =
+        projectId != null
+          ? buildPostHogUrl(
+              `/project/${projectId}/inbox/${report.id}`,
+              cloudRegion,
+            )
+          : null;
       const prompt = buildCreatePrReportPrompt({
-        summary: report.summary,
+        reportId: report.id,
+        reportUrl,
         feedback,
       });
       router.push({
@@ -316,7 +329,7 @@ export default function ReportDetailScreen() {
         },
       });
     },
-    [report, router, reportRepo, tracker],
+    [report, router, reportRepo, tracker, projectId, cloudRegion],
   );
 
   const handleDismissed = useCallback(
