@@ -162,10 +162,10 @@ secrets edit.
 
 ### Knowing when the old value is safe to delete
 
-Nothing is reported to this service by a caller: every metric and verdict is measured here, so
-none of it depends on a client being well behaved, current, or honest. That rules out observing
-which value a caller's third-party call succeeded with, so the verdict is built from what we can
-see:
+Nothing is reported to this service by a caller: every metric and verdict is measured here
+(`src/usage/verdict.ts`), so none of it depends on a client being well behaved, current, or
+honest. That rules out observing which value a caller's third-party call succeeded with, so the
+verdict is built from what we can see:
 
 > `safeToRetirePrevious` is true when **every deployment known to read this key has read it since
 > the secret last changed**, and at least one such deployment exists.
@@ -215,16 +215,6 @@ The DSN comes from the `psql:` harness in the `posthog-app` chart, so connection
 PgBouncer in transaction mode. Nothing here may rely on session state: no `LISTEN`/`NOTIFY`, no
 session-scoped settings, no server-side named prepared statements.
 
-## Credentials
-
-The service passes an explicit AWS credential provider and the build **aliases the SDK's default
-chain to a stub that throws** (`src/aws/unreachable-provider.ts`). There are exactly two ways in:
-the IRSA web identity token in cluster, and static throwaway credentials when `AWS_ENDPOINT_URL`
-points at a local mock. The second is enforced as dev-only: `loadConfig()` exits if that variable
-is set under `NODE_ENV=production`. A service whose job is holding third-party credentials must
-not be able to silently authenticate as an EC2 instance role or as whatever a developer last ran
-`aws sso login` against.
-
 ## Metrics
 
 Every label value comes from fixed configuration, never from a request: a key the manifest does
@@ -241,7 +231,9 @@ not define and a product the service does not recognise both collapse to a const
 | `integration_service_signing_keys_last_loaded_timestamp`                   | staleness means a revocation has not landed on this pod             |
 | `integration_service_signing_key_reload_failures_total`                    | reloads that kept the previous key set                              |
 | `integration_service_auth_failures_total{reason}`                          | rejected tokens, by why                                             |
-| `integration_secret_usage_publish_total{result}`                           | whether the usage artifact is reaching S3                           |
+| `integration_service_http_requests_total{method,route,status}`             | request volume, with an unmatched path collapsed to `other`         |
+| `integration_service_http_request_duration_seconds{method,route,status}`   | request latency                                                     |
+| `integration_service_shutting_down`                                        | 1 while draining                                                    |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
 previous keys when an edit is malformed, and an unreadable mount keeps the last snapshot. Alert
@@ -253,19 +245,9 @@ map of which deployment reads which credential, even though it carries no values
 ## Isolation
 
 This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for
-resolution — nothing from `nodejs/`, `frontend/` or `common/`. Two checks hold that in place, in
-CI _and_ in the Docker build, against the built bundle rather than the source so a re-export
-chain cannot smuggle a module past them:
-
-```bash
-pnpm build
-pnpm check:boundary   # no first-party imports from outside this package
-pnpm check:deps       # the bundled package set matches deps-allowlist.txt
-```
-
-`deps-allowlist.txt` is the committed list of every third-party package that ends up in the
-artifact, so a new transitive dependency is a reviewable line rather than a lockfile diff. Accept
-a change with `pnpm build && pnpm check:deps --write` and review the result.
+resolution — nothing from `nodejs/`, `frontend/` or `common/`. The package's own
+`.oxlintrc.json` enforces that with a `no-restricted-imports` rule, so `pnpm lint` fails on any
+import that reaches outside.
 
 Installs run `--ignore-scripts`; nothing in the tree needs an install-time script, and that is
 the npm-specific supply-chain path worth closing here.
@@ -290,28 +272,21 @@ which costs the rollup and nothing else.
 
 ## Configuration
 
-| Variable                                        | Default                    | Notes                                                    |
-| ----------------------------------------------- | -------------------------- | -------------------------------------------------------- |
-| `INTEGRATION_SERVICE_ENV`                       | `dev`                      | Logical env; recorded on the usage artifact              |
-| `INTEGRATION_SERVICE_SECRETS_DIR`               | `/etc/integration-secrets` | Where the Kubernetes Secret is mounted                   |
-| `INTEGRATION_SERVICE_DATABASE_URL`              | —                          | From the chart's `psql:` harness. Required in production |
-| `INTEGRATION_SERVICE_RELOAD_SECONDS`            | `30`                       | How often to re-read the mount                           |
-| `INTEGRATION_SERVICE_USAGE_FLUSH_MS`            | `10000`                    | How often to flush batched usage counters                |
-| `INTEGRATION_SERVICE_RETENTION_DAYS`            | `9`                        | How long usage buckets are kept                          |
-| `INTEGRATION_SERVICE_RETIRE_QUIET_HOURS`        | `24`                       | Window for `safeToRetirePrevious`                        |
-| `INTEGRATION_SERVICE_USAGE_BUCKET`              | —                          | Unset disables usage publishing                          |
-| `INTEGRATION_SERVICE_USAGE_KMS_KEY_ID`          | —                          | SSE-KMS key for the usage artifact                       |
-| `INTEGRATION_SERVICE_METRICS_TOKEN`             | —                          | Bearer token for `/metrics`. Required in production      |
-| `INTEGRATION_SERVICE_USAGE_PUBLISH_INTERVAL_MS` | `300000`                   | How often to publish the usage artifact                  |
-| `INTEGRATION_SERVICE_LOG_LEVEL`                 | by `NODE_ENV`              | `debug`, `info`, `warn` or `error`                       |
-| `AWS_REGION`                                    | `us-east-1`                | For the S3 client, the only AWS client left              |
-| `AWS_ENDPOINT_URL`                              | —                          | Local mock only. Refused under `NODE_ENV=production`     |
-| `PORT`                                          | `8004`                     |                                                          |
-| `HOST`                                          | `0.0.0.0`                  |                                                          |
-| `SHUTDOWN_GRACE_MS`                             | `15000`                    | Drain budget before exit                                 |
-| `SHUTDOWN_PRESTOP_DELAY_MS`                     | `5000`                     | Wait before draining, for the Kubernetes prestop window  |
+| Variable                             | Default                    | Notes                                                    |
+| ------------------------------------ | -------------------------- | -------------------------------------------------------- |
+| `INTEGRATION_SERVICE_ENV`            | `dev`                      | Logical env; recorded on the usage rollup                |
+| `INTEGRATION_SERVICE_SECRETS_DIR`    | `/etc/integration-secrets` | Where the Kubernetes Secret is mounted                   |
+| `INTEGRATION_SERVICE_DATABASE_URL`   | —                          | From the chart's `psql:` harness. Required in production |
+| `INTEGRATION_SERVICE_RELOAD_SECONDS` | `30`                       | How often to re-read the mount                           |
+| `INTEGRATION_SERVICE_USAGE_FLUSH_MS` | `10000`                    | How often to flush batched usage counters                |
+| `INTEGRATION_SERVICE_RETENTION_DAYS` | `9`                        | How long usage buckets are kept                          |
+| `INTEGRATION_SERVICE_METRICS_TOKEN`  | —                          | Bearer token for `/metrics`. Required in production      |
+| `INTEGRATION_SERVICE_LOG_LEVEL`      | by `NODE_ENV`              | `debug`, `info`, `warn` or `error`                       |
+| `PORT`                               | `8004`                     |                                                          |
+| `HOST`                               | `0.0.0.0`                  |                                                          |
+| `SHUTDOWN_GRACE_MS`                  | `15000`                    | Drain budget before exit                                 |
+| `SHUTDOWN_PRESTOP_DELAY_MS`          | `5000`                     | Wait before draining, for the Kubernetes prestop window  |
 
-The service exits at boot rather than starting degraded: a missing production variable, a numeric
-variable that does not parse, or `AWS_ENDPOINT_URL` set under `NODE_ENV=production`. An empty
-secret mount does not exit; the pod fails its readiness probe and recovers on its own once
-External Secrets Operator syncs.
+The service exits at boot rather than starting degraded: a missing production variable, or a
+numeric variable that does not parse. An empty secret mount does not exit; the pod fails its
+readiness probe and recovers on its own once External Secrets Operator syncs.
