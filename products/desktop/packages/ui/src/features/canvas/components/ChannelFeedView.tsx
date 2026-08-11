@@ -26,6 +26,7 @@ import {
   ChatMessageScrollerViewport,
   cn,
   Spinner,
+  Text,
   ThreadItem,
   ThreadItemAction,
   ThreadItemActions,
@@ -60,7 +61,6 @@ import {
   useTaskPrStatus,
 } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
-import { Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import {
   memo,
@@ -279,7 +279,12 @@ export function TaskCard({
                 </span>
               )}
               {stage && (
-                <Text size="1" className="truncate text-muted-foreground">
+                <Text
+                  size="xs"
+                  variant="muted"
+                  render={<span />}
+                  className="truncate"
+                >
                   {stage}
                 </Text>
               )}
@@ -306,7 +311,7 @@ export function TaskCard({
 //
 // The fetch/poll only runs for near-viewport rows (`inView`); off-screen rows
 // render the static affordance and idle, so a long feed isn't polling per row.
-function ReplyFooter({
+export function ReplyFooter({
   taskId,
   inView,
   onOpenThread,
@@ -321,10 +326,14 @@ function ReplyFooter({
     markActivityRead: false,
   });
   const authors = useMemo(() => {
-    const seen = new Map<string, (typeof messages)[number]["author"]>();
+    const seen = new Map<string, (typeof messages)[number]>();
     for (const message of messages) {
-      const key = message.author?.uuid ?? "unknown";
-      if (!seen.has(key)) seen.set(key, message.author);
+      const authorKind = message.author_kind ?? "human";
+      const key =
+        authorKind === "human"
+          ? `human:${message.author?.uuid ?? "unknown"}`
+          : authorKind;
+      if (!seen.has(key)) seen.set(key, message);
     }
     return [...seen.values()].slice(0, 4);
   }, [messages]);
@@ -350,9 +359,21 @@ function ReplyFooter({
   return (
     <ThreadItemReplies onClick={onOpenThread} className="mt-1">
       <AvatarGroup size="xs">
-        {authors.map((author, index) => (
-          <UserAvatar key={author?.uuid ?? index} user={author} size="xs" />
-        ))}
+        {authors.map((message, index) =>
+          message.author_kind === "agent" ? (
+            <Avatar key="agent" size="xs">
+              <AvatarFallback>
+                <RobotIcon size={12} />
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <UserAvatar
+              key={message.author?.uuid ?? index}
+              user={message.author}
+              size="xs"
+            />
+          ),
+        )}
       </AvatarGroup>
       <ThreadItemRepliesLabel>
         {messages.length} {messages.length === 1 ? "reply" : "replies"}

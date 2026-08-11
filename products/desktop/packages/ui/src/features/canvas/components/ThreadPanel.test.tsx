@@ -97,13 +97,14 @@ describe("ThreadMessageRow", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the full message in timeline previews", () => {
+  it("truncates timeline previews to 100 characters", () => {
+    const content = `${"a".repeat(100)}overflow`;
     render(
       <ThreadMessageRow
         message={{
           id: "m1",
           task: "task",
-          content: multiline,
+          content,
           created_at: "2026-07-17T00:00:00Z",
           author: null,
         }}
@@ -116,9 +117,8 @@ describe("ThreadMessageRow", () => {
       />,
     );
 
-    const body = screen.getByText(/Second line with more detail/).parentElement;
-    expect(body).toHaveClass("whitespace-pre-wrap", "break-words");
-    expect(body).not.toHaveClass("line-clamp-1");
+    expect(screen.getByText(`${"a".repeat(100)}…`)).toBeInTheDocument();
+    expect(screen.queryByText(content)).toBeNull();
   });
 });
 

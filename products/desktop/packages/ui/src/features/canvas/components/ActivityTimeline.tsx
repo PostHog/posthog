@@ -1,4 +1,5 @@
 import {
+  ArrowRightIcon,
   CheckCircleIcon,
   FileTextIcon,
   PlusCircleIcon,
@@ -9,8 +10,9 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  cn,
   ThreadItem,
+  ThreadItemAction,
+  ThreadItemActions,
   ThreadItemAuthor,
   ThreadItemBody,
   ThreadItemContent,
@@ -31,12 +33,13 @@ import {
   ThreadMessageRow,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
+import { timelineMessagePreview } from "@posthog/ui/features/canvas/components/timelineMessagePreview";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
-import { Fragment, type KeyboardEvent, type ReactNode, useMemo } from "react";
+import { Fragment, type ReactNode, useMemo } from "react";
 
 type ConversationItem = ReturnType<
   typeof buildConversationItems
@@ -89,32 +92,11 @@ function UserMessageRow({
     () => extractCustomInstructions(afterChannelContext),
     [afterChannelContext],
   );
-  const displayContent = customInstructions?.stripped ?? afterChannelContext;
-  // The row itself is the hit target. `ThreadItem` renders an <article>, which a
-  // <button> may not wrap and which can't become one (quill's primitive takes no
-  // `render`), so it carries the button role and its own key handling.
-  //
-  // Deliberately no `aria-label`: the button takes its name from its contents, so
-  // it announces the author, time and preview a sighted user sees. A label would
-  // replace all three — and since every row here is authored by the task creator,
-  // one built from the name alone would be identical on every row.
-  const activation = onSelect
-    ? ({
-        role: "button",
-        tabIndex: 0,
-        onClick: onSelect,
-        onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          onSelect();
-        },
-      } as const)
-    : {};
+  const displayContent = timelineMessagePreview(
+    customInstructions?.stripped ?? afterChannelContext,
+  );
   return (
-    <ThreadItem
-      className={cn("rounded-none", onSelect && "cursor-pointer")}
-      {...activation}
-    >
+    <ThreadItem className="rounded-none">
       {/* Decorative: the author's name is written beside it, so keep the avatar's
           initials out of the row's accessible name. */}
       <ThreadItemGutter className="justify-center" aria-hidden>
@@ -149,6 +131,13 @@ function UserMessageRow({
           )}
         </ThreadItemBody>
       </ThreadItemContent>
+      {onSelect && (
+        <ThreadItemActions aria-label="Timeline actions">
+          <ThreadItemAction label="View in chat" onClick={onSelect}>
+            <ArrowRightIcon size={14} />
+          </ThreadItemAction>
+        </ThreadItemActions>
+      )}
     </ThreadItem>
   );
 }

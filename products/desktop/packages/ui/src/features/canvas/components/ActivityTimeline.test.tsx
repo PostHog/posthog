@@ -19,8 +19,6 @@ const task = {
   latest_run: null,
 } as unknown as Task;
 
-// Every conversation row is attributed to the task's creator, which is exactly why
-// an author-derived accessible name would be identical on all of them.
 const conversationItems = [
   {
     type: "user_message" as const,
@@ -57,40 +55,45 @@ beforeEach(() => {
 });
 
 describe("ActivityTimeline", () => {
-  it("names each message row by its own content, not a shared template", () => {
+  it("renders each message preview with a chat navigation action", () => {
     renderTimeline(true);
 
-    expect(screen.getAllByRole("button")).toHaveLength(2);
-    // `name` here is the computed accessible name, so this is what a screen reader
-    // announces: each row carries the content a sighted user sees, which is what
-    // makes the two distinguishable — the author is the same on every row.
+    expect(screen.getByText(/first thing/)).toBeInTheDocument();
+    expect(screen.getByText(/second thing/)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Shy Alter.*first thing/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Shy Alter.*second thing/ }),
-    ).toBeInTheDocument();
-    // The avatar is decorative, so its initials stay out of the name.
-    expect(screen.queryByRole("button", { name: /SA/ })).toBeNull();
+      screen.getAllByRole("button", { name: "View in chat" }),
+    ).toHaveLength(2);
   });
 
-  it("asks the transcript to scroll to the clicked message", () => {
+  it("truncates long message previews to 100 characters", () => {
+    const content = `${"a".repeat(100)}overflow`;
+    renderTimeline(true, [
+      {
+        type: "user_message",
+        id: "long-message",
+        content,
+        timestamp: Date.parse("2026-07-17T09:05:00Z"),
+      },
+    ]);
+
+    expect(screen.getByText(`${"a".repeat(100)}…`)).toBeInTheDocument();
+    expect(screen.queryByText(content)).toBeNull();
+  });
+
+  it("asks the transcript to scroll to the selected message", () => {
     renderTimeline(true);
 
-    fireEvent.click(screen.getAllByRole("button")[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: "View in chat" })[1]);
 
     expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
       "turn-2-2-user",
     );
   });
 
-  it("leaves rows inert with no transcript alongside to drive", () => {
+  it("hides chat navigation when no transcript is alongside", () => {
     renderTimeline();
 
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-    const body = screen.getByText(/first thing/).closest("[data-slot]");
-    expect(body).toHaveClass("whitespace-pre-wrap", "break-words");
-    expect(body).not.toHaveClass("line-clamp-1");
+    expect(screen.queryByRole("button", { name: "View in chat" })).toBeNull();
   });
 
   it("renders structured references natively in conversation previews", () => {
