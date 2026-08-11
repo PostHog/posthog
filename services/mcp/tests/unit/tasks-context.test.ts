@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { MCPClientProfile } from '@/lib/client-detection'
 import { tasksContextToolsToExclude } from '@/hono/request-state-resolver'
-import { getToolDefinitions } from '@/tools/toolDefinitions'
+import { MCPClientProfile } from '@/lib/client-detection'
 import {
     TASKS_CONTEXT_TOOL_NAMES,
     tasksArtifactsList,
     tasksCommentsList,
     tasksCommentsRetrieve,
 } from '@/tools/tasksContext'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
 function context(taskId: string | undefined): {
@@ -33,7 +33,7 @@ describe('task artifacts and comments tools', () => {
         expect(definitions['tasks-comments-retrieve']?.required_scopes).toEqual(['comment:read'])
     })
 
-    it('advertises them only to a stamped PostHog Code task', () => {
+    it('advertises them only to a stamped PostHog Desktop task', () => {
         const code = new MCPClientProfile({ consumer: 'posthog-code' })
         expect(tasksContextToolsToExclude(code, 'task-1')).toEqual([])
         expect(tasksContextToolsToExclude(code, undefined)).toEqual(TASKS_CONTEXT_TOOL_NAMES)
@@ -91,7 +91,7 @@ describe('task artifacts and comments tools', () => {
     it('fails closed when the host did not stamp a task', async () => {
         const { context: toolContext, request } = context(undefined)
 
-        await expect(tasksArtifactsList().handler(toolContext, {})).rejects.toThrow('current PostHog Code task')
+        await expect(tasksArtifactsList().handler(toolContext, {})).rejects.toThrow('current PostHog Desktop task')
         expect(request).not.toHaveBeenCalled()
     })
 })

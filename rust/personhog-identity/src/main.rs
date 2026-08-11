@@ -22,6 +22,7 @@ use personhog_common::client::RouterClient;
 use personhog_identity::config::Config;
 use personhog_identity::lifecycle::delete::DeleteDriver;
 use personhog_identity::lifecycle::engine::Engine;
+use personhog_identity::lifecycle::merge::MergeDriver;
 use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
@@ -183,6 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.lifecycle_engine_config(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
+        let sweeper_merge_driver = MergeDriver::new(property_writer.clone());
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
         let retention = config.lifecycle_op_retention();
@@ -203,7 +205,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ = sweeper_handle.shutdown_recv() => break,
                     _ = ticker.tick() => {}
                 }
-                match sweeper_engine.sweep(&[&DeleteDriver]).await {
+                match sweeper_engine
+                    .sweep(&[&DeleteDriver, &sweeper_merge_driver])
+                    .await
+                {
                     Ok(resumed) if resumed > 0 => {
                         tracing::info!(resumed, "Lifecycle sweeper resumed abandoned ops")
                     }
