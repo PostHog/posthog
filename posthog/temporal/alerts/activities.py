@@ -389,39 +389,41 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
 def dispatch_alert_error_realtime_notifications(alert: AlertConfiguration, alert_check: AlertCheck) -> None:
     """Create one best-effort inbox notification per eligible recipient for an errored check."""
     error = alert_check.error if isinstance(alert_check.error, dict) else {}
-    error_message = error.get("message", "Unknown error")
+    error_message = str(error.get("message", "Unknown error"))[:1000]
     alert_name = alert.name or "Alert"
-    source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
+    source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}?alert_id={alert.id}"
 
     for user_id, _ in get_alert_error_notification_recipients(alert):
         try:
-            if has_been_dispatched(
-                notification_type=NotificationType.PIPELINE_FAILURE,
-                target_type=TargetType.USER,
-                target_id=str(user_id),
-                resource_id=str(alert.insight.short_id),
-                source_id=str(alert_check.id),
-            ):
-                continue
-            create_notification(
-                NotificationData(
-                    team_id=alert.team_id,
+            with transaction.atomic():
+                AlertCheck.objects.select_for_update().get(pk=alert_check.id)
+                if has_been_dispatched(
                     notification_type=NotificationType.PIPELINE_FAILURE,
-                    priority=Priority.NORMAL,
-                    title=f"{alert_name[:75]} could not be evaluated",
-                    body=(
-                        f"This alert could not be evaluated: {error_message}. "
-                        "PostHog will check it again on its normal schedule."
-                    ),
                     target_type=TargetType.USER,
                     target_id=str(user_id),
-                    resource_type="insight",
                     resource_id=str(alert.insight.short_id),
-                    source_url=source_url,
-                    source_type=SourceType.INSIGHT,
                     source_id=str(alert_check.id),
+                ):
+                    continue
+                create_notification(
+                    NotificationData(
+                        team_id=alert.team_id,
+                        notification_type=NotificationType.PIPELINE_FAILURE,
+                        priority=Priority.NORMAL,
+                        title=f"{alert_name[:75]} could not be evaluated",
+                        body=(
+                            f"This alert could not be evaluated: {error_message}. "
+                            "PostHog will check it again on its normal schedule."
+                        ),
+                        target_type=TargetType.USER,
+                        target_id=str(user_id),
+                        resource_type="insight",
+                        resource_id=str(alert.insight.short_id),
+                        source_url=source_url,
+                        source_type=SourceType.INSIGHT,
+                        source_id=str(alert_check.id),
+                    )
                 )
-            )
         except Exception:
             logger.exception(
                 "alerts.error_realtime_notification_failed",

@@ -251,6 +251,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
         return []
 
     alert_name = alert.name or "your alert"
+    error_message = str(error.get("message", "Unknown error"))[:1000]
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
     send_alert_email(
@@ -259,7 +260,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
         subject=f"PostHog alert {alert_name} could not be evaluated",
         template_name="alert_check_failed_to_evaluate",
         template_context={
-            "alert_error": error.get("message", "Unknown error"),
+            "alert_error": error_message,
             "alert_url": alert_url,
             "alert_name": alert.name,
             "insight_url": insight_url,
@@ -270,14 +271,11 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
 
 
 def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
-    recipient_ids = set(alert.subscribed_users.values_list("id", flat=True))
-    if alert.created_by_id:
-        recipient_ids.add(alert.created_by_id)
-
-    if not recipient_ids:
-        return []
-
-    return list(alert.team.all_users_with_access().filter(id__in=recipient_ids).values_list("id", "email"))
+    return list(
+        alert.team.all_users_with_access()
+        .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
+        .values_list("id", "email")
+    )
 
 
 def dispatch_alert_notification(

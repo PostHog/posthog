@@ -25,7 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.slo.types import SloOperation, SloOutcome
-from posthog.tasks.alerts.utils import AlertEvaluationResult
+from posthog.tasks.alerts.utils import AlertEvaluationResult, get_alert_error_notification_recipients
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
@@ -587,28 +587,21 @@ class TestNotifyAlert:
         assert notification.target_id == str(subscriber_id)
         assert notification.resource_id == str(alert_with_user.insight.short_id)
         assert notification.source_id == str(check.id)
+        assert (
+            notification.source_url
+            == f"/project/{alert_with_user.team_id}/insights/{alert_with_user.insight.short_id}?alert_id={alert_with_user.id}"
+        )
         assert "boom" in notification.body
         assert "normal schedule" in notification.body
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
 
-    async def test_error_notification_includes_the_creator_when_they_have_project_access(self, alert, auser) -> None:
+    async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
         await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)
-        check = await _create_alert_check(alert, state=AlertState.ERRORED, error={"message": "boom"})
+        recipients = await sync_to_async(get_alert_error_notification_recipients)(alert)
 
-        with (
-            patch("posthog.tasks.alerts.utils.send_notifications_for_errors", return_value=[auser.email]),
-            patch("posthog.temporal.alerts.activities.has_been_dispatched", return_value=False),
-            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
-        ):
-            env = ActivityEnvironment()
-            await env.run(
-                notify_alert,
-                NotifyAlertActivityInputs(alert_id=str(alert.id), alert_check_id=str(check.id)),
-            )
-
-        assert mock_create_notification.call_args.args[0].target_id == str(auser.id)
+        assert recipients == []
 
     async def test_error_realtime_notification_failure_does_not_block_recording_delivery(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": "boom"})
