@@ -38,7 +38,8 @@ export interface MlMirrorImageScrubProducer {
     producedRefCacheMax: number
 }
 
-/** Enables the fetch lane's producer: collected URLs go to the fetch topic, keyed by host. */
+/** Enables the fetch lane's producer: collected URLs go to the fetch topic, keyed by the
+ *  registrable domain of each URL. */
 export interface MlMirrorUrlFetchProducer {
     outputs: IngestionOutputs<MlImageFetchOutput | MlImageScrubOutput>
     producedRefCacheMax: number

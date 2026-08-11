@@ -17,8 +17,10 @@ export type MlBlockMetadataOutput = typeof ML_BLOCK_METADATA_OUTPUT
 export const ML_IMAGE_SCRUB_OUTPUT = 'ml_image_scrub' as const
 export type MlImageScrubOutput = typeof ML_IMAGE_SCRUB_OUTPUT
 
-// Original URLs of remote images for the fetch lane (key = host); only the mirror deployment
-// produces to it. The key is the host and not the ref, because the fetcher controls its request
-// rate for each host, and one pod must own one host to do that without a distributed lock.
+// Original URLs of remote images for the fetch lane (key = registrable domain); only the mirror
+// deployment produces to it. The key is the domain and not the ref, because the fetcher controls
+// its request rate for each operator. One pod must own one operator to do that without a
+// distributed lock. A record carries the host of each URL, because robots.txt and the connection
+// limit are scoped to the host.
 export const ML_IMAGE_FETCH_OUTPUT = 'ml_image_fetch' as const
 export type MlImageFetchOutput = typeof ML_IMAGE_FETCH_OUTPUT
