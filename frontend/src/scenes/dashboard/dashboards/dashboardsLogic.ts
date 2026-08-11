@@ -4,14 +4,11 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
-import { resolveProjectTreeRefs } from 'lib/components/FileSystem/resolveProjectTreeRefs'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
-import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -70,7 +67,7 @@ export interface dashboardsLogicValues {
     filteredTags: string[]
     filters: DashboardsFilters
     isFiltering: boolean
-    resolvingMoveTargets: boolean
+    moveTargetsById: Record<string, FileSystemEntry>
     searchedDashboards: DashboardBasicType[] | null
     searchedDashboardsLoading: boolean
     showTagPopover: boolean
@@ -136,9 +133,6 @@ export interface dashboardsLogicActions {
         method: 'bulk' | 'single'
         onStillSelected: ((ids: number[]) => void) | undefined
     }
-    moveDashboardsToFolderResolved: () => {
-        value: true
-    }
     setCurrentTab: (tab: DashboardsTab) => {
         tab: DashboardsTab
     }
@@ -187,6 +181,7 @@ export interface dashboardsLogicMeta {
             currentTab: DashboardsTab,
             user: UserType | null
         ) => DashboardBasicType[]
+        moveTargetsById: (dashboards: DashboardBasicType[]) => Record<string, FileSystemEntry>
     }
 }
 
@@ -216,7 +211,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             method: 'single' | 'bulk',
             onStillSelected?: (ids: number[]) => void
         ) => ({ ids, method, onStillSelected }),
-        moveDashboardsToFolderResolved: true,
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
         setSearch: (search: string) => ({ search }),
         setFilters: (filters: Partial<DashboardsFilters>) => ({
@@ -229,13 +223,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         setShowTagPopover: (visible: boolean) => ({ visible }),
     }),
     reducers({
-        resolvingMoveTargets: [
-            false,
-            {
-                moveDashboardsToFolder: () => true,
-                moveDashboardsToFolderResolved: () => false,
-            },
-        ],
         tableSorting: [
             DEFAULT_SORTING,
             { persist: true },
@@ -406,6 +393,24 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
 
+        moveTargetsById: [
+            (s) => [s.dashboards],
+            (dashboards: DashboardBasicType[]): Record<string, FileSystemEntry> =>
+                Object.fromEntries(
+                    dashboards
+                        .filter((dashboard) => dashboard.file_system_id && dashboard.file_system_path)
+                        .map((dashboard) => [
+                            dashboard.id,
+                            {
+                                id: dashboard.file_system_id,
+                                path: dashboard.file_system_path,
+                                type: 'dashboard',
+                                ref: String(dashboard.id),
+                            } as FileSystemEntry,
+                        ])
+                ),
+        ],
+
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -556,28 +561,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 awaiting.onStillSelected?.([...awaiting.ids])
             }
         },
-        moveDashboardsToFolder: async ({ ids, method, onStillSelected }, breakpoint) => {
-            if (ids.length === 0) {
-                actions.moveDashboardsToFolderResolved()
+        moveDashboardsToFolder: ({ ids, method, onStillSelected }) => {
+            const entries = values.moveTargetsById
+            const moving = ids.map((id) => entries[id]).filter((entry): entry is FileSystemEntry => !!entry)
+            if (moving.length === 0) {
                 return
             }
-            const entries = await resolveProjectTreeRefs(ids.map((id) => ({ type: 'dashboard', ref: String(id) })))
-            // A second click while this one is resolving would otherwise open the modal on the wrong rows.
-            breakpoint()
-            actions.moveDashboardsToFolderResolved()
-            if (entries.length === 0) {
-                lemonToast.error(
-                    `Couldn't look up where ${pluralize(ids.length, 'this dashboard is', 'these dashboards are', false)} filed. Refresh the page and try again.`
-                )
-                return
-            }
-            if (entries.length < ids.length) {
-                lemonToast.warning(
-                    `Only ${entries.length} of ${ids.length} selected dashboards can be moved. We couldn't look up where the rest are filed.`
-                )
-            }
-            actions.reportDashboardMoveInitiated(method, entries.length)
-            actions.openMoveToModal(entries)
+            actions.reportDashboardMoveInitiated(method, moving.length)
+            actions.openMoveToModal(moving)
             cache.awaitingMove = { ids: new Set(ids), onStillSelected }
         },
         setSearch: ({ search }) => {

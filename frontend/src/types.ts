@@ -2650,6 +2650,10 @@ export interface DashboardBasicType extends WithAccessControl {
     tags?: string[]
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
     folder?: string | null
+    /** Id of the dashboard's file system entry. Null when it has none, which is the case that cannot be moved. */
+    file_system_id?: string | null
+    /** Full file system path, keeping the dashboard's own name as the last segment. A move needs it to compute the destination. */
+    file_system_path?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**

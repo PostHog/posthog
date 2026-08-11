@@ -45,14 +45,17 @@ describe('DashboardsTable move to folder', () => {
             showDeleteDashboardModal: jest.fn(),
             moveDashboardsToFolder,
         })
+    })
+
+    const renderTable = (rows: number[], selectedKeys: number[] = [], filedRows: number[] = rows): void => {
         ;(useValues as jest.Mock).mockReturnValue({
             tableSorting: null,
             filters: { search: '' },
             currentTeam: { id: 1 },
+            moveTargetsById: Object.fromEntries(
+                filedRows.map((id) => [id, { id: `fs-${id}`, path: `Marketing/Dashboard ${id}` }])
+            ),
         })
-    })
-
-    const renderTable = (rows: number[], selectedKeys: number[] = []): void => {
         mockCtx = { selectedKeys, clearSelection, setSelectedKeys }
         render(
             <DashboardsTable
@@ -80,5 +83,17 @@ describe('DashboardsTable move to folder', () => {
         // Rows lose their tick only as each move lands, so a failed move keeps its selection.
         expect(moveDashboardsToFolder).toHaveBeenCalledWith([1, 2], 'bulk', setSelectedKeys)
         expect(setSelectedKeys).not.toHaveBeenCalled()
+    })
+
+    it('says why a dashboard with no file system entry cannot be moved', () => {
+        renderTable([1], [], [])
+        fireEvent.click(screen.getByText('Move to another folder'))
+        expect(moveDashboardsToFolder).not.toHaveBeenCalled()
+    })
+
+    it('disables the bulk move when nothing selected is filed anywhere', () => {
+        renderTable([1, 2], [1, 2], [])
+        fireEvent.click(screen.getByText('Move to folder'))
+        expect(moveDashboardsToFolder).not.toHaveBeenCalled()
     })
 })

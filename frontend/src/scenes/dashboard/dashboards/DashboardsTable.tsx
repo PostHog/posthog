@@ -58,7 +58,7 @@ export function DashboardsTable({
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
-    const { tableSorting, filters, resolvingMoveTargets } = useValues(dashboardsLogic)
+    const { tableSorting, filters, moveTargetsById } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
     // while the user has an active search term.
@@ -246,7 +246,9 @@ export function DashboardsTable({
                                           <LemonButton
                                               onClick={() => moveDashboardsToFolder([id], 'single')}
                                               disabledReason={
-                                                  resolvingMoveTargets ? 'Looking up where this is filed' : undefined
+                                                  moveTargetsById[id]
+                                                      ? undefined
+                                                      : 'This dashboard is not filed anywhere yet'
                                               }
                                               fullWidth
                                               data-attr="dashboard-move-to-folder"
@@ -329,8 +331,11 @@ export function DashboardsTable({
                                 onClick={() =>
                                     moveDashboardsToFolder([...ctx.selectedKeys], 'bulk', ctx.setSelectedKeys)
                                 }
-                                loading={resolvingMoveTargets}
-                                disabledReason={resolvingMoveTargets ? 'Looking up where these are filed' : undefined}
+                                disabledReason={
+                                    ctx.selectedKeys.some((key) => moveTargetsById[key])
+                                        ? undefined
+                                        : 'None of the selected dashboards are filed anywhere yet'
+                                }
                                 data-attr="dashboards-bulk-move-to-folder"
                             >
                                 Move to folder

@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -18,10 +17,6 @@ import { initKeaTests } from '~/test/init'
 import { AppContext, DashboardType, UserBasicType } from '~/types'
 
 import dashboardJson from '../__mocks__/dashboard.json'
-
-jest.mock('lib/lemon-ui/LemonToast', () => ({
-    lemonToast: { error: jest.fn(), warning: jest.fn(), success: jest.fn() },
-}))
 
 let dashboardId = 1234
 const dashboard = (extras: Partial<DashboardType>): DashboardType => {
@@ -54,12 +49,21 @@ describe('dashboardsLogic', () => {
                 pinned: true,
             }),
         },
-        { ...dashboard({ created_by: CURRENT_USER, folder: 'Marketing/Website' }) },
+        {
+            ...dashboard({
+                created_by: CURRENT_USER,
+                folder: 'Marketing/Website',
+                file_system_id: 'fs-filed',
+                file_system_path: 'Marketing/Website/Filed',
+            }),
+        },
         {
             ...dashboard({
                 created_by: OTHER_USER,
                 name: 'needle',
                 folder: 'Marketing/Website',
+                file_system_id: 'fs-needle',
+                file_system_path: 'Marketing/Website/needle',
             }),
         },
         {
@@ -482,134 +486,44 @@ describe('dashboardsLogic', () => {
         expect(lastRequestUrl!.searchParams.getAll('tags')).toEqual(['finance'])
     })
 
-    it('opens the move modal with the file system rows of the dashboards it was given', async () => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/file_system': ({ request }) => {
-                    const refs = new URL(request.url).searchParams.getAll('ref')
-                    return [
-                        200,
-                        {
-                            count: 0,
-                            results: refs.map((ref) => ({
-                                id: `fs-${ref}`,
-                                ref,
-                                type: 'dashboard',
-                                path: 'Marketing',
-                            })),
-                        },
-                    ]
-                },
-            },
-        })
-
-        // Mounted so the dispatched action reaches its reducers.
+    it('opens the move modal with the entry the list already carries', async () => {
         moveToLogic.mount()
+        const filed = logic.values.dashboards.find((d) => d.file_system_id)!
 
-        await expectLogic(logic, () => {
-            logic.actions.moveDashboardsToFolder([11, 12], 'bulk')
-        }).toFinishListeners()
+        logic.actions.moveDashboardsToFolder([filed.id], 'single')
 
         expect(moveToLogic.values.movingItems).toEqual([
-            expect.objectContaining({ id: 'fs-11' }),
-            expect.objectContaining({ id: 'fs-12' }),
+            expect.objectContaining({ id: filed.file_system_id, path: filed.file_system_path }),
         ])
         expect(moveToLogic.values.isOpen).toBe(true)
     })
 
-    it('reports the failure and leaves the modal closed when no row resolves', async () => {
-        useMocks({ get: { '/api/environments/:team_id/file_system': () => [200, { count: 0, results: [] }] } })
+    it('does nothing for a dashboard that is not filed anywhere', async () => {
         moveToLogic.mount()
+        const unfiled = logic.values.dashboards.find((d) => !d.file_system_id)!
 
-        await expectLogic(logic, () => {
-            logic.actions.moveDashboardsToFolder([11], 'single')
-        }).toFinishListeners()
+        logic.actions.moveDashboardsToFolder([unfiled.id], 'single')
 
-        expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining("Couldn't look up where"))
         expect(moveToLogic.values.isOpen).toBe(false)
     })
 
-    it('warns and moves on with the subset that resolved', async () => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/file_system': ({ request }) => {
-                    const refs = new URL(request.url).searchParams.getAll('ref')
-                    const results = refs
-                        .filter((ref) => ref === '11')
-                        .map((ref) => ({ id: 'fs-11', ref, type: 'dashboard', path: 'Marketing' }))
-                    return [200, { count: 0, results }]
-                },
-            },
-        })
-        moveToLogic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.moveDashboardsToFolder([11, 12], 'bulk')
-        }).toFinishListeners()
-
-        expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('Only 1 of 2'))
-        expect(moveToLogic.values.movingItems).toEqual([expect.objectContaining({ id: 'fs-11' })])
-    })
-
     it('deselects a dashboard only once its move lands, leaving the rest ticked', async () => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/file_system': ({ request }) => {
-                    const refs = new URL(request.url).searchParams.getAll('ref')
-                    return [
-                        200,
-                        {
-                            count: 0,
-                            results: refs.map((ref) => ({
-                                id: `fs-${ref}`,
-                                ref,
-                                type: 'dashboard',
-                                path: 'Marketing',
-                            })),
-                        },
-                    ]
-                },
-            },
-        })
         moveToLogic.mount()
+        const [first, second] = logic.values.dashboards.filter((d) => d.file_system_id)
         const onStillSelected = jest.fn()
 
-        await expectLogic(logic, () => {
-            logic.actions.moveDashboardsToFolder([11, 12], 'bulk', onStillSelected)
-        }).toFinishListeners()
+        logic.actions.moveDashboardsToFolder([first.id, second.id], 'bulk', onStillSelected)
 
         // The modal is open; nothing has moved yet, so nothing is deselected.
         expect(onStillSelected).not.toHaveBeenCalled()
 
         projectTreeDataLogic.actions.movedItem(
-            { id: 'fs-11', type: 'dashboard', ref: '11', path: 'Marketing/A' } as any,
-            'Marketing/A',
-            'Revenue/A'
+            { id: first.file_system_id, type: 'dashboard', ref: String(first.id), path: first.file_system_path } as any,
+            first.file_system_path!,
+            'Revenue/Filed'
         )
 
-        expect(onStillSelected).toHaveBeenCalledWith([12])
-    })
-
-    it('keeps the selection when only part of it resolved', async () => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/file_system': ({ request }) => {
-                    const refs = new URL(request.url).searchParams.getAll('ref')
-                    const results = refs
-                        .filter((ref) => ref === '11')
-                        .map((ref) => ({ id: 'fs-11', ref, type: 'dashboard', path: 'Marketing' }))
-                    return [200, { count: 0, results }]
-                },
-            },
-        })
-        moveToLogic.mount()
-        const onStillSelected = jest.fn()
-
-        await expectLogic(logic, () => {
-            logic.actions.moveDashboardsToFolder([11, 12], 'bulk', onStillSelected)
-        }).toFinishListeners()
-
-        expect(onStillSelected).not.toHaveBeenCalled()
+        expect(onStillSelected).toHaveBeenCalledWith([second.id])
     })
 
     it('does not refetch when toggling pinned while a search is active on the /dashboard URL', async () => {
