@@ -5281,6 +5281,11 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
+    index "bloom_filter_$session_id" {
+      expr        = "nullIf(nullIf(`$session_id`, ''), 'null')"
+      type        = "bloom_filter"
+      granularity = 1
+    }
     index "minmax_$group_0" {
       expr        = "`$group_0`"
       type        = "minmax"

@@ -236,18 +236,6 @@ export class PersonHogPersonRepository implements PersonRepository {
         return this.postgres.addDistinctId(person, distinctId, version)
     }
 
-    addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        return this.postgres.addPersonlessDistinctId(teamId, distinctId)
-    }
-
-    addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        return this.postgres.addPersonlessDistinctIdForMerge(teamId, distinctId)
-    }
-
-    addPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<Map<string, boolean>> {
-        return this.postgres.addPersonlessDistinctIdsBatch(entries)
-    }
-
     personPropertiesSize(personId: string, teamId: number): Promise<number> {
         return this.postgres.personPropertiesSize(personId, teamId)
     }

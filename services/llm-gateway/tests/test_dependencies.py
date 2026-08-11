@@ -6,10 +6,12 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
     enforce_product_access,
     enforce_throttles,
+    get_authenticated_user,
     get_model_from_request,
     get_provider_from_request,
     get_request_json,
@@ -76,6 +78,25 @@ def _make_user(auth_method: str = "personal_api_key", user_id: int = 1) -> Authe
         distinct_id=f"test-distinct-id-{user_id}",
         scopes=["llm_gateway:read"],
     )
+
+
+class TestGetAuthenticatedUser:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error,expected_status",
+        [
+            pytest.param(InvalidProjectScopeError(), 400, id="invalid_project"),
+            pytest.param(UnauthorizedProjectScopeError(), 403, id="unauthorized_project"),
+        ],
+    )
+    async def test_rejects_invalid_oauth_project_scope(self, error: Exception, expected_status: int) -> None:
+        auth_service = MagicMock()
+        auth_service.authenticate_request = AsyncMock(side_effect=error)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_authenticated_user(_make_request(), MagicMock(), auth_service)
+
+        assert exc_info.value.status_code == expected_status
 
 
 class TestExtractEndUserIdFromBody:

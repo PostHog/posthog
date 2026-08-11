@@ -30,6 +30,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
@@ -281,7 +282,11 @@ async def compute_table_statistics_activity(inputs: ComputeTableStatisticsInputs
                 inputs.team_id, inputs.schema_id
             )
         except Exception as e:
-            capture_exception(e)
+            # get_delta_table already re-raises known-transient object-store blips as
+            # NonReportableError (see DeltaTableRef._capture_unless_transient) and intentionally
+            # skips reporting them itself — don't undo that here.
+            if not isinstance(e, NonReportableError):
+                capture_exception(e)
             try:
                 posthoganalytics.capture(
                     distinct_id=f"team-{inputs.team_id}",
