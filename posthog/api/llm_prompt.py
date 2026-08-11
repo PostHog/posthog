@@ -1,5 +1,6 @@
 import json
 from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -123,8 +124,31 @@ class LLMPromptViewSet(
 
     def _prompt_not_found_response(self, prompt_name: str) -> Response:
         return Response(
-            {"detail": f"Prompt with name '{prompt_name}' not found."},
+            {
+                "detail": (
+                    f"No prompt matching '{prompt_name}' in this project. "
+                    "List the project's prompts to see which names exist."
+                )
+            },
             status=status.HTTP_404_NOT_FOUND,
+        )
+
+    def _resolve_prompt_name(self, prompt_name: str) -> str | None:
+        """Map the path segment onto a prompt name, accepting the `id` UUID of any of the prompt's
+        versions as well as the name itself. Both identify one prompt, and every list and get
+        response carries the id, so a caller holding one should not have to look the name up.
+        Returns None when the segment is a UUID matching no prompt in this project."""
+        try:
+            version_id = UUID(prompt_name)
+        except ValueError:
+            return prompt_name
+        # Nothing stops a prompt from being named like a UUID, so the literal name wins the tie.
+        if LLMPrompt.objects.filter(team=self.team, deleted=False, name=prompt_name).exists():
+            return prompt_name
+        return (
+            LLMPrompt.objects.filter(team=self.team, deleted=False, id=version_id)
+            .values_list("name", flat=True)
+            .first()
         )
 
     def _serialize_prompt(self, prompt: LLMPrompt) -> dict[str, Any]:
@@ -264,14 +288,22 @@ class LLMPromptViewSet(
         version = cast(int | None, query_params.get("version"))
         label = cast(str | None, query_params.get("label"))
         content_mode = cast(str, query_params.get("content", "full"))
-        prompt = get_prompt_by_name_from_cache(self.team, prompt_name, version, label=label)
+        resolved_name = self._resolve_prompt_name(prompt_name)
+        if resolved_name is None:
+            return self._prompt_not_found_response(prompt_name)
+        prompt = get_prompt_by_name_from_cache(self.team, resolved_name, version, label=label)
         if prompt is None:
             if label is not None:
                 return Response(
-                    {"detail": f"Prompt '{prompt_name}' not found or has no label '{label}'."},
+                    {
+                        "detail": (
+                            f"No prompt matching '{resolved_name}' with label '{label}'. "
+                            "Fetch it without a label to see which labels it has."
+                        )
+                    },
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            return self._prompt_not_found_response(prompt_name)
+            return self._prompt_not_found_response(resolved_name)
 
         self._track_prompt_fetch(prompt)
         return Response(self._apply_content_mode(prompt, content_mode))

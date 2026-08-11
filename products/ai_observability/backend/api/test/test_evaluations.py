@@ -986,6 +986,21 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["results"]), 0)
 
+    @parameterized.expand(
+        [
+            ("unknown_uuid", "019f5632-6df1-0000-5093-46d18b1bc987"),
+            # An agent holding the evaluation's name but not its id puts the name in the id slot. That
+            # can't parse as a UUID, so without the ValidationError catch it surfaces as a 500.
+            ("name_in_the_id_slot", "answer-faithfulness"),
+        ]
+    )
+    def test_retrieving_a_missing_evaluation_says_how_to_find_a_real_id(self, _name, evaluation_id):
+        response = self.client.get(f"/api/environments/{self.team.id}/evaluations/{evaluation_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn(evaluation_id, response.data["detail"])
+        self.assertIn("list the project's evaluations", response.data["detail"].lower())
+
     def test_validation_requires_required_fields(self):
         # Missing name
         response = self.client.post(
