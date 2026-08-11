@@ -27,6 +27,12 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
 } from "@posthog/shared";
+import {
+  buildPosthogPropertiesHeaderLines,
+  buildPosthogPropertiesHeaderRecord,
+  buildPosthogScopedPropertyHeaderLines,
+  buildPosthogScopedPropertyHeaderRecord,
+} from "@posthog/shared/posthog-property-headers";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -91,14 +97,7 @@ import type {
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
-import {
-  buildGatewayPropertiesHeader,
-  buildGatewayPropertiesHeaderRecord,
-  buildGatewayPropertyHeaderRecord,
-  buildGatewayPropertyHeaders,
-  resolveGatewayProduct,
-  resolveGatewayTarget,
-} from "../utils/gateway";
+import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -1622,6 +1621,7 @@ export class AgentServer {
       void fetchGatewayModels({
         gatewayUrl: gatewayEnv.anthropicBaseUrl,
         authToken: gatewayEnv.anthropicAuthToken,
+        projectId: Number(gatewayEnv.posthogProjectId) || undefined,
       }).catch(() => {});
     }
 
@@ -3654,7 +3654,7 @@ Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this envi
 To commit: stage your changes with \`git add\`, then call the \`git_signed_commit\` tool (full
 name \`${SIGNED_COMMIT_QUALIFIED_TOOL_NAME}\`) with a \`message\` (and optional \`body\`/\`paths\`).
 It creates a GitHub-signed ("Verified") commit on the branch and keeps your local checkout in
-sync. To start a new branch, pass \`branch\` (prefixed with \`posthog-code/\`) — the tool creates
+sync. To start a new branch, pass \`branch\` (prefixed with \`posthog/\`) — the tool creates
 it on the remote for you.
 
 ## Updating from the base branch
@@ -3839,7 +3839,7 @@ Do the requested work, but stop with local changes ready for review.
 
 Important:
 - Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.
-- If the user explicitly asks you to open a pull request: pick a new branch name prefixed with \`posthog-code/\`, stage your changes with \`git add\`, and call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). Before opening the PR, check the repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links. Keep the description brief overall — summarize only the most important changes.
+- If the user explicitly asks you to open a pull request: pick a new branch name prefixed with \`posthog/\`, stage your changes with \`git add\`, and call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). Before opening the PR, check the repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links. Keep the description brief overall — summarize only the most important changes.
 ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
@@ -3857,7 +3857,7 @@ ${repositoryWorkspaceInstructions}
 If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
 
 Otherwise, after completing the requested changes:
-1. Pick a new branch name prefixed with \`posthog-code/\` (e.g. \`posthog-code/fix-login-redirect\`)
+1. Pick a new branch name prefixed with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`)
 2. Stage your changes with \`git add\`, then call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). The tool creates the branch on the remote and a signed commit on it.
 3. Before opening the PR, prepare the body:
    - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
@@ -4071,17 +4071,23 @@ ${commonInstructions}
         ai_product: aiProduct,
         team_id: projectId,
       };
-      customHeaders = buildGatewayPropertiesHeader(properties);
-      openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
+      customHeaders = buildPosthogPropertiesHeaderLines(properties);
+      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
     } else {
-      customHeaders = buildGatewayPropertyHeaders(gatewayProperties);
+      customHeaders = buildPosthogScopedPropertyHeaderLines(
+        gatewayProperties,
+        projectId,
+      );
       // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
       // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildGatewayPropertyHeaderRecord({
-        ...gatewayProperties,
-        team_id: projectId,
-        $ai_session_id: taskId,
-      });
+      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
+        {
+          ...gatewayProperties,
+          team_id: projectId,
+          $ai_session_id: taskId,
+        },
+        projectId,
+      );
     }
 
     // Server-level constants that don't vary per task — safe to keep in

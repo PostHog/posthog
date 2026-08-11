@@ -49,6 +49,12 @@
             },
             "required": ["name", "url"]
         },
+        "ChannelInstructionsBaseVersionSchema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions."
+        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {

@@ -192,7 +192,7 @@ PostHog automatically sets environment variables in all workspace terminals and 
 | `POSTHOG_CODE_WORKSPACE_PATH` | Absolute path to the workspace | `/Users/dev/.posthog-code/worktrees/repo/my-feature` |
 | `POSTHOG_CODE_ROOT_PATH` | Absolute path to the repository root | `/Users/dev/repos/my-project` |
 | `POSTHOG_CODE_DEFAULT_BRANCH` | Default branch detected from git | `main` |
-| `POSTHOG_CODE_WORKSPACE_BRANCH` | Initial branch when workspace was created | `posthog-code/my-feature` |
+| `POSTHOG_CODE_WORKSPACE_BRANCH` | Initial branch when workspace was created | `posthog/my-feature` |
 | `POSTHOG_CODE_WORKSPACE_PORTS` | Comma-separated list of allocated ports | `50000,50001,...,50019` |
 | `POSTHOG_CODE_WORKSPACE_PORTS_RANGE` | Number of ports allocated | `20` |
 | `POSTHOG_CODE_WORKSPACE_PORTS_START` | First port in the range | `50000` |

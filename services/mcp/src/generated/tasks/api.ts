@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -752,7 +752,7 @@ export const TaskChannelsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false.
  * @summary Resolve or create a public channel
  */
 export const TaskChannelsCreateParams = /* @__PURE__ */ zod.object({
@@ -765,12 +765,20 @@ export const TaskChannelsCreateParams = /* @__PURE__ */ zod.object({
 
 export const taskChannelsCreateBodyNameMax = 128
 
+export const taskChannelsCreateBodyStarDefault = true
+
 export const TaskChannelsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
             .string()
             .max(taskChannelsCreateBodyNameMax)
             .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        star: zod
+            .boolean()
+            .default(taskChannelsCreateBodyStarDefault)
+            .describe(
+                'Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched.'
+            ),
     })
     .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
 
@@ -801,6 +809,39 @@ export const TaskChannelsInstructionsRetrieveParams = /* @__PURE__ */ zod.object
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+/**
+ * Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.
+ * @summary Publish channel instructions
+ */
+export const TaskChannelsInstructionsUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const taskChannelsInstructionsUpdateBodyContentMax = 100000
+
+export const taskChannelsInstructionsUpdateBodyBaseVersionMin = 0
+
+export const TaskChannelsInstructionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(taskChannelsInstructionsUpdateBodyContentMax)
+            .describe('The complete markdown instructions (CONTEXT.md) for the channel.'),
+        base_version: zod
+            .number()
+            .min(taskChannelsInstructionsUpdateBodyBaseVersionMin)
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.'
+            ),
+    })
+    .describe('Request body for publishing a new instructions version.')
 
 /**
  * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.

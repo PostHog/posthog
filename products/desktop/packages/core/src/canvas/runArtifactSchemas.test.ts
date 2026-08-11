@@ -36,6 +36,8 @@ describe("parseRunArtifacts", () => {
       size: 16861,
       content_type: "text/markdown",
       uploaded_at: "2026-07-27T08:27:26.896719+00:00",
+      uploaded_by: "user" as const,
+      uploaded_by_user_id: 42,
     };
     expect(parseRunArtifacts([artifact], OUTPUT_ARTIFACT_TYPES)).toEqual([
       artifact,

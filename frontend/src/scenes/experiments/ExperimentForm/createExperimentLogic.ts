@@ -32,7 +32,7 @@ import type {
 import { visionScannersCreate } from 'products/replay_vision/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { ProductIntentProperties } from '../../../lib/utils/product-intents'
+import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { FeatureFlagType } from '../../../types'
 import { NEW_EXPERIMENT } from '../constants'
@@ -171,6 +171,7 @@ export interface createExperimentLogicActions {
         flag: FeatureFlagType
     } // featureFlagsLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    addProductIntentForCrossSell: (properties: ProductCrossSellProperties) => ProductCrossSellProperties // teamLogic
     cancelForm: () => {
         value: true
     }
@@ -290,7 +291,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             featureFlagsLogic,
             ['updateFlag'],
             teamLogic,
-            ['addProductIntent'],
+            ['addProductIntent', 'addProductIntentForCrossSell'],
         ],
     })),
     actions(() => ({
@@ -635,8 +636,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 experimentScannerBody(response, filters, usedExposureFallback)
                             )
                             replayScannerId = replayScanner.id
-                            actions.addProductIntent({
-                                product_type: ProductKey.REPLAY_VISION,
+                            actions.addProductIntentForCrossSell({
+                                from: ProductKey.EXPERIMENTS,
+                                to: ProductKey.REPLAY_VISION,
                                 intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
                             })
                         } catch (scannerError) {

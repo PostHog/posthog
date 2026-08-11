@@ -467,17 +467,21 @@ class TestSurvey(APIBaseTest):
                 False,
             ),
             ("archived", {"start_date": datetime(2026, 1, 1, tzinfo=UTC), "archived": True}, False),
+            (
+                "external",
+                {"start_date": datetime(2026, 1, 1, tzinfo=UTC), "type": Survey.SurveyType.EXTERNAL_SURVEY},
+                False,
+            ),
         ]
     )
-    def test_sdk_payload_only_includes_running_surveys(
-        self, _name: str, lifecycle_fields: dict[str, Any], expected_in_payload: bool
+    def test_sdk_payload_only_includes_running_in_app_surveys(
+        self, _name: str, survey_fields: dict[str, Any], expected_in_payload: bool
     ) -> None:
         survey = Survey.objects.create(
             team=self.team,
             name="Lifecycle survey",
-            type="popover",
             questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
-            **lifecycle_fields,
+            **{"type": "popover", **survey_fields},
         )
 
         payload_ids = {str(item["id"]) for item in get_surveys_response(self.team)["surveys"]}

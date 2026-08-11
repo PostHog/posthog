@@ -1291,6 +1291,43 @@ class TestDeadJobSkip:
 
 
 class TestReconcileFailedRuns:
+    @pytest.fixture(autouse=True)
+    def _hold_sweep_slot(self):
+        """Grant the fleet-wide sweep slot by default — these tests exercise the sweep body, not the slot."""
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.try_acquire_reconcile_sweep_slot",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
+            yield
+
+    @pytest.mark.asyncio
+    async def test_slot_held_elsewhere_skips_sweep_but_still_probes_freshness(self):
+        # Single-flighting must never silence the freshness gauge: every pod
+        # reports it, only the slot winner runs the sweep body.
+        consumer = _make_consumer()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.try_acquire_reconcile_sweep_slot",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                new_callable=AsyncMock,
+                return_value=42.0,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+            ) as mock_failed_runs,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 42.0
+        mock_failed_runs.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_reconcile_reports_queue_freshness_gauge(self):
         # The gauge feeds the loader's data-freshness alert; if a reconcile

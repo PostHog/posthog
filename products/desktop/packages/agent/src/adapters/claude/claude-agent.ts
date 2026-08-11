@@ -2089,6 +2089,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       onEnsureLocalToolsConnected: () =>
         this.ensureLocalToolsConnected("guard-hook"),
       taskState,
+      getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
       onTaskStateChange: async () => {
         await this.client.sessionUpdate({
@@ -2207,6 +2208,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         requestedModel,
         this.options?.gatewayEnv?.anthropicBaseUrl,
         this.options?.gatewayEnv?.anthropicAuthToken,
+        Number(this.options?.gatewayEnv?.posthogProjectId) || undefined,
       ),
       ...(meta?.taskRunId
         ? [
