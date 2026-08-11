@@ -18,8 +18,8 @@ server-side profile/quota is a ceiling no application bug can exceed. ClickHouse
 `priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
 so a nonzero value here would participate in a scheduling class of one.
 
-With NOTEBOOKS_FRAME_STORE_CH_WRITES on (phase 2 of the design doc, default off),
-ClickHouse writes the object itself via `INSERT INTO FUNCTION s3(...)` issued through
+For a run whose user has the `notebooks-frame-store-ch-writes` flag (phase 2 of the design
+doc, off by default), ClickHouse writes the object itself via `INSERT INTO FUNCTION s3(...)` issued through
 the pooled native clients (sync_execute): zero result bytes transit the worker, errors
 arrive in-band and typed, and the streaming path's EOS-marker check and query_log
 recovery are unnecessary. The worker-relay path below stays the default until the
@@ -220,6 +220,10 @@ class FrameMaterializeInputs:
     query: str
     query_hash: str
     cache_key: str
+    # Resolved from the per-user flag in the web process, because the worker has no request
+    # user to evaluate it against. Defaulted so a history recorded before this field existed
+    # decodes to the streaming path, which keeps in-flight runs replayable across the deploy.
+    ch_writes: bool = False
 
 
 __GLOBAL_LIMITER: RateLimit | None = None
@@ -615,7 +619,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     # sync_execute on the CH-writes path resolves the same creds via the same enum.
     creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
     resolved_default_user = creds.user == settings.CLICKHOUSE_USER
-    ch_writes = bool(settings.NOTEBOOKS_FRAME_STORE_CH_WRITES)
+    ch_writes = inputs.ch_writes
     if ch_writes and resolved_default_user and not settings.DEBUG and not settings.TEST:
         # Fail closed in a real deployment: the CH-writes statement is write-capable
         # (readonly=0 + S3 egress), so running it as the broad default user — when the flag
@@ -904,7 +908,7 @@ def mark_frame_materialize_failed(inputs: FrameMaterializeInputs) -> None:
     except QueryNotFoundError:
         pass
     _finalize_status(manager, inputs, error_message="The frame could not be materialized. Try re-running the cell.")
-    mode = "ch_writes" if settings.NOTEBOOKS_FRAME_STORE_CH_WRITES else "streaming"
+    mode = "ch_writes" if inputs.ch_writes else "streaming"
     FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
 
 
@@ -959,6 +963,7 @@ def enqueue_frame_materialization(
     user_id: int | None,
     notebook_short_id: str,
     query: str,
+    ch_writes: bool = False,
     _test_only_inline: bool = False,
 ) -> QueryStatus:
     """Register a materialize job for `query` and dispatch the workflow; returns its status.
@@ -1005,6 +1010,7 @@ def enqueue_frame_materialization(
         query=query,
         query_hash=query_hash,
         cache_key=cache_key,
+        ch_writes=ch_writes,
     )
     if _test_only_inline:
         # Tests have no Temporal worker; mirror the workflow's failure handling inline.

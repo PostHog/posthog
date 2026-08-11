@@ -25,7 +25,7 @@ _DISPATCH_TARGET = "products.notebooks.backend.temporal.client.start_frame_mater
 
 
 def _registered_inputs(
-    team_id: int, notebook_short_id: str, user_id: int, query: str = "select 1"
+    team_id: int, notebook_short_id: str, user_id: int, query: str = "select 1", ch_writes: bool = False
 ) -> tuple["frame_materialize.FrameMaterializeInputs", QueryStatusManager]:
     query_id = uuid.uuid4().hex
     inputs = frame_materialize.FrameMaterializeInputs(
@@ -36,6 +36,7 @@ def _registered_inputs(
         query=query,
         query_hash="abc123",
         cache_key=f"notebook-frame:{team_id}:abc123",
+        ch_writes=ch_writes,
     )
     manager = QueryStatusManager(query_id, team_id)
     manager.store_query_status(QueryStatus(id=query_id, team_id=team_id))
@@ -201,11 +202,12 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
             self.notebook.short_id,
             self.user.id,
             query=f"select number as n, toUUID('{frame_uuid}') as u from numbers(3)",
+            ch_writes=True,
         )
         key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
         self.addCleanup(object_storage.delete, key)
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             returned_key = frame_materialize.materialize_frame(inputs)
 
         self.assertEqual(returned_key, key)
@@ -232,11 +234,12 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
             self.notebook.short_id,
             self.user.id,
             query="select number as n from numbers(0)",
+            ch_writes=True,
         )
         key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
         self.addCleanup(object_storage.delete, key)
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             frame_materialize.materialize_frame(inputs)
 
         status = manager.get_query_status()
@@ -315,10 +318,9 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         ]
     )
     def test_insert_error_maps_to_terminal_or_retryable(self, _name, error, terminal, expected_message):
-        inputs, manager = _registered_inputs(self.team.id, self.notebook.short_id, self.user.id)
+        inputs, manager = _registered_inputs(self.team.id, self.notebook.short_id, self.user.id, ch_writes=True)
 
         with (
-            self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True),
             patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
             patch.object(frame_materialize, "_materialize_slots"),
             patch.object(frame_materialize, "sync_execute", side_effect=error),
@@ -338,11 +340,10 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         # max_result_bytes bounds results returned to a client, not an INSERT's sink — the
         # post-write size check is the only output cap on this path. Removing it as
         # "redundant" would let a huge-per-row query persist an unbounded object.
-        inputs, manager = _registered_inputs(self.team.id, self.notebook.short_id, self.user.id)
+        inputs, manager = _registered_inputs(self.team.id, self.notebook.short_id, self.user.id, ch_writes=True)
         key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
 
         with (
-            self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True),
             patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
             patch.object(frame_materialize, "_materialize_slots"),
             patch.object(frame_materialize, "sync_execute", return_value=None),

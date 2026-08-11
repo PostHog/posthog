@@ -270,8 +270,11 @@ Two decisions locked in for this phase:
   teammates never share a job or an object) and duplicate in-flight materializations join the running query
   instead of stacking new ones.
 
-**Phase 2 — let ClickHouse do the writing (implemented, behind `NOTEBOOKS_FRAME_STORE_CH_WRITES`, default
-off).**
+**Phase 2 — let ClickHouse do the writing (implemented, behind the `notebooks-frame-store-ch-writes`
+feature flag, off by default).**
+The flag is resolved per user in the web process and travels with the job as a field on
+`FrameMaterializeInputs`, because the Temporal activity that acts on it has no request user of its own.
+The field is defaulted, so a history recorded before it existed replays on the streaming path.
 The worker-streamed upload is replaced with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports
 recipe), issued through the pooled native clients (`sync_execute`, offline workload, `notebooks` user) with a
 bounded socket timeout (the pooled clients' prod default is effectively infinite; a sync activity can't be

@@ -36,7 +36,11 @@ from posthog.models import Team, User
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.sql_v2 import is_frame_store_enabled, verify_data_plane_token
+from products.notebooks.backend.sql_v2 import (
+    is_frame_store_ch_writes_enabled,
+    is_frame_store_enabled,
+    verify_data_plane_token,
+)
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
@@ -169,6 +173,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                         user_id=user.id if user else None,
                         notebook_short_id=notebook_short_id,
                         query=bounded,
+                        ch_writes=is_frame_store_ch_writes_enabled(user),
                         _test_only_inline=settings.TEST,
                     )
             except Exception:
