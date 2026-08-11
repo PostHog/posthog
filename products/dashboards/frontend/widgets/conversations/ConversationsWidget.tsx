@@ -120,15 +120,13 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
                 </div>
                 <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
                     {assignee ? <span className="truncate">Assigned to {assignee}</span> : <span>Unassigned</span>}
-                    <div className="ml-auto flex shrink-0 items-center gap-1">
-                        {ticket.priority ? (
-                            <LemonTag type={priorityTagType(ticket.priority)}>{ticket.priority}</LemonTag>
-                        ) : null}
-                        <LemonTag type={statusTagType(ticket.status)}>{ticket.status.replace('_', ' ')}</LemonTag>
-                        {ticket.sla_due_at ? (
-                            <SlaDisplay slaDueAt={ticket.sla_due_at} className="ml-1 text-xs" />
-                        ) : null}
-                    </div>
+                </div>
+                <div className="flex items-center gap-1">
+                    {ticket.priority ? (
+                        <LemonTag type={priorityTagType(ticket.priority)}>{ticket.priority}</LemonTag>
+                    ) : null}
+                    <LemonTag type={statusTagType(ticket.status)}>{ticket.status.replace('_', ' ')}</LemonTag>
+                    {ticket.sla_due_at ? <SlaDisplay slaDueAt={ticket.sla_due_at} className="ml-auto text-xs" /> : null}
                 </div>
             </div>
         </Link>
@@ -152,6 +150,8 @@ function ConversationsWidgetLoadingState(): JSX.Element {
                         </div>
                         <div className="flex items-center gap-2">
                             <LemonSkeleton className="h-3 w-24" />
+                        </div>
+                        <div className="flex items-center gap-1">
                             <div className="ml-auto flex items-center gap-1">
                                 <LemonSkeleton className="h-5 w-12 rounded" />
                                 <LemonSkeleton className="h-5 w-10 rounded" />

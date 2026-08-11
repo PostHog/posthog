@@ -187,7 +187,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
         headerTitle: 'Recent tickets',
         headerMeta: { showDateRange: false },
         defaultConfig: conversationsRecentTicketsWidgetConfigSchema.parse({}),
-        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        defaultLayout: { w: 6, h: 6, minW: 3, minH: 4 },
         productAccess: 'ticket',
         titleHref: urls.supportTickets(),
         sharedPlaceholder: {
