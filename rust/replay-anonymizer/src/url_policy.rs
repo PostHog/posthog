@@ -129,17 +129,15 @@ pub struct CanonicalUrl {
 
 /// Whether one parameter of this URL is volatile.
 ///
-/// `present` holds every parameter name on this URL, already lowercased. A scoped group needs it
-/// to test for its marker.
-///
-/// The set is built once for each URL. A scan of the parameter list made this check quadratic in
-/// the parameter count, and a page controls both that count and the number of URLs.
-fn is_volatile(name: &str, host: &str, present: &HashSet<String>) -> bool {
+/// The name set is built once per URL. A scan of the parameter list made this quadratic in the
+/// parameter count, and a page controls both that count and the number of URLs.
+fn is_volatile(name: &str, host: &str, names_on_this_url: &HashSet<String>) -> bool {
     if VOLATILE_PARAMS.iter().any(|p| p.eq_ignore_ascii_case(name)) {
         return true;
     }
     for (marker, names) in SCOPED_VOLATILE_PARAMS {
-        if names.iter().any(|p| p.eq_ignore_ascii_case(name)) && present.contains(*marker) {
+        if names.iter().any(|p| p.eq_ignore_ascii_case(name)) && names_on_this_url.contains(*marker)
+        {
             return true;
         }
     }
@@ -162,22 +160,31 @@ fn is_volatile(name: &str, host: &str, present: &HashSet<String>) -> bool {
 /// resolve privately later. The fetcher therefore validates the address DNS returns, on the first
 /// request and on every redirect hop.
 pub fn is_public_host(host: &str) -> bool {
-    let bare = host.trim_matches(|c| c == '[' || c == ']');
-    // A trailing dot makes a name fully qualified, and it resolves the same way. Without this
-    // strip, `rsplit('.')` returns the empty label after the dot. That label matches no suffix, so
-    // the name list accepted `localhost.`.
-    let bare = bare.strip_suffix('.').unwrap_or(bare);
-    if let Ok(ip) = bare.parse::<IpAddr>() {
+    let host = without_brackets_or_trailing_dot(host);
+    if let Ok(ip) = host.parse::<IpAddr>() {
         return is_public_ip(ip);
     }
-    let lower = bare.to_ascii_lowercase();
-    // A name with no dot cannot be a public domain, which covers `localhost` and every bare
-    // container or service name.
-    if !lower.contains('.') || lower.split('.').any(|label| label.is_empty()) {
+    is_public_domain_name(&host.to_ascii_lowercase())
+}
+
+/// `[2606:4700::1111]` becomes `2606:4700::1111`, and `localhost.` becomes `localhost`.
+///
+/// A trailing dot makes a name fully qualified and resolves identically, so leaving it on let
+/// `localhost.` past the name check below: the label after the final dot is empty and matches
+/// nothing.
+fn without_brackets_or_trailing_dot(host: &str) -> &str {
+    let bare = host.trim_matches(|c| c == '[' || c == ']');
+    bare.strip_suffix('.').unwrap_or(bare)
+}
+
+fn is_public_domain_name(lowercase_host: &str) -> bool {
+    let has_no_dot = !lowercase_host.contains('.');
+    let has_empty_label = lowercase_host.split('.').any(|label| label.is_empty());
+    if has_no_dot || has_empty_label {
         return false;
     }
     !matches!(
-        lower.rsplit('.').next(),
+        lowercase_host.rsplit('.').next(),
         Some(
             "localhost"
                 | "local"
@@ -193,52 +200,60 @@ pub fn is_public_host(host: &str) -> bool {
     )
 }
 
-/// Every address rule lives here, so an address expressed in IPv6 cannot skip a rule that the IPv4
-/// path applies. IPv6 offers several ways to write an IPv4 address, and each one used to bypass
-/// most of the list.
+/// IPv6 offers several ways to write an IPv4 address, and each one used to bypass most of the IPv4
+/// rules. Every embedding is now judged by [`is_public_v4`].
 fn is_public_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => is_public_v4(v4),
-        IpAddr::V6(v6) => {
-            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
-                return false;
-            }
-            // Unique local (fc00::/7) and link-local (fe80::/10).
-            let seg = v6.segments();
-            if (seg[0] & 0xfe00) == 0xfc00 || (seg[0] & 0xffc0) == 0xfe80 {
-                return false;
-            }
-            // Every embedding of an IPv4 address is judged by the IPv4 rules.
-            if let Some(v4) = v6.to_ipv4_mapped().or_else(|| v6.to_ipv4()) {
-                return is_public_v4(v4);
-            }
-            // 6to4 carries the address in the two segments after the 0x2002 prefix.
-            if seg[0] == 0x2002 {
-                let v4 = Ipv4Addr::new(
-                    (seg[1] >> 8) as u8,
-                    seg[1] as u8,
-                    (seg[2] >> 8) as u8,
-                    seg[2] as u8,
-                );
-                return is_public_v4(v4);
-            }
-            // NAT64 well-known prefix 64:ff9b::/96 carries it in the last two segments.
-            if seg[0] == 0x0064 && seg[1] == 0xff9b && seg[2] == 0 && seg[3] == 0 && seg[4] == 0 {
-                let v4 = Ipv4Addr::new(
-                    (seg[6] >> 8) as u8,
-                    seg[6] as u8,
-                    (seg[7] >> 8) as u8,
-                    seg[7] as u8,
-                );
-                return is_public_v4(v4);
-            }
-            true
-        }
+    let v6 = match ip {
+        IpAddr::V4(v4) => return is_public_v4(v4),
+        IpAddr::V6(v6) => v6,
+    };
+    if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+        return false;
+    }
+    let segments = v6.segments();
+    let is_unique_local = (segments[0] & 0xfe00) == 0xfc00;
+    let is_link_local = (segments[0] & 0xffc0) == 0xfe80;
+    if is_unique_local || is_link_local {
+        return false;
+    }
+    match v6
+        .to_ipv4_mapped()
+        .or_else(|| v6.to_ipv4())
+        .or_else(|| ipv4_inside_6to4(segments))
+        .or_else(|| ipv4_inside_nat64(segments))
+    {
+        Some(v4) => is_public_v4(v4),
+        None => true,
     }
 }
 
+/// 6to4 carries the address in the two segments after the `2002::/16` prefix.
+fn ipv4_inside_6to4(segments: [u16; 8]) -> Option<Ipv4Addr> {
+    (segments[0] == 0x2002).then(|| ipv4_from_segments(segments[1], segments[2]))
+}
+
+/// The NAT64 well-known prefix `64:ff9b::/96` carries it in the last two segments.
+fn ipv4_inside_nat64(segments: [u16; 8]) -> Option<Ipv4Addr> {
+    let has_well_known_prefix = segments[0] == 0x0064
+        && segments[1] == 0xff9b
+        && segments[2] == 0
+        && segments[3] == 0
+        && segments[4] == 0;
+    has_well_known_prefix.then(|| ipv4_from_segments(segments[6], segments[7]))
+}
+
+fn ipv4_from_segments(high: u16, low: u16) -> Ipv4Addr {
+    Ipv4Addr::new((high >> 8) as u8, high as u8, (low >> 8) as u8, low as u8)
+}
+
 fn is_public_v4(v4: Ipv4Addr) -> bool {
-    let o = v4.octets();
+    let [a, b, c, _] = v4.octets();
+    let this_network = a == 0;
+    let carrier_grade_nat = a == 100 && (64..128).contains(&b);
+    let ietf_protocol_assignments = a == 192 && b == 0 && c == 0;
+    let benchmarking = a == 198 && (b == 18 || b == 19);
+    let reserved = a >= 240;
+
     !(v4.is_loopback()
         || v4.is_private()
         || v4.is_link_local()
@@ -246,16 +261,11 @@ fn is_public_v4(v4: Ipv4Addr) -> bool {
         || v4.is_documentation()
         || v4.is_unspecified()
         || v4.is_multicast()
-        // "This network", 0.0.0.0/8. A connect to 0.0.0.0 reaches loopback on Linux.
-        || o[0] == 0
-        // Carrier-grade NAT, 100.64.0.0/10.
-        || (o[0] == 100 && (64..128).contains(&o[1]))
-        // IETF protocol assignments, 192.0.0.0/24.
-        || (o[0] == 192 && o[1] == 0 && o[2] == 0)
-        // Benchmarking, 198.18.0.0/15.
-        || (o[0] == 198 && (o[1] == 18 || o[1] == 19))
-        // Reserved, 240.0.0.0/4.
-        || o[0] >= 240)
+        || this_network
+        || carrier_grade_nat
+        || ietf_protocol_assignments
+        || benchmarking
+        || reserved)
 }
 
 /// Why a URL was not collected. Each variant is a label on the decline counter. A lane
@@ -306,55 +316,60 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         return Err(Decline::NonPublicHost);
     }
 
-    // Userinfo is credentials, so it never reaches the topic and never reaches the wire. The
-    // setters fail only on a cannot-be-a-base URL, which the scheme check above already excluded.
-    let _ = url.set_username("");
-    let _ = url.set_password(None);
-    url.set_fragment(None);
-
-    // `Url` already lowercases the scheme and host and drops a default port on parse.
+    remove_credentials_and_fragment(&mut url);
     let fetch = url.to_string();
-    // Percent-encoding and IDNA can both grow a URL, so the cap is re-checked on what we emit
-    // rather than only on what we were handed.
+    // Percent-encoding and IDNA can grow a URL, so the cap is re-checked on what we emit.
     if fetch.len() > MAX_URL_LEN {
         return Err(Decline::TooLong);
     }
 
+    remove_volatile_params(&mut url, &host);
+    let dedup = url.to_string();
+
+    Ok(CanonicalUrl {
+        fetch,
+        dedup,
+        domain: politeness_key(&host),
+        host,
+    })
+}
+
+fn remove_credentials_and_fragment(url: &mut Url) {
+    // The setters fail only on a cannot-be-a-base URL, which the http(s) check already excluded.
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.set_fragment(None);
+}
+
+/// Rewrites the query of every URL that has one, whether or not it removed anything.
+///
+/// Rewriting only when something was removed made the result depend on an unrelated fact. Two
+/// encodings of one query then hashed the same when a signature was present and differently when
+/// it was absent, so one image could hold two refs.
+fn remove_volatile_params(url: &mut Url, host: &str) {
+    if url.query().is_none() {
+        return;
+    }
     let pairs: Vec<(String, String)> = url
         .query_pairs()
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect();
-    let present: HashSet<String> = pairs.iter().map(|(k, _)| k.to_ascii_lowercase()).collect();
+    let names_on_this_url: HashSet<String> =
+        pairs.iter().map(|(k, _)| k.to_ascii_lowercase()).collect();
     let kept: Vec<&(String, String)> = pairs
         .iter()
-        .filter(|(k, _)| !is_volatile(k, &host, &present))
+        .filter(|(k, _)| !is_volatile(k, host, &names_on_this_url))
         .collect();
 
-    // Rebuild the query on every URL that has one, not only when a parameter was removed.
-    //
-    // A conditional rebuild made the dedup URL depend on an unrelated fact. Two encodings of one
-    // query hashed the same when a signature was present. They hashed differently when it was
-    // absent. One image could therefore hold two refs.
-    if url.query().is_some() {
-        if kept.is_empty() {
-            url.set_query(None);
-        } else {
-            let mut q = url.query_pairs_mut();
-            q.clear();
-            for (k, v) in &kept {
-                q.append_pair(k, v);
-            }
-        }
+    if kept.is_empty() {
+        url.set_query(None);
+        return;
     }
-    let dedup = url.to_string();
-
-    let domain = politeness_key(&host);
-    Ok(CanonicalUrl {
-        fetch,
-        dedup,
-        host,
-        domain,
-    })
+    let mut query = url.query_pairs_mut();
+    query.clear();
+    for (name, value) in kept {
+        query.append_pair(name, value);
+    }
 }
 
 #[cfg(test)]

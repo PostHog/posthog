@@ -87,19 +87,11 @@ pub struct UrlCollector {
     url_key: String,
     urls: Vec<CollectedUrl>,
     seen: HashSet<String>,
-    /// Raw attribute value to the ref it produced, or `None` when it was declined.
-    ///
-    /// One image recurs many times in a message: a background on every row of a list, a sprite
-    /// re-added by every mutation. The image lane memoizes its blur for the same reason. Without
-    /// this, each repeat pays a WHATWG parse, a query walk, and an HMAC.
-    ///
-    /// [`MAX_MEMO_ENTRIES`] bounds it, because a page controls the keys. [`MAX_URLS_PER_MESSAGE`]
-    /// caps every other structure here. Without its own cap, a page with thousands of distinct
-    /// `src` values holds a second copy of each one, including the values this collector refused.
+    /// One image recurs many times in a message, so a repeat must not pay a parse and an HMAC
+    /// again. A page controls these keys, hence [`MAX_MEMO_ENTRIES`].
     memo: HashMap<String, Option<String>>,
-    /// Counts by reason for every URL this collector refused, so a lane that quietly collects less
-    /// than it should reads off a dashboard instead of being guessed at. The phase that measures
-    /// this lane cannot be trusted without it.
+    /// A refusal is invisible in the collected count, so the lane would look like traffic carries
+    /// fewer images than it does.
     declines: HashMap<&'static str, u32>,
 }
 
@@ -118,23 +110,28 @@ impl UrlCollector {
     /// Collect a remote image URL and return its ref, or `None` when the URL is not fetchable or a
     /// cap says this one stays on the placeholder path.
     pub fn collect(&mut self, raw: &str) -> Option<String> {
-        if let Some(hit) = self.memo.get(raw) {
-            return hit.clone();
+        if let Some(remembered) = self.memo.get(raw) {
+            return remembered.clone();
         }
-        // Past the cap a new spelling cannot be collected. The only thing canonicalizing it could
-        // still do is match the hash of a URL it already holds. That match does not justify a
-        // parse and an HMAC for each distinct value, on a payload built to carry many.
-        if self.urls.len() >= MAX_URLS_PER_MESSAGE {
+        if self.is_full() {
             self.decline("over_cap");
             return None;
         }
         let result = self.collect_uncached(raw);
-        // An O(1) check rejects a value past the length cap, so the memo gains nothing by holding
-        // it, and it would hold the longest strings. The entry cap bounds the rest.
-        if raw.len() <= MAX_URL_LEN && self.memo.len() < MAX_MEMO_ENTRIES {
+        if self.is_worth_remembering(raw) {
             self.memo.insert(raw.to_string(), result.clone());
         }
         result
+    }
+
+    fn is_full(&self) -> bool {
+        self.urls.len() >= MAX_URLS_PER_MESSAGE
+    }
+
+    /// An over-length value is refused by a length check alone, so remembering it would only store
+    /// the longest strings a page offers.
+    fn is_worth_remembering(&self, raw: &str) -> bool {
+        raw.len() <= MAX_URL_LEN && self.memo.len() < MAX_MEMO_ENTRIES
     }
 
     fn decline(&mut self, reason: &'static str) {

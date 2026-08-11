@@ -309,12 +309,9 @@ function unpackCollectedImages(
 /**
  * Turn the addon's `meta.urls` into produce-ready records.
  *
- * This step observes the domain count for every message. That includes a message with no URL.
- * The fetch topic uses the domain as its key, so the count is the number of Kafka messages one
- * replay message becomes.
- *
- * A count taken only from messages that carry a URL describes an image-heavy page. This step
- * exists to size a topic, and a topic carries all the traffic, not only the image-heavy part.
+ * The domain count is observed for a message with no URL too. A count taken only from messages
+ * that carry one describes an image-heavy page, and this number exists to size a topic that
+ * carries all the traffic.
  */
 function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
     const urls: CollectedUrl[] = []

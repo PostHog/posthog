@@ -117,8 +117,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
 
-        // The restriction pool is deliberately not overridden: the event restriction list is
-        // configuration another system writes, so every lane has to read the same copy of it.
+        // Another system writes the event restriction list, so every lane reads one copy of it.
         const pools = buildSessionReplayRedisPools(this.config, resolveMlMirrorRedisConnection(this.config))
         this.redisPool = pools.redisPool
         this.restrictionRedisPool = pools.restrictionRedisPool
