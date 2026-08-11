@@ -7,13 +7,12 @@ import { Experiment, StepOrderValue } from '~/types'
 
 /**
  * `funnelStep` for the actors query behind a click on frontend step `stepIndex`, or null when the
- * click isn't queryable. The frontend prepends an "Experiment exposure" step at index 0 that the
- * backend actors funnel doesn't have, so frontend index N maps to backend step number N, negated
- * for drop-offs. The exposure step itself can't be queried, and neither can drop-offs at the first
- * metric step ("exposed but never entered the funnel").
+ * click isn't queryable. The backend actors funnel treats exposure as step 0 and the metric events
+ * as steps 1..N, matching the frontend's step indices, negated for drop-offs. Only a drop-off at
+ * the exposure step is meaningless — there's nothing to drop off from before exposure.
  */
 export function experimentActorsFunnelStep(stepIndex: number, converted: boolean): number | null {
-    if (stepIndex < 1 || (!converted && stepIndex === 1)) {
+    if (stepIndex === 0 && !converted) {
         return null
     }
     return converted ? stepIndex : -stepIndex

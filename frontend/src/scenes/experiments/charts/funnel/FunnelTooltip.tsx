@@ -59,7 +59,7 @@ export function FunnelTooltip({
                     />
                 </>
             )}
-            {showClickHint && stepIndex > 0 && <TooltipFooter>Click to view users</TooltipFooter>}
+            {showClickHint && <TooltipFooter>Click to view users</TooltipFooter>}
         </TooltipSurface>
     )
 }
