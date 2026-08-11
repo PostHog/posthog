@@ -136,7 +136,21 @@ logger = structlog.get_logger(__name__)
 
 # Delay durations are strings like "30s", "30m", "2h", "1.5d". Must match the regex in the Node.js
 # executor (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
+# wait_until_condition's max_wait_duration reaches the same parser via conditional_branch.ts, so it
+# is held to the same format.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhms]$")
+
+
+def _is_valid_duration(value: Any) -> bool:
+    return isinstance(value, str) and bool(DELAY_DURATION_REGEX.match(value))
+
+
+def _duration_error(field: str) -> str:
+    return (
+        f"{field} must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+        "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+    )
+
 
 # The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
 # else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
@@ -1304,19 +1318,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                         event_config["filters"] = serializer.validated_data
             if strict and not _wait_condition_already_stored(data, self.context):
                 _reject_clock_based_wait(data["config"], self.context["get_team"]())
+            if strict and not _is_valid_duration(data.get("config", {}).get("max_wait_duration")):
+                raise serializers.ValidationError({"config": _duration_error("max_wait_duration")})
 
         if data.get("type") == "delay":
-            delay_duration = data.get("config", {}).get("delay_duration")
-            if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):
-                if strict:
-                    raise serializers.ValidationError(
-                        {
-                            "config": (
-                                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
-                                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
-                            )
-                        }
-                    )
+            if strict and not _is_valid_duration(data.get("config", {}).get("delay_duration")):
+                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
 
         return data
 
