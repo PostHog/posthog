@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { replayObservationLogic } from './replayObservationLogic'
+import { neighborFilterParams, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 describe('replayObservationLogic', () => {
@@ -63,5 +63,23 @@ describe('replayObservationLogic', () => {
         } finally {
             logic.unmount()
         }
+    })
+})
+
+describe('neighborFilterParams', () => {
+    it('passes strings through and parses numeric bounds', () => {
+        expect(neighborFilterParams({ verdict: 'yes', min_score: '3.5', order_by: '-created_at' })).toEqual({
+            verdict: 'yes',
+            min_score: 3.5,
+            order_by: '-created_at',
+        })
+    })
+
+    it('stringifies router-coerced values for free-text keys only', () => {
+        // kea-router coerces digit-only and boolean-looking params; enum keys must keep dropping junk.
+        expect(neighborFilterParams({ result_search: 2024, labeled: true, verdict: true, status: 1 })).toEqual({
+            result_search: '2024',
+            labeled: 'true',
+        })
     })
 })

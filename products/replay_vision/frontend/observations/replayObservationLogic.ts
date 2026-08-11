@@ -21,6 +21,10 @@ export interface ReplayObservationLogicProps {
 /** Filters the API types as numbers; the URL only ever carries strings, so these need parsing back. */
 const NUMERIC_FILTER_KEYS: readonly string[] = ['min_score', 'max_score']
 
+/** Free-text and id filters the router may coerce to number/boolean (`?result_search=2024`, `?labeled=true`);
+ * stringified back rather than dropped. Enum keys stay string-only so coerced junk keeps being ignored. */
+const COERCIBLE_FILTER_KEYS: readonly string[] = ['result_search', 'recording_subject', 'tags', 'session_id', 'labeled']
+
 /** List filters carried in the observation URL; passed to retrieve so prev/next stay within the filtered set. */
 export function neighborFilterParams(searchParams: Record<string, unknown>): VisionObservationsRetrieveParams {
     const params: Record<string, string | number> = {}
@@ -31,12 +35,10 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
             if (parsed !== null) {
                 params[key] = parsed
             }
-        } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-            // String() so values the router coerced (numbers, booleans) still reach the API as strings.
-            const asString = String(value)
-            if (asString) {
-                params[key] = asString
-            }
+        } else if (typeof value === 'string' && value) {
+            params[key] = value
+        } else if (COERCIBLE_FILTER_KEYS.includes(key) && (typeof value === 'number' || typeof value === 'boolean')) {
+            params[key] = String(value)
         }
     }
     return params as VisionObservationsRetrieveParams
