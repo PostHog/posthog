@@ -1,6 +1,10 @@
 import { InAppNotification } from '~/types'
 
-import { buildNotificationSourcePath, withRecapSourceUrl } from './sidePanelNotificationsLogic'
+import {
+    buildNotificationSourcePath,
+    projectScopedNotificationHref,
+    withRecapSourceUrl,
+} from './sidePanelNotificationsLogic'
 
 function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNotification {
     return {
@@ -140,6 +144,18 @@ describe('buildNotificationSourcePath', () => {
             })
         )
         expect(result).toBeNull()
+    })
+})
+
+describe('projectScopedNotificationHref', () => {
+    it('prepends the project prefix to a project-relative path', () => {
+        expect(projectScopedNotificationHref(62405, '/dashboard/42')).toBe('/project/62405/dashboard/42')
+    })
+
+    it('leaves an already project-scoped source_url untouched', () => {
+        expect(projectScopedNotificationHref(62405, '/project/62405/web?openAchievements=traffic')).toBe(
+            '/project/62405/web?openAchievements=traffic'
+        )
     })
 })
 

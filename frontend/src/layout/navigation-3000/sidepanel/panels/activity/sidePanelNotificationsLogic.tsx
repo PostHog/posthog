@@ -146,6 +146,14 @@ export function buildNotificationSourcePath(notification: InAppNotification): st
     return notification.source_url || null
 }
 
+// Prefix a notification path with its project only when it isn't already project-scoped.
+// `buildNotificationSourcePath` returns both project-relative paths and raw `source_url` deep
+// links, and several producers write project-prefixed source_urls. Prepending unconditionally
+// would yield `/project/<id>/project/<id>/...`, which 404s.
+export function projectScopedNotificationHref(teamId: number, path: string): string {
+    return path.startsWith('/project/') ? path : urls.project(teamId, path)
+}
+
 // When the recap experience is enabled, send digest clicks to the recap page instead of the raw
 // dashboard. The digest's source_url is `/project/{id}/web?...`; only the `/web` segment is rewritten.
 export function withRecapSourceUrl(notification: InAppNotification): InAppNotification {
@@ -965,7 +973,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             if (!notification.read) {
                                 await actions.markAsRead(notification.id)
                             }
-                            window.location.href = urls.project(notification.team_id!, path)
+                            window.location.href = projectScopedNotificationHref(notification.team_id!, path)
                         },
                     },
                     secondaryButton: {
