@@ -224,6 +224,13 @@ class BillingManager:
 
         response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
 
+        usage_summary = response.get("usage_summary") or {}
+        if organization.usage:
+            for usage_key, usage in usage_summary.items():
+                todays_usage = (organization.usage.get(usage_key) or {}).get("todays_usage")
+                if todays_usage is not None:
+                    usage["todays_usage"] = todays_usage
+
         # Extend the products with accurate usage_limit info
         for product in response["products"]:
             usage_key = product.get("usage_key")
@@ -234,12 +241,8 @@ class BillingManager:
             billing_reported_usage = usage.get("usage") or 0
             current_usage = billing_reported_usage
 
-            product_usage: dict[str, Any] = {}
-            if organization and organization.usage:
-                product_usage = organization.usage.get(usage_key) or {}
-
-            if product_usage.get("todays_usage"):
-                todays_usage = product_usage["todays_usage"]
+            if usage.get("todays_usage"):
+                todays_usage = usage["todays_usage"]
                 current_usage = billing_reported_usage + todays_usage
 
             product["current_usage"] = current_usage

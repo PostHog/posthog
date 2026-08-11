@@ -11,7 +11,10 @@ export interface DesktopUsageComponents {
     memoryMibSeconds: number | null
 }
 
-const componentValue = (summary: UsageSummary, key: string): number | null => summary?.[key]?.usage ?? null
+const componentValue = (summary: UsageSummary, key: string): number | null => {
+    const component = summary?.[key]
+    return component?.usage == null ? null : component.usage + (component.todays_usage ?? 0)
+}
 
 export const getDesktopUsageComponents = (summary: UsageSummary): DesktopUsageComponents | null => {
     const keys = [

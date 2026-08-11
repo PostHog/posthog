@@ -26,4 +26,17 @@ describe('convertDesktopUsageSeries', () => {
         const input = series('Events', [10])
         expect(convertDesktopUsageSeries(input)).toBe(input)
     })
+
+    it('converts a project breakdown and preserves its label', () => {
+        const input = {
+            ...series('my-project::PostHog Desktop token credits', [1234]),
+            breakdown_type: BillingUsageResponseBreakdownType.MULTIPLE,
+            breakdown_value: ['PostHog Desktop token credits', 'my-project'],
+        }
+
+        expect(convertDesktopUsageSeries(input)).toMatchObject({
+            label: 'my-project::PostHog Desktop token spend (USD)',
+            data: [12.34],
+        })
+    })
 })

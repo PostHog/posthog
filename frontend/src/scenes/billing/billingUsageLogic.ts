@@ -64,9 +64,15 @@ const DESKTOP_USAGE_SERIES_CONVERSIONS: Record<string, { divisor: number; label:
 export const convertDesktopUsageSeries = (
     series: BillingUsageResponse['results'][number]
 ): BillingUsageResponse['results'][number] => {
-    const conversion = DESKTOP_USAGE_SERIES_CONVERSIONS[series.label]
+    const usageType = Array.isArray(series.breakdown_value) ? series.breakdown_value[0] : series.breakdown_value
+    const conversion = usageType ? DESKTOP_USAGE_SERIES_CONVERSIONS[usageType] : undefined
+    const labelPrefix = usageType && series.label.endsWith(usageType) ? series.label.slice(0, -usageType.length) : ''
     return conversion
-        ? { ...series, label: conversion.label, data: series.data.map((value) => value / conversion.divisor) }
+        ? {
+              ...series,
+              label: `${labelPrefix}${conversion.label}`,
+              data: series.data.map((value) => value / conversion.divisor),
+          }
         : series
 }
 

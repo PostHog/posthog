@@ -37,6 +37,15 @@ describe('DesktopUsageBreakdown', () => {
         expect(screen.getByText(/CPU unavailable · Memory unavailable/)).toBeTruthy()
     })
 
+    it('includes todays usage in component totals', () => {
+        expect(
+            getDesktopUsageComponents({
+                posthog_code_token_credits: { usage: 1200, todays_usage: 34 },
+                sandbox_compute_credits: { usage: 200, todays_usage: 66 },
+            })
+        ).toMatchObject({ tokenCredits: 1234, computeCredits: 266 })
+    })
+
     it('hides the breakdown when credit components are absent or incomplete', () => {
         const { container, rerender } = render(<DesktopUsageBreakdown summary={undefined} />)
         expect(container).toBeEmptyDOMElement()
