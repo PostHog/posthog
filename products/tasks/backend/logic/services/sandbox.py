@@ -108,6 +108,10 @@ class SandboxConfig(BaseModel):
     snapshot_source: str = "none"
     snapshot_restored: bool = False
     ttl_seconds: int = SANDBOX_TTL_SECONDS
+    # Reclaim the box early once nobody uses it, independent of `ttl_seconds`, which runs from
+    # creation and caps the lifetime. Modal counts a sandbox as active while an exec runs, while
+    # stdin is written, or while a tunnel holds a connection. None leaves the box up to its TTL.
+    idle_timeout_seconds: int | None = None
     metadata: dict[str, str] | None = None
     memory_gb: float = 16
     cpu_cores: float = 4

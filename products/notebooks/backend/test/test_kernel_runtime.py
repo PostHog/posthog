@@ -13,6 +13,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.notebooks.backend.kernel_runtime import (
+    NOTEBOOK_KERNEL_IDLE_TIMEOUT_SECONDS,
     NOTEBOOK_KERNEL_TTL_SECONDS,
     KernelRuntimeService,
     _KernelHandle,
@@ -100,13 +101,23 @@ class TestKernelRuntimeService(BaseTest):
                 {
                     "cpu_cores": 2.5,
                     "memory_gb": 8.0,
-                    "ttl_seconds": 120,
+                    "idle_timeout_seconds": 120,
+                    "ttl_seconds": NOTEBOOK_KERNEL_TTL_SECONDS,
                 },
+            ),
+            (
+                "timeout_above_the_default_lifetime",
+                {"kernel_idle_timeout_seconds": 12 * 60 * 60},
+                {"idle_timeout_seconds": 12 * 60 * 60, "ttl_seconds": 12 * 60 * 60},
             ),
             (
                 "memory_only",
                 {"kernel_memory_gb": 12.0},
-                {"memory_gb": 12.0, "ttl_seconds": NOTEBOOK_KERNEL_TTL_SECONDS},
+                {
+                    "memory_gb": 12.0,
+                    "idle_timeout_seconds": NOTEBOOK_KERNEL_IDLE_TIMEOUT_SECONDS,
+                    "ttl_seconds": NOTEBOOK_KERNEL_TTL_SECONDS,
+                },
             ),
         ]
     )

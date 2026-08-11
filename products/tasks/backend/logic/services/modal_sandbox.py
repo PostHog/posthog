@@ -773,6 +773,9 @@ class ModalSandbox(SandboxBase):
                 "verbose": True,
             }
 
+            if config.idle_timeout_seconds:
+                create_kwargs["idle_timeout"] = config.idle_timeout_seconds
+
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 

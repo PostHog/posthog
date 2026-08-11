@@ -95,7 +95,7 @@ from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
-from products.tasks.backend.facade.sandbox import SandboxStatus
+from products.tasks.backend.facade.sandbox import SandboxConfig, SandboxStatus
 
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync
@@ -420,6 +420,22 @@ class NotebookKernelDataframeSerializer(serializers.Serializer):
 ALLOWED_KERNEL_CPU_CORES = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
 ALLOWED_KERNEL_MEMORY_GB = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
 ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
+
+
+def _kernel_reached_a_deadline(runtime: KernelRuntime, sandbox_config: SandboxConfig) -> bool:
+    # Modal reaps a sandbox on two separate clocks: idle since the last cell run, and lifetime
+    # since creation. Either one makes a vanished sandbox a timeout rather than a plain stop.
+    if (
+        runtime.last_used_at
+        and sandbox_config.idle_timeout_seconds
+        and now() >= runtime.last_used_at + timedelta(seconds=sandbox_config.idle_timeout_seconds)
+    ):
+        return True
+    return bool(
+        runtime.created_at
+        and sandbox_config.ttl_seconds
+        and now() >= runtime.created_at + timedelta(seconds=sandbox_config.ttl_seconds)
+    )
 
 
 class NotebookKernelConfigSerializer(serializers.Serializer):
@@ -882,9 +898,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if (
                 runtime.backend == KernelRuntime.Backend.MODAL
                 and runtime.status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
-                and runtime.last_used_at
-                and sandbox_config.ttl_seconds
-                and now() >= runtime.last_used_at + timedelta(seconds=sandbox_config.ttl_seconds)
+                and _kernel_reached_a_deadline(runtime, sandbox_config)
             ):
                 status = KernelRuntime.Status.TIMED_OUT
 
@@ -917,7 +931,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "cpu_cores": cpu_cores,
                 "memory_gb": sandbox_config.memory_gb,
                 "disk_size_gb": sandbox_config.disk_size_gb,
-                "idle_timeout_seconds": sandbox_config.ttl_seconds,
+                "idle_timeout_seconds": sandbox_config.idle_timeout_seconds,
             }
         )
 
@@ -1116,7 +1130,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "status": runtime.status if runtime else KernelRuntime.Status.STOPPED,
                 "cpu_cores": sandbox_config.cpu_cores,
                 "memory_gb": sandbox_config.memory_gb,
-                "idle_timeout_seconds": sandbox_config.ttl_seconds,
+                "idle_timeout_seconds": sandbox_config.idle_timeout_seconds,
             },
             "cells": cells,
         }

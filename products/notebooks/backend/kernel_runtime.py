@@ -34,11 +34,15 @@ from products.tasks.backend.facade.sandbox import (
 
 logger = structlog.get_logger(__name__)
 
-# Hard lifetime of a notebook kernel sandbox, used when the notebook sets no
-# `kernel_idle_timeout_seconds`. A kernel serves one interactive session, so nobody waits on it
-# once the tab closes and this TTL is what reclaims it. The task-agent default
-# (`SANDBOX_TTL_SECONDS`) is longer because it has to outlast an unattended agent run.
+# Hard lifetime of a notebook kernel sandbox. Modal counts it from creation, so it caps how long
+# one session can last; the idle timeout below is what reclaims an abandoned kernel. The
+# task-agent default (`SANDBOX_TTL_SECONDS`) is longer because it outlasts an unattended run.
 NOTEBOOK_KERNEL_TTL_SECONDS = 2 * 60 * 60
+
+# How long a kernel survives with nobody running cells. Modal counts a cell run as activity, so
+# this reclaims the sandbox behind a closed tab. Long enough that a person can read a result or
+# sit in a meeting without losing their variables.
+NOTEBOOK_KERNEL_IDLE_TIMEOUT_SECONDS = 30 * 60
 
 
 @dataclass
@@ -241,13 +245,17 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
         cpu_cores=1,
         memory_gb=2,
         ttl_seconds=NOTEBOOK_KERNEL_TTL_SECONDS,
+        idle_timeout_seconds=NOTEBOOK_KERNEL_IDLE_TIMEOUT_SECONDS,
     )
     if notebook.kernel_cpu_cores:
         sandbox_config.cpu_cores = notebook.kernel_cpu_cores
     if notebook.kernel_memory_gb:
         sandbox_config.memory_gb = notebook.kernel_memory_gb
     if notebook.kernel_idle_timeout_seconds:
-        sandbox_config.ttl_seconds = notebook.kernel_idle_timeout_seconds
+        # The picker offers idle windows longer than the default lifetime. A notebook that asks
+        # for one means the kernel to live that long, so lift the lifetime with it.
+        sandbox_config.idle_timeout_seconds = notebook.kernel_idle_timeout_seconds
+        sandbox_config.ttl_seconds = max(NOTEBOOK_KERNEL_TTL_SECONDS, notebook.kernel_idle_timeout_seconds)
     return sandbox_config
 
 
