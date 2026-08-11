@@ -165,7 +165,6 @@ export default function InboxScreen() {
         </View>
       )}
 
-      <NavDrawer />
       <FloatingInboxHeader
         isFetching={viewMode === "archive" ? archived.isFetching : isFetching}
         hasError={viewMode === "archive" ? !!archived.error : !!error}
@@ -182,6 +181,7 @@ export default function InboxScreen() {
         visible={reviewerOpen}
         onClose={() => setReviewerOpen(false)}
       />
+      <NavDrawer />
     </View>
   );
 }
