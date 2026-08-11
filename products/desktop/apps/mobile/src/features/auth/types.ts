@@ -1,4 +1,4 @@
-export type CloudRegion = "us" | "eu" | "dev";
+import type { CloudRegion } from "@posthog/shared";
 
 export interface OAuthTokenResponse {
   access_token: string;

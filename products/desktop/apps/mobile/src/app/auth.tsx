@@ -1,3 +1,4 @@
+import type { CloudRegion } from "@posthog/shared";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -10,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { QrScanModal, type QrScanResult } from "@/components/QrScanModal";
-import { type CloudRegion, useAuthStore } from "@/features/auth";
+import { useAuthStore } from "@/features/auth";
 import { OAUTH_SCOPES } from "@/features/auth/lib/constants";
 import { resolvePostLoginTarget } from "@/features/auth/lib/postLoginTarget";
 import {

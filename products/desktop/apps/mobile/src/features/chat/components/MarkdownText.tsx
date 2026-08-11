@@ -1,6 +1,7 @@
+import { getCloudUrlFromRegion } from "@posthog/shared";
 import { useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { getCloudUrlFromRegion, useAuthStore } from "@/features/auth";
+import { useAuthStore } from "@/features/auth";
 import { UNIVERSAL_LINK_PREFIX } from "@/lib/deep-links";
 import { parseGithubIssueUrl } from "@/lib/githubIssueUrl";
 import { openExternalUrl } from "@/lib/openExternalUrl";

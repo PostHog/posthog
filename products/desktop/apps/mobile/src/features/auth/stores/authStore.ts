@@ -1,3 +1,4 @@
+import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -6,7 +7,6 @@ import { usePreferencesStore } from "@/features/preferences/stores/preferencesSt
 import { logger } from "@/lib/logger";
 import { queryClient } from "@/lib/queryClient";
 import {
-  getCloudUrlFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
   TOKEN_REFRESH_BUFFER_MS,
@@ -17,7 +17,7 @@ import {
   TokenRefreshError,
 } from "../lib/oauth";
 import { deleteTokens, getTokens, saveTokens } from "../lib/secureStorage";
-import type { CloudRegion, StoredTokens } from "../types";
+import type { StoredTokens } from "../types";
 
 interface AuthState {
   // OAuth state
@@ -119,7 +119,8 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: true,
 
-      // Helper method to get cloud URL
+      // Re-exposed from @posthog/shared so screens can build cloud URLs from
+      // the store they already hold the region in.
       getCloudUrlFromRegion,
 
       setProjectId: (projectId: number) => {
