@@ -492,7 +492,13 @@ function EditKeyModal({
     }
 
     const keyValidated = apiKey.length === 0 || preValidationResult?.state === 'ok'
-    const isValid = name.length > 0 && keyValidated && (!isOpenAICompatibleEdit || baseUrl.length > 0)
+    // The backend rejects a base URL change that arrives without a key, so the key can't stay
+    // masked here: re-entering it is what proves the caller already has it.
+    const baseUrlChanged = isOpenAICompatibleEdit && baseUrl !== (keyToEdit.base_url_display ?? '')
+    const apiKeyRequiredReason =
+        baseUrlChanged && apiKey.length === 0 ? 'Enter the API key again to change the base URL' : null
+    const isValid =
+        name.length > 0 && keyValidated && (!isOpenAICompatibleEdit || baseUrl.length > 0) && !apiKeyRequiredReason
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
     const endpointErrorField =
         (isAzureEdit || isOpenAICompatibleEdit) && validationFailed
@@ -514,7 +520,7 @@ function EditKeyModal({
                         onClick={handleSubmit}
                         loading={providerKeysLoading}
                         disabled={!isValid}
-                        disabledReason={restrictionReason}
+                        disabledReason={restrictionReason ?? apiKeyRequiredReason}
                     >
                         Save changes
                     </LemonButton>
@@ -607,7 +613,11 @@ function EditKeyModal({
                             suppressError={endpointErrorField === 'endpoint'}
                         />
                     ) : (
-                        <p className="text-xs text-muted mt-1">Leave empty to keep the current key</p>
+                        <p className="text-xs text-muted mt-1">
+                            {baseUrlChanged
+                                ? 'Enter the API key again to change the base URL'
+                                : 'Leave empty to keep the current key'}
+                        </p>
                     )}
                 </div>
             </div>

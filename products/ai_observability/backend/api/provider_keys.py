@@ -216,6 +216,16 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             if has_base_url and not is_allowed_custom_base_url(data["base_url"]):
                 raise serializers.ValidationError({"base_url": f"{DISALLOWED_BASE_URL_MESSAGE}."})
 
+            # Re-pointing a key at a new endpoint would send the stored key to that host on the
+            # next validation or completion. The key is write-only, so an admin who cannot read
+            # it could otherwise recover it by pointing this key at a server they control.
+            # Requiring the key itself proves the caller already has it.
+            changes_base_url = has_base_url and data["base_url"] != (
+                self.instance.encrypted_config.get("base_url") if self.instance else None
+            )
+            if self.instance and changes_base_url and not data.get("api_key"):
+                raise serializers.ValidationError({"api_key": "Enter the API key again when you change the base URL."})
+
         return data
 
     def _pop_provider_config_kwargs(self, provider: str, validated_data: dict) -> dict:
@@ -312,14 +322,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             instance.encrypted_config = config
             instance.state = LLMProviderKey.State.UNKNOWN
             instance.error_message = None
-        elif config_kwargs and instance.provider == LLMProvider.OPENAI_COMPATIBLE:
-            # Update the base URL without changing the API key. A different endpoint can
-            # invalidate the existing key, so reset state to UNKNOWN until the user re-validates.
-            config = dict(instance.encrypted_config)
-            config["base_url"] = config_kwargs["base_url"]
-            instance.encrypted_config = config
-            instance.state = LLMProviderKey.State.UNKNOWN
-            instance.error_message = None
+        # No OpenAI-compatible branch here on purpose: `validate` rejects a base URL change
+        # that arrives without an API key, so every change to one runs through the branch
+        # above and is re-validated against the new endpoint before it is stored.
 
         return super().update(instance, validated_data)
 
