@@ -11,6 +11,7 @@ import {
   MCP_ICON,
   SUBAGENT_ICON,
 } from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
+import { isPlanApprovalTool } from "@posthog/ui/features/sessions/components/session-update/collaborationTools";
 
 export interface GroupIconEntry {
   Icon: Icon;
@@ -97,12 +98,19 @@ function isDirectMessageItem(item: ConversationItem): boolean {
 /**
  * A plan presented for approval (the ExitPlanMode / switch_mode tool call,
  * rendered by PlanApprovalView). Never folded — a plan is meant to be read.
+ *
+ * Match the plan tool by name as well as by the `switch_mode` kind: the call is
+ * emitted from the model's raw input and its plan/kind are backfilled later, so
+ * keying on kind alone lets an ExitPlanMode call fold into a tool group before
+ * its kind resolves — burying the plan the user is meant to read. The render
+ * side (ToolCallBlock) matches by the same rule, so the two never disagree.
  */
 function isPlanItem(item: ConversationItem): boolean {
   return (
     item.type === "session_update" &&
     item.update.sessionUpdate === "tool_call" &&
-    item.update.kind === "switch_mode"
+    (item.update.kind === "switch_mode" ||
+      isPlanApprovalTool(readAgentToolName(item.update._meta)))
   );
 }
 

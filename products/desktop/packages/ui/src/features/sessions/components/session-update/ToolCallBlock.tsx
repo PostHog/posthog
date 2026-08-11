@@ -16,7 +16,7 @@ import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Box } from "@radix-ui/themes";
 import type { ConversationItem, TurnContext } from "../buildConversationItems";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
-import { isSubagentSpawnTool } from "./collaborationTools";
+import { isPlanApprovalTool, isSubagentSpawnTool } from "./collaborationTools";
 import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,
@@ -75,6 +75,18 @@ export function ToolCallBlock({
         ) : (
           <ToolCallView {...props} agentToolName={mcpToolName} />
         )}
+      </Box>
+    );
+  }
+
+  // Match the plan card by tool name as well as by the switch_mode kind, so a
+  // plan whose kind hasn't resolved yet still renders as a plan card rather than
+  // a generic tool call — the same rule buildThreadGroups uses to keep it out of
+  // a collapsed group.
+  if (isPlanApprovalTool(toolName)) {
+    return (
+      <Box>
+        <PlanApprovalView {...props} />
       </Box>
     );
   }
