@@ -27,8 +27,8 @@ export function PinnedTasksRail({ onTaskPress }: PinnedTasksRailProps) {
 
   const pinnedTasks = useMemo(() => {
     const byId = new Map(allTasks.map((task) => [task.id, task]));
-    // Pins referencing tasks this list can't show (outside the fetch window,
-    // desktop-local runs) are skipped rather than rendered as dead chips.
+    // Pins referencing tasks this list can't show (e.g. outside the fetch
+    // window) are skipped rather than rendered as dead chips.
     return pinnedTaskIds.flatMap((id) => byId.get(id) ?? []);
   }, [pinnedTaskIds, allTasks]);
 

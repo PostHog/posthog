@@ -8,6 +8,7 @@ vi.mock("phosphor-react-native", () => ({
   Check: (props: Record<string, unknown>) => createElement("Check", props),
   GitPullRequest: (props: Record<string, unknown>) =>
     createElement("GitPullRequest", props),
+  Laptop: (props: Record<string, unknown>) => createElement("Laptop", props),
   PushPin: (props: Record<string, unknown>) => createElement("PushPin", props),
 }));
 
@@ -150,4 +151,39 @@ describe("TaskItem", () => {
       expect(pinIcons(render(makeTask(), pinned))).toHaveLength(expected);
     },
   );
+
+  function laptopIcons(renderer: ReturnType<typeof create>) {
+    return renderer.root.findAll((node) => String(node.type) === "Laptop");
+  }
+
+  function titleNode(renderer: ReturnType<typeof create>) {
+    return renderer.root.findAll(
+      (node) =>
+        String(node.type) === "Text" && node.props.children === "Test task",
+    )[0];
+  }
+
+  it.each([
+    ["a finished desktop run", makeTask({ environment: "local" }), 1],
+    [
+      "a live desktop run",
+      makeTask({ environment: "local", status: "in_progress" }),
+      1,
+    ],
+    ["a cloud run", makeTask({ environment: "cloud" }), 0],
+    ["no run at all", makeTask(), 0],
+  ])(
+    "marks %s with the right number of laptop glyphs",
+    (_label, task, expected) => {
+      expect(laptopIcons(render(task))).toHaveLength(expected);
+    },
+  );
+
+  it("dims the title of a desktop-local task", () => {
+    const local = titleNode(render(makeTask({ environment: "local" })));
+    const cloud = titleNode(render(makeTask({ environment: "cloud" })));
+
+    expect(local.props.className).toContain("text-gray-10");
+    expect(cloud.props.className).toContain("text-gray-12");
+  });
 });

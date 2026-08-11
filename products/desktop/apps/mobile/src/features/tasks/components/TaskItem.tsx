@@ -1,11 +1,12 @@
 import { Text } from "@components/text";
 import { readPrUrls, type Task } from "@posthog/shared";
 import { differenceInHours, format, formatDistanceToNow } from "date-fns";
-import { Check, GitPullRequest, PushPin } from "phosphor-react-native";
+import { Check, GitPullRequest, Laptop, PushPin } from "phosphor-react-native";
 import { memo } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { parseGithubIssueUrl } from "@/lib/githubIssueUrl";
 import { useThemeColors } from "@/lib/theme";
+import { isLocalRunTask } from "../utils/taskRunPlacement";
 import { TaskStatusIcon } from "./TaskStatusIcon";
 
 function PrBadge({ prUrl, number }: { prUrl: string; number: number }) {
@@ -53,6 +54,10 @@ function TaskItemComponent({
       : format(createdAt, "MMM d");
   const prUrl = readPrUrls(task.latest_run?.output)[0];
   const prRef = prUrl ? parseGithubIssueUrl(prUrl) : null;
+  // Desktop-local runs are listed but can't be driven from here until they're
+  // continued in the cloud — the glyph plus the dimmed title says so without
+  // spending a whole row on an explanation.
+  const isLocalRun = isLocalRunTask(task);
 
   return (
     <Pressable
@@ -85,8 +90,13 @@ function TaskItemComponent({
               accessibilityLabel="Waiting on you"
             />
           ) : null}
+          {isLocalRun ? (
+            <View className="shrink-0" accessibilityLabel="Ran on your desktop">
+              <Laptop size={12} weight="bold" color={themeColors.gray[9]} />
+            </View>
+          ) : null}
           <Text
-            className={`flex-1 text-[14px] text-gray-12 ${awaitingInput ? "font-bold" : "font-medium"}`}
+            className={`flex-1 text-[14px] ${isLocalRun ? "text-gray-10" : "text-gray-12"} ${awaitingInput ? "font-bold" : "font-medium"}`}
             numberOfLines={1}
             ellipsizeMode="tail"
           >

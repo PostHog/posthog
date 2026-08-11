@@ -35,6 +35,7 @@ import { usePreferencesStore } from "@/features/preferences/stores/preferencesSt
 import { CreateSkillFromTaskButton } from "@/features/tasks/components/CreateSkillFromTaskButton";
 import { CustomImageBadge } from "@/features/tasks/components/CustomImageBadge";
 import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHeader";
+import { LocalRunBanner } from "@/features/tasks/components/LocalRunBanner";
 import { PinTaskButton } from "@/features/tasks/components/PinTaskButton";
 import { PrDiffStatsBadge } from "@/features/tasks/components/PrDiffStatsBadge";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
@@ -77,6 +78,7 @@ import {
 import { confirmStopRun } from "@/features/tasks/utils/archiveGuard";
 import { buildCloudTaskRunConfig } from "@/features/tasks/utils/cloudTaskRunConfig";
 import { classifyTaskLoadError } from "@/features/tasks/utils/taskLoadError";
+import { classifyTaskRunPlacement } from "@/features/tasks/utils/taskRunPlacement";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import {
   ANALYTICS_EVENTS,
@@ -307,6 +309,11 @@ export default function TaskDetailScreen() {
       .then((fetchedTask) => {
         if (cancelled) return;
         setTask(fetchedTask);
+        // A desktop-local run has no cloud stream to attach to, so connecting
+        // would sit in "connecting" forever behind the loading overlay. The
+        // local-run banner is the whole screen's next step until the user
+        // continues the task in the cloud.
+        if (classifyTaskRunPlacement(fetchedTask) !== "cloud") return;
         return connectToTask(fetchedTask);
       })
       .catch((err) => {
@@ -336,6 +343,8 @@ export default function TaskDetailScreen() {
     if (!taskId || !task || loading) return;
     if (session) return;
     if (retrying) return;
+    // Nothing to reconnect to while the latest run belongs to the desktop.
+    if (classifyTaskRunPlacement(task) !== "cloud") return;
 
     let cancelled = false;
     getPostHogApiClient()
@@ -343,6 +352,7 @@ export default function TaskDetailScreen() {
       .then((freshTask) => {
         if (cancelled) return;
         setTask(freshTask);
+        if (classifyTaskRunPlacement(freshTask) !== "cloud") return;
         return connectToTask(freshTask);
       })
       .catch((err) => {
@@ -711,7 +721,7 @@ export default function TaskDetailScreen() {
     !!session &&
     !session.terminalStatus &&
     !session.stopRequested &&
-    task.latest_run?.environment !== "local" &&
+    classifyTaskRunPlacement(task) === "cloud" &&
     isTaskRunning(task);
 
   const handleRetry = useCallback(async () => {
@@ -822,6 +832,11 @@ export default function TaskDetailScreen() {
   // a blank spinner.
   const showLoading =
     (loading || isHistoryLoading) && !optimisticPrompt && !showSnapshot;
+  // A desktop-local run gets a banner instead of a live session: the only
+  // action mobile can take is starting a fresh cloud run from it, which is
+  // exactly what the retry/resume path already does.
+  const runPlacement = classifyTaskRunPlacement(task);
+  const showLocalRunBanner = !loading && runPlacement !== "cloud";
   const showAutomationContext =
     fromAutomation === "1" || task?.origin_product === "automation";
   const automationContextLabel =
@@ -911,6 +926,24 @@ export default function TaskDetailScreen() {
           </View>
         )}
 
+        {showLocalRunBanner && (
+          <View
+            className="absolute inset-x-3 z-10"
+            style={{
+              top:
+                modalTopOffset(insets.top) +
+                52 +
+                (showAutomationContext ? 44 : 0),
+            }}
+          >
+            <LocalRunBanner
+              placement={runPlacement}
+              starting={retrying}
+              onContinueInCloud={handleRetry}
+            />
+          </View>
+        )}
+
         {/* Always render TaskSessionView so the FlatList can layout behind
             the loading overlay. This prevents the "flash of messages" when
             switching from loading spinner to rendered content. The FlatList
@@ -946,7 +979,8 @@ export default function TaskDetailScreen() {
             paddingBottom:
               modalTopOffset(insets.top) +
               60 +
-              (showAutomationContext ? 44 : 0),
+              (showAutomationContext ? 44 : 0) +
+              (showLocalRunBanner ? 52 : 0),
           }}
         />
 

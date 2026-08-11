@@ -50,19 +50,19 @@ export function getTaskPollingInterval(
 }
 
 /**
- * Tasks shown in mobile lists. Desktop-local runs are always hidden (mobile
- * can't act on them). Automation tasks are hidden unless a caller asks for
- * them — they have their own tab and would show up twice in the main list.
- * Everything else mirrors desktop, which applies no origin filter at all.
+ * Tasks shown in mobile lists. Desktop-local runs are listed too — they are
+ * marked in the row and offer "Continue in cloud" on the detail screen, so
+ * hiding them would just lose work the user started on their laptop.
+ * Automation tasks are hidden unless a caller asks for them — they have their
+ * own tab and would show up twice in the main list. Everything else mirrors
+ * desktop, which applies no origin filter at all.
  */
 export function filterListedTasks(
   tasks: readonly Task[],
   includeAutomation = false,
 ): Task[] {
   return tasks.filter(
-    (task) =>
-      task.latest_run?.environment !== "local" &&
-      (includeAutomation || task.origin_product !== "automation"),
+    (task) => includeAutomation || task.origin_product !== "automation",
   );
 }
 
@@ -87,8 +87,8 @@ export function useTasks(filters?: {
     queryKey: taskKeys.list(queryFilters),
     queryFn: () => getPostHogApiClient().getTasks(queryFilters),
     enabled: !!projectId && !!oauthAccessToken && !!currentUser?.id,
-    // Poll on what the list actually shows — a hidden task (automation, or a
-    // desktop-local run) with an active run must not pin the 5s interval.
+    // Poll on what the list actually shows — a hidden automation task with an
+    // active run must not pin the 5s interval.
     refetchInterval: (query) =>
       getTaskPollingInterval(
         filterListedTasks(
@@ -98,10 +98,10 @@ export function useTasks(filters?: {
       ),
   });
 
-  const cloudTasks = filterListedTasks(query.data ?? [], includeAutomation);
+  const listedTasks = filterListedTasks(query.data ?? [], includeAutomation);
 
   const filteredTasks = filterAndSortTasks(
-    cloudTasks,
+    listedTasks,
     sortMode,
     showInternal,
     filter,
@@ -109,7 +109,7 @@ export function useTasks(filters?: {
 
   return {
     tasks: filteredTasks,
-    allTasks: cloudTasks,
+    allTasks: listedTasks,
     isLoading: query.isLoading,
     error: query.error?.message ?? null,
     refetch: query.refetch,

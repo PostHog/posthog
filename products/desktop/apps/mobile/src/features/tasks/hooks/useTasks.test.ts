@@ -175,7 +175,7 @@ describe("useTasks", () => {
       },
     );
 
-    it("always hides desktop-local runs", () => {
+    it("keeps desktop-local runs so they can be continued in the cloud", () => {
       const tasks = [
         { ...baseTask, id: "local", latest_run: run("local") },
         { ...baseTask, id: "cloud", latest_run: run("cloud") },
@@ -183,6 +183,7 @@ describe("useTasks", () => {
       ];
 
       expect(filterListedTasks(tasks).map((t) => t.id)).toEqual([
+        "local",
         "cloud",
         "no-run",
       ]);
