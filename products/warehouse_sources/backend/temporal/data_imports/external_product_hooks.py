@@ -258,7 +258,8 @@ class DataQualitySuiteTriggerInputs:
 
     Field names mirror data_quality's ``RunCheckSuiteInputs`` (the workflow is started by
     registered name, so nothing here imports that product); omitted selector fields fall back to
-    the workflow input's defaults.
+    the workflow input's defaults. ``trigger`` stays a plain string for the same reason: the
+    ``SuiteRunTrigger`` enum it decodes into lives on the other side of a one-way dependency.
     """
 
     team_id: int

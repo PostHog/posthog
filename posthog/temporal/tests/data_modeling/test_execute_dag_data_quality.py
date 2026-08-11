@@ -19,6 +19,8 @@ from posthog.temporal.tests.data_modeling.test_execute_dag_workflow import (
     stub_preempt_dag_run,
 )
 
+from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
+
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 _suite_runs_started: list[dict] = []
@@ -41,10 +43,16 @@ class TestPostMaterializationChecks:
         _suite_runs_started.clear()
         _mock_workflow_should_fail.clear()
 
-    async def _run_dag(self, team_id: int, node_ids: list[str], *, register_suite: bool = True) -> ExecuteDAGResult:
+    async def _run_dag(
+        self, team_id: int, node_ids: list[str], *, register_suite: bool = True, checks_needed: bool = True
+    ) -> ExecuteDAGResult:
         @temporal_activity.defn(name="get_dag_structure_activity")
         async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
             return DAGPlan(nodes=node_ids, executable_nodes=node_ids, edges=[])
+
+        @temporal_activity.defn(name=MATERIALIZATION_GATE_ACTIVITY_NAME)
+        async def stub_materialization_gate(_: dict) -> bool:
+            return checks_needed
 
         workflows = [ExecuteDAGWorkflow, MockMaterializeViewWorkflow]
         if register_suite:
@@ -55,7 +63,7 @@ class TestPostMaterializationChecks:
                 env.client,
                 task_queue="test-queue",
                 workflows=workflows,
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_materialization_gate],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 return await env.client.execute_workflow(
@@ -85,6 +93,14 @@ class TestPostMaterializationChecks:
         result = await self._run_dag(ateam.pk, [failing])
 
         assert result.successful_nodes == 0
+        assert _suite_runs_started == []
+
+    async def test_no_suite_starts_when_the_gate_says_the_team_has_no_checks_to_run(self, ateam) -> None:
+        # The gate owns the feature flag, so an org that never opted in must not pay for a child
+        # workflow and a suite row on every materialization.
+        result = await self._run_dag(ateam.pk, [str(uuid.uuid4())], checks_needed=False)
+
+        assert result.successful_nodes == 1
         assert _suite_runs_started == []
 
     async def test_a_check_suite_that_cannot_start_does_not_fail_the_dag(self, ateam) -> None:

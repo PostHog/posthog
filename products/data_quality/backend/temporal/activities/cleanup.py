@@ -7,6 +7,7 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
+from ...facade.enums import SuiteRunStatus
 from ...models import DataQualityCheckRun, DataQualitySuiteRun
 from ..contracts import CleanupOutcome
 
@@ -21,6 +22,11 @@ CHECK_RUN_RETENTION_DAYS = 365
 # left to back, so this is really a floor before an empty suite is eligible, not its own history
 # window. A completed suite outlives it as long as any of its check runs survive above.
 SUITE_RUN_RETENTION_DAYS = 90
+# A suite the workflow cannot finalize itself -- terminated, worker lost, deploy mid-run -- would
+# otherwise poll as RUNNING forever. Well past the longest a legitimate suite can take: batches are
+# capped at 30 minutes each and run a handful at a time.
+STALE_SUITE_HOURS = 24
+STALE_SUITE_ERROR = "The workflow stopped without recording a result."
 
 
 @activity.defn
@@ -60,14 +66,23 @@ def _cleanup() -> CleanupOutcome:
         .delete()
     )
 
+    stale_failed = (
+        DataQualitySuiteRun.objects.unscoped()
+        .filter(status=SuiteRunStatus.RUNNING, created_at__lt=now - timedelta(hours=STALE_SUITE_HOURS))
+        # A queryset update bypasses auto_now, so updated_at is set explicitly.
+        .update(status=SuiteRunStatus.FAILED, error=STALE_SUITE_ERROR, finished_at=now, updated_at=now)
+    )
+
     LOGGER.info(
         "Cleaned up data quality history",
         queries_cleared=queries_cleared,
         runs_deleted=runs_deleted,
         suites_deleted=suites_deleted,
+        stale_suites_failed=stale_failed,
     )
     return CleanupOutcome(
         compiled_queries_cleared=queries_cleared,
         check_runs_deleted=runs_deleted,
         suite_runs_deleted=suites_deleted,
+        stale_suites_failed=stale_failed,
     )

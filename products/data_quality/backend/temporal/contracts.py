@@ -6,6 +6,8 @@ single JSON object, so nested dataclasses would not survive ``parse_inputs``.
 
 import dataclasses
 
+from ..facade.enums import SuiteRunStatus, SuiteRunTrigger
+
 
 @dataclasses.dataclass
 class RunCheckSuiteInputs:
@@ -17,7 +19,7 @@ class RunCheckSuiteInputs:
     """
 
     team_id: int
-    trigger: str
+    trigger: SuiteRunTrigger
     saved_query_ids: list[str] = dataclasses.field(default_factory=list)
     table_ids: list[str] = dataclasses.field(default_factory=list)
     check_ids: list[str] = dataclasses.field(default_factory=list)
@@ -26,6 +28,12 @@ class RunCheckSuiteInputs:
     suite_run_id: str | None = None
     data_modeling_job_id: str | None = None
     created_by_id: int | None = None
+
+
+@dataclasses.dataclass
+class MaterializationGateInputs:
+    team_id: int
+    node_ids: list[str]
 
 
 @dataclasses.dataclass
@@ -71,12 +79,13 @@ class CleanupOutcome:
     compiled_queries_cleared: int = 0
     check_runs_deleted: int = 0
     suite_runs_deleted: int = 0
+    stale_suites_failed: int = 0
 
 
 @dataclasses.dataclass
 class CheckSuiteResult:
     suite_run_id: str
-    status: str
+    status: SuiteRunStatus
     checks_passed: int = 0
     checks_failed: int = 0
     checks_errored: int = 0

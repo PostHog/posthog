@@ -12,6 +12,10 @@ from typing import Any
 # importing this product's workflow and activity modules.
 CHECK_SUITE_WORKFLOW_NAME = "data-quality-run-suite"
 
+# The activity the DAG workflow asks before starting a suite. Same reason as above: the caller
+# executes it by name, so it never imports this product's activity module.
+MATERIALIZATION_GATE_ACTIVITY_NAME = "data-quality-materialization-gate"
+
 
 @dataclass(frozen=True)
 class CheckTypeInfo:

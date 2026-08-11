@@ -47,7 +47,7 @@ def _finalize(inputs: FinalizeCheckSuiteInputs) -> CheckSuiteResult:
     )
     return CheckSuiteResult(
         suite_run_id=str(suite_run.id),
-        status=suite_run.status,
+        status=SuiteRunStatus.COMPLETED,
         checks_passed=suite_run.checks_passed,
         checks_failed=suite_run.checks_failed,
         checks_errored=suite_run.checks_errored,
@@ -67,7 +67,7 @@ def _mark_empty(inputs: FinalizeCheckSuiteInputs) -> CheckSuiteResult:
     suite_run.status = SuiteRunStatus.EMPTY
     suite_run.finished_at = datetime.now(UTC)
     suite_run.save(update_fields=["status", "finished_at", "updated_at"])
-    return CheckSuiteResult(suite_run_id=str(suite_run.id), status=suite_run.status)
+    return CheckSuiteResult(suite_run_id=str(suite_run.id), status=SuiteRunStatus.EMPTY)
 
 
 @activity.defn

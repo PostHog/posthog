@@ -280,9 +280,13 @@ async def _start_data_quality_checks(inputs: PostImportWorkflowInputs, ctx: Post
     if ctx.table_id is None:
         return
     # Started by registered workflow name so warehouse_sources doesn't import data_quality, which
-    # depends on it. Keyed per schema, not per job: a suite still running from the previous sync
-    # already audits fresher data than that sync saw, so colliding with it is natural backpressure
-    # for fast-syncing schemas rather than a lost run.
+    # depends on it. Keyed per job so every completed sync gets audited: a suite still running from
+    # the previous sync may already have executed its checks against the older data, so colliding
+    # with it would drop this load's audit. The job id is the idempotency key, which leaves the
+    # collision below meaning only "this same job already started its suite".
+    # No execution_timeout: an external one terminates the suite, which is exactly what stops it
+    # recording its own failure. The suite bounds itself with activity timeouts and retry caps, and
+    # the retention sweep reconciles anything left running.
     try:
         await workflow.start_child_workflow(
             "data-quality-run-suite",
@@ -291,16 +295,15 @@ async def _start_data_quality_checks(inputs: PostImportWorkflowInputs, ctx: Post
                 trigger="source_sync",
                 table_ids=[ctx.table_id],
             ),
-            id=f"data-quality-source-sync-{inputs.schema_id}",
+            id=f"data-quality-source-sync-{inputs.schema_id}-{inputs.job_id}",
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             task_queue=settings.DATA_MODELING_TASK_QUEUE,
             parent_close_policy=ParentClosePolicy.ABANDON,
-            execution_timeout=dt.timedelta(hours=1),
         )
     except WorkflowAlreadyStartedError:
         workflow.logger.info(
-            "Data quality checks still running for schema, skipping this sync",
-            extra={"schema_id": inputs.schema_id},
+            "Data quality checks already started for this sync, skipping",
+            extra={"schema_id": inputs.schema_id, "job_id": inputs.job_id},
         )
 
 

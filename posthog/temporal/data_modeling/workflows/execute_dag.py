@@ -30,7 +30,8 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 )
 
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
-from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME
+from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, MATERIALIZATION_GATE_ACTIVITY_NAME
+from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
 
@@ -448,6 +449,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         Best-effort and fully isolated: started by registered name so data_modeling never imports
         the catalog product, and ABANDON so a check suite can neither delay nor fail the DAG. The
         node ids come from recorded activity results, so replay stays deterministic.
+
+        The gate activity owns the feature flag and the "are there any checks here" question, both
+        of which need the database. Asking first keeps a team with no checks, or an org that never
+        opted in, from paying for a child workflow and a suite row on every materialization.
         """
         materialized_node_ids = [
             result.node_id
@@ -459,17 +464,28 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             return
 
         try:
+            checks_needed = await temporalio.workflow.execute_activity(
+                MATERIALIZATION_GATE_ACTIVITY_NAME,
+                {"team_id": inputs.team_id, "node_ids": materialized_node_ids},
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+            if not checks_needed:
+                return
+
+            # No execution_timeout: an external one terminates the suite, which is exactly what
+            # stops it recording its own failure. The suite bounds itself with activity timeouts
+            # and retry caps, and the retention sweep reconciles anything left running.
             await temporalio.workflow.start_child_workflow(
                 CHECK_SUITE_WORKFLOW_NAME,
                 {
                     "team_id": inputs.team_id,
-                    "trigger": "materialization",
+                    "trigger": SuiteRunTrigger.MATERIALIZATION.value,
                     "node_ids": materialized_node_ids,
                 },
                 id=f"data-quality-run-suite-{inputs.dag_id}-{temporalio.workflow.info().run_id}",
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(hours=1),
             )
         except Exception as e:
             capture_exception(e)
