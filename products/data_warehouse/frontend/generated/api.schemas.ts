@@ -2750,6 +2750,9 @@ export interface CredentialApi {
  * * `Sevalla` - Sevalla
  * * `Motion` - Motion
  * * `ImpactPartner` - ImpactPartner
+ * * `Depot` - Depot
+ * * `Schematic` - Schematic
+ * * `Dokploy` - Dokploy
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4040,6 +4043,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Sevalla: 'Sevalla',
     Motion: 'Motion',
     ImpactPartner: 'ImpactPartner',
+    Depot: 'Depot',
+    Schematic: 'Schematic',
+    Dokploy: 'Dokploy',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
