@@ -33,6 +33,11 @@ USE_LOCAL_SETUP = get_from_env("USE_LOCAL_SETUP", USE_LOCAL_SETUP_DEFAULT, type_
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# CDC buffered-ingress shadow mode: extraction also writes each micro-batch as a
+# raw change file to the S3 buffer (cdc_producer/ prefix) while the legacy path
+# stays fully authoritative. Validation-only — nothing consumes the buffer yet.
+CDC_BUFFER_SHADOW_WRITE = get_from_env("CDC_BUFFER_SHADOW_WRITE", False, type_cast=str_to_bool)
+
 # Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
 # egress-proxy bypass in products/data_warehouse/backend/s3_proxy.py; the AWS clients resolve their
 # own region as before. Falls back to the ambient AWS_REGION, and an empty value leaves the bypass
