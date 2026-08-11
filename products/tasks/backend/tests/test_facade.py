@@ -243,7 +243,7 @@ class TestFacadeReadsAndMappers(TestCase):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         TaskRun.objects.create(task=task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
 
-        dtos = facade.get_conversation_task_dtos([task.id], self.team.id)
+        dtos = facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id)
 
         self.assertEqual(set(dtos.keys()), {task.id})
         dto = dtos[task.id]
@@ -253,14 +253,20 @@ class TestFacadeReadsAndMappers(TestCase):
         # The nested run payload stays excluded (no presigned log URLs); only the id is carried.
         self.assertIsNone(dto.latest_run)
         self.assertEqual(dto.latest_run_id, latest.id)
-        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id), {})
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id, self.user.id), {})
 
     def test_get_conversation_task_dtos_latest_run_id_none_without_runs(self):
         task = self._make_task(title="No runs")
 
-        dto = facade.get_conversation_task_dtos([task.id], self.team.id)[task.id]
+        dto = facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id)[task.id]
 
         self.assertIsNone(dto.latest_run_id)
+
+    def test_get_conversation_task_dtos_excludes_soft_deleted_task(self):
+        task = self._make_task(title="Deleted conversation task")
+        task.soft_delete()
+
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id), {})
 
     def test_get_conversation_task_dtos_is_cheap_for_many_tasks(self):
         tasks = [self._make_task(title=f"task-{i}") for i in range(5)]
@@ -269,7 +275,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         # A single query with the latest-run-id subquery — no per-task run lookup, no N+1.
         with self.assertNumQueries(1):
-            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id)
+            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id, self.user.id)
             for task in tasks:
                 self.assertIsNotNone(dtos[task.id].latest_run_id)
 
@@ -742,7 +748,13 @@ class TestFacadeReadsAndMappers(TestCase):
             repository="posthog/posthog",
             channel_id=channel_id,
         )
-        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, channel_id if expect_filed else None)
+        task = Task.objects.select_related("channel").get(id=created.task_id)
+        if expect_filed:
+            self.assertEqual(task.channel_id, channel_id)
+        else:
+            assert task.channel is not None
+            self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+            self.assertEqual(task.channel.created_by_id, self.user.id)
 
     def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
