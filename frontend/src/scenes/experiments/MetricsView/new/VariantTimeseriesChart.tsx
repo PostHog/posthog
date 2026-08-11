@@ -1,7 +1,4 @@
-import { useValues } from 'kea'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { ProcessedChartData } from '../../experimentTimeseriesLogic'
 import { LegacyVariantTimeseriesChart } from './LegacyVariantTimeseriesChart'
@@ -13,9 +10,9 @@ export interface VariantTimeseriesChartProps {
 }
 
 export function VariantTimeseriesChart(props: VariantTimeseriesChartProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const quillEnabled = useFeatureFlag('EXPERIMENTS_QUILL_TIMESERIES_CHART')
 
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_QUILL_TIMESERIES_CHART]) {
+    if (quillEnabled) {
         return <QuillVariantTimeseriesChart {...props} />
     }
 
