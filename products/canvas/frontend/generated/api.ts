@@ -14,6 +14,7 @@ import type {
     CanvasBuildApi,
     CanvasBuildsResponseApi,
     CanvasCreateApi,
+    CanvasPublishCurrentVersionApi,
     CanvasRevertApi,
     CanvasSourceEditApi,
     CanvasSourcePublishApi,
@@ -243,6 +244,27 @@ export const canvasesPublishCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasSourcePublishApi),
+    })
+}
+
+export const getCanvasesPublishCurrentVersionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/publish-current-version/`
+}
+
+/**
+ * Queue a build for the current source version without changing source or metadata.
+ */
+export const canvasesPublishCurrentVersionCreate = async (
+    projectId: string,
+    id: string,
+    canvasPublishCurrentVersionApi: CanvasPublishCurrentVersionApi,
+    options?: RequestInit
+): Promise<CanvasBuildApi> => {
+    return apiMutator<CanvasBuildApi>(getCanvasesPublishCurrentVersionCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasPublishCurrentVersionApi),
     })
 }
 
