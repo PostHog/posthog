@@ -161,7 +161,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             // transitionToFailedTerminal) would otherwise wait for a later terminal
             // dequeue — under multi-replica that's a different worker, and under a
             // restart it's gone entirely.
-            await this.hogFunctionMonitoringService.flush().catch((err) => {
+            await Promise.all([
+                this.hogFunctionMonitoringService.flush(),
+                this.invocationResultsService.invocationResultsRowsService.flush(),
+            ]).catch((err) => {
                 logger.warn('⚠️', `${this.name} - failed to flush monitoring after resolver dequeue`, {
                     error: serializeError(err),
                 })
@@ -263,30 +266,38 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const pageTruncated = eligibleIds.length < page.ids.length
 
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
-        const children: CyclotronV2JobInit[] = eligibleIds.map((id) =>
-            invocationToV2JobInit(
-                isAccountAudience
-                    ? buildAccountHogFlowInvocation({
-                          siteUrl: this.config.SITE_URL,
-                          parentRunId: state.batchJobId,
-                          team,
-                          hogFlowId: hogFlow.id,
-                          flowVersion: hogFlow.version,
-                          externalId: id,
-                          groupType: page.accountGroupType ?? '',
-                          defaultVariables,
-                      })
-                    : buildHogFlowInvocation({
-                          siteUrl: this.config.SITE_URL,
-                          parentRunId: state.batchJobId,
-                          team,
-                          hogFlowId: hogFlow.id,
-                          flowVersion: hogFlow.version,
-                          personId: id,
-                          defaultVariables,
-                      })
-            )
+        const invocations = eligibleIds.map((id) =>
+            isAccountAudience
+                ? buildAccountHogFlowInvocation({
+                      siteUrl: this.config.SITE_URL,
+                      parentRunId: state.batchJobId,
+                      team,
+                      hogFlowId: hogFlow.id,
+                      flowVersion: hogFlow.version,
+                      externalId: id,
+                      groupType: page.accountGroupType ?? '',
+                      defaultVariables,
+                  })
+                : buildHogFlowInvocation({
+                      siteUrl: this.config.SITE_URL,
+                      parentRunId: state.batchJobId,
+                      team,
+                      hogFlowId: hogFlow.id,
+                      flowVersion: hogFlow.version,
+                      personId: id,
+                      defaultVariables,
+                  })
         )
+
+        // Queue the `running` rows before serializing: queueLifecycleRow stamps
+        // `state.firstScheduledAt` on the invocation, and the terminal row written after the
+        // run wakes needs to inherit it — otherwise it records the wake time and wins the
+        // ReplacingMergeTree collapse, mislabeling when the run started.
+        for (const invocation of invocations) {
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+        }
+
+        const children: CyclotronV2JobInit[] = invocations.map(invocationToV2JobInit)
 
         const newState: BatchResolverState = {
             ...state,
@@ -299,14 +310,40 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             newState.pendingTerminal = 'completed'
         }
 
-        await job.bulkCreateAndCheckIn({
-            newJobs: children,
-            selfDisposition: {
-                kind: 'reschedule',
-                scheduledAt: new Date(),
-                state: serializeResolverState(newState),
-            },
-        })
+        try {
+            await job.bulkCreateAndCheckIn({
+                newJobs: children,
+                selfDisposition: {
+                    kind: 'reschedule',
+                    scheduledAt: new Date(),
+                    state: serializeResolverState(newState),
+                },
+            })
+        } catch (err) {
+            // The commit is atomic with the state advance, so a failure replays this page from
+            // the same cursor. Drop the rows we optimistically queued above or the replay
+            // double-writes them.
+            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
+                invocations.map((invocation) => invocation.id)
+            )
+            throw err
+        }
+
+        // Mirrors the `triggered` metric the realtime trigger path emits per invocation, so
+        // batch runs count towards "workflows started" (and the derived in-progress count).
+        // Keyed on the batch job id like every other metric a batch run emits; `instance_id`
+        // is left unset because this is a run-level, not a step-level, metric.
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            invocations.map((invocation) => ({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
+                metric_kind: 'other' as const,
+                metric_name: 'triggered' as const,
+                count: 1,
+                app_source_version: { id: hogFlow.id, version: hogFlow.version },
+            })),
+            'hog_flow'
+        )
 
         if (pageTruncated) {
             this.emitTruncationLog(newState)
