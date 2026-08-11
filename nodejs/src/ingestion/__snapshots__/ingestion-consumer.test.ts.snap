@@ -340,6 +340,18 @@ exports[`IngestionConsumer typical event processing $identify event 1`] = `
     },
   },
   {
+    "headers": undefined,
+    "key": null,
+    "topic": "clickhouse_ingestion_warnings_test",
+    "value": {
+      "details": "{"distinctId":"user-1","eventUuid":"<REPLACED-UUID-1>","category":"merge","severity":"warning","pipelineStep":"person-merge"}",
+      "source": "plugin-server",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "type": "identify_missing_anon_distinct_id",
+    },
+  },
+  {
     "headers": {
       "productTrack": "general",
     },
@@ -517,6 +529,18 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
       "properties": "{"email":"test@example.com","update3":"3","$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
       "team_id": 2,
       "version": 1,
+    },
+  },
+  {
+    "headers": undefined,
+    "key": null,
+    "topic": "clickhouse_ingestion_warnings_test",
+    "value": {
+      "details": "{"distinctId":"user-1","eventUuid":"<REPLACED-UUID-1>","category":"merge","severity":"warning","pipelineStep":"person-merge"}",
+      "source": "plugin-server",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "type": "identify_missing_anon_distinct_id",
     },
   },
   {
@@ -973,6 +997,18 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
       "properties": "{"$email":"test@test.com","$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-2>","$initial_current_url":"http://localhost:8000"}",
       "team_id": 2,
       "version": 0,
+    },
+  },
+  {
+    "headers": undefined,
+    "key": null,
+    "topic": "clickhouse_ingestion_warnings_test",
+    "value": {
+      "details": "{"distinctId":"identified-id-1","eventUuid":"<REPLACED-UUID-2>","category":"merge","severity":"warning","pipelineStep":"person-merge"}",
+      "source": "plugin-server",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "type": "identify_missing_anon_distinct_id",
     },
   },
 ]

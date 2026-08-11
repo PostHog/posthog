@@ -1804,8 +1804,11 @@ describe.each([
 
             await waitForExpect(async () => {
                 const ingestionWarnings = await fetchIngestionWarnings(clickhouse, team.id)
-                expect(ingestionWarnings.length).toBe(1)
-                expect(ingestionWarnings[0].details.eventUuid).toBe(events[0].uuid)
+                // The $identify carries no $anon_distinct_id, so it also raises the merge warning;
+                // scope this assertion to the size warning under test.
+                const sizeWarnings = ingestionWarnings.filter((w) => w.type === 'message_size_too_large')
+                expect(sizeWarnings.length).toBe(1)
+                expect(sizeWarnings[0].details.eventUuid).toBe(events[0].uuid)
             })
         }
     )
