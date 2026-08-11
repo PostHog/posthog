@@ -13,20 +13,12 @@ use personhog_identity::storage::postgres::PostgresIdentityStorage;
 /// The production table set. Most tests run here; the raw-SQL assertion
 /// helpers in the test binaries assume it.
 pub fn default_tables() -> IdentityTables {
-    IdentityTables {
-        person: "posthog_person".to_string(),
-        person_distinct_id: "posthog_persondistinctid".to_string(),
-        ff_hash_key_override: "posthog_featureflaghashkeyoverride".to_string(),
-    }
+    IdentityTables::real()
 }
 
 /// The validation (shadow) table set — the service's config default.
 pub fn tmp_tables() -> IdentityTables {
-    IdentityTables {
-        person: "personhog_person_tmp".to_string(),
-        person_distinct_id: "personhog_persondistinctid_tmp".to_string(),
-        ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp".to_string(),
-    }
+    IdentityTables::validation()
 }
 
 pub struct TestContext {

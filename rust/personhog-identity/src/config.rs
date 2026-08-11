@@ -153,7 +153,7 @@ pub struct Config {
 /// tables it writes rows into (or clears rows from) keyed by that table's
 /// person ids. The three must come from the same namespace — mixing the
 /// validation set with the real set cross-contaminates id spaces.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdentityTables {
     pub person: String,
     pub person_distinct_id: String,
@@ -161,15 +161,35 @@ pub struct IdentityTables {
 }
 
 impl IdentityTables {
-    pub fn validate(&self) -> Result<(), String> {
-        for table in [
-            &self.person,
-            &self.person_distinct_id,
-            &self.ff_hash_key_override,
-        ] {
-            personhog_common::persons::validate_table_name(table)?;
+    pub fn real() -> Self {
+        Self {
+            person: "posthog_person".to_string(),
+            person_distinct_id: "posthog_persondistinctid".to_string(),
+            ff_hash_key_override: "posthog_featureflaghashkeyoverride".to_string(),
         }
-        Ok(())
+    }
+
+    pub fn validation() -> Self {
+        Self {
+            person: "personhog_person_tmp".to_string(),
+            person_distinct_id: "personhog_persondistinctid_tmp".to_string(),
+            ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp".to_string(),
+        }
+    }
+
+    /// Only the two complete namespaces are accepted: a partial override
+    /// (one table flipped, the others left on defaults) would pair person
+    /// ids from one sequence with rows keyed by another, which is exactly
+    /// the cross-contamination this config exists to prevent.
+    pub fn validate(&self) -> Result<(), String> {
+        if *self == Self::real() || *self == Self::validation() {
+            return Ok(());
+        }
+        Err(format!(
+            "mixed identity table set {self:?}: set PERSON_TABLE, PERSON_DISTINCT_ID_TABLE, \
+             and FF_HASH_KEY_OVERRIDE_TABLE together, to either the full real set or the \
+             full validation set"
+        ))
     }
 }
 
@@ -253,5 +273,28 @@ impl Config {
 
     pub fn lifecycle_op_retention(&self) -> Duration {
         Duration::from_secs(self.lifecycle_op_retention_hours * 3600)
+    }
+}
+
+// A mixed table set pairs person ids from one sequence with rows keyed by
+// another; validation must refuse it rather than let a partial env override
+// through.
+#[cfg(test)]
+mod tests {
+    use super::IdentityTables;
+
+    #[test]
+    fn complete_table_sets_pass_validation() {
+        assert!(IdentityTables::real().validate().is_ok());
+        assert!(IdentityTables::validation().validate().is_ok());
+    }
+
+    #[test]
+    fn a_mixed_table_set_is_refused() {
+        let mixed = IdentityTables {
+            person: "posthog_person".to_string(),
+            ..IdentityTables::validation()
+        };
+        assert!(mixed.validate().is_err());
     }
 }

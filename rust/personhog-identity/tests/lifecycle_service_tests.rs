@@ -34,14 +34,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
             attempt_alert_threshold: 5,
         },
     ));
-    let service = PersonHogLifecycleService::new(
-        engine,
-        IdentityTables {
-            person: "posthog_person".to_string(),
-            person_distinct_id: "posthog_persondistinctid".to_string(),
-            ff_hash_key_override: "posthog_featureflaghashkeyoverride".to_string(),
-        },
-    );
+    let service = PersonHogLifecycleService::new(engine, IdentityTables::real());
     service
         .delete_persons(Request::new(request))
         .await
