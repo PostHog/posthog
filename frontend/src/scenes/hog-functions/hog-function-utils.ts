@@ -1,4 +1,6 @@
-import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTypeType } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTypeType, PropertyFilterType } from '~/types'
+
+const KNOWN_PROPERTY_FILTER_TYPES = new Set<string>(Object.values(PropertyFilterType))
 
 export type HogFunctionDeliveryType = 'batch' | 'realtime'
 
@@ -30,6 +32,49 @@ export const HOG_FUNCTION_CONTEXT_MAX_CHARS = 10_000
  */
 export function truncateHogFunctionContext(value: string, max: number = HOG_FUNCTION_CONTEXT_MAX_CHARS): string {
     return value.length > max ? value.slice(0, max) + '… (truncated)' : value
+}
+
+/**
+ * Validates a filters payload suggested by the PostHog AI agent before it's applied to the form.
+ * A payload whose property entries match no known property filter type flows into the volume
+ * sparkline query and gets rejected by the query API, so reject it here and return the reason.
+ * Returns null when the payload is safe to apply.
+ */
+export function validateAIFilters(parsed: unknown): string | null {
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return 'expected a filters object'
+    }
+    const filters = parsed as Record<string, unknown>
+    const propertyLists: unknown[] = [filters.properties]
+    for (const key of ['events', 'actions', 'data_warehouse'] as const) {
+        const value = filters[key]
+        if (value === undefined) {
+            continue
+        }
+        if (!Array.isArray(value)) {
+            return `"${key}" must be a list`
+        }
+        for (const entry of value) {
+            if (typeof entry === 'object' && entry !== null) {
+                propertyLists.push((entry as Record<string, unknown>).properties)
+            }
+        }
+    }
+    for (const list of propertyLists) {
+        if (list === undefined || list === null) {
+            continue
+        }
+        if (!Array.isArray(list)) {
+            return 'a property filter list is not a list'
+        }
+        for (const prop of list) {
+            const type = typeof prop === 'object' && prop !== null ? (prop as Record<string, unknown>).type : undefined
+            if (typeof type !== 'string' || !KNOWN_PROPERTY_FILTER_TYPES.has(type)) {
+                return `a property filter has an unknown type "${String(type)}"`
+            }
+        }
+    }
+    return null
 }
 
 /**

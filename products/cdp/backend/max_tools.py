@@ -1,6 +1,6 @@
 import re
 import json
-from typing import Optional
+from typing import Optional, get_args
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -10,6 +10,7 @@ from posthog.hogql import errors as hogql_errors
 from posthog.hogql.parser import parse_program
 
 from posthog.cdp.validation import compile_hog
+from posthog.models.property.property import PropertyType
 
 from products.cdp.backend.prompts import (
     DESTINATION_LIMITATIONS_MESSAGE,
@@ -33,6 +34,44 @@ from products.cdp.backend.prompts import (
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
+
+_KNOWN_PROPERTY_TYPES = frozenset(get_args(PropertyType))
+
+
+def validate_hog_function_filters(filters: dict) -> None:
+    # Parseable JSON is not enough: a filter with a malformed shape applies to the form but then
+    # gets rejected by the query API that draws the volume sparkline. Reject the bad shape here so
+    # the model retries with feedback instead of poisoning the form.
+    if not isinstance(filters, dict):
+        raise PydanticOutputParserException(
+            llm_output=json.dumps(filters), validation_message="The filters must be a JSON object."
+        )
+
+    property_lists: list = [filters.get("properties")]
+    for key in ("events", "actions", "data_warehouse"):
+        value = filters.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            raise PydanticOutputParserException(
+                llm_output=json.dumps(filters), validation_message=f'"{key}" must be a list.'
+            )
+        property_lists.extend(entry.get("properties") for entry in value if isinstance(entry, dict))
+
+    for property_list in property_lists:
+        if property_list is None:
+            continue
+        if not isinstance(property_list, list):
+            raise PydanticOutputParserException(
+                llm_output=json.dumps(filters), validation_message="A property filter list must be a list."
+            )
+        for prop in property_list:
+            prop_type = prop.get("type") if isinstance(prop, dict) else None
+            if prop_type not in _KNOWN_PROPERTY_TYPES:
+                raise PydanticOutputParserException(
+                    llm_output=json.dumps(filters),
+                    validation_message=f'A property filter has an unknown type "{prop_type}".',
+                )
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):
@@ -240,6 +279,8 @@ class CreateHogFunctionFiltersTool(MaxTool):
             raise PydanticOutputParserException(
                 llm_output=json_str, validation_message=f"The filters JSON failed to parse: {str(e)}"
             )
+
+        validate_hog_function_filters(filters)
 
         return HogFunctionFiltersOutput(filters=filters)
 

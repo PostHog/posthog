@@ -11,6 +11,7 @@ import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/Tax
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -22,7 +23,7 @@ import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } f
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
-import { truncateHogFunctionContext } from '../hog-function-utils'
+import { truncateHogFunctionContext, validateAIFilters } from '../hog-function-utils'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 const MASKING_HASH_ALL = 'all'
@@ -562,7 +563,18 @@ export function HogFunctionFilters({
                 icon: <IconFilter />,
             }}
             callback={(toolOutput: string) => {
-                const parsedFilters = JSON.parse(toolOutput)
+                let parsedFilters: CyclotronJobFiltersType
+                try {
+                    parsedFilters = JSON.parse(toolOutput)
+                } catch {
+                    lemonToast.error('The suggested filters could not be read. Try asking again.')
+                    return
+                }
+                const invalidReason = validateAIFilters(parsedFilters)
+                if (invalidReason) {
+                    lemonToast.error(`The suggested filters could not be applied: ${invalidReason}`)
+                    return
+                }
                 setOldFilters(configuration?.filters ?? {})
                 setNewFilters(parsedFilters)
                 reportAIFiltersPrompted()

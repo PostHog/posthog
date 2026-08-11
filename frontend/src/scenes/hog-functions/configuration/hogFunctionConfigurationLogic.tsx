@@ -1083,7 +1083,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     } else {
                         await breakpoint(1000)
                     }
-                    const result = await performQuery(sparklineQuery)
+                    let result
+                    try {
+                        result = await performQuery(sparklineQuery)
+                    } catch (e) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // The volume sparkline is decorative. A rejected query should degrade to the
+                        // inline "could not be calculated" state, not raise a global error toast.
+                        return null
+                    }
                     breakpoint()
 
                     const dataValues: number[] = result?.results?.[0]?.data ?? []
