@@ -24,6 +24,7 @@ import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
+import { isTemplateLanguage, retriggerSuggestionsAfterDeletion } from 'lib/monaco/suggestionRetrigger'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -454,6 +455,10 @@ export function CodeEditor({
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
         remeasureFontsWhenReady(monaco)
         monacoDisposables.current.push(trackFindWidgetVisibility(editor))
+
+        if (isTemplateLanguage(editorProps.language)) {
+            monacoDisposables.current.push(retriggerSuggestionsAfterDeletion(editor, editorProps.language))
+        }
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
