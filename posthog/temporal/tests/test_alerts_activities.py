@@ -559,7 +559,7 @@ class TestNotifyAlert:
 
     async def test_sends_error_notifications_when_errored(self, alert_with_user) -> None:
         check = await _create_alert_check(
-            alert_with_user, state=AlertState.ERRORED, error={"message": "boom", "traceback": "..."}
+            alert_with_user, state=AlertState.ERRORED, error={"message": "boom.", "traceback": "..."}
         )
 
         with (
@@ -568,7 +568,6 @@ class TestNotifyAlert:
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
                 return_value=["alice@posthog.com"],
             ) as mock_errors,
-            patch("posthog.temporal.alerts.activities.has_been_dispatched", return_value=False),
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
             env = ActivityEnvironment()
@@ -591,7 +590,8 @@ class TestNotifyAlert:
             notification.source_url
             == f"/project/{alert_with_user.team_id}/insights/{alert_with_user.insight.short_id}?alert_id={alert_with_user.id}"
         )
-        assert "boom" in notification.body
+        assert "boom. PostHog" in notification.body
+        assert "boom.." not in notification.body
         assert "normal schedule" in notification.body
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)

@@ -30,6 +30,7 @@ class NotificationData:
     source_url: str = ""
     source_type: SourceType | None = None
     source_id: str | None = None
+    idempotency_key: str | None = None
     priority: Priority = Priority.NORMAL
     metadata: dict[str, Any] | None = None
     resolver: RecipientsResolver | None = field(default=None, compare=False)
