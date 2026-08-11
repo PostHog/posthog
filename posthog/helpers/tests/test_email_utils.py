@@ -12,12 +12,15 @@ from rest_framework.exceptions import ErrorDetail
 from posthog.helpers.email_utils import (
     ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS,
     ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS,
+    ESP_SUPPRESSION_NOT_SUPPRESSED_CACHE_TTL_IN_SECONDS,
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
+    _get_esp_suppression_error_cache_key,
     check_esp_suppression,
+    invalidate_esp_suppression_cache,
     reject_plus_addressed_email,
     sanitize_display_name,
     sanitize_email_string,
@@ -191,20 +194,55 @@ class TestESPSuppressionCheck(SimpleTestCase):
         self.assertTrue(result.is_suppressed)
         self.assertFalse(result.from_cache)
 
+    @parameterized.expand(
+        [
+            # A "not suppressed" verdict must expire in minutes so a fresh bounce is picked up quickly.
+            ("not_suppressed", None, ESP_SUPPRESSION_NOT_SUPPRESSED_CACHE_TTL_IN_SECONDS),
+            ("suppressed", [{"email": "test@example.com"}], ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS),
+        ]
+    )
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
     @patch("posthog.helpers.email_utils.requests.get")
-    def test_cache_set_with_correct_ttl(self, mock_get, mock_cache):
+    def test_cache_set_with_correct_ttl(self, _name, suppressions, expected_ttl, mock_get, mock_cache):
         mock_cache.get.return_value = None
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"suppressions": None}
+        mock_response.json.return_value = {"suppressions": suppressions}
         mock_get.return_value = mock_response
 
         check_esp_suppression("test@example.com")
 
         call_args = mock_cache.set.call_args
-        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS)
+        self.assertEqual(call_args[0][2], expected_ttl)
+
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
+    @patch("posthog.helpers.email_utils.requests.get")
+    def test_bypass_cache_ignores_cached_verdict_and_does_live_lookup(self, mock_get, mock_cache):
+        # Stale "not suppressed" verdict cached, but the address is now suppressed.
+        mock_cache.get.return_value = False
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"suppressions": [{"email": "test@example.com"}]}
+        mock_get.return_value = mock_response
+
+        result = check_esp_suppression("test@example.com", bypass_cache=True)
+
+        mock_get.assert_called_once()
+        self.assertTrue(result.is_suppressed)
+        self.assertFalse(result.from_cache)
+        # The fresh verdict is written back so later cached reads pick up the suppression.
+        mock_cache.set.assert_called_once()
+
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
+    @patch("posthog.helpers.email_utils.cache")
+    def test_invalidate_esp_suppression_cache_deletes_both_keys(self, mock_cache):
+        invalidate_esp_suppression_cache("test@example.com")
+
+        deleted_keys = {c[0][0] for c in mock_cache.delete.call_args_list}
+        self.assertIn(_get_esp_suppression_cache_key("test@example.com"), deleted_keys)
+        self.assertIn(_get_esp_suppression_error_cache_key("test@example.com"), deleted_keys)
 
     @parameterized.expand(
         [

@@ -12,7 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
-from posthog.helpers.email_utils import ESPSuppressionResult
+from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
 
 VERIFY_URL = "/api/login/code-based-verification/"
@@ -147,6 +147,26 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
                 self.client.post(VERIFY_URL, {"code": first_code}).status_code, status.HTTP_400_BAD_REQUEST
             )
             self.assertEqual(self.client.post(VERIFY_URL, {"code": second_code}).status_code, status.HTTP_200_OK)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_resend_reports_undeliverable_when_address_becomes_suppressed(self):
+        with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
+            self._trigger(mock_send)
+            frozen.move_to("2024-01-01T10:01:01")  # past the 1/min resend throttle
+            mock_send.reset_mock()
+            # The address landed on the suppression list after the first code was sent. The live
+            # lookup on resend catches it instead of mailing another code into a black hole.
+            with patch(
+                "posthog.helpers.two_factor_session.check_esp_suppression",
+                return_value=ESPSuppressionResult(
+                    is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
+                ),
+            ):
+                response = self.client.post(RESEND_URL)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "code_based_verification_undeliverable")
+        mock_send.assert_not_called()
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_resend_does_not_reset_the_failed_attempt_cap(self):

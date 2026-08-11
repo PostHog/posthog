@@ -210,6 +210,41 @@ class TestCodeBasedVerifierSuppressionIntegration(SimpleTestCase):
         self.assertEqual(call_kwargs["event"], "code_based_verification_bypassed_due_to_suppression")
         self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE)
 
+    @patch("posthog.helpers.two_factor_session.is_dev_mode")
+    @patch("posthog.helpers.two_factor_session.is_email_available")
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available")
+    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
+    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
+    def test_resend_forwards_bypass_cache_to_suppression_lookup(
+        self, mock_check_suppression, mock_feature_enabled, mock_http_available, mock_email_available, mock_dev_mode
+    ):
+        mock_dev_mode.return_value = False
+        mock_email_available.return_value = True
+        mock_http_available.return_value = True
+        mock_feature_enabled.return_value = True
+        mock_check_suppression.return_value = ESPSuppressionResult(is_suppressed=False, from_cache=False)
+
+        CodeBasedVerifier().should_send_code_based_verification(self.mock_user, bypass_suppression_cache=True)
+
+        mock_check_suppression.assert_called_once_with(self.mock_user.email, bypass_cache=True)
+
+    @patch("posthog.helpers.two_factor_session.capture_exception")
+    @patch("posthog.helpers.two_factor_session.invalidate_esp_suppression_cache")
+    @patch("posthog.helpers.two_factor_session.code_based_verification_token_generator.make_code", return_value="123456")
+    @patch("posthog.tasks.email.send_code_based_verification", side_effect=Exception("send failed"))
+    def test_send_failure_invalidates_suppression_cache(
+        self, mock_send, mock_make_code, mock_invalidate, mock_capture_exception
+    ):
+        request = MagicMock()
+        request.session = {}
+
+        sent = CodeBasedVerifier().create_and_send_code_based_verification(
+            request, self.mock_user, check=CodeBasedVerificationCheckResult(should_send=True)
+        )
+
+        self.assertFalse(sent)
+        mock_invalidate.assert_called_once_with(self.mock_user.email)
+
 
 class TestCodeBasedVerificationGlobalDisable(SimpleTestCase):
     def setUp(self):

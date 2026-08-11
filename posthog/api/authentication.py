@@ -55,7 +55,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
-from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.email_utils import EmailLookupHandler, ESPSuppressionReason
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -1103,7 +1103,21 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        if not code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=True):
+        # Resend does a live suppression lookup, bypassing the cache, so a user stuck on a stale
+        # "not suppressed" verdict is rescued instead of getting another code they can't receive.
+        check = code_based_verifier.should_send_code_based_verification(user, bypass_suppression_cache=True)
+        if check.suppression_reason == ESPSuppressionReason.SUPPRESSED:
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        "This email address is rejecting our messages, so a code can't reach it. "
+                        "Sign in again to continue, or contact support if that doesn't work."
+                    )
+                },
+                code="code_based_verification_undeliverable",
+            )
+
+        if not code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=True, check=check):
             raise serializers.ValidationError(
                 {"detail": "Could not send verification code."},
                 code="code_based_verification_email_failed",

@@ -20,7 +20,7 @@ from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_dev_mode
 from posthog.email import is_email_available, is_http_email_service_available
-from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
+from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression, invalidate_esp_suppression_cache
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
@@ -362,7 +362,9 @@ class CodeBasedVerifier:
                 error=str(e),
             )
 
-    def should_send_code_based_verification(self, user: User) -> CodeBasedVerificationCheckResult:
+    def should_send_code_based_verification(
+        self, user: User, *, bypass_suppression_cache: bool = False
+    ) -> CodeBasedVerificationCheckResult:
         if is_code_based_verification_globally_disabled():
             return CodeBasedVerificationCheckResult(should_send=False)
 
@@ -389,7 +391,7 @@ class CodeBasedVerifier:
             mfa_logger.info("Code-based verification bypassed via admin bypass list", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)
 
-        suppression_result = check_esp_suppression(user.email)
+        suppression_result = check_esp_suppression(user.email, bypass_cache=bypass_suppression_cache)
         if suppression_result.is_suppressed:
             reason = suppression_result.reason or ""
             from_cache = suppression_result.from_cache
@@ -410,11 +412,20 @@ class CodeBasedVerifier:
         return CodeBasedVerificationCheckResult(should_send=True)
 
     def create_and_send_code_based_verification(
-        self, request: HttpRequest, user: User, *, is_resend: bool = False
+        self,
+        request: HttpRequest,
+        user: User,
+        *,
+        is_resend: bool = False,
+        check: Optional[CodeBasedVerificationCheckResult] = None,
     ) -> bool:
         from posthog.tasks import email
 
-        if not self.should_send_code_based_verification(user).should_send:
+        # A resend does a live suppression lookup so a user stuck on a stale "not suppressed" verdict
+        # can recover. Callers may pass an already-computed `check` to avoid a duplicate lookup.
+        if check is None:
+            check = self.should_send_code_based_verification(user, bypass_suppression_cache=is_resend)
+        if not check.should_send:
             return False
 
         try:
@@ -438,6 +449,9 @@ class CodeBasedVerifier:
             return True
         except Exception as e:
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_failed").inc()
+            # Drop any cached "not suppressed" verdict so the next attempt re-checks delivery instead
+            # of repeating a send we already know failed.
+            invalidate_esp_suppression_cache(user.email)
             mfa_logger.exception(
                 "Code-based verification email failed",
                 user_id=user.pk,

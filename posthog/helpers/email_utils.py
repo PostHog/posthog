@@ -368,7 +368,11 @@ class EmailValidationHelper:
         return candidates.exists()
 
 
-ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day
+ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day; only used to cache a "suppressed" verdict
+# A "not suppressed" verdict is cached for minutes, not a day. A mailbox can bounce our mail and land
+# on the suppression list at any moment, so a stale positive verdict keeps us mailing login codes into
+# a black hole and locks the user out. A short TTL picks up a fresh suppression quickly.
+ESP_SUPPRESSION_NOT_SUPPRESSED_CACHE_TTL_IN_SECONDS = 300  # 5 minutes
 ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS = (
     60  # Short TTL for errors/rate-limits to prevent thundering herd during outages
 )
@@ -440,6 +444,18 @@ def _get_esp_suppression_error_cache_key(email: str) -> str:
     return f"code_based_verification_suppressed_error:{_hash_email(email)}"
 
 
+def invalidate_esp_suppression_cache(email: str) -> None:
+    """Drop any cached suppression verdict for an email, forcing the next check to hit the API.
+
+    Called after a send fails, so we re-check delivery instead of repeating a delivery we already
+    know did not work.
+    """
+    if not email:
+        return
+    cache.delete(_get_esp_suppression_cache_key(email))
+    cache.delete(_get_esp_suppression_error_cache_key(email))
+
+
 def _capture_esp_suppression_analytics(
     email: str,
     outcome: str,
@@ -468,8 +484,13 @@ def _capture_esp_suppression_analytics(
         logger.warning("Failed to capture ESP suppression analytics", error=str(e))
 
 
-def check_esp_suppression(email: str) -> ESPSuppressionResult:
-    """Check if an email address is on the ESP suppression list."""
+def check_esp_suppression(email: str, *, bypass_cache: bool = False) -> ESPSuppressionResult:
+    """Check if an email address is on the ESP suppression list.
+
+    `bypass_cache=True` skips the cached verdict and does a live lookup, so a resend can rescue a
+    user whose address landed on the suppression list after a stale "not suppressed" verdict. The
+    live verdict is still written to the cache for later reads.
+    """
     if not email:
         return ESPSuppressionResult(
             is_suppressed=False,
@@ -478,7 +499,7 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
         )
 
     cache_key = _get_esp_suppression_cache_key(email)
-    cached_result = cache.get(cache_key)
+    cached_result = None if bypass_cache else cache.get(cache_key)
 
     if cached_result is not None:
         _capture_esp_suppression_analytics(
@@ -494,7 +515,7 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
         )
 
     # Check if we recently had an API error for this email (prevents thundering herd)
-    if cache.get(_get_esp_suppression_error_cache_key(email)):
+    if not bypass_cache and cache.get(_get_esp_suppression_error_cache_key(email)):
         logger.info(
             "ESP suppression check returning cached error fallback",
             email_hash=_hash_email(email),
@@ -578,6 +599,10 @@ def _fetch_esp_suppression_from_api(email: str) -> ESPSuppressionAPIResponse:
                 is_suppressed=is_suppressed,
                 status_code=200,
                 suppressions=suppressions if is_suppressed else None,
+                # A "not suppressed" verdict is short-lived so a fresh bounce is picked up in minutes.
+                cache_ttl=ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS
+                if is_suppressed
+                else ESP_SUPPRESSION_NOT_SUPPRESSED_CACHE_TTL_IN_SECONDS,
             )
         elif response.status_code == 429:
             # Rate limited, determine as not suppressed but cache for short TTL

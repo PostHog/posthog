@@ -475,6 +475,11 @@ export const loginLogic = kea<loginLogicType>([
                         const { code, detail } = e as Record<string, any>
                         if (code === 'too_soon') {
                             lemonToast.error(detail || 'Please wait before requesting another email')
+                        } else if (code === 'code_based_verification_undeliverable') {
+                            lemonToast.error(
+                                detail ||
+                                    "This email address is rejecting our messages, so a code can't reach it. Sign in again to continue, or contact support if that doesn't work."
+                            )
                         } else {
                             lemonToast.error(detail || 'Failed to resend email')
                         }
