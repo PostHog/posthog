@@ -84,7 +84,14 @@ export function TicketSlaIcon({ slaDueAt }: { slaDueAt: string | null }): JSX.El
 
     return (
         <Tooltip title={tooltip}>
-            <span className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">{icon}</span>
+            <span
+                role="img"
+                aria-label={tooltip}
+                tabIndex={0}
+                className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5"
+            >
+                {icon}
+            </span>
         </Tooltip>
     )
 }

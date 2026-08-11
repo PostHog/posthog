@@ -133,15 +133,19 @@ class FramerClient:
                 raise FramerAPIError("Framer rejected the API key", code="UNAUTHORIZED") from e
             raise FramerAPIError(f"Connection rejected with HTTP {status}", code="INTERNAL", retryable=True) from e
 
-        deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
-        while True:
-            message = self._receive(deadline)
-            message_type = message.get("type") if isinstance(message, dict) else None
-            if message_type == "ready":
-                self._graceful_disconnect = message.get("gracefulDisconnect") is True
-                self._send({"type": "pluginReadySignal"})
-            elif message_type == "pluginReadyResponse":
-                return
+        try:
+            deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
+            while True:
+                message = self._receive(deadline)
+                message_type = message.get("type") if isinstance(message, dict) else None
+                if message_type == "ready":
+                    self._graceful_disconnect = message.get("gracefulDisconnect") is True
+                    self._send({"type": "pluginReadySignal"})
+                elif message_type == "pluginReadyResponse":
+                    return
+        except Exception:
+            self.close()
+            raise
 
     def close(self) -> None:
         if self._ws is None:
