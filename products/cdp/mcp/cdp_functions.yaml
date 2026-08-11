@@ -207,10 +207,10 @@ tools:
             cdp-functions-list-revisions) to fetch that version.
         param_overrides:
             version:
-                default: latest
                 description: >
                     Version number to fetch, or omit for the latest published revision. Get a specific number from
                     cdp-functions-list-revisions.
+                default: latest
     cdp-functions-icon-retrieve:
         operation: hog_functions_icon_retrieve
         enabled: false
