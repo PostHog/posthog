@@ -23,7 +23,7 @@ Use this skill when a vendor has released a new API version and an existing sour
 
 ## First: does the version need to exist at all?
 
-Spotting a new vendor label is not a reason to support it. Before touching any source file, diff the new version against the one it supersedes — the source's current `default_version`, not every entry in `supported_versions` — from the vendor's docs and changelog, area by area. Diff against the wire the client actually sends, not against the label: the `UNVERSIONED_API_VERSION` default (`v1`) does not mean the client targets the vendor's oldest API — a source built before it declared versions may already speak a modern wire, in which case adding that wire's real label is a declaration-only relabel-and-repin (below), not a new request path.
+Spotting a new vendor label is not a reason to support it. Before touching any source file, diff the new version against the one it supersedes — the source's current `default_version`, not every entry in `supported_versions` — from the vendor's docs and changelog, area by area:
 
 - authentication — credential fields, token/header scheme, scopes, permission probes
 - base URL, version header, and the paths actually served per resource
