@@ -1,43 +1,37 @@
 import { Text } from "@components/text";
-import { inboxStatusLabel } from "@posthog/core/inbox/reportPresentation";
-import type {
-  SignalReport,
-  SignalReportPriority,
-  SignalReportStatus,
-} from "@posthog/shared/domain-types";
-import { formatDistanceToNow } from "date-fns";
+import { formatSignalReportSummaryMarkdown } from "@posthog/core/inbox/reportPresentation";
+import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
-import { GithubLogo, Lightning } from "phosphor-react-native";
-import { useRef } from "react";
-import { Animated, PanResponder, Pressable, View } from "react-native";
+import {
+  GithubLogo,
+  Lightning,
+  MagnifyingGlass,
+  UsersThree,
+} from "phosphor-react-native";
+import { useMemo, useRef } from "react";
+import {
+  Animated,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
+import { formatRelativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme";
-
-const SWIPE_THRESHOLD = 120;
-const TAP_THRESHOLD = 10;
-
-const statusColorMap: Record<string, { bg: string; text: string }> = {
-  ready: { bg: "bg-status-success/20", text: "text-status-success" },
-  pending_input: { bg: "bg-accent-3", text: "text-accent-11" },
-  in_progress: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  candidate: { bg: "bg-status-info/20", text: "text-status-info" },
-  potential: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  failed: { bg: "bg-status-error/20", text: "text-status-error" },
-  suppressed: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  deleted: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-const priorityColorMap: Record<
-  SignalReportPriority,
-  { bg: string; text: string }
-> = {
-  P0: { bg: "bg-status-error/20", text: "text-status-error" },
-  P1: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  P2: { bg: "bg-status-info/20", text: "text-status-info" },
-  P3: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  P4: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
+import { cardReviewerNames, summarizeCardEvidence } from "../cardDetails";
+import {
+  useInboxReportArtefacts,
+  useInboxReportSignals,
+} from "../hooks/useInboxReports";
+import {
+  SWIPE_COMMIT_THRESHOLD,
+  shouldClaimHorizontalDrag,
+  stampOpacityRange,
+} from "../swipeIntent";
+import { summaryExcerpt } from "../utils";
+import { ActionabilityBadge, PriorityBadge, StatusBadge } from "./ReportBadges";
 
 interface SwipeableReportCardProps {
   report: SignalReport;
@@ -51,28 +45,6 @@ interface SwipeableReportCardProps {
   repo?: string | null;
 }
 
-function StatusBadge({ status }: { status: SignalReportStatus }) {
-  const colors = statusColorMap[status] ?? statusColorMap.potential;
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${colors.bg}`}>
-      <Text className={`font-medium text-[11px] ${colors.text}`}>
-        {inboxStatusLabel(status)}
-      </Text>
-    </View>
-  );
-}
-
-function PriorityBadge({ priority }: { priority: SignalReportPriority }) {
-  const colors = priorityColorMap[priority] ?? priorityColorMap.P4;
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${colors.bg}`}>
-      <Text className={`font-medium text-[11px] ${colors.text}`}>
-        {priority}
-      </Text>
-    </View>
-  );
-}
-
 export function SwipeableReportCard({
   report,
   onDismiss,
@@ -84,35 +56,30 @@ export function SwipeableReportCard({
 }: SwipeableReportCardProps) {
   const themeColors = useThemeColors();
   const translateX = useRef(new Animated.Value(0)).current;
-  const maxDxRef = useRef(0);
 
   const propsRef = useRef({ report, onDismiss, onAccept, onExpand });
   propsRef.current = { report, onDismiss, onAccept, onExpand };
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      // Taps must reach the body: the card opens the full report on press and
+      // its summary scrolls, so the card only ever claims a moving gesture.
+      onStartShouldSetPanResponderCapture: () => false,
+      // Capture rather than bubble. The card's body is a scroll view now, and
+      // the bubble pass only runs when no descendant wanted the touch — by
+      // which point the scroll view owns the gesture and (having scrolled)
+      // will refuse to give it back. Asking on the way down gives the card
+      // first refusal on every move.
+      onMoveShouldSetPanResponderCapture: (_, gesture) =>
+        shouldClaimHorizontalDrag(gesture.dx, gesture.dy),
       onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => {
-        maxDxRef.current = 0;
-      },
       onPanResponderMove: (_, gesture) => {
-        maxDxRef.current = Math.max(maxDxRef.current, Math.abs(gesture.dx));
         translateX.setValue(gesture.dx);
       },
       onPanResponderRelease: (_, gesture) => {
         const p = propsRef.current;
 
-        // Tap detection: no significant movement
-        if (maxDxRef.current < TAP_THRESHOLD) {
-          translateX.setValue(0);
-          p.onExpand(p.report);
-          return;
-        }
-
-        if (gesture.dx > SWIPE_THRESHOLD) {
+        if (gesture.dx > SWIPE_COMMIT_THRESHOLD) {
           // Swipe right → accept
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           Animated.timing(translateX, {
@@ -122,7 +89,7 @@ export function SwipeableReportCard({
           }).start(() => {
             p.onAccept(p.report);
           });
-        } else if (gesture.dx < -SWIPE_THRESHOLD) {
+        } else if (gesture.dx < -SWIPE_COMMIT_THRESHOLD) {
           // Swipe left → dismiss
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           Animated.timing(translateX, {
@@ -157,121 +124,161 @@ export function SwipeableReportCard({
     extrapolate: "clamp",
   });
 
-  const acceptOpacity = translateX.interpolate({
-    inputRange: [0, 120],
-    outputRange: [0, 1],
-    extrapolate: "clamp",
-  });
+  // Same drag value drives both stamps, so they fade in exactly where
+  // `stampOpacity` says they should and hit full opacity at the commit point.
+  const acceptOpacity = translateX.interpolate(stampOpacityRange("accept"));
+  const dismissOpacity = translateX.interpolate(stampOpacityRange("dismiss"));
 
-  const dismissOpacity = translateX.interpolate({
-    inputRange: [-120, 0],
-    outputRange: [1, 0],
-    extrapolate: "clamp",
-  });
+  const updatedAt = formatRelativeTime(Date.parse(report.updated_at));
 
-  const updatedAt = formatDistanceToNow(new Date(report.updated_at), {
-    addSuffix: true,
-  });
-
-  // Non-top cards: static, offset down, no gestures
+  // Non-top cards: static, offset down, no gestures. They show a few points of
+  // edge from behind the top card, so they get the cheap flattened excerpt —
+  // rendering markdown and mounting queries for something nobody can read
+  // would cost a frame per swipe for nothing.
   if (!isTopCard) {
     return (
       <View
-        className="absolute inset-x-0 top-0 rounded-2xl border border-gray-6 bg-card shadow-lg"
+        className="absolute inset-x-0 top-0 overflow-hidden rounded-2xl border border-gray-6 bg-card shadow-lg"
         style={{
           bottom: -stackOffset,
           opacity: 0.85,
           elevation: 2,
         }}
       >
-        <CardContent
+        <CardHeader
           report={report}
           updatedAt={updatedAt}
           themeColors={themeColors}
           repo={repo}
         />
+        <CardExcerpt summary={report.summary} />
       </View>
     );
   }
 
   return (
     <Animated.View
-      className="absolute inset-0 rounded-2xl border border-gray-6 bg-card shadow-lg"
+      className="absolute inset-0 overflow-hidden rounded-2xl border border-gray-6 bg-card shadow-lg"
       style={{
         transform: [{ translateX }, { rotate }],
         elevation: 4,
       }}
       {...panResponder.panHandlers}
     >
-      {/* Accept overlay — LEFT side (visible when tilting right) */}
+      {/* Intent stamps — corner-mounted and tilted, so the card says what
+          letting go will do before it happens. Accept sits on the left, the
+          edge that leads a rightward swipe; dismiss mirrors it.
+
+          Geometry: the deck starts at `inboxHeaderFadeHeight(insets.top)` plus
+          the container's 8pt top padding, so a stamp's box top is 20pt (top-5)
+          into the card. A ~134x48 box rotated 12° lifts its leading corner by
+          (134/2)·sin12° − (48/2)·(1 − cos12°) ≈ 13pt, leaving ~15pt between the
+          highest painted pixel and the bottom of the header fade. Lowering
+          `top-5` further, or raising the fade, eats that margin. */}
       <Animated.View
-        className="absolute top-0 bottom-0 left-0 z-10 w-16 items-center justify-center rounded-l-2xl bg-status-success/30"
-        style={{ opacity: acceptOpacity }}
+        className="absolute top-5 left-4 z-10 rounded-lg border-2 border-status-success bg-status-success/15 px-3 py-1.5"
+        style={{ opacity: acceptOpacity, transform: [{ rotate: "-12deg" }] }}
         pointerEvents="none"
       >
-        <Text className="font-bold text-[28px] text-status-success">✓</Text>
+        <Text className="font-bold text-[20px] text-status-success uppercase">
+          Start task
+        </Text>
+        <Text className="text-[10px] text-status-success">
+          creates a PR if actionable
+        </Text>
       </Animated.View>
 
-      {/* Dismiss overlay — RIGHT side (visible when tilting left) */}
       <Animated.View
-        className="absolute top-0 right-0 bottom-0 z-10 w-16 items-center justify-center rounded-r-2xl bg-status-error/30"
-        style={{ opacity: dismissOpacity }}
+        className="absolute top-5 right-4 z-10 rounded-lg border-2 border-status-error bg-status-error/15 px-3 py-1.5"
+        style={{ opacity: dismissOpacity, transform: [{ rotate: "12deg" }] }}
         pointerEvents="none"
       >
-        <Text className="font-bold text-[28px] text-status-error">✗</Text>
+        <Text className="font-bold text-[20px] text-status-error uppercase">
+          Dismiss
+        </Text>
       </Animated.View>
 
       <Pressable
         onPress={() => onExpand(report)}
-        className="flex-1 active:opacity-80"
+        className="flex-1 active:opacity-90"
       >
-        <CardContent
+        {/* Fixed head: what the swipe is about stays put while the body moves,
+            so the title can never scroll out from under a half-made decision. */}
+        <CardHeader
           report={report}
           updatedAt={updatedAt}
           themeColors={themeColors}
           repo={repo}
         />
+
+        {/* Scrolling body. The card keeps a constant height — it is absolutely
+            positioned to fill the deck — so a long report deepens this scroll
+            rather than growing the card and breaking the stack. */}
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: 16,
+          }}
+          showsVerticalScrollIndicator
+          // A drag that reaches the end of the summary must not start bouncing
+          // the whole deck's parent instead.
+          nestedScrollEnabled
+        >
+          {report.summary ? (
+            <MarkdownText
+              content={formatSignalReportSummaryMarkdown(report.summary)}
+            />
+          ) : (
+            <Text className="text-[13px] text-gray-9">
+              No summary yet — this report is still being written up.
+            </Text>
+          )}
+
+          <TopCardDetails reportId={report.id} />
+        </ScrollView>
       </Pressable>
     </Animated.View>
   );
 }
 
-interface CardContentProps {
+interface CardHeaderProps {
   report: SignalReport;
   updatedAt: string;
   themeColors: ReturnType<typeof useThemeColors>;
   repo?: string | null;
 }
 
-function CardContent({
-  report,
-  updatedAt,
-  themeColors,
-  repo,
-}: CardContentProps) {
+/**
+ * Badges, title and meta row, in the same order the report detail screen uses
+ * them — a card and the page it opens should not disagree about what matters.
+ */
+function CardHeader({ report, updatedAt, themeColors, repo }: CardHeaderProps) {
   return (
-    <View className="flex-1 p-4">
-      {/* Title */}
+    <View className="px-4 pt-4 pb-3">
+      <View className="flex-row flex-wrap items-center gap-1.5">
+        {report.priority && <PriorityBadge priority={report.priority} />}
+        <StatusBadge status={report.status} />
+        {report.actionability && (
+          <ActionabilityBadge value={report.actionability} />
+        )}
+        {report.is_suggested_reviewer && (
+          <View className="rounded-full bg-status-warning/20 px-2 py-0.5">
+            <Text className="font-medium text-[11px] text-status-warning">
+              For you
+            </Text>
+          </View>
+        )}
+      </View>
+
       <Text
-        className="font-bold text-[16px] text-gray-12 leading-snug"
-        numberOfLines={2}
+        className="mt-2 font-bold text-[16px] text-gray-12 leading-snug"
+        numberOfLines={3}
       >
         {report.title ?? "Untitled report"}
       </Text>
 
-      {/* Badges row */}
-      <View className="mt-2 flex-row flex-wrap items-center gap-1.5">
-        <StatusBadge status={report.status} />
-        {report.priority && <PriorityBadge priority={report.priority} />}
-      </View>
-
-      {/* Summary — fills remaining space so footer sticks to the bottom */}
-      <View className="mt-3 flex-1 overflow-hidden">
-        {report.summary && <MarkdownText content={report.summary} />}
-      </View>
-
-      {/* Footer: signal count + time + repo */}
-      <View className="mt-3 flex-row items-center gap-3">
+      <View className="mt-2 flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
         <View className="flex-row items-center gap-1">
           <Lightning size={13} color={themeColors.gray[9]} weight="fill" />
           <Text className="text-[12px] text-gray-9">
@@ -281,15 +288,12 @@ function CardContent({
         <Text className="text-[12px] text-gray-9">·</Text>
         <Text className="text-[12px] text-gray-9">{updatedAt}</Text>
         {repo && (
-          <>
-            <Text className="text-[12px] text-gray-9">·</Text>
-            <View className="flex-row items-center gap-1 rounded-full border border-gray-6 bg-gray-2 px-2 py-0.5">
-              <GithubLogo size={10} color={themeColors.gray[9]} weight="fill" />
-              <Text className="text-[11px] text-gray-9" numberOfLines={1}>
-                {repo}
-              </Text>
-            </View>
-          </>
+          <View className="min-w-0 flex-row items-center gap-1 rounded-full border border-gray-6 bg-gray-2 px-2 py-0.5">
+            <GithubLogo size={10} color={themeColors.gray[9]} weight="fill" />
+            <Text className="text-[11px] text-gray-9" numberOfLines={1}>
+              {repo}
+            </Text>
+          </View>
         )}
         {report.implementation_pr_url ? (
           <View className="ml-auto">
@@ -301,6 +305,83 @@ function CardContent({
           </View>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+/** Flattened, clamped prose — the cheap stand-in for the cards behind. */
+function CardExcerpt({ summary }: { summary: string | null | undefined }) {
+  const excerpt = useMemo(() => summaryExcerpt(summary), [summary]);
+  if (!excerpt) return null;
+  return (
+    <View className="px-4 pb-4">
+      <Text
+        className="text-[13px] text-gray-11 leading-[19px]"
+        numberOfLines={6}
+      >
+        {excerpt}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * The detail screen's evidence and reviewer strips, for the top card only.
+ *
+ * Mounted from inside the top card's body rather than passed down, so the
+ * queries live and die with the card being decided on — the deck renders three
+ * cards, and fanning per-report requests out across all of them would put a
+ * burst of requests behind every swipe.
+ */
+function TopCardDetails({ reportId }: { reportId: string }) {
+  const themeColors = useThemeColors();
+  const signalsQuery = useInboxReportSignals(reportId);
+  // Cache-only: the detail screen and the activity log populate artefacts, and
+  // the reviewer strip is a nice-to-have, not worth a poller behind the deck.
+  const artefactsQuery = useInboxReportArtefacts(reportId, { enabled: false });
+
+  const signals = signalsQuery.data?.signals;
+  const artefacts = artefactsQuery.data?.results;
+
+  const evidence = useMemo(
+    () => summarizeCardEvidence(signals, artefacts),
+    [signals, artefacts],
+  );
+  const reviewers = useMemo(() => cardReviewerNames(artefacts), [artefacts]);
+
+  if (!evidence && reviewers.length === 0) return null;
+
+  return (
+    <View className="mt-4 gap-2 border-gray-5 border-t pt-3">
+      {evidence && (
+        <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
+          <View className="flex-row items-center gap-1.5">
+            <MagnifyingGlass size={12} color={themeColors.gray[9]} />
+            <Text className="text-[12px] text-gray-10">
+              {evidence.findingCount} finding
+              {evidence.findingCount !== 1 ? "s" : ""}
+            </Text>
+          </View>
+          {evidence.replayCount > 0 && (
+            <>
+              <Text className="text-[12px] text-gray-9">·</Text>
+              <Text className="text-[12px] text-gray-10">
+                {evidence.replayCount} session replay
+                {evidence.replayCount !== 1 ? "s" : ""}
+              </Text>
+            </>
+          )}
+        </View>
+      )}
+
+      {reviewers.length > 0 && (
+        <View className="flex-row items-center gap-1.5">
+          <UsersThree size={12} color={themeColors.gray[9]} />
+          <Text className="flex-1 text-[12px] text-gray-10" numberOfLines={1}>
+            {reviewers.join(", ")}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

@@ -1,41 +1,23 @@
 import { Text } from "@components/text";
 import { usePathname, useRouter } from "expo-router";
 import {
-  CaretRight,
+  Binoculars,
+  BookOpen,
   Clock,
   GearSix,
+  List,
   ListBullets,
   PuzzlePiece,
   Tray,
 } from "phosphor-react-native";
-import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
-import {
-  Dimensions,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
+import { memo, type ReactNode } from "react";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OFFLINE_BANNER_HEIGHT } from "@/components/OfflineBanner";
-import { TaskStatusIcon } from "@/features/tasks/components/TaskStatusIcon";
-import { useTasks } from "@/features/tasks/hooks/useTasks";
-import { useArchivedTasksStore } from "@/features/tasks/stores/archivedTasksStore";
+import { useSkillsAvailable } from "@/features/tasks/skills/hooks";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useThemeColors } from "@/lib/theme";
 import { useNavDrawerStore } from "../stores/navDrawerStore";
-import { SwipeableArchivedDrawerRow } from "./SwipeableArchivedDrawerRow";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const DRAWER_WIDTH = Math.min(320, Math.round(SCREEN_WIDTH * 0.85));
-const OPEN_DURATION = 280;
-const CLOSE_DURATION = 220;
 
 interface DrawerItemProps {
   icon: ReactNode;
@@ -68,9 +50,11 @@ interface NavDrawerContentProps {
 }
 
 /**
- * Heavy drawer body — extracted so it doesn't re-render every time the open
- * state toggles. `paddingTop` is the only prop and only changes when the
- * offline banner appears/disappears, so the memo stays effective.
+ * Drawer body — a flat list of destinations, extracted so it doesn't re-render
+ * every time the open state toggles. `paddingTop` is the only prop and only
+ * changes when the offline banner appears/disappears, so the memo stays
+ * effective. Deliberately owns no task data: the Tasks screen is the single
+ * place tasks are listed, so opening the drawer costs no extra query.
  */
 const NavDrawerContent = memo(function NavDrawerContent({
   paddingTop,
@@ -80,25 +64,7 @@ const NavDrawerContent = memo(function NavDrawerContent({
   const pathname = usePathname();
   const themeColors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { tasks } = useTasks({ originProduct: "user_created" });
-  const { archivedTasks, unarchive } = useArchivedTasksStore();
-  const [archivedExpanded, setArchivedExpanded] = useState(false);
-
-  const { activeTasks, archivedTaskList } = useMemo(() => {
-    const active: typeof tasks = [];
-    const archived: typeof tasks = [];
-    for (const task of tasks) {
-      if (task.id in archivedTasks) {
-        archived.push(task);
-      } else {
-        active.push(task);
-      }
-    }
-    archived.sort(
-      (a, b) => (archivedTasks[b.id] ?? 0) - (archivedTasks[a.id] ?? 0),
-    );
-    return { activeTasks: active, archivedTaskList: archived };
-  }, [tasks, archivedTasks]);
+  const skillsAvailable = useSkillsAvailable();
 
   const navigateTo = (target: string) => {
     close();
@@ -116,6 +82,16 @@ const NavDrawerContent = memo(function NavDrawerContent({
     if (pathname === "/settings") return;
     router.push("/settings");
   };
+  const handleScouts = () => {
+    close();
+    if (pathname === "/scouts") return;
+    router.push("/scouts");
+  };
+  const handleSkills = () => {
+    close();
+    if (pathname === "/skills") return;
+    router.push("/skills");
+  };
   const handleMcpServers = () => {
     close();
     if (pathname === "/mcp-servers") return;
@@ -123,17 +99,14 @@ const NavDrawerContent = memo(function NavDrawerContent({
   };
   const handleHome = () => navigateTo("/tasks");
 
-  const handleTaskPress = (taskId: string) => {
-    close();
-    router.push(`/task/${taskId}`);
-  };
-
   const iconColor = themeColors.gray[11];
   const iconColorActive = themeColors.gray[12];
   const isOnTasks = pathname === "/tasks";
   const isOnInbox = pathname === "/inbox";
   const isOnAutomations = pathname === "/automations";
   const isOnSettings = pathname === "/settings";
+  const isOnScouts = pathname === "/scouts";
+  const isOnSkills = pathname.startsWith("/skills");
   const isOnMcpServers = pathname === "/mcp-servers";
 
   return (
@@ -141,9 +114,23 @@ const NavDrawerContent = memo(function NavDrawerContent({
       className="flex-1"
       style={{ paddingTop, paddingBottom: insets.bottom }}
     >
-      <Pressable onPress={handleHome} className="px-4 pb-3 active:opacity-60">
-        <Text className="font-bold text-[20px] text-gray-12">PostHog</Text>
-      </Pressable>
+      {/* Mirrors the floating header's hamburger position exactly, so the
+          same screen coordinates toggle the drawer whether it is open or
+          closed — when open, this button on the solid panel is what you hit. */}
+      <View className="flex-row items-center px-3 pb-3">
+        <Pressable
+          onPress={close}
+          hitSlop={12}
+          accessibilityLabel="Close navigation menu"
+          accessibilityRole="button"
+          className="h-10 w-10 items-center justify-center rounded-lg active:bg-gray-3"
+        >
+          <List size={24} color={themeColors.gray[12]} />
+        </Pressable>
+        <Pressable onPress={handleHome} className="px-2 active:opacity-60">
+          <Text className="font-bold text-[20px] text-gray-12">PostHog</Text>
+        </Pressable>
+      </View>
 
       <View className="gap-0.5 px-2 pb-2">
         <DrawerItem
@@ -184,6 +171,35 @@ const NavDrawerContent = memo(function NavDrawerContent({
         />
         <DrawerItem
           icon={
+            <Binoculars
+              size={22}
+              color={isOnScouts ? iconColorActive : iconColor}
+              weight={isOnScouts ? "fill" : "regular"}
+            />
+          }
+          label="Scouts"
+          active={isOnScouts}
+          onPress={handleScouts}
+        />
+        {/* Hidden until the skills API confirms this project can use it — a
+            403 there is how a project without the feature reads, and an entry
+            that dead-ends is worse than no entry. */}
+        {skillsAvailable ? (
+          <DrawerItem
+            icon={
+              <BookOpen
+                size={22}
+                color={isOnSkills ? iconColorActive : iconColor}
+                weight={isOnSkills ? "fill" : "regular"}
+              />
+            }
+            label="Skills"
+            active={isOnSkills}
+            onPress={handleSkills}
+          />
+        ) : null}
+        <DrawerItem
+          icon={
             <PuzzlePiece
               size={22}
               color={isOnMcpServers ? iconColorActive : iconColor}
@@ -196,94 +212,9 @@ const NavDrawerContent = memo(function NavDrawerContent({
         />
       </View>
 
-      <View className="mx-3 mb-1 border-gray-6 border-t" />
-
-      <View className="px-4 pt-3 pb-1.5">
-        <Text
-          className="font-medium text-[11px] text-gray-10 uppercase"
-          style={{ letterSpacing: 0.5 }}
-        >
-          Tasks
-        </Text>
-      </View>
-
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 12 }}
-      >
-        {activeTasks.length === 0 && archivedTaskList.length === 0 ? (
-          <View className="px-2.5 py-2">
-            <Text className="text-[13px] text-gray-10">No tasks yet</Text>
-          </View>
-        ) : (
-          <>
-            {activeTasks.map((task) => {
-              const taskHref = `/task/${task.id}`;
-              const active = pathname === taskHref;
-              return (
-                <Pressable
-                  key={task.id}
-                  onPress={() => handleTaskPress(task.id)}
-                  className={`flex-row items-center gap-3 rounded-md px-3 py-2.5 ${active ? "bg-gray-3" : "active:bg-gray-2"}`}
-                >
-                  <View className="h-5 w-5 shrink-0 items-center justify-center">
-                    <TaskStatusIcon task={task} size={16} />
-                  </View>
-                  <Text
-                    className="flex-1 text-[15px] text-gray-12"
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {task.title}
-                  </Text>
-                </Pressable>
-              );
-            })}
-
-            {archivedTaskList.length > 0 && (
-              <View className="mt-2">
-                <Pressable
-                  onPress={() => setArchivedExpanded((prev) => !prev)}
-                  className="flex-row items-center gap-2 rounded-md px-3 py-2 active:bg-gray-2"
-                >
-                  <CaretRight
-                    size={12}
-                    color={themeColors.gray[10]}
-                    style={{
-                      transform: [
-                        { rotate: archivedExpanded ? "90deg" : "0deg" },
-                      ],
-                    }}
-                  />
-                  <Text
-                    className="flex-1 font-medium text-[11px] text-gray-10 uppercase"
-                    style={{ letterSpacing: 0.5 }}
-                  >
-                    Archived
-                  </Text>
-                  <Text className="text-[11px] text-gray-9">
-                    {archivedTaskList.length}
-                  </Text>
-                </Pressable>
-
-                {archivedExpanded &&
-                  archivedTaskList.map((task) => {
-                    const taskHref = `/task/${task.id}`;
-                    return (
-                      <SwipeableArchivedDrawerRow
-                        key={task.id}
-                        task={task}
-                        active={pathname === taskHref}
-                        onPress={handleTaskPress}
-                        onUnarchive={unarchive}
-                      />
-                    );
-                  })}
-              </View>
-            )}
-          </>
-        )}
-      </ScrollView>
+      {/* Pushes Settings to the bottom of the panel now that nothing
+          scrollable sits between the destinations and it. */}
+      <View className="flex-1" />
 
       <View className="mx-3 mt-1 border-gray-6 border-t" />
 
@@ -306,70 +237,54 @@ const NavDrawerContent = memo(function NavDrawerContent({
 });
 
 export function NavDrawer() {
-  // `isOpen` is read only to gate `pointerEvents`. The heavy drawer body is
-  // memoized below so this re-render is essentially free — it just flips a
-  // prop on the outer wrappers.
+  // `isOpen` is read only to gate `pointerEvents`. The drawer body is memoized
+  // above so this re-render is essentially free — it just flips a prop on the
+  // outer wrappers.
   const isOpen = useNavDrawerStore((s) => s.isOpen);
   const close = useNavDrawerStore((s) => s.close);
   const insets = useSafeAreaInsets();
   const { isConnected } = useNetworkStatus();
+  // Live window width (not a module-scope capture): stays correct through
+  // rotation, Split View, and Stage Manager, and can never be 0 from a
+  // prewarmed launch before a window exists.
+  const { width: windowWidth } = useWindowDimensions();
+  const drawerWidth = Math.min(320, Math.round(windowWidth * 0.85));
 
   // When offline, the banner occupies `insets.top + OFFLINE_BANNER_HEIGHT` at
   // the top of the screen — push the panel down by that amount and drop the
   // inner safe-area padding to compensate.
   const drawerTop = isConnected ? 0 : insets.top + OFFLINE_BANNER_HEIGHT;
-  const drawerPaddingTop = isConnected ? insets.top + 12 : 12;
+  // Matches the floating headers' row padding so the drawer's hamburger
+  // lands on the same screen coordinates as the one that opened it.
+  const drawerPaddingTop = isConnected ? insets.top + 6 : 6;
 
-  // Drive the slide off a SharedValue so the animation can start on the UI
-  // thread the instant the store updates, with no React render in the
-  // critical path. Imperative subscription avoids re-rendering NavDrawer
-  // before kicking off `withTiming`.
-  const progress = useSharedValue(0);
+  // No animation at all — deliberately. Two animation systems in a row
+  // (Reanimated worklets, then core Animated) have produced an invisible
+  // drawer on the iPad dev build while reporting success. Static rendering
+  // cannot fail that way: open renders at final position, closed renders
+  // nothing. Reinstate a slide only after the static form is verified on
+  // the affected device.
 
-  useEffect(() => {
-    progress.value = useNavDrawerStore.getState().isOpen ? 1 : 0;
-    return useNavDrawerStore.subscribe((state, prev) => {
-      if (state.isOpen === prev.isOpen) return;
-      progress.value = withTiming(state.isOpen ? 1 : 0, {
-        duration: state.isOpen ? OPEN_DURATION : CLOSE_DURATION,
-        easing: state.isOpen
-          ? Easing.out(Easing.cubic)
-          : Easing.in(Easing.cubic),
-      });
-    });
-  }, [progress]);
-
-  const drawerStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -DRAWER_WIDTH + progress.value * DRAWER_WIDTH }],
-  }));
-
-  const backdropStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-  }));
+  if (!isOpen) return null;
 
   return (
-    <View
-      pointerEvents={isOpen ? "auto" : "none"}
-      style={StyleSheet.absoluteFillObject}
-    >
-      <Animated.View
-        pointerEvents={isOpen ? "auto" : "none"}
+    <View style={StyleSheet.absoluteFill}>
+      <View
         style={[
-          StyleSheet.absoluteFillObject,
+          StyleSheet.absoluteFill,
           { backgroundColor: "rgba(0,0,0,0.4)" },
-          backdropStyle,
         ]}
       >
         {/* Touch-down close so the dismiss starts the moment the finger lands. */}
         <Pressable className="flex-1" onPressIn={close} />
-      </Animated.View>
+      </View>
 
-      <Animated.View
+      <View
         className="absolute bottom-0 left-0 border-gray-6 border-r bg-gray-2"
-        style={[{ top: drawerTop, width: DRAWER_WIDTH }, drawerStyle]}
+        style={{ top: drawerTop, width: drawerWidth }}
       >
         <NavDrawerContent paddingTop={drawerPaddingTop} />
-      </Animated.View>
+      </View>
     </View>
   );
 }

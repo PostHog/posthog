@@ -7,7 +7,7 @@ import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "nativewind";
 import { PostHogProvider } from "posthog-react-native";
 import { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Alert, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
@@ -15,10 +15,15 @@ import {
   OfflineBanner,
 } from "@/components/OfflineBanner";
 import { useAuthStore } from "@/features/auth";
-import { setupNotificationResponseListener } from "@/features/notifications/lib/notifications";
+import {
+  resolveNotificationProjectSwitch,
+  setupNotificationResponseListener,
+} from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { PendingPromptRecovery } from "@/features/tasks/components/PendingPromptRecovery";
+import { PinnedSnapshotSync } from "@/features/tasks/components/PinnedSnapshotSync";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { MODAL_PRESENTATION } from "@/lib/navigation";
 import {
   POSTHOG_API_KEY,
   POSTHOG_OPTIONS,
@@ -47,7 +52,41 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
   }, [initializeAuth]);
 
   useEffect(() => {
-    return setupNotificationResponseListener(({ path }) => {
+    return setupNotificationResponseListener(({ path, teamId }) => {
+      // Pushes are per-user, not per-project, so a tap can target a task in
+      // a project other than the active one. Switch first (informing the
+      // user), or explain why the task can't be opened at all.
+      const { projectId, setProjectId, scopedTeams, isLoading } =
+        useAuthStore.getState();
+      const decision = resolveNotificationProjectSwitch({
+        teamId,
+        projectId,
+        scopedTeams,
+        isLoading,
+      });
+      if (decision.action === "blocked") {
+        Alert.alert(
+          "Can't open task",
+          "This task belongs to a project your login isn't authorized for. Log out and back in to grant access to it.",
+        );
+        return;
+      }
+      if (decision.action === "switch") {
+        if (!setProjectId(decision.teamId)) {
+          // Unreachable while resolveNotificationProjectSwitch and
+          // setProjectId share the scopedTeams check — but if they drift,
+          // fail with an explanation instead of a wrong-project 404.
+          Alert.alert(
+            "Can't open task",
+            "This task belongs to a project your login isn't authorized for. Log out and back in to grant access to it.",
+          );
+          return;
+        }
+        Alert.alert(
+          "Switched project",
+          "This task lives in a different project, so the app switched to it.",
+        );
+      }
       router.push(path);
     });
   }, []);
@@ -86,12 +125,28 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen name="auth" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
 
+      {/* Post-login project picker — a full page, not a modal: it is a step
+          in the sign-in flow, so there is nothing behind it to dismiss to. */}
+      <Stack.Screen name="select-project" options={{ headerShown: false }} />
+
       {/* Tinder-style inbox review */}
       <Stack.Screen name="review" options={{ headerShown: false }} />
 
       {/* Settings — pushed on top of whatever the user was viewing, so
           back / iOS swipe-back / Android hardware-back all return to it. */}
       <Stack.Screen name="settings/index" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="settings/debug-logs"
+        options={{ headerShown: false }}
+      />
+
+      {/* Scout fleet — stats + per-scout management. Pushed like settings, so
+          back returns to whatever the drawer was opened over. */}
+      <Stack.Screen name="scouts/index" options={{ headerShown: false }} />
+
+      {/* Team skills — read-only browser for the shared skill store. */}
+      <Stack.Screen name="skills/index" options={{ headerShown: false }} />
+      <Stack.Screen name="skills/[name]" options={{ headerShown: false }} />
 
       {/* MCP servers — marketplace + installed management. */}
       <Stack.Screen name="mcp-servers/index" options={{ headerShown: false }} />
@@ -115,22 +170,22 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
           `posthog://inbox/<reportId>/<slug>` both resolve here. */}
       <Stack.Screen
         name="inbox/[...id]"
-        options={{ presentation: "modal", headerShown: false }}
+        options={{ presentation: MODAL_PRESENTATION, headerShown: false }}
       />
 
       {/* Task routes - modal presentation, no native header. */}
       <Stack.Screen
         name="task/index"
-        options={{ presentation: "modal", headerShown: false }}
+        options={{ presentation: MODAL_PRESENTATION, headerShown: false }}
       />
       <Stack.Screen
         name="task/[id]"
-        options={{ presentation: "modal", headerShown: false }}
+        options={{ presentation: MODAL_PRESENTATION, headerShown: false }}
       />
       <Stack.Screen
         name="automation/index"
         options={{
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
           headerShown: true,
           title: "Create automation",
           headerStyle: { backgroundColor: themeColors.background },
@@ -140,7 +195,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen
         name="automation/create"
         options={{
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
           headerShown: true,
           title: "New automation",
           headerStyle: { backgroundColor: themeColors.background },
@@ -150,7 +205,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen
         name="automation/[id]"
         options={{
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
           headerShown: true,
           headerStyle: { backgroundColor: themeColors.background },
           headerTintColor: themeColors.gray[12],
@@ -159,7 +214,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen
         name="pr-diff"
         options={{
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
           headerShown: true,
           title: "Files changed",
           headerStyle: { backgroundColor: themeColors.background },
@@ -199,6 +254,7 @@ export default function RootLayout() {
               <RootLayoutNav isConnected={isConnected} />
               <OfflineBanner isConnected={isConnected} />
               <PendingPromptRecovery />
+              <PinnedSnapshotSync />
             </View>
             <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
           </QueryClientProvider>

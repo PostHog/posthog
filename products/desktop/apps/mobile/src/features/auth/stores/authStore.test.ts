@@ -201,4 +201,30 @@ describe("authStore", () => {
       });
     },
   );
+
+  describe("setProjectId", () => {
+    it("switches to a scoped project and drops cached queries", () => {
+      useAuthStore.setState({ projectId: 42, scopedTeams: [42, 2] });
+
+      expect(useAuthStore.getState().setProjectId(2)).toBe(true);
+      expect(useAuthStore.getState().projectId).toBe(2);
+      expect(mockQueryClientClear).toHaveBeenCalledOnce();
+    });
+
+    it("rejects a project the token is not scoped to", () => {
+      useAuthStore.setState({ projectId: 42, scopedTeams: [42] });
+
+      expect(useAuthStore.getState().setProjectId(2)).toBe(false);
+      expect(useAuthStore.getState().projectId).toBe(42);
+      expect(mockQueryClientClear).not.toHaveBeenCalled();
+    });
+
+    it("treats re-selecting the current project as a successful no-op", () => {
+      useAuthStore.setState({ projectId: 42, scopedTeams: [42] });
+
+      expect(useAuthStore.getState().setProjectId(42)).toBe(true);
+      expect(useAuthStore.getState().projectId).toBe(42);
+      expect(mockQueryClientClear).not.toHaveBeenCalled();
+    });
+  });
 });

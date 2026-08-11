@@ -3,6 +3,7 @@ import { Archive, Cards, type Icon, ListBullets } from "phosphor-react-native";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/lib/theme";
+import { VIEW_TOGGLE_BOTTOM_GAP } from "../cardViewLayout";
 
 export type InboxViewMode = "list" | "tinder" | "archive";
 
@@ -34,7 +35,7 @@ export function InboxViewToggle({ mode, onModeChange }: InboxViewToggleProps) {
   return (
     <View
       className="absolute inset-x-0 items-center"
-      style={{ bottom: insets.bottom + 16 }}
+      style={{ bottom: insets.bottom + VIEW_TOGGLE_BOTTOM_GAP }}
       pointerEvents="box-none"
     >
       <View className="elevation-4 flex-row items-center overflow-hidden rounded-full border border-gray-6 bg-card shadow-lg">

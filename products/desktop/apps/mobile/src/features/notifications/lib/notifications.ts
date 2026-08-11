@@ -19,11 +19,16 @@ const log = logger.scope("notifications");
 export interface NotificationData {
   taskId: string;
   taskRunId: string;
+  /** Project the task belongs to. Lets the tap handler switch the active
+   *  project instead of querying the task against the wrong team. */
+  teamId?: number;
 }
 
 export interface NotificationTapPayload {
   /** App-relative path to navigate to (e.g. "/task/abc"). */
   path: string;
+  /** Project the target belongs to, when the payload carries it. */
+  teamId?: number;
 }
 
 export type NotificationResponseHandler = (
@@ -118,19 +123,58 @@ export async function presentLocalNotification(args: {
   }
 }
 
-function extractTapPayload(
+export type NotificationProjectSwitch =
+  | { action: "navigate" }
+  | { action: "switch"; teamId: number }
+  | { action: "blocked" };
+
+/**
+ * Decides what a notification tap should do about the active project.
+ * An unhydrated auth store (still loading, or no scoped teams yet) must NOT
+ * be treated as a permission denial: cold-start taps race auth hydration,
+ * and dropping the navigation with a wrong "not authorized" alert is worse
+ * than the pre-teamId behavior of just navigating.
+ */
+export function resolveNotificationProjectSwitch(args: {
+  teamId: number | undefined;
+  projectId: number | null;
+  scopedTeams: readonly number[];
+  isLoading: boolean;
+}): NotificationProjectSwitch {
+  const { teamId, projectId, scopedTeams, isLoading } = args;
+  if (teamId == null || isLoading || scopedTeams.length === 0) {
+    return { action: "navigate" };
+  }
+  if (teamId === projectId) return { action: "navigate" };
+  if (scopedTeams.includes(teamId)) return { action: "switch", teamId };
+  return { action: "blocked" };
+}
+
+function parseTeamId(value: unknown): number | undefined {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function extractTapPayload(
   response: Notifications.NotificationResponse,
 ): NotificationTapPayload | null {
   const data = response.notification.request.content.data as
-    | { url?: unknown; taskId?: unknown; taskRunId?: unknown }
+    | { url?: unknown; taskId?: unknown; taskRunId?: unknown; teamId?: unknown }
     | undefined;
   if (!data) return null;
 
+  const teamId = parseTeamId(data.teamId);
+
   if (typeof data.url === "string" && data.url.length > 0) {
     // Already-shaped app path → use as-is. External URL → translate to one.
-    if (data.url.startsWith("/")) return { path: data.url };
+    if (data.url.startsWith("/")) return { path: data.url, teamId };
     const path = externalUrlToAppPath(data.url);
-    if (path) return { path };
+    if (path) return { path, teamId };
     log.warn("Notification url did not match a known scheme", {
       url: data.url,
     });
@@ -138,7 +182,7 @@ function extractTapPayload(
   }
 
   if (typeof data.taskId === "string") {
-    return { path: paths.task(data.taskId) };
+    return { path: paths.task(data.taskId), teamId };
   }
 
   return null;

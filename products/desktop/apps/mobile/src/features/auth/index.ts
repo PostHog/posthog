@@ -1,5 +1,7 @@
 // Auth feature
 
+export { ProjectSelectSheet } from "./components/ProjectSelectSheet";
+export { useActiveProjectName } from "./hooks/useActiveProjectName";
 export { useAuth } from "./hooks/useAuth";
 export type { ProjectSummary } from "./hooks/useProjectsQuery";
 export { useProjectsQuery } from "./hooks/useProjectsQuery";

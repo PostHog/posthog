@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { inboxHeaderFadeHeight } from "@/features/inbox/cardViewLayout";
 import { ArchivedReportList } from "@/features/inbox/components/ArchivedReportList";
 import { FilterSheet } from "@/features/inbox/components/FilterSheet";
 import { FloatingInboxHeader } from "@/features/inbox/components/FloatingInboxHeader";
@@ -25,6 +26,7 @@ import {
 } from "@/features/inbox/stores/dismissedReportsStore";
 import { useInboxFilterStore } from "@/features/inbox/stores/inboxFilterStore";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
+import { NavDrawer } from "@/features/navigation/components/NavDrawer";
 import { useIntegrations } from "@/features/tasks/hooks/useIntegrations";
 import { ANALYTICS_EVENTS, useAnalytics } from "@/lib/analytics";
 
@@ -134,7 +136,12 @@ export default function InboxScreen() {
 
   // Header occupies insets.top + 6 (top pad) + 40 (MenuButton) + 8 (bottom
   // pad), plus a small buffer so the first row isn't hugging the fade edge.
+  // Scrolling views only need to clear the controls — rows are *meant* to fade
+  // out under the gradient as they scroll away.
   const headerHeight = insets.top + 60;
+  // The card view's content is static, so it has to clear the full gradient:
+  // anything under it stays washed out instead of scrolling clear.
+  const cardViewTop = inboxHeaderFadeHeight(insets.top);
 
   return (
     <View className="flex-1 bg-background">
@@ -149,7 +156,7 @@ export default function InboxScreen() {
           contentInsetTop={headerHeight}
         />
       ) : (
-        <View style={{ paddingTop: headerHeight }} className="flex-1">
+        <View style={{ paddingTop: cardViewTop }} className="flex-1">
           <TinderView
             reports={tinderReports}
             repositoryOptions={repositoryOptions}
@@ -174,6 +181,7 @@ export default function InboxScreen() {
         visible={reviewerOpen}
         onClose={() => setReviewerOpen(false)}
       />
+      <NavDrawer />
     </View>
   );
 }

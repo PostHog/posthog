@@ -16,6 +16,7 @@ import { AutomationForm } from "@/features/tasks/components/AutomationForm";
 import { useCreateTaskAutomation } from "@/features/tasks/hooks/useAutomations";
 import { useSkillStoreSkill } from "@/features/tasks/skills/hooks";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
+import { MODAL_PRESENTATION } from "@/lib/navigation";
 import { useThemeColors } from "@/lib/theme";
 
 // Reserved space below the scrolling form content. Tall enough that the
@@ -92,7 +93,7 @@ export default function CreateAutomationScreen() {
           headerTitle: "Create automation",
           headerStyle: { backgroundColor: themeColors.background },
           headerTintColor: themeColors.gray[12],
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
         }}
       />
       <KeyboardAvoidingView

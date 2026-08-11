@@ -23,12 +23,11 @@ function render(props: {
   alt?: string;
   disableRemoteImages?: boolean;
 }) {
-  let renderer: ReturnType<typeof create> | null = null;
+  let renderer!: ReturnType<typeof create>;
   act(() => {
     renderer = create(createElement(MarkdownImage, props));
   });
-  if (!renderer) throw new Error("Renderer not created");
-  return renderer as ReturnType<typeof create>;
+  return renderer;
 }
 
 describe("MarkdownImage", () => {

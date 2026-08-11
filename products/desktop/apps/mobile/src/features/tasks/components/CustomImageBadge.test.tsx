@@ -65,7 +65,7 @@ async function render(task: Task) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  let renderer: ReturnType<typeof create> | null = null;
+  let renderer!: ReturnType<typeof create>;
   await act(async () => {
     renderer = create(
       createElement(
@@ -80,8 +80,7 @@ async function render(task: Task) {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  if (!renderer) throw new Error("Renderer not created");
-  return renderer as ReturnType<typeof create>;
+  return renderer;
 }
 
 function label(renderer: ReturnType<typeof create>): string | undefined {

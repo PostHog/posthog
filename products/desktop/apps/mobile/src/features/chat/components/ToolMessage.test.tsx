@@ -24,12 +24,11 @@ vi.mock("@/lib/theme", () => ({
 }));
 
 function render(props: ToolMessageProps) {
-  let renderer: ReturnType<typeof create> | null = null;
+  let renderer!: ReturnType<typeof create>;
   act(() => {
     renderer = create(createElement(ToolMessage, props));
   });
-  if (!renderer) throw new Error("Renderer not created");
-  return renderer as ReturnType<typeof create>;
+  return renderer;
 }
 
 function expand(renderer: ReturnType<typeof create>) {

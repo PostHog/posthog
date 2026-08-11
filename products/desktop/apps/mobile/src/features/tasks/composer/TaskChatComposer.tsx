@@ -1,5 +1,6 @@
 import { Text } from "@components/text";
 import { DEFAULT_CLAUDE_EXECUTION_MODE } from "@posthog/core/sessions/executionModes";
+import { getModelConfigOption } from "@posthog/core/task-detail/composerControls";
 import type { CloudComposerSelection } from "@posthog/core/task-detail/composerModelPolicy";
 import { resolveCloudComposerModelChange } from "@posthog/core/task-detail/composerModelPolicy";
 import {
@@ -31,7 +32,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useVoiceRecording } from "@/features/chat";
+import { useMicPressHandlers, useVoiceRecording } from "@/features/chat";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
 import { logger } from "@/lib/logger";
 import { useThemeColors } from "@/lib/theme";
@@ -52,7 +53,6 @@ import type { PendingAttachment } from "./attachments/types";
 import {
   type ContextWindow,
   filterKimiModelConfigOptions,
-  getModelConfigOption,
   resolveComposerPrimaryAction,
 } from "./options";
 import { Pill } from "./Pill";
@@ -300,19 +300,14 @@ export function TaskChatComposer({
     clearStatus(id);
   };
 
-  const handleMicPress = async () => {
-    if (isRecording) {
-      await stopRecording();
-    } else if (!isTranscribing) {
-      await startRecording();
-    }
-  };
-
-  const handleMicLongPress = async () => {
-    if (isRecording) {
-      await cancelRecording();
-    }
-  };
+  const { onMicPress, onMicLongPress, onMicPressOut } = useMicPressHandlers({
+    isRecording,
+    isTranscribing,
+    holdToRecordEnabled: !canSend && !showStop,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  });
 
   const handleStop = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -335,7 +330,10 @@ export function TaskChatComposer({
     <>
       <View className="px-4">
         <View style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}>
-          <View className="overflow-hidden rounded-lg border border-gray-6 bg-card">
+          <View
+            className="overflow-hidden rounded-lg border border-gray-6 bg-card"
+            style={disabled ? { opacity: 0.5 } : undefined}
+          >
             {editing ? (
               <View className="flex-row items-center gap-2 border-gray-6 border-b bg-accent-2 px-3 py-2">
                 <PencilIcon size={14} color={themeColors.accent[11]} />
@@ -446,9 +444,10 @@ export function TaskChatComposer({
 
               <Pressable
                 onPress={
-                  canSend ? handleSend : showStop ? handleStop : handleMicPress
+                  canSend ? handleSend : showStop ? handleStop : onMicPress
                 }
-                onLongPress={handleMicLongPress}
+                onLongPress={onMicLongPress}
+                onPressOut={onMicPressOut}
                 disabled={isTranscribing || disabled || sendBlocked}
                 className={`h-9 w-9 items-center justify-center rounded-lg ${
                   canSend ? "bg-gray-12" : "bg-gray-3"

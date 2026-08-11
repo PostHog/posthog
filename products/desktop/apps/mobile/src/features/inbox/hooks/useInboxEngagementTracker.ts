@@ -1,12 +1,14 @@
+import type {
+  InboxReportActionProperties,
+  InboxReportCloseMethod,
+  InboxReportOpenMethod,
+} from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import { useCallback, useEffect, useRef } from "react";
 import {
   ANALYTICS_EVENTS,
   type Analytics,
   computeReportAgeHours,
-  type InboxReportActionProperties,
-  type InboxReportCloseMethod,
-  type InboxReportOpenMethod,
 } from "@/lib/analytics";
 
 interface OpenInfo {

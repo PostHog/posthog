@@ -14,6 +14,14 @@ import type {
   TaskRunArtifactMetadata,
   UpdateTaskAutomationOptions,
 } from "@posthog/shared";
+// Consumers reach these through the automation methods below, so they need to
+// travel with this module rather than being fetched separately from `shared`.
+export type {
+  CreateTaskAutomationOptions,
+  TaskAutomation,
+  UpdateTaskAutomationOptions,
+};
+
 import {
   buildCloudTaskConfigOptions,
   type CloudTaskConfigOption,
@@ -349,6 +357,11 @@ export interface LlmSkillListItem {
   id: string;
   name: string;
   description: string;
+  /**
+   * Server-owned classification, read-only. Empty for an ordinary skill; the
+   * Signals harness stamps "scout" on the ones it produces.
+   */
+  category?: string | null;
   allowed_tools: unknown[];
   metadata: Record<string, unknown>;
   version: number;
@@ -465,6 +478,14 @@ export interface ScoutRun {
   summary: string;
   emitted_count: number | null;
   emitted_finding_ids: string[];
+}
+
+/** Acknowledgement of an on-demand scout dispatch; the run itself is async. */
+export interface ScoutManualRun {
+  skill_name: string;
+  /** Temporal workflow id for the dispatched run. */
+  workflow_id: string;
+  started: boolean;
 }
 
 export interface ScoutEmission {
@@ -1934,6 +1955,42 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as ScoutConfig;
+  }
+
+  /**
+   * Dispatch one on-demand run of a scout, regardless of its schedule. The run
+   * executes asynchronously, so there is no `ScoutRun` row yet when this
+   * resolves — poll `listScoutRuns` for the result. The endpoint enforces the
+   * same guards as the scheduled path and surfaces them as errors: 409 when a
+   * run for this scout is already in progress, 429 over the credits quota or
+   * daily run budget, 403 when scouts are not enabled for the project.
+   */
+  async runScoutConfig(
+    projectId: number,
+    configId: string,
+  ): Promise<ScoutManualRun> {
+    const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/run/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({}),
+      },
+    });
+    if (!response.ok) {
+      // The rejections here are the expected outcomes (already running, over
+      // quota), so surface the server's own explanation rather than a bare
+      // status line — same shape as updateScoutConfig.
+      const errorData = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+      };
+      throw new Error(
+        errorData.detail ?? `Failed to run scout: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ScoutManualRun;
   }
 
   async listScoutRuns(

@@ -183,7 +183,15 @@ export function useAvailableSuggestedReviewers(options?: {
   });
 }
 
-export function useInboxReportArtefacts(reportId: string | null) {
+/**
+ * Pass `enabled: false` to read whatever is already cached without fetching or
+ * polling — the swipe deck wants a report's reviewers if some other screen has
+ * loaded them, but must not put a poller behind every card it renders.
+ */
+export function useInboxReportArtefacts(
+  reportId: string | null,
+  options?: { enabled?: boolean },
+) {
   const { projectId, oauthAccessToken } = useAuthStore();
 
   return useQuery<SignalReportArtefactsResponse>({
@@ -192,7 +200,11 @@ export function useInboxReportArtefacts(reportId: string | null) {
       if (!reportId) throw new Error("reportId is required");
       return getPostHogApiClient().getSignalReportArtefacts(reportId);
     },
-    enabled: !!projectId && !!oauthAccessToken && !!reportId,
+    enabled:
+      !!projectId &&
+      !!oauthAccessToken &&
+      !!reportId &&
+      (options?.enabled ?? true),
     // The log is a live work record — agents append artefacts while a report
     // is open, so refresh it gently rather than trusting the default staleTime.
     staleTime: 10_000,
@@ -286,22 +298,24 @@ export function useUpdateSuggestedReviewers(reportId: string) {
   });
 }
 
-export function useDismissReport(reportId: string) {
+export function useDismissReport() {
   const queryClient = useQueryClient();
 
   return useMutation<
     SignalReport,
     Error,
-    { reason: DismissalReasonOptionValue; note?: string }
+    { reportId: string; reason: DismissalReasonOptionValue; note?: string }
   >({
     mutationFn: (input) =>
-      getPostHogApiClient().updateSignalReportState(reportId, {
+      getPostHogApiClient().updateSignalReportState(input.reportId, {
         state: "suppressed",
         dismissal_reason: input.reason,
         ...(input.note?.trim() ? { dismissal_note: input.note.trim() } : {}),
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: inboxKeys.detail(reportId) });
+    onSuccess: (_, input) => {
+      queryClient.invalidateQueries({
+        queryKey: inboxKeys.detail(input.reportId),
+      });
       queryClient.invalidateQueries({ queryKey: inboxKeys.all });
     },
   });

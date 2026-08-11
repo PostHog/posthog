@@ -1,3 +1,4 @@
+import { FloatingScreenHeader } from "@components/FloatingScreenHeader";
 import { Text } from "@components/text";
 import type { McpAuthType } from "@posthog/api-client/types";
 import { router } from "expo-router";
@@ -12,7 +13,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { FloatingMcpHeader } from "@/features/mcp/components/FloatingMcpHeader";
 import { useMcpInstallations } from "@/features/mcp/hooks";
 import { installCustomWithOAuth } from "@/features/mcp/oauth";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
@@ -75,7 +75,7 @@ export default function AddCustomMcpServerScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <FloatingMcpHeader title="Add custom server" />
+      <FloatingScreenHeader title="Add custom server" />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === "ios" ? "padding" : undefined}

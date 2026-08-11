@@ -126,6 +126,21 @@ class TestDispatchLoopEventCooldown(LoopNotificationsTestCase):
 
         self.assertEqual(mock_push_delay.call_count, 2)
 
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.send_user_push.delay")
+    def test_push_payload_carries_loop_and_team_context(self, mock_push_delay, _mock_create_notification):
+        loop = self.create_loop(notifications={"push": {"enabled": True, "events": ["run_completed"]}})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            dispatch_loop_event(loop, "run_completed", {"task_id": "task-1", "task_run_id": "run-1"})
+
+        _user_id, _title, _body, data = mock_push_delay.call_args.args
+        self.assertEqual(data["loopId"], str(loop.id))
+        self.assertEqual(data["event"], "run_completed")
+        self.assertEqual(data["teamId"], str(loop.team_id))
+        self.assertEqual(data["taskId"], "task-1")
+        self.assertEqual(data["taskRunId"], "run-1")
+
 
 class TestDispatchLoopEventSlackErrors(LoopNotificationsTestCase):
     def setUp(self):

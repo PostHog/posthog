@@ -10,6 +10,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { AppState } from "react-native";
 import { create } from "zustand";
+import { useAuthStore } from "@/features/auth";
 import { presentLocalNotification } from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { logger } from "@/lib/logger";
@@ -79,7 +80,7 @@ const lastNotificationAt = new Map<string, number>();
 // the target task, so this client-side maybePresentLocalNotification stays
 // as-is (it's only the OS fanout path we're improving).
 
-function maybePresentLocalNotification(args: {
+export function maybePresentLocalNotification(args: {
   taskRunId: string;
   kind: LocalNotificationKind;
 }): void {
@@ -116,7 +117,11 @@ function maybePresentLocalNotification(args: {
   presentLocalNotification({
     title: "PostHog",
     body,
-    data: { taskId: session.taskId, taskRunId: session.taskRunId },
+    data: {
+      taskId: session.taskId,
+      taskRunId: session.taskRunId,
+      teamId: useAuthStore.getState().projectId ?? undefined,
+    },
   }).catch(() => {});
 }
 
@@ -147,6 +152,11 @@ interface BatchAnalysis {
   hasVisibleAgentOutput: boolean;
   externalUserMessageCount: number;
   agentMessageFinalized: boolean;
+  // Whether the agent is blocked on the user as of the *last* relevant entry
+  // in the batch, rather than anywhere in it — a batch (or a snapshot replay)
+  // can contain an awaiting marker followed by the turn that answered it.
+  // undefined = the batch said nothing either way, so keep the current value.
+  awaitingUserInputAtEnd?: boolean;
   // Latest compaction state seen in the batch (undefined = no change).
   compacting?: boolean;
 }
@@ -162,12 +172,14 @@ function analyzeEntries(
   let hasVisibleAgentOutput = false;
   let externalUserMessageCount = 0;
   let agentMessageFinalized = false;
+  let awaitingUserInputAtEnd: boolean | undefined;
   let compacting: boolean | undefined;
 
   for (const entry of entries) {
     const method = entry.notification?.method;
     if (method && TURN_END_METHODS.has(method)) {
       hasTurnEnd = true;
+      awaitingUserInputAtEnd = method === "_posthog/awaiting_user_input";
       if (method === "_posthog/awaiting_user_input") {
         hasAwaitingUserInput = true;
       }
@@ -203,11 +215,13 @@ function analyzeEntries(
       const sessionUpdate = params.update?.sessionUpdate;
       if (sessionUpdate && VISIBLE_AGENT_SESSION_UPDATES.has(sessionUpdate)) {
         hasVisibleAgentOutput = true;
+        awaitingUserInputAtEnd = false;
       }
       if (sessionUpdate === "agent_message") {
         agentMessageFinalized = true;
       }
       if (sessionUpdate === "user_message_chunk") {
+        awaitingUserInputAtEnd = false;
         const text = params.update?.content?.text;
         if (text && !localUserEchoes.has(text)) {
           externalUserMessageCount += 1;
@@ -224,6 +238,7 @@ function analyzeEntries(
     hasVisibleAgentOutput,
     externalUserMessageCount,
     agentMessageFinalized,
+    awaitingUserInputAtEnd,
     compacting,
   };
 }
@@ -281,6 +296,11 @@ export interface TaskSession {
   // True after a user prompt is sent, cleared when the first piece of
   // agent output (tool call, message, etc.) arrives.
   awaitingAgentOutput?: boolean;
+  // True while the agent is blocked on the user. Unlike `awaitingPing` (a
+  // this-device notification latch) this tracks the run's actual state, so
+  // lists can mark a task as waiting on you regardless of which device
+  // started the turn.
+  isAwaitingUserInput?: boolean;
   // Timestamp of the last new event received. Used to detect stale local
   // sessions (desktop stopped syncing).
   lastEventAt?: number;
@@ -511,6 +531,7 @@ export const useTaskSessionStore = create<TaskSessionStore>((set, get) => ({
             awaitingPing: true,
             promptStartedAt: ts,
             awaitingAgentOutput: true,
+            isAwaitingUserInput: false,
           },
         },
       };
@@ -623,6 +644,7 @@ export const useTaskSessionStore = create<TaskSessionStore>((set, get) => ({
             awaitingPing: true,
             promptStartedAt: ts,
             awaitingAgentOutput: true,
+            isAwaitingUserInput: false,
           },
         },
       };
@@ -775,6 +797,7 @@ export const useTaskSessionStore = create<TaskSessionStore>((set, get) => ({
             awaitingPing: false,
             promptStartedAt: undefined,
             awaitingAgentOutput: false,
+            isAwaitingUserInput: false,
           },
         },
       }));
@@ -1057,6 +1080,8 @@ export const useTaskSessionStore = create<TaskSessionStore>((set, get) => ({
               isPromptPending: nextIsPromptPending,
               awaitingPing: nextAwaitingPing,
               awaitingAgentOutput: nextAwaitingAgentOutput,
+              isAwaitingUserInput:
+                analysis.awaitingUserInputAtEnd ?? current.isAwaitingUserInput,
               isCompacting: analysis.compacting ?? current.isCompacting,
               localUserEchoes: echoSet.size > 0 ? echoSet : undefined,
               lastEventAt: events.length > 0 ? Date.now() : current.lastEventAt,
@@ -1155,6 +1180,7 @@ export const useTaskSessionStore = create<TaskSessionStore>((set, get) => ({
                 terminalStatus: terminal,
                 lastError: update.errorMessage ?? null,
                 awaitingPing: false,
+                isAwaitingUserInput: false,
               },
             },
           };
@@ -1226,6 +1252,7 @@ export const useTaskSessionStore = create<TaskSessionStore>((set, get) => ({
             awaitingPing: true,
             promptStartedAt: Date.now(),
             awaitingAgentOutput: true,
+            isAwaitingUserInput: false,
           },
         },
       };

@@ -1,4 +1,9 @@
 import { getAvailableModesForAdapter } from "@posthog/core/sessions/executionModes";
+import {
+  getComposerModelOptions,
+  getConfigOptionLabel,
+  getModelConfigOption,
+} from "@posthog/core/task-detail/composerControls";
 import type { CloudComposerSelection } from "@posthog/core/task-detail/composerModelPolicy";
 import {
   type Adapter,
@@ -28,11 +33,8 @@ import {
   type ContextWindow,
   DEFAULT_CONTEXT_WINDOW,
   getAgentPresets,
-  getComposerModelOptions,
-  getConfigOptionLabel,
   getMiddlePreset,
   getMobileExecutionModes,
-  getModelConfigOption,
   resolveHarnessSwitchSelection,
 } from "./options";
 import { Pill } from "./Pill";

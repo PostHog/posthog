@@ -18,7 +18,7 @@ export type {
   ToolStatus,
 } from "./components/ToolMessage";
 export { deriveToolKind, ToolMessage } from "./components/ToolMessage";
-
+export { useMicPressHandlers } from "./hooks/useMicPressHandlers";
 // Hooks
 export { usePeriodicRerender } from "./hooks/usePeriodicRerender";
 export { useVoiceRecording } from "./hooks/useVoiceRecording";

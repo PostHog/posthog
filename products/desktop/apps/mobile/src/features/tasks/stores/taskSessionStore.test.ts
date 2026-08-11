@@ -24,6 +24,11 @@ vi.mock("../utils/sounds", () => ({
 vi.mock("@/features/notifications/lib/notifications", () => ({
   presentLocalNotification: vi.fn(() => Promise.resolve()),
 }));
+vi.mock("@/features/auth", () => ({
+  useAuthStore: {
+    getState: () => ({ projectId: 2 }),
+  },
+}));
 vi.mock("../api", () => ({
   CloudCommandError: class CloudCommandError extends Error {},
   runTaskInCloud: vi.fn(),
@@ -34,11 +39,13 @@ vi.mock("@/lib/posthogApiClient", () => ({
   getPostHogApiClient: () => ({ getTask: mockGetTask }),
 }));
 
+import { presentLocalNotification } from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { runTaskInCloud } from "../api";
 import { useMessageQueueStore } from "./messageQueueStore";
 import {
   mapTerminalStatus,
+  maybePresentLocalNotification,
   type TaskSession,
   useTaskSessionStore,
 } from "./taskSessionStore";
@@ -55,6 +62,28 @@ function seedSession(overrides: Partial<TaskSession> = {}): void {
   };
   useTaskSessionStore.setState({ sessions: { "run-1": session } });
 }
+
+describe("maybePresentLocalNotification", () => {
+  it("stamps the active project on the notification payload", () => {
+    usePreferencesStore.setState({ pushNotificationsEnabled: true });
+    seedSession({ taskRunId: "run-team", taskId: "task-team" });
+    useTaskSessionStore.setState((s) => ({
+      sessions: { "run-team": s.sessions["run-1"] },
+      focusedTaskId: null,
+    }));
+
+    maybePresentLocalNotification({
+      taskRunId: "run-team",
+      kind: "turn_complete",
+    });
+
+    expect(presentLocalNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { taskId: "task-team", taskRunId: "run-team", teamId: 2 },
+      }),
+    );
+  });
+});
 
 describe("mapTerminalStatus", () => {
   it.each([
@@ -426,5 +455,121 @@ describe("compaction tracking from the log stream", () => {
       ]),
     );
     expect(store.getSessionForTask("t1")?.isCompacting).toBe(false);
+  });
+});
+
+describe("awaiting-user-input tracking from the log stream", () => {
+  beforeEach(() => {
+    useTaskSessionStore.setState({ sessions: {} });
+  });
+
+  function turnEnd(method: string): StoredLogEntry {
+    return { type: "notification", notification: { method } };
+  }
+
+  function agentOutput(): StoredLogEntry {
+    return {
+      type: "notification",
+      notification: {
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "working on it" },
+          },
+        },
+      },
+    };
+  }
+
+  function logsUpdate(entries: StoredLogEntry[]): CloudTaskUpdatePayload {
+    return {
+      kind: "logs",
+      taskId: "t1",
+      runId: "run-1",
+      newEntries: entries,
+      totalEntryCount: entries.length,
+    };
+  }
+
+  function awaiting(): boolean | undefined {
+    return useTaskSessionStore.getState().getSessionForTask("t1")
+      ?.isAwaitingUserInput;
+  }
+
+  it("marks the session awaiting when the agent blocks on the user", () => {
+    seedSession();
+
+    useTaskSessionStore
+      .getState()
+      ._handleCloudUpdate(
+        "run-1",
+        logsUpdate([turnEnd("_posthog/awaiting_user_input")]),
+      );
+
+    expect(awaiting()).toBe(true);
+  });
+
+  it.each([
+    { label: "agent output resumes", entry: agentOutput },
+    {
+      label: "the turn completes",
+      entry: () => turnEnd("_posthog/turn_complete"),
+    },
+    { label: "the turn errors", entry: () => turnEnd("_posthog/error") },
+  ])("clears the flag once $label", ({ entry }) => {
+    seedSession({ isAwaitingUserInput: true });
+
+    useTaskSessionStore
+      .getState()
+      ._handleCloudUpdate("run-1", logsUpdate([entry()]));
+
+    expect(awaiting()).toBe(false);
+  });
+
+  it("takes the last turn boundary in a batch, not any of them", () => {
+    seedSession();
+
+    useTaskSessionStore
+      .getState()
+      ._handleCloudUpdate(
+        "run-1",
+        logsUpdate([
+          turnEnd("_posthog/awaiting_user_input"),
+          agentOutput(),
+          turnEnd("_posthog/awaiting_user_input"),
+        ]),
+      );
+
+    expect(awaiting()).toBe(true);
+  });
+
+  it("leaves the flag alone for a batch that says nothing about the turn", () => {
+    seedSession({ isAwaitingUserInput: true });
+
+    useTaskSessionStore.getState()._handleCloudUpdate(
+      "run-1",
+      logsUpdate([
+        {
+          type: "notification",
+          notification: { method: "_posthog/compact_boundary" },
+        },
+      ]),
+    );
+
+    expect(awaiting()).toBe(true);
+  });
+
+  it("clears the flag when the run reaches a terminal status", () => {
+    seedSession({ isAwaitingUserInput: true });
+
+    useTaskSessionStore.getState()._handleCloudUpdate("run-1", {
+      kind: "status",
+      taskId: "t1",
+      runId: "run-1",
+      status: "completed",
+    });
+
+    expect(awaiting()).toBe(false);
   });
 });

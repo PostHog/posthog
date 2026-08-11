@@ -24,25 +24,29 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { CaretRight, Tray } from "phosphor-react-native";
 import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { FloatingBackButton } from "@/components/FloatingBackButton";
+import { useAuthStore } from "@/features/auth";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
+import { ContinueInCloudBar } from "@/features/tasks/components/ContinueInCloudBar";
+import { CreateSkillFromTaskButton } from "@/features/tasks/components/CreateSkillFromTaskButton";
 import { CustomImageBadge } from "@/features/tasks/components/CustomImageBadge";
 import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHeader";
+import { LocalRunBanner } from "@/features/tasks/components/LocalRunBanner";
+import { PinTaskButton } from "@/features/tasks/components/PinTaskButton";
 import { PrDiffStatsBadge } from "@/features/tasks/components/PrDiffStatsBadge";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { StopRunButton } from "@/features/tasks/components/StopRunButton";
-import { TaskSessionView } from "@/features/tasks/components/TaskSessionView";
+import { TaskNotFound } from "@/features/tasks/components/TaskNotFound";
+import {
+  ConnectingIndicator,
+  TaskSessionView,
+} from "@/features/tasks/components/TaskSessionView";
 import { buildCloudPromptBlocks } from "@/features/tasks/composer/attachments/buildCloudPrompt";
 import type { PendingAttachment } from "@/features/tasks/composer/attachments/types";
 import {
@@ -66,17 +70,29 @@ import {
   pendingTaskPromptStoreApi,
   usePendingTaskPrompt,
 } from "@/features/tasks/stores/pendingTaskPromptStore";
+import { usePinnedSnapshotStore } from "@/features/tasks/stores/pinnedSnapshotStore";
 import { useTaskSessionStore } from "@/features/tasks/stores/taskSessionStore";
-import { useTaskStore } from "@/features/tasks/stores/taskStore";
+import {
+  isRunConfigNewer,
+  type TaskComposerConfig,
+  useTaskStore,
+} from "@/features/tasks/stores/taskStore";
 import { confirmStopRun } from "@/features/tasks/utils/archiveGuard";
 import { buildCloudTaskRunConfig } from "@/features/tasks/utils/cloudTaskRunConfig";
+import { classifyTaskLoadError } from "@/features/tasks/utils/taskLoadError";
+import {
+  classifyTaskRunPlacement,
+  getLocalRunState,
+} from "@/features/tasks/utils/taskRunPlacement";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import {
   ANALYTICS_EVENTS,
   useActiveTaskAnalyticsContext,
   useAnalytics,
 } from "@/lib/analytics";
+import { paths } from "@/lib/deep-links";
 import { logger } from "@/lib/logger";
+import { modalTopOffset } from "@/lib/navigation";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useThemeColors } from "@/lib/theme";
 
@@ -100,6 +116,7 @@ export default function TaskDetailScreen() {
   }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const projectId = useAuthStore((state) => state.projectId);
   const { insets, composerBottom } = useScreenInsets();
   // Pre-compute outside the worklet: useAnimatedStyle runs on the UI thread and
   // can't call the non-worklet getter. Capturing the primitive keeps the worklet
@@ -109,6 +126,9 @@ export default function TaskDetailScreen() {
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Separate from `error`: a 404 has its own screen with its own next step
+  // (switch project), while everything else keeps the generic failure UI.
+  const [notFound, setNotFound] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
   const {
@@ -140,6 +160,11 @@ export default function TaskDetailScreen() {
   useActiveTaskAnalyticsContext(task?.signal_report ?? null);
 
   const session = taskId ? getSessionForTask(taskId) : undefined;
+
+  // Cached tail of this task's last session, present only for pinned tasks.
+  const snapshot = usePinnedSnapshotStore((state) =>
+    taskId ? state.snapshots[taskId] : undefined,
+  );
 
   // Optimistic echo set by the new-task screen (or the terminal-resume path
   // below) so the user's prompt appears in the thread immediately, before
@@ -180,9 +205,16 @@ export default function TaskDetailScreen() {
   const [initialComposerMessage, setInitialComposerMessage] = useState<
     string | undefined
   >();
+  // A run the local pick hasn't seen (possibly started from another device)
+  // carries the fresher config — prefer its recorded values over stale local
+  // ones.
+  const runConfigIsNewer = isRunConfigNewer(
+    task?.latest_run?.id,
+    composerConfig?.lastSeenRunId,
+  );
   const composerAdapter: Adapter =
     task?.latest_run?.runtime_adapter &&
-    !session?.terminalStatus &&
+    (runConfigIsNewer || !session?.terminalStatus) &&
     composerConfig?.adapter !== task.latest_run.runtime_adapter
       ? task.latest_run.runtime_adapter
       : (composerConfig?.adapter ??
@@ -197,6 +229,7 @@ export default function TaskDetailScreen() {
     getDefaultExecutionModeForAdapter(composerAdapter);
   const kimiEnabled = !!useFeatureFlag(KIMI_MODEL_FLAG);
   const persistedComposerModel =
+    (runConfigIsNewer ? task?.latest_run?.model : undefined) ??
     (composerConfigMatchesAdapter ? composerConfig?.model : undefined) ??
     task?.latest_run?.model ??
     (composerAdapter === "codex" ? DEFAULT_CODEX_MODEL : DEFAULT_GATEWAY_MODEL);
@@ -207,9 +240,11 @@ export default function TaskDetailScreen() {
     !kimiEnabled && isModalModelId(persistedComposerModel)
       ? DEFAULT_GATEWAY_MODEL
       : persistedComposerModel;
-  const requestedComposerReasoning = composerConfigMatchesAdapter
-    ? composerConfig?.reasoning
-    : undefined;
+  const requestedComposerReasoning =
+    (runConfigIsNewer
+      ? (task?.latest_run?.reasoning_effort ?? undefined)
+      : undefined) ??
+    (composerConfigMatchesAdapter ? composerConfig?.reasoning : undefined);
   const composerReasoning: SupportedReasoningEffort =
     requestedComposerReasoning &&
     isSupportedReasoningEffort(
@@ -266,23 +301,34 @@ export default function TaskDetailScreen() {
     if (prompt) setInitialComposerMessage(prompt);
   }, [taskId, pendingPrompt, consumePendingPrompt]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectId is a re-run trigger, not a read — the not-found screen's "Switch project" changes it, and reloading against the new project is what recovers the screen in place. The client picks the project up from the auth store.
   useEffect(() => {
     if (!taskId) return;
 
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setNotFound(false);
 
     getPostHogApiClient()
       .getTask(taskId)
       .then((fetchedTask) => {
         if (cancelled) return;
         setTask(fetchedTask);
+        // A desktop-local run has no cloud stream to attach to, so connecting
+        // would sit in "connecting" forever behind the loading overlay. The
+        // local-run banner is the whole screen's next step until the user
+        // continues the task in the cloud.
+        if (classifyTaskRunPlacement(fetchedTask) !== "cloud") return;
         return connectToTask(fetchedTask);
       })
       .catch((err) => {
         if (cancelled) return;
         log.error("Failed to load task", err);
+        if (classifyTaskLoadError(err) === "not_found") {
+          setNotFound(true);
+          return;
+        }
         setError("Failed to load task");
       })
       .finally(() => {
@@ -294,7 +340,7 @@ export default function TaskDetailScreen() {
       cancelled = true;
       disconnectFromTask(taskId);
     };
-  }, [taskId, connectToTask, disconnectFromTask]);
+  }, [taskId, projectId, connectToTask, disconnectFromTask]);
 
   // Auto-reconnect if the session disappears while the screen is active
   // (e.g., cloud sandbox expired and the session was cleaned up).
@@ -303,6 +349,8 @@ export default function TaskDetailScreen() {
     if (!taskId || !task || loading) return;
     if (session) return;
     if (retrying) return;
+    // Nothing to reconnect to while the latest run belongs to the desktop.
+    if (classifyTaskRunPlacement(task) !== "cloud") return;
 
     let cancelled = false;
     getPostHogApiClient()
@@ -310,6 +358,7 @@ export default function TaskDetailScreen() {
       .then((freshTask) => {
         if (cancelled) return;
         setTask(freshTask);
+        if (classifyTaskRunPlacement(freshTask) !== "cloud") return;
         return connectToTask(freshTask);
       })
       .catch((err) => {
@@ -333,6 +382,28 @@ export default function TaskDetailScreen() {
     },
     [queryClient],
   );
+
+  const [refreshingTask, setRefreshingTask] = useState(false);
+
+  // Pull-to-refresh on the thread. Re-reads the task (status, PR output, a
+  // fresh presigned log url) and reattaches the stream only when there isn't
+  // a live one — reconnecting a healthy session would drop and replay it.
+  const handleRefreshTask = useCallback(async () => {
+    if (!taskId) return;
+    setRefreshingTask(true);
+    try {
+      const freshTask = await getPostHogApiClient().getTask(taskId);
+      setTask(freshTask);
+      updateTaskInCache(freshTask);
+      if (classifyTaskRunPlacement(freshTask) !== "cloud") return;
+      if (getSessionForTask(taskId)?.status === "connected") return;
+      await connectToTask(freshTask);
+    } catch (err) {
+      log.error("Failed to refresh task", err);
+    } finally {
+      setRefreshingTask(false);
+    }
+  }, [taskId, updateTaskInCache, getSessionForTask, connectToTask]);
 
   // Resume a terminal (completed/failed) run with a new user prompt. Mirrors
   // the desktop "send on a finished task continues the conversation" UX —
@@ -554,22 +625,34 @@ export default function TaskDetailScreen() {
     [taskId],
   );
 
+  // Every local pick records the run it was made against, so a run that
+  // appears later (possibly started on another device) supersedes it via
+  // isRunConfigNewer — an identity check, immune to device clock skew.
+  const latestRunId = task?.latest_run?.id;
+  const updateComposerConfig = useCallback(
+    (config: Partial<TaskComposerConfig>) => {
+      if (!taskId) return;
+      setComposerConfig(taskId, { ...config, lastSeenRunId: latestRunId });
+    },
+    [taskId, setComposerConfig, latestRunId],
+  );
+
   const handleModeChange = useCallback(
     (value: ExecutionMode) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { mode: value });
+      updateComposerConfig({ mode: value });
       // Push to the live cloud session so the next turn uses the new mode.
       // Silently ignore failures — value is already persisted locally and
       // will be replayed if the user resumes from a terminal state.
       setConfigOption(taskId, "mode", value).catch(() => {});
     },
-    [taskId, setComposerConfig, setConfigOption],
+    [taskId, updateComposerConfig, setConfigOption],
   );
 
   const handleAdapterChange = useCallback(
     (selection: CloudComposerSelection) => {
       if (!taskId) return;
-      setComposerConfig(taskId, {
+      updateComposerConfig({
         ...selection,
         contextWindow: DEFAULT_CONTEXT_WINDOW,
         fastMode: false,
@@ -578,22 +661,22 @@ export default function TaskDetailScreen() {
         .getState()
         .resetLastUsedAgentConfig(selection.mode, selection.reasoning);
     },
-    [taskId, setComposerConfig],
+    [taskId, updateComposerConfig],
   );
 
   const handleModelChange = useCallback(
     (value: string) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { model: value });
+      updateComposerConfig({ model: value });
       setConfigOption(taskId, "model", value).catch(() => {});
     },
-    [taskId, setComposerConfig, setConfigOption],
+    [taskId, updateComposerConfig, setConfigOption],
   );
 
   const handleReasoningChange = useCallback(
     (value: SupportedReasoningEffort) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { reasoning: value });
+      updateComposerConfig({ reasoning: value });
       setConfigOption(
         taskId,
         getCloudReasoningConfigOptionId(composerAdapter),
@@ -601,25 +684,25 @@ export default function TaskDetailScreen() {
       ).catch(() => {});
       usePreferencesStore.getState().setLastUsedReasoningEffort(value);
     },
-    [taskId, composerAdapter, setComposerConfig, setConfigOption],
+    [taskId, composerAdapter, updateComposerConfig, setConfigOption],
   );
 
   const handleContextWindowChange = useCallback(
     (value: ContextWindow) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { contextWindow: value });
+      updateComposerConfig({ contextWindow: value });
       usePreferencesStore.getState().setLastUsedContextWindow(value);
     },
-    [taskId, setComposerConfig],
+    [taskId, updateComposerConfig],
   );
 
   const handleFastModeChange = useCallback(
     (value: boolean) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { fastMode: value });
+      updateComposerConfig({ fastMode: value });
       usePreferencesStore.getState().setLastUsedFastMode(value);
     },
-    [taskId, setComposerConfig],
+    [taskId, updateComposerConfig],
   );
 
   const handleStop = useCallback(() => {
@@ -652,12 +735,21 @@ export default function TaskDetailScreen() {
     });
   }, [taskId, stopRun, analytics, getSessionForTask]);
 
+  // Routed through the ordinary send path so it inherits queueing, steering,
+  // and the terminal-resume behaviour instead of duplicating any of it.
+  const handleCreateSkillFromTask = useCallback(
+    (prompt: string) => {
+      void handleSendPrompt(prompt, []);
+    },
+    [handleSendPrompt],
+  );
+
   const canStopRun =
     !!task &&
     !!session &&
     !session.terminalStatus &&
     !session.stopRequested &&
-    task.latest_run?.environment !== "local" &&
+    classifyTaskRunPlacement(task) === "cloud" &&
     isTaskRunning(task);
 
   const handleRetry = useCallback(async () => {
@@ -755,10 +847,26 @@ export default function TaskDetailScreen() {
     !!session &&
     session.status === "connecting" &&
     session.events.length === 0;
-  // Suppress the full-screen overlay when we have an optimistic prompt to
-  // show — the user just submitted and seeing their own text + a connecting
-  // indicator is friendlier than a blank spinner.
-  const showLoading = (loading || isHistoryLoading) && !optimisticPrompt;
+  // A pinned task's cached tail stands in until the live session delivers its
+  // first payload, at which point the live events replace it wholesale — the
+  // two are never merged, because the snapshot is a strict subset that the
+  // session is about to resend in full.
+  const showSnapshot =
+    !!snapshot && snapshot.events.length > 0 && !(session?.events.length ?? 0);
+  const viewEvents = showSnapshot ? snapshot.events : (session?.events ?? []);
+  // Suppress the full-screen overlay when we have an optimistic prompt or a
+  // cached snapshot to show — the user just submitted, or reopened a pinned
+  // task, and seeing real content + a connecting indicator is friendlier than
+  // a blank spinner.
+  const showLoading =
+    (loading || isHistoryLoading) && !optimisticPrompt && !showSnapshot;
+  // A desktop-local run gets a notice and a "Continue in cloud" bar instead of
+  // a live session: the only action mobile can take is starting a fresh cloud
+  // run from it, which is exactly what the retry/resume path already does.
+  // One state object drives both, so the notice and the bar can't disagree
+  // about whether this task is still desktop-owned.
+  const runPlacement = classifyTaskRunPlacement(task);
+  const localRunState = loading ? null : getLocalRunState(runPlacement);
   const showAutomationContext =
     fromAutomation === "1" || task?.origin_product === "automation";
   const automationContextLabel =
@@ -766,6 +874,29 @@ export default function TaskDetailScreen() {
     (task?.origin_product === "automation"
       ? "This run was started from a task automation."
       : null);
+  // A task raised from a signal report links back to it, so the report that
+  // justified the work is one tap away from the work itself.
+  const sourceReportId = task?.signal_report ?? null;
+
+  // ── Context banner stack ─────────────────────────────────────────────────
+  // Banners float over the top of the inverted session list, each 44pt tall
+  // including its gap. Their `top` offsets and the list's `paddingBottom` are
+  // derived from the same booleans so a banner can never shift one without the
+  // other. `showAutomationBanner` is the render condition, not just
+  // `showAutomationContext`: the offsets used to reserve a slot for a banner
+  // that renders nothing when the label is missing.
+  const BANNER_HEIGHT = 44;
+  const bannerStackTop = modalTopOffset(insets.top) + 52;
+  const showAutomationBanner =
+    showAutomationContext && !!automationContextLabel;
+  const sourceReportBannerTop =
+    bannerStackTop + (showAutomationBanner ? BANNER_HEIGHT : 0);
+  const localRunBannerTop =
+    sourceReportBannerTop + (sourceReportId ? BANNER_HEIGHT : 0);
+  const bannerStackHeight =
+    (showAutomationBanner ? BANNER_HEIGHT : 0) +
+    (sourceReportId ? BANNER_HEIGHT : 0) +
+    (localRunState ? BANNER_HEIGHT : 0);
 
   // Haptic pulse when connecting/thinking indicators dismiss
   const prevWaiting = useRef(false);
@@ -776,6 +907,10 @@ export default function TaskDetailScreen() {
     }
     prevWaiting.current = waiting;
   }, [isConnecting, isThinking]);
+
+  if (notFound) {
+    return <TaskNotFound onGoBack={() => router.back()} />;
+  }
 
   if (error || (!task && !loading)) {
     return (
@@ -801,6 +936,12 @@ export default function TaskDetailScreen() {
         subtitle={task?.repository ?? undefined}
         rightSlot={
           <>
+            {taskId ? <PinTaskButton taskId={taskId} /> : null}
+            <CreateSkillFromTaskButton
+              taskTitle={task?.title}
+              canSend={!!session && !session.isPromptPending}
+              onSend={handleCreateSkillFromTask}
+            />
             {task ? <CustomImageBadge task={task} /> : null}
             {canStopRun ? (
               <StopRunButton onPress={handleStopRun} />
@@ -814,16 +955,52 @@ export default function TaskDetailScreen() {
         }
       />
       <Animated.View className="flex-1" style={contentPosition}>
-        {showAutomationContext && automationContextLabel && (
+        {/* Slim bar over the cached tail: the thread on screen is real but
+            stale, and this says so until the live session takes over. */}
+        {showSnapshot && (
+          <View
+            className="absolute inset-x-0 z-10 border-gray-5 border-b bg-background py-1"
+            style={{ top: modalTopOffset(insets.top) + 52 }}
+          >
+            <ConnectingIndicator />
+          </View>
+        )}
+
+        {showAutomationBanner && (
           <View
             className="absolute inset-x-3 z-10 rounded-lg border border-accent-6 bg-accent-2 px-3 py-2"
-            style={{ top: (Platform.OS === "ios" ? 6 : insets.top) + 52 }}
+            style={{ top: bannerStackTop }}
           >
             <Text className="text-accent-11 text-xs">
               {automationName
                 ? `Started from automation: ${automationName}`
                 : automationContextLabel}
             </Text>
+          </View>
+        )}
+
+        {sourceReportId && (
+          <Pressable
+            onPress={() => router.push(paths.inboxReport(sourceReportId))}
+            accessibilityRole="link"
+            accessibilityLabel="Open the inbox report this task came from"
+            className="absolute inset-x-3 z-10 flex-row items-center gap-2 rounded-lg border border-gray-6 bg-gray-2 px-3 py-2 active:opacity-70"
+            style={{ top: sourceReportBannerTop }}
+          >
+            <Tray size={14} color={themeColors.gray[11]} weight="fill" />
+            <Text className="flex-1 text-gray-11 text-xs">
+              From inbox report
+            </Text>
+            <CaretRight size={12} color={themeColors.gray[10]} weight="bold" />
+          </Pressable>
+        )}
+
+        {localRunState && (
+          <View
+            className="absolute inset-x-3 z-10"
+            style={{ top: localRunBannerTop }}
+          >
+            <LocalRunBanner state={localRunState} />
           </View>
         )}
 
@@ -835,7 +1012,7 @@ export default function TaskDetailScreen() {
             top header's space (paddingBottom in an inverted list) plus a
             small visual buffer at the bottom. */}
         <TaskSessionView
-          events={session?.events ?? []}
+          events={viewEvents}
           taskId={taskId}
           runId={task?.latest_run?.id}
           pendingPermissions={session?.pendingPermissions}
@@ -848,6 +1025,8 @@ export default function TaskDetailScreen() {
           }
           onOpenTask={handleOpenTask}
           onSendPermissionResponse={handleSendPermissionResponse}
+          onRefresh={handleRefreshTask}
+          refreshing={refreshingTask}
           optimisticUserMessage={
             optimisticPrompt
               ? {
@@ -859,10 +1038,7 @@ export default function TaskDetailScreen() {
           }
           contentContainerStyle={{
             paddingTop: 8,
-            paddingBottom:
-              (Platform.OS === "ios" ? 6 : insets.top) +
-              60 +
-              (showAutomationContext ? 44 : 0),
+            paddingBottom: modalTopOffset(insets.top) + 60 + bannerStackHeight,
           }}
         />
 
@@ -885,51 +1061,65 @@ export default function TaskDetailScreen() {
         {/* Composer below the list in flex flow — its real height
             determines how much vertical space the list above gets, so the
             last message can never sit behind the input. Stays visible on
-            terminal runs so the user can send a follow-up that resumes. */}
+            terminal runs so the user can send a follow-up that resumes.
+            On a desktop-owned task there is no cloud session to send into,
+            so the "Continue in cloud" bar takes its place entirely. */}
         <Animated.View style={inputContainerStyle}>
-          {taskId ? (
-            <QueuedMessagesDock
-              taskId={taskId}
-              canSteer={
-                !!session?.isPromptPending &&
-                !session?.isCompacting &&
-                !session?.terminalStatus
-              }
-              onSteer={handleSteerQueued}
-              onEdit={handleEditQueued}
-              onDiscard={handleDiscardQueued}
-              onMove={handleMoveQueued}
+          {localRunState ? (
+            <ContinueInCloudBar
+              state={localRunState}
+              starting={retrying}
+              onContinueInCloud={handleRetry}
             />
-          ) : null}
-          <TaskChatComposer
-            key={taskId}
-            adapter={composerAdapter}
-            canChangeAdapter={!!session?.terminalStatus}
-            onSend={handleSendPrompt}
-            restoredDraft={restoredDraft}
-            editing={!!editingQueuedId}
-            onCancelEdit={handleCancelEdit}
-            onStop={handleStop}
-            isUserTurn={!(session?.isPromptPending ?? true)}
-            placeholder={
-              session?.terminalStatus ? "Resume this task..." : "Ask a question"
-            }
-            initialMessage={initialComposerMessage}
-            mode={composerMode}
-            model={composerModel}
-            reasoning={composerReasoning}
-            contextWindow={composerContextWindow}
-            fastMode={composerFastMode}
-            onAdapterChange={handleAdapterChange}
-            onModeChange={handleModeChange}
-            onModelChange={handleModelChange}
-            onReasoningChange={handleReasoningChange}
-            onContextWindowChange={handleContextWindowChange}
-            onFastModeChange={handleFastModeChange}
-            messagingMode={messagingMode}
-            queuedCount={queuedCount}
-            onToggleMessagingMode={toggleMessagingMode}
-          />
+          ) : (
+            <>
+              {taskId ? (
+                <QueuedMessagesDock
+                  taskId={taskId}
+                  canSteer={
+                    !!session?.isPromptPending &&
+                    !session?.isCompacting &&
+                    !session?.terminalStatus
+                  }
+                  onSteer={handleSteerQueued}
+                  onEdit={handleEditQueued}
+                  onDiscard={handleDiscardQueued}
+                  onMove={handleMoveQueued}
+                />
+              ) : null}
+              <TaskChatComposer
+                key={taskId}
+                adapter={composerAdapter}
+                canChangeAdapter={!!session?.terminalStatus}
+                onSend={handleSendPrompt}
+                restoredDraft={restoredDraft}
+                editing={!!editingQueuedId}
+                onCancelEdit={handleCancelEdit}
+                onStop={handleStop}
+                isUserTurn={!(session?.isPromptPending ?? true)}
+                placeholder={
+                  session?.terminalStatus
+                    ? "Resume this task..."
+                    : "Ask a question"
+                }
+                initialMessage={initialComposerMessage}
+                mode={composerMode}
+                model={composerModel}
+                reasoning={composerReasoning}
+                contextWindow={composerContextWindow}
+                fastMode={composerFastMode}
+                onAdapterChange={handleAdapterChange}
+                onModeChange={handleModeChange}
+                onModelChange={handleModelChange}
+                onReasoningChange={handleReasoningChange}
+                onContextWindowChange={handleContextWindowChange}
+                onFastModeChange={handleFastModeChange}
+                messagingMode={messagingMode}
+                queuedCount={queuedCount}
+                onToggleMessagingMode={toggleMessagingMode}
+              />
+            </>
+          )}
         </Animated.View>
       </Animated.View>
     </View>

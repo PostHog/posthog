@@ -1,17 +1,18 @@
 import { Text } from "@components/text";
-import {
-  formatSignalReportSummaryMarkdown,
-  inboxStatusLabel,
-} from "@posthog/core/inbox/reportPresentation";
-import type {
-  SignalReport,
-  SignalReportPriority,
-  SignalReportStatus,
-} from "@posthog/shared/domain-types";
-import { formatDistanceToNow } from "date-fns";
+import { formatSignalReportSummaryMarkdown } from "@posthog/core/inbox/reportPresentation";
+import { getModelConfigOption } from "@posthog/core/task-detail/composerControls";
+import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { Check, GithubLogo, Lightning, X } from "phosphor-react-native";
+import {
+  ArrowCounterClockwise,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  GithubLogo,
+  Lightning,
+  X,
+} from "phosphor-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -26,7 +27,6 @@ import {
 } from "react-native-safe-area-context";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
-import { getModelConfigOption } from "@/features/tasks/composer/options";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
 import type {
   CreateTaskOptions,
@@ -37,61 +37,31 @@ import {
   computeReportAgeHours,
   useAnalytics,
 } from "@/lib/analytics";
+import { formatRelativeTime } from "@/lib/format";
 import { logger } from "@/lib/logger";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useThemeColors } from "@/lib/theme";
 import { getReportRepository } from "../api";
+import { inboxCardViewBottomInset } from "../cardViewLayout";
+import { useDismissReport, useRestoreReport } from "../hooks/useInboxReports";
+import { type InboxToast, isUndoable, toastAutoDismissMs } from "../inboxToast";
 import { useDismissedReportsStore } from "../stores/dismissedReportsStore";
 import { useInboxStore } from "../stores/inboxStore";
+import { ActionabilityBadge, PriorityBadge, StatusBadge } from "./ReportBadges";
 import { SwipeableReportCard } from "./SwipeableReportCard";
 
 const log = logger.scope("tinder-view");
 
-// ─── Badge helpers (duplicated from SwipeableReportCard to avoid barrel exports) ───
-
-const statusColorMap: Record<string, { bg: string; text: string }> = {
-  ready: { bg: "bg-status-success/20", text: "text-status-success" },
-  pending_input: { bg: "bg-accent-3", text: "text-accent-11" },
-  in_progress: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  candidate: { bg: "bg-status-info/20", text: "text-status-info" },
-  potential: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  failed: { bg: "bg-status-error/20", text: "text-status-error" },
-  suppressed: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  deleted: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-const priorityColorMap: Record<
-  SignalReportPriority,
-  { bg: string; text: string }
-> = {
-  P0: { bg: "bg-status-error/20", text: "text-status-error" },
-  P1: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  P2: { bg: "bg-status-info/20", text: "text-status-info" },
-  P3: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  P4: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-function StatusBadge({ status }: { status: SignalReportStatus }) {
-  const colors = statusColorMap[status] ?? statusColorMap.potential;
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${colors.bg}`}>
-      <Text className={`font-medium text-[11px] ${colors.text}`}>
-        {inboxStatusLabel(status)}
-      </Text>
-    </View>
-  );
-}
-
-function PriorityBadge({ priority }: { priority: SignalReportPriority }) {
-  const colors = priorityColorMap[priority] ?? priorityColorMap.P4;
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${colors.bg}`}>
-      <Text className={`font-medium text-[11px] ${colors.text}`}>
-        {priority}
-      </Text>
-    </View>
-  );
-}
+/** Vertical px between each card in the stack — cards behind sit lower. */
+const STACK_OFFSET = 12;
+/** How many cards of the deck are rendered at once. */
+const MAX_VISIBLE = 3;
+/**
+ * The deepest card hangs `STACK_OFFSET * (MAX_VISIBLE - 1)` px below the deck
+ * container, so the deck reserves exactly that much space beneath itself for
+ * the stack to bleed into without colliding with the hint row.
+ */
+const STACK_BLEED = STACK_OFFSET * (MAX_VISIBLE - 1);
 
 // ─── Empty state ───
 
@@ -148,7 +118,14 @@ export function TinderView({
   const currentIndex = useInboxStore((s) => s.currentIndex);
   const _advanceCard = useInboxStore((s) => s.advanceCard);
   const dismissReport = useDismissedReportsStore((s) => s.dismissReport);
+  const undismissReport = useDismissedReportsStore((s) => s.undismissReport);
   const acceptReport = useDismissedReportsStore((s) => s.acceptReport);
+  // `mutate` is a stable reference; the mutation result object is not, and
+  // would defeat handleDismiss's memoization.
+  const { mutate: dismissOnServer } = useDismissReport();
+  // `mutateAsync` for the same reason, plus the undo path wants the resolved
+  // "was it actually restorable?" boolean rather than a callback.
+  const { mutateAsync: restoreOnServer } = useRestoreReport();
 
   const analytics = useAnalytics();
 
@@ -184,23 +161,21 @@ export function TinderView({
   );
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{
-    taskId: string | null;
-    title: string;
-    pending: boolean;
-  } | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One toast slot, shared by the accept confirmation and the dismiss undo
+  // window: a newer swipe replaces an older toast, so only the most recent
+  // decision is ever offered back.
+  const [toast, setToast] = useState<InboxToast | null>(null);
 
-  const showToastPending = useCallback((title: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ taskId: null, title, pending: true });
-  }, []);
-
-  const showToastDone = useCallback((taskId: string, title: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ taskId, title, pending: false });
-    toastTimer.current = setTimeout(() => setToast(null), 10_000);
-  }, []);
+  // Each toast object is a fresh reference, so this re-arms on every new toast
+  // and the cleanup cancels the previous deadline — a stale timer can never
+  // close a toast that replaced it.
+  useEffect(() => {
+    if (!toast) return;
+    const ms = toastAutoDismissMs(toast);
+    if (ms === null) return;
+    const timer = setTimeout(() => setToast(null), ms);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const reportsRef = useRef(reports);
   reportsRef.current = reports;
@@ -213,18 +188,83 @@ export function TinderView({
       const target = idx >= 0 ? visible[idx] : null;
       if (target) trackReportAction(target, "dismiss", idx, visible.length);
       dismissReport(reportId);
+      setToast({
+        kind: "undo_dismiss",
+        reportId,
+        title: target?.title ?? "Untitled report",
+      });
+      // Propagate to the server so the report doesn't stay open on other
+      // devices; a suppressed report can be restored from the archive view.
+      // On failure (offline, state transition rejected) roll back the local
+      // dismissal so the card returns instead of being hidden on this device
+      // while still open everywhere else.
+      dismissOnServer(
+        {
+          reportId,
+          reason: "other",
+          note: "Dismissed via mobile card swipe",
+        },
+        {
+          onError: (err) => {
+            undismissReport(reportId);
+            // The card is already back, so retract the undo offer rather than
+            // leaving a button that would restore an un-dismissed report.
+            setToast((current) =>
+              current?.kind === "undo_dismiss" && current.reportId === reportId
+                ? null
+                : current,
+            );
+            log.warn("Server dismissal failed; restored card", {
+              reportId,
+              error: err.message,
+            });
+          },
+        },
+      );
       // Don't advanceCard() — the parent filters dismissed IDs from the
       // reports array, so removing the report shifts the next one into
       // the current index position automatically.
     },
-    [dismissReport, trackReportAction],
+    [dismissReport, undismissReport, dismissOnServer, trackReportAction],
+  );
+
+  const handleUndoDismiss = useCallback(
+    (reportId: string) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // Local first, and unconditionally: the deck is driven by the local
+      // decided-IDs list, so this is what actually brings the card back.
+      undismissReport(reportId);
+      setToast(null);
+      // The server restore revalidates before writing and resolves false when
+      // the report has moved on (picked up elsewhere, already re-opened). That
+      // is not a reason to re-hide the card — the user asked for it back on
+      // this device, and the next poll will reconcile the real state.
+      restoreOnServer(reportId)
+        .then((restored) => {
+          if (!restored) {
+            log.warn("Report no longer restorable; kept local undo", {
+              reportId,
+            });
+          }
+        })
+        .catch((err: Error) => {
+          log.warn("Server restore failed; kept local undo", {
+            reportId,
+            error: err.message,
+          });
+        });
+    },
+    [undismissReport, restoreOnServer],
   );
 
   const handleAccept = useCallback(
     async (report: SignalReport) => {
       setCreating(true);
       setError(null);
-      showToastPending(report.title ?? "Untitled report");
+      setToast({
+        kind: "task_pending",
+        title: report.title ?? "Untitled report",
+      });
       // Snapshot rank/list_size before the swipe completes — accepting filters
       // the report out of the visible deck.
       const visibleBefore = reportsRef.current;
@@ -269,7 +309,11 @@ export function TinderView({
 
         acceptReport(report.id);
         trackReportAction(report, "create_pr", acceptedRank, acceptedListSize);
-        showToastDone(task.id, report.title ?? "Untitled report");
+        setToast({
+          kind: "task_started",
+          taskId: task.id,
+          title: report.title ?? "Untitled report",
+        });
       } catch (e) {
         const message =
           e instanceof Error ? e.message : "Failed to create task";
@@ -280,14 +324,7 @@ export function TinderView({
         setCreating(false);
       }
     },
-    [
-      repositoryOptions,
-      model,
-      showToastPending,
-      showToastDone,
-      acceptReport,
-      trackReportAction,
-    ],
+    [repositoryOptions, model, acceptReport, trackReportAction],
   );
 
   const currentReport =
@@ -310,8 +347,10 @@ export function TinderView({
     }
   }, [reports, currentIndex, repoMap]);
 
-  const STACK_OFFSET = 12; // px between each stacked card
-  const MAX_VISIBLE = 3;
+  // The deck ends where the toggle pill's clearance begins; the hint row is the
+  // last thing in flow above it. The parent screen has already padded the top
+  // past the header fade, so the whole view sits between the two chrome bands.
+  const bottomInset = inboxCardViewBottomInset(insets.bottom);
 
   return (
     <View className="flex-1">
@@ -327,8 +366,14 @@ export function TinderView({
           <EmptyState />
         </View>
       ) : (
-        <View className="flex-1 px-4 pt-2 pb-4">
-          <View className="relative flex-[0.9]">
+        <View
+          className="flex-1 px-4 pt-2"
+          style={{ paddingBottom: bottomInset }}
+        >
+          <View
+            className="relative flex-1"
+            style={{ marginBottom: STACK_BLEED }}
+          >
             {reports
               .slice(currentIndex, currentIndex + MAX_VISIBLE)
               .reverse()
@@ -348,31 +393,85 @@ export function TinderView({
                 );
               })}
           </View>
+
+          {/* Which way is which, before the first drag teaches it. Anchored to
+              the bottom of the view — the container's paddingBottom keeps it
+              clear of the safe area and the floating toggle pill. */}
+          <View className="mt-3 flex-row items-center justify-between px-1">
+            <View className="flex-row items-center gap-1.5">
+              <ArrowLeft size={13} color={themeColors.gray[9]} weight="bold" />
+              <Text className="text-[12px] text-gray-9">Dismiss</Text>
+            </View>
+            <View className="flex-row items-center gap-1.5">
+              <Text className="text-[12px] text-gray-9">Start task</Text>
+              <ArrowRight size={13} color={themeColors.gray[9]} weight="bold" />
+            </View>
+          </View>
         </View>
       )}
 
-      {/* Error display */}
+      {/* Error display — floats in the same band as the toast rather than
+          appending to the deck's flow, where it would land under the pill. */}
       {error && (
-        <View className="mx-4 mb-4 rounded-lg bg-status-error/10 px-3 py-2">
+        <View
+          className="absolute inset-x-4 rounded-lg bg-status-error/10 px-3 py-2"
+          style={{ bottom: bottomInset }}
+        >
           <Text className="text-[13px] text-status-error">{error}</Text>
         </View>
       )}
 
-      {/* "Task started" toast — sits above the mode switcher pill */}
-      {toast && (
+      {/* Undo pill — same slot as the task toast, above the mode switcher.
+          Neutral rather than green: it reports a removal, and its only
+          affordance is taking that removal back. */}
+      {toast && isUndoable(toast) && (
+        <View
+          className="elevation-4 absolute inset-x-4 flex-row items-center justify-between rounded-2xl border border-gray-6 bg-gray-3 px-5 py-4 shadow-lg"
+          style={{ bottom: bottomInset }}
+        >
+          <View className="min-w-0 flex-1">
+            <Text className="font-semibold text-[15px] text-gray-12">
+              Report dismissed
+            </Text>
+            <Text className="mt-0.5 text-[13px] text-gray-10" numberOfLines={1}>
+              {toast.title}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => handleUndoDismiss(toast.reportId)}
+            accessibilityRole="button"
+            accessibilityLabel="Undo dismissal"
+            hitSlop={8}
+            className="ml-3 flex-row items-center gap-1.5 rounded-full border border-gray-7 px-3 py-1.5 active:opacity-70"
+          >
+            <ArrowCounterClockwise
+              size={14}
+              color={themeColors.gray[12]}
+              weight="bold"
+            />
+            <Text className="font-semibold text-[14px] text-gray-12">Undo</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* "Task started" toast — accepts are not undoable (the task already
+          exists), so this only offers the way forward into it. */}
+      {(toast?.kind === "task_pending" || toast?.kind === "task_started") && (
         <Pressable
           onPress={() => {
-            if (toast.pending || !toast.taskId) return;
+            if (toast.kind !== "task_started") return;
             setToast(null);
             router.push(`/task/${toast.taskId}`);
           }}
-          disabled={toast.pending}
+          disabled={toast.kind === "task_pending"}
           className="elevation-4 absolute inset-x-4 flex-row items-center justify-between rounded-2xl bg-status-success px-5 py-4 shadow-lg active:opacity-80"
-          style={{ bottom: insets.bottom + 76 }}
+          style={{ bottom: bottomInset }}
         >
           <View className="min-w-0 flex-1">
             <Text className="font-semibold text-[15px] text-white">
-              {toast.pending ? "Starting task\u2026" : "Task started"}
+              {toast.kind === "task_pending"
+                ? "Starting task\u2026"
+                : "Task started"}
             </Text>
             <Text
               className="mt-0.5 text-[13px] text-white/80"
@@ -381,7 +480,7 @@ export function TinderView({
               {toast.title}
             </Text>
           </View>
-          {toast.pending ? (
+          {toast.kind === "task_pending" ? (
             <ActivityIndicator className="ml-3" color="white" size="small" />
           ) : (
             <Text className="ml-3 font-semibold text-[14px] text-white">
@@ -425,9 +524,12 @@ export function TinderView({
               >
                 {/* Badges */}
                 <View className="mb-3 flex-row flex-wrap items-center gap-1.5">
-                  <StatusBadge status={expandedReport.status} />
                   {expandedReport.priority && (
                     <PriorityBadge priority={expandedReport.priority} />
+                  )}
+                  <StatusBadge status={expandedReport.status} />
+                  {expandedReport.actionability && (
+                    <ActionabilityBadge value={expandedReport.actionability} />
                   )}
                 </View>
 
@@ -455,9 +557,7 @@ export function TinderView({
                   </View>
                   <Text className="text-[12px] text-gray-9">
                     Updated{" "}
-                    {formatDistanceToNow(new Date(expandedReport.updated_at), {
-                      addSuffix: true,
-                    })}
+                    {formatRelativeTime(Date.parse(expandedReport.updated_at))}
                   </Text>
                 </View>
 

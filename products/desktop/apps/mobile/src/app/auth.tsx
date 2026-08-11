@@ -1,3 +1,4 @@
+import type { CloudRegion } from "@posthog/shared";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -10,7 +11,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { QrScanModal, type QrScanResult } from "@/components/QrScanModal";
-import { type CloudRegion, useAuthStore } from "@/features/auth";
+import { useAuthStore } from "@/features/auth";
+import { OAUTH_SCOPES } from "@/features/auth/lib/constants";
+import { resolvePostLoginTarget } from "@/features/auth/lib/postLoginTarget";
 import {
   ANALYTICS_EVENTS,
   type SignInFailureReason,
@@ -78,17 +81,8 @@ export default function AuthScreen() {
     });
   };
 
-  // After successful sign-in, resume the originally-requested deep link if
-  // there was one, otherwise drop into the default tab. Guards against `next`
-  // pointing back at /auth (which would loop) or being a non-local URL.
   const navigateAfterLogin = useCallback(() => {
-    const target =
-      typeof next === "string" &&
-      next.startsWith("/") &&
-      !next.startsWith("/auth")
-        ? next
-        : "/(tabs)/tasks";
-    router.replace(target);
+    router.replace(resolvePostLoginTarget(next));
   }, [next]);
 
   const handleQrScan = async (result: QrScanResult) => {
@@ -148,8 +142,18 @@ export default function AuthScreen() {
     try {
       await loginWithOAuth(selectedRegion);
       trackSignInCompleted("oauth");
-      // Navigate to tabs on success
-      navigateAfterLogin();
+      // With one scoped project there is nothing to choose; otherwise let the
+      // user pick instead of silently landing on scoped_teams[0]. The picker
+      // carries `next` so it can finish the deep link that started the login.
+      if (useAuthStore.getState().scopedTeams.length > 1) {
+        router.replace(
+          typeof next === "string"
+            ? { pathname: "/select-project", params: { next } }
+            : "/select-project",
+        );
+      } else {
+        navigateAfterLogin();
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to authenticate";
@@ -253,11 +257,11 @@ export default function AuthScreen() {
               <Text className="font-semibold text-gray-12 text-sm">
                 Dev sign-in (personal API key)
               </Text>
+              {/* Read off OAUTH_SCOPES so a dev key always covers exactly what
+                  the OAuth flow requests — the two drifted apart before. */}
               <Text className="text-gray-11 text-xs">
                 Skips OAuth. Create a personal API key at Settings → User API
-                keys with scopes: user:read, project:read, task:write,
-                integration:read, conversation:write, query:read,
-                llm_skill:read.
+                keys with scopes: {OAUTH_SCOPES.join(", ")}.
               </Text>
               <TextInput
                 value={devToken}

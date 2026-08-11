@@ -1,3 +1,4 @@
+import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -6,7 +7,6 @@ import { usePreferencesStore } from "@/features/preferences/stores/preferencesSt
 import { logger } from "@/lib/logger";
 import { queryClient } from "@/lib/queryClient";
 import {
-  getCloudUrlFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
   TOKEN_REFRESH_BUFFER_MS,
@@ -17,7 +17,7 @@ import {
   TokenRefreshError,
 } from "../lib/oauth";
 import { deleteTokens, getTokens, saveTokens } from "../lib/secureStorage";
-import type { CloudRegion, StoredTokens } from "../types";
+import type { StoredTokens } from "../types";
 
 interface AuthState {
   // OAuth state
@@ -37,7 +37,8 @@ interface AuthState {
 
   // Methods
   loginWithOAuth: (region: CloudRegion) => Promise<void>;
-  setProjectId: (projectId: number) => void;
+  /** Returns false when the token isn't scoped to the requested project. */
+  setProjectId: (projectId: number) => boolean;
   loginWithPersonalApiKey: (params: {
     token: string;
     projectId: number;
@@ -118,17 +119,26 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: true,
 
-      // Helper method to get cloud URL
+      // Re-exposed from @posthog/shared so screens can build cloud URLs from
+      // the store they already hold the region in.
       getCloudUrlFromRegion,
 
       setProjectId: (projectId: number) => {
         const { scopedTeams, projectId: current } = get();
+        if (projectId === current) return true;
         // Guard: only switch to a project the token is actually scoped to.
-        if (!scopedTeams.includes(projectId) || projectId === current) return;
+        if (!scopedTeams.includes(projectId)) {
+          logger.warn("Rejected switch to out-of-scope project", {
+            projectId,
+            scopedTeams: scopedTeams.length,
+          });
+          return false;
+        }
         set({ projectId });
         // Drop cached data scoped to the previous project so tasks, inbox,
         // automations, etc. refetch against the newly-selected one.
         queryClient.clear();
+        return true;
       },
 
       loginWithOAuth: async (region: CloudRegion) => {
@@ -295,6 +305,13 @@ export const useAuthStore = create<AuthState>()(
           }
 
           if (tokens.scopeVersion !== OAUTH_SCOPE_VERSION) {
+            logger.warn(
+              "Stored token scope version mismatch; forcing re-auth",
+              {
+                stored: tokens.scopeVersion,
+                expected: OAUTH_SCOPE_VERSION,
+              },
+            );
             await deleteTokens();
             queryClient.clear();
             set({ ...CLEARED_AUTH_STATE, isLoading: false });

@@ -119,6 +119,9 @@ export function AutomationList({
           refreshing={isLoading}
           onRefresh={handleRefresh}
           tintColor={themeColors.accent[9]}
+          // The list scrolls behind a translucent floating header, so the
+          // spinner has to start below it or it refreshes out of sight.
+          progressViewOffset={contentInsetTop}
         />
       }
       contentContainerStyle={{

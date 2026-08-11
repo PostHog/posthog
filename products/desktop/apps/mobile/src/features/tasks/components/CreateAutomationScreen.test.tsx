@@ -108,14 +108,10 @@ describe("CreateAutomationScreen", () => {
     });
     mockMutateAsync.mockResolvedValueOnce({ id: "automation-1" });
 
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
     act(() => {
       renderer = create(createElement(CreateAutomationScreen));
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const stackScreen = renderer.root.findByType("StackScreen");
     expect(stackScreen.props.options.headerTitle).toBe("Create automation");
@@ -173,14 +169,10 @@ describe("CreateAutomationScreen", () => {
     });
     mockMutateAsync.mockResolvedValueOnce({ id: "automation-2" });
 
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
     act(() => {
       renderer = create(createElement(CreateAutomationScreen));
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const form = renderer.root.findByType("AutomationForm");
     expect(form.props.initialValues).toMatchObject({

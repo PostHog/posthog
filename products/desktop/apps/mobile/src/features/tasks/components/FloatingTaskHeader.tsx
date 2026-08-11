@@ -2,8 +2,9 @@ import { Text } from "@components/text";
 import { useRouter } from "expo-router";
 import { CaretLeft } from "phosphor-react-native";
 import type { ReactNode } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { modalTopOffset } from "@/lib/navigation";
 import { useThemeColors } from "@/lib/theme";
 
 interface FloatingTaskHeaderProps {
@@ -30,7 +31,7 @@ export function FloatingTaskHeader({
   // iOS modals already provide their own top chrome (drag handle / rounded
   // corners), so insets.top over-counts the space. Use a minimal fixed value
   // on iOS and fall back to the real inset on Android.
-  const topInset = Platform.OS === "ios" ? 6 : insets.top;
+  const topInset = modalTopOffset(insets.top);
 
   const headerHeight = topInset + 52;
 

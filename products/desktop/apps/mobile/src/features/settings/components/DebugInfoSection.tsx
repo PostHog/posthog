@@ -3,7 +3,8 @@ import * as Application from "expo-application";
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
-import { Copy } from "phosphor-react-native";
+import { router } from "expo-router";
+import { CaretRight, Copy } from "phosphor-react-native";
 import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useThemeColors } from "@/lib/theme";
@@ -84,6 +85,12 @@ export function DebugInfoSection({
       title="Debug info"
       description="Staff only — useful for identifying which build this is"
     >
+      <SettingsRow
+        label="Debug logs"
+        description="Recent in-app log entries from this session"
+        onPress={() => router.push("/settings/debug-logs")}
+        rightSlot={<CaretRight size={16} color={themeColors.gray[11]} />}
+      />
       {rows.map((row, index) => (
         <SettingsRow
           key={row.label}

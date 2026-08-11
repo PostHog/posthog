@@ -27,6 +27,25 @@ export interface TaskComposerConfig {
   reasoning?: SupportedReasoningEffort;
   contextWindow?: ContextWindow;
   fastMode?: boolean;
+  /** The latest run id the user had in view when they made this pick. Lets
+   *  the task screen prefer the server-recorded run config when a new run
+   *  (possibly started on another device) has appeared since — an identity
+   *  comparison, deliberately not wall clocks, so device clock skew can't
+   *  flip the precedence. */
+  lastSeenRunId?: string;
+}
+
+/**
+ * True when the latest run's config (recorded server-side at run start) is
+ * fresher than this device's local composer selection — i.e. a run the local
+ * pick has not seen yet exists, e.g. the task was re-run from desktop with a
+ * different model. Configs saved before this field existed count as stale.
+ */
+export function isRunConfigNewer(
+  latestRunId: string | null | undefined,
+  lastSeenRunId: string | undefined,
+): boolean {
+  return !!latestRunId && latestRunId !== lastSeenRunId;
 }
 
 interface TaskUIState {
@@ -38,6 +57,9 @@ interface TaskUIState {
   /** Most-recently-used repository for the new-task composer. Pre-fills the
    *  repo pill so users don't have to re-pick the same repo every time. */
   lastRepository: RepositorySelection;
+  /** Keys of the task-list groups the user collapsed (see `taskListItems`).
+   *  Persisted so the list keeps its shape across restarts. */
+  collapsedGroups: string[];
   composerConfigByTaskId: Record<string, TaskComposerConfig>;
   pendingPromptByTaskId: Record<string, string>;
 
@@ -47,6 +69,7 @@ interface TaskUIState {
   setShowInternal: (showInternal: boolean) => void;
   setFilter: (filter: string) => void;
   setLastRepository: (selection: RepositorySelection) => void;
+  toggleGroupCollapsed: (groupKey: string) => void;
   setComposerConfig: (
     taskId: string,
     config: Partial<TaskComposerConfig>,
@@ -64,6 +87,7 @@ export const useTaskStore = create<TaskUIState>()(
       showInternal: false,
       filter: "",
       lastRepository: EMPTY_REPOSITORY_SELECTION,
+      collapsedGroups: [],
       composerConfigByTaskId: {},
       pendingPromptByTaskId: {},
 
@@ -73,6 +97,12 @@ export const useTaskStore = create<TaskUIState>()(
       setShowInternal: (showInternal) => set({ showInternal }),
       setFilter: (filter) => set({ filter }),
       setLastRepository: (lastRepository) => set({ lastRepository }),
+      toggleGroupCollapsed: (groupKey) =>
+        set((state) => ({
+          collapsedGroups: state.collapsedGroups.includes(groupKey)
+            ? state.collapsedGroups.filter((key) => key !== groupKey)
+            : [...state.collapsedGroups, groupKey],
+        })),
       setComposerConfig: (taskId, config) =>
         set((state) => ({
           composerConfigByTaskId: {
@@ -109,6 +139,7 @@ export const useTaskStore = create<TaskUIState>()(
         sortMode: state.sortMode,
         showInternal: state.showInternal,
         lastRepository: state.lastRepository,
+        collapsedGroups: state.collapsedGroups,
         composerConfigByTaskId: state.composerConfigByTaskId,
       }),
     },

@@ -1,7 +1,7 @@
 import { Stack, usePathname, useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
 import { BackHandler, PanResponder, View } from "react-native";
-import { NavDrawer } from "@/features/navigation/components/NavDrawer";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavDrawerStore } from "@/features/navigation/stores/navDrawerStore";
 import { useThemeColors } from "@/lib/theme";
 
@@ -15,6 +15,7 @@ const TAB_ROUTES = new Set(["/tasks", "/inbox", "/automations"]);
 
 export default function TabsLayout() {
   const themeColors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -77,14 +78,15 @@ export default function TabsLayout() {
         <Stack.Screen name="inbox" />
         <Stack.Screen name="automations" />
       </Stack>
-      {/* Invisible left-edge strip that captures the open-drawer gesture. */}
+      {/* Invisible left-edge strip that captures the open-drawer gesture.
+          Starts below the floating header so it can't swallow taps on the
+          hamburger button, whose hit area reaches the screen edge. */}
       <View
         pointerEvents="box-only"
-        className="absolute top-0 bottom-0 left-0 z-10"
-        style={{ width: EDGE_SWIPE_HIT_WIDTH }}
+        className="absolute bottom-0 left-0 z-10"
+        style={{ width: EDGE_SWIPE_HIT_WIDTH, top: insets.top + 64 }}
         {...edgePanResponder.panHandlers}
       />
-      <NavDrawer />
     </View>
   );
 }

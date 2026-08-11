@@ -1,23 +1,38 @@
+import {
+  type InboxReportActionProperties,
+  type InboxReportClosedProperties,
+  type InboxReportFeedbackNoteProperties,
+  type InboxReportFeedbackProperties,
+  type InboxReportOpenedProperties,
+  type InboxReportScrolledProperties,
+  type InboxViewedProperties,
+  ANALYTICS_EVENTS as SHARED_ANALYTICS_EVENTS,
+  type PromptSentProperties as SharedPromptSentProperties,
+  type TaskRunStoppedProperties,
+} from "@posthog/shared/analytics-events";
 import { type PostHog, usePostHog } from "posthog-react-native";
 import { useEffect, useMemo } from "react";
 
 /**
- * Event names mirror packages/shared/src/analytics-events.ts so PostHog reports
- * funnel the same events from desktop and mobile into a single bucket.
+ * The slice of the shared event vocabulary mobile fires, plus the sign-in
+ * events only mobile has (desktop signs in through onboarding, which has its
+ * own events). Sharing the names keeps desktop, cloud and mobile funnelling
+ * into one bucket per event.
  */
 export const ANALYTICS_EVENTS = {
-  INBOX_VIEWED: "Inbox viewed",
-  INBOX_REPORT_OPENED: "Inbox report opened",
-  INBOX_REPORT_CLOSED: "Inbox report closed",
-  INBOX_REPORT_SCROLLED: "Inbox report scrolled",
-  INBOX_REPORT_ACTION: "Inbox report action",
-  INBOX_REPORT_FEEDBACK: "Inbox report feedback",
-  INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_VIEWED: SHARED_ANALYTICS_EVENTS.INBOX_VIEWED,
+  INBOX_REPORT_OPENED: SHARED_ANALYTICS_EVENTS.INBOX_REPORT_OPENED,
+  INBOX_REPORT_CLOSED: SHARED_ANALYTICS_EVENTS.INBOX_REPORT_CLOSED,
+  INBOX_REPORT_SCROLLED: SHARED_ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED,
+  INBOX_REPORT_ACTION: SHARED_ANALYTICS_EVENTS.INBOX_REPORT_ACTION,
+  INBOX_REPORT_FEEDBACK: SHARED_ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
+  INBOX_REPORT_FEEDBACK_NOTE:
+    SHARED_ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
+  PROMPT_SENT: SHARED_ANALYTICS_EVENTS.PROMPT_SENT,
+  TASK_RUN_STOPPED: SHARED_ANALYTICS_EVENTS.TASK_RUN_STOPPED,
   SIGN_IN_STARTED: "Sign in started",
   SIGN_IN_COMPLETED: "Sign in completed",
   SIGN_IN_FAILED: "Sign in failed",
-  PROMPT_SENT: "Prompt sent",
-  TASK_RUN_STOPPED: "Task run stopped",
 } as const;
 
 export type SignInMethod = "oauth" | "dev_api_key" | "qr_scan";
@@ -41,178 +56,14 @@ export interface SignInFailedProperties {
   error_message: string;
 }
 
-export type InboxReportOpenMethod =
-  | "click"
-  | "click_cmd"
-  | "click_shift"
-  | "keyboard"
-  | "deeplink"
-  | "unknown";
-
-export type InboxReportCloseMethod =
-  | "next_report"
-  | "deselected"
-  | "navigated_away"
-  | "unmount";
-
-export type InboxReportActionType =
-  | "dismiss"
-  | "snooze"
-  | "delete"
-  | "reingest"
-  | "create_pr"
-  | "open_pr"
-  | "copy_link"
-  | "discuss"
-  | "expand_signal"
-  | "collapse_signal"
-  | "expand_signal_section"
-  | "view_signal_external"
-  | "expand_why"
-  | "click_suggested_reviewer"
-  | "add_suggested_reviewer"
-  | "remove_suggested_reviewer"
-  | "expand_task_section"
-  | "play_session_recording";
-
-export type InboxReportActionSurface =
-  | "detail_pane"
-  | "detail_footer"
-  | "toolbar"
-  | "keyboard"
-  | "list_row";
-
-/** Sentiment captured by the report usefulness thumbs. */
-export type InboxReportFeedbackSentiment = "positive" | "negative";
-
-export interface InboxViewedProperties {
-  report_count: number;
-  total_count: number;
-  ready_count: number;
-  has_active_filters: boolean;
-  source_product_filter: string[];
-  status_filter_count: number;
-  is_empty: boolean;
-  priority_p0_count: number;
-  priority_p1_count: number;
-  priority_p2_count: number;
-  priority_p3_count: number;
-  priority_p4_count: number;
-  priority_unknown_count: number;
-  actionability_immediately_actionable_count: number;
-  actionability_requires_human_input_count: number;
-  actionability_not_actionable_count: number;
-  actionability_unknown_count: number;
-}
-
-export interface InboxReportOpenedProperties {
-  report_id: string;
-  report_title: string | null;
-  report_age_hours: number;
-  status: string | null;
-  priority: string | null;
-  actionability: string | null;
-  source_products: string[];
-  rank: number;
-  list_size: number;
-  open_method: InboxReportOpenMethod;
-  previous_report_id: string | null;
-}
-
-export interface InboxReportClosedProperties {
-  report_id: string;
-  report_title: string | null;
-  report_age_hours: number;
-  priority: string | null;
-  actionability: string | null;
-  time_spent_ms: number;
-  scrolled: boolean;
-  close_method: InboxReportCloseMethod;
-}
-
-export interface InboxReportScrolledProperties {
-  report_id: string;
-  report_title: string | null;
-  report_age_hours: number;
-  priority: string | null;
-  actionability: string | null;
-  rank: number;
-  list_size: number;
-  time_since_open_ms: number;
-}
-
-export interface InboxReportActionProperties {
-  report_id: string;
-  report_title: string | null;
-  report_age_hours: number;
-  priority: string | null;
-  actionability: string | null;
-  action_type: InboxReportActionType;
-  surface: InboxReportActionSurface;
-  is_bulk: boolean;
-  bulk_size: number;
-  rank: number;
-  list_size: number;
-  dismissal_reason?: string;
-  dismissal_note?: string;
-  signal_id?: string;
-  signal_source_product?: string;
-  signal_source_type?: string;
-  signal_section?: "relevant_code" | "data_queried";
-  why_field?: "priority" | "actionability";
-  task_section?: "research" | "implementation";
-  has_question?: boolean;
-  question_text?: string;
-  has_feedback?: boolean;
-  feedback_text?: string;
-  suggested_reviewer_login?: string;
-  suggested_reviewer_uuid?: string;
-}
-
 /**
- * Thumbs-up/down verdict on a report's usefulness. Feedback-only: the report
- * keeps its state. Mirrors desktop/cloud `Inbox report feedback` so ranking
- * analysis is comparable across clients. `note` is optional.
+ * Mobile always runs cloud tasks, and steering is a mobile-only affordance, so
+ * the shared shape is narrowed and extended rather than reused verbatim.
  */
-export interface InboxReportFeedbackProperties {
-  report_id: string;
-  report_age_hours: number;
-  priority: string | null;
-  actionability: string | null;
-  sentiment: InboxReportFeedbackSentiment;
-  has_pr: boolean;
-  surface: InboxReportActionSurface;
-  note?: string;
-}
-
-/**
- * Optional free-text note, fired on its own event after a rating so sentiment
- * stays exactly one event per rating; join back on `report_id`.
- */
-export interface InboxReportFeedbackNoteProperties {
-  report_id: string;
-  report_age_hours: number;
-  priority: string | null;
-  actionability: string | null;
-  sentiment: InboxReportFeedbackSentiment;
-  has_pr: boolean;
-  surface: InboxReportActionSurface;
-  note: string;
-}
-
-export interface PromptSentProperties {
-  task_id: string;
-  is_initial: boolean;
+export interface PromptSentProperties extends SharedPromptSentProperties {
   execution_type: "cloud";
-  prompt_length_chars: number;
   /** True when the message interrupted a running turn (Steer mode). */
   is_steer: boolean;
-}
-
-export interface TaskRunStoppedProperties {
-  task_id: string;
-  execution_type: "cloud";
-  prompts_sent?: number;
 }
 
 export type EventPropertyMap = {

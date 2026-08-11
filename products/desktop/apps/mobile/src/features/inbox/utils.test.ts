@@ -15,7 +15,7 @@ import type {
   SignalReportStatus,
 } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { sourceLine } from "./utils";
+import { sourceLine, summaryExcerpt } from "./utils";
 
 function signal(source_product: string, source_type: string): Signal {
   return {
@@ -335,5 +335,51 @@ describe("sourceLine", () => {
     },
   ])("labels $product", ({ product, type, expected }) => {
     expect(sourceLine(signal(product, type))).toBe(expected);
+  });
+});
+
+describe("summaryExcerpt", () => {
+  it.each<[string, string | null | undefined, string]>([
+    ["a missing summary", null, ""],
+    ["an undefined summary", undefined, ""],
+    ["a blank summary", "   \n  ", ""],
+  ])("returns an empty string for %s", (_label, input, expected) => {
+    expect(summaryExcerpt(input)).toBe(expected);
+  });
+
+  it("flattens the block Markdown a card can't lay out", () => {
+    expect(
+      summaryExcerpt(
+        "## What's happening\n\n- **Checkout** fails\n- Retries do not help\n\n> Since Tuesday",
+      ),
+    ).toBe("What's happening Checkout fails Retries do not help Since Tuesday");
+  });
+
+  it("keeps link text and drops the URL", () => {
+    expect(
+      summaryExcerpt("See [the trace](https://example.com/t/1) first"),
+    ).toBe("See the trace first");
+  });
+
+  it("drops fenced code blocks entirely", () => {
+    expect(summaryExcerpt("Before\n\n```ts\nconst x = 1;\n```\n\nAfter")).toBe(
+      "Before After",
+    );
+  });
+
+  it("leaves underscores alone — they are identifiers far more often than emphasis", () => {
+    expect(summaryExcerpt("`user_id` is null")).toBe("user_id is null");
+  });
+
+  it("truncates a long summary with an ellipsis", () => {
+    const excerpt = summaryExcerpt("word ".repeat(200));
+    expect(excerpt.endsWith("…")).toBe(true);
+    expect(excerpt.length).toBeLessThanOrEqual(321);
+  });
+
+  it("leaves a summary that already fits untouched", () => {
+    expect(summaryExcerpt("Checkout is failing for 3% of sessions.")).toBe(
+      "Checkout is failing for 3% of sessions.",
+    );
   });
 });

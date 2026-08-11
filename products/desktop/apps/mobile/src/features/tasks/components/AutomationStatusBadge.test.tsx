@@ -5,7 +5,7 @@ import { AutomationStatusBadge } from "./AutomationStatusBadge";
 
 describe("AutomationStatusBadge", () => {
   it("does not render a running chip for active automation runs", () => {
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -17,18 +17,30 @@ describe("AutomationStatusBadge", () => {
       );
     });
 
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
-
     const output = JSON.stringify(renderer.toJSON());
 
     expect(output).toContain("Enabled");
     expect(output).not.toContain("Running");
   });
 
+  it("does not call a started run 'Never run'", () => {
+    let renderer!: ReturnType<typeof create>;
+
+    act(() => {
+      renderer = create(
+        createElement(AutomationStatusBadge, {
+          enabled: true,
+          lastRunStatus: "running",
+          lastTaskRunStatus: "started",
+        }),
+      );
+    });
+
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("Never run");
+  });
+
   it("still renders non-running run states", () => {
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -38,10 +50,6 @@ describe("AutomationStatusBadge", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     expect(JSON.stringify(renderer.toJSON())).toContain("Success");
   });

@@ -51,7 +51,7 @@ export function DismissReportSheet({
   const [reason, setReason] = useState<DismissalReasonOptionValue | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const dismiss = useDismissReport(reportId);
+  const dismiss = useDismissReport();
 
   useEffect(() => {
     if (visible) {
@@ -67,6 +67,7 @@ export function DismissReportSheet({
     const trimmedNote = note.trim();
     try {
       await dismiss.mutateAsync({
+        reportId,
         reason,
         note: trimmedNote || undefined,
       });

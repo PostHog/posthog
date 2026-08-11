@@ -1,24 +1,10 @@
-// Mirrors the artifact-ref parsing in @posthog/core/sessions/promptContent;
-// mobile does not depend on @posthog/core, so the two are kept in sync by hand.
-import { getFileName, isRasterImageFile } from "@posthog/shared";
-import type {
-  CloudArtifactRef,
-  SessionEvent,
-  SessionNotificationAttachment,
-} from "../types";
-
-interface PromptContentBlock {
-  type?: string;
-  text?: string;
-  uri?: string;
-  name?: string;
-  resource?: { uri?: string };
-  _meta?: { ui?: { hidden?: boolean } };
-}
+import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
+import { isRasterImageFile } from "@posthog/shared";
+import type { SessionEvent, SessionNotificationAttachment } from "../types";
 
 interface PromptMessage {
   method?: string;
-  params?: { prompt?: PromptContentBlock[] };
+  params?: { prompt?: unknown[] };
 }
 
 export interface PromptAttachmentGroup {
@@ -26,66 +12,8 @@ export interface PromptAttachmentGroup {
   attachments: SessionNotificationAttachment[];
 }
 
-// Cloud attachment bytes are uploaded as run artifacts and referenced from the
-// stored prompt as `file://…/.posthog/attachments/<runId>/<artifactId>/<file>`.
-export function parseCloudArtifactRef(
-  pathname: string,
-): CloudArtifactRef | undefined {
-  const segments = pathname.split("/").filter(Boolean);
-  const posthogIndex = segments.lastIndexOf(".posthog");
-  if (
-    posthogIndex < 0 ||
-    segments[posthogIndex + 1] !== "attachments" ||
-    !segments[posthogIndex + 2] ||
-    !segments[posthogIndex + 3]
-  ) {
-    return undefined;
-  }
-  return {
-    runId: segments[posthogIndex + 2],
-    artifactId: segments[posthogIndex + 3],
-  };
-}
-
-function blockUri(
-  block: PromptContentBlock,
-): { uri: string; name?: string } | null {
-  switch (block.type) {
-    case "resource":
-      return block.resource?.uri ? { uri: block.resource.uri } : null;
-    case "image":
-      return block.uri ? { uri: block.uri } : null;
-    case "resource_link":
-      return block.uri ? { uri: block.uri, name: block.name } : null;
-    default:
-      return null;
-  }
-}
-
-function attachmentFromBlock(
-  block: PromptContentBlock,
-): SessionNotificationAttachment | null {
-  const ref = blockUri(block);
-  if (!ref || !ref.uri.startsWith("file://")) return null;
-
-  let pathname: string;
-  try {
-    pathname = decodeURIComponent(new URL(ref.uri).pathname);
-  } catch {
-    return null;
-  }
-
-  const cloudArtifact = parseCloudArtifactRef(pathname);
-  if (!cloudArtifact) return null;
-
-  const fileName = ref.name?.trim() || getFileName(pathname) || "attachment";
-  return {
-    kind: isRasterImageFile(fileName) ? "image" : "document",
-    uri: ref.uri,
-    fileName,
-    cloudArtifact,
-  };
-}
+/** `ContentBlock[]`, without making mobile depend on the ACP SDK for a type. */
+type PromptBlocks = Parameters<typeof extractPromptDisplayContent>[0];
 
 export function extractSessionPromptAttachments(
   message: unknown,
@@ -95,20 +23,25 @@ export function extractSessionPromptAttachments(
   const prompt = msg.params?.prompt;
   if (!Array.isArray(prompt)) return null;
 
-  const textParts: string[] = [];
-  const attachments: SessionNotificationAttachment[] = [];
-  for (const block of prompt) {
-    if (block.type === "text") {
-      if (block._meta?.ui?.hidden) continue;
-      if (typeof block.text === "string") textParts.push(block.text);
-      continue;
-    }
-    const attachment = attachmentFromBlock(block);
-    if (attachment) attachments.push(attachment);
-  }
-
+  const { text, attachments } = extractPromptDisplayContent(
+    prompt as PromptBlocks,
+    { filterHidden: true },
+  );
   if (attachments.length === 0) return null;
-  return { text: textParts.join(""), attachments };
+
+  return {
+    text,
+    attachments: attachments.map((ref) => ({
+      // Image-vs-chip rendering is a mobile concern; the shared refs don't
+      // carry a kind.
+      kind: isRasterImageFile(ref.label) ? "image" : "document",
+      // Inline base64 images have no fetchable uri of their own — their data:
+      // preview is the only thing that can be rendered.
+      uri: ref.previewUrl ?? ref.id,
+      fileName: ref.label,
+      ...(ref.cloudArtifact ? { cloudArtifact: ref.cloudArtifact } : {}),
+    })),
+  };
 }
 
 /**

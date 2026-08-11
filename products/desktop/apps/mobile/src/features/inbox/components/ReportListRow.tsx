@@ -3,67 +3,32 @@ import type { SignalReport } from "@posthog/shared/domain-types";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
-import { useThemeColors } from "@/lib/theme";
-import { formatReportTimestamp } from "../utils";
+import { formatRelativeTime } from "@/lib/format";
+import { ActionabilityBadge, PriorityBadge, StatusBadge } from "./ReportBadges";
 
 interface ReportListRowProps {
   report: SignalReport;
   onPress: (report: SignalReport) => void;
 }
 
-// Single colored dot conveys status at a glance — full label still
-// available on the detail screen.
-const statusDotMap: Record<string, string> = {
-  ready: "success",
-  pending_input: "accent",
-  in_progress: "warning",
-  candidate: "info",
-  potential: "muted",
-  failed: "error",
-  suppressed: "muted",
-  deleted: "muted",
-};
-
-const priorityColorMap: Record<string, string> = {
-  P0: "text-status-error",
-  P1: "text-status-warning",
-  P2: "text-status-warning",
-  P3: "text-gray-10",
-  P4: "text-gray-10",
-};
-
+/**
+ * One report in the inbox list.
+ *
+ * Labels the report with the same `ReportBadges` trio the swipe card and the
+ * detail screen use, at the same `sm` size the card uses. The row previously
+ * carried a status dot plus a bare colour-coded priority string, which meant a
+ * third private copy of "what colour is a P1" and a status the user had to
+ * already know the colour code for. Both are gone: the badges say it in words,
+ * and there is now exactly one place where a report's labelling can change.
+ */
 function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
-  const themeColors = useThemeColors();
-  const timeDisplay = formatReportTimestamp(new Date(report.updated_at));
-
-  const dotKind = statusDotMap[report.status] ?? "muted";
-  const dotColor =
-    dotKind === "success"
-      ? themeColors.status.success
-      : dotKind === "warning"
-        ? themeColors.status.warning
-        : dotKind === "error"
-          ? themeColors.status.error
-          : dotKind === "info"
-            ? themeColors.status.info
-            : dotKind === "accent"
-              ? themeColors.accent[9]
-              : themeColors.gray[8];
-
-  const priorityClass = report.priority
-    ? (priorityColorMap[report.priority] ?? "text-gray-10")
-    : null;
+  const timeDisplay = formatRelativeTime(Date.parse(report.updated_at));
 
   return (
     <Pressable
       onPress={() => onPress(report)}
       className="flex-row items-start gap-2.5 border-gray-6 border-b px-3 py-2.5 active:bg-gray-3"
     >
-      <View
-        className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-        style={{ backgroundColor: dotColor }}
-      />
-
       <View className="min-w-0 flex-1">
         <Text
           className="font-medium text-[14px] text-gray-12 leading-snug"
@@ -73,13 +38,15 @@ function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
           {report.title ?? "Untitled report"}
         </Text>
 
-        <View className="mt-1 flex-row items-center gap-2">
-          {priorityClass ? (
-            <Text className={`font-semibold text-[11px] ${priorityClass}`}>
-              {report.priority}
-            </Text>
-          ) : null}
-          <Text className="flex-1 text-[11px] text-gray-9" numberOfLines={1}>
+        {/* Badges wrap before the timestamp does, so a report with all three
+            labels grows the row by one line instead of truncating them. */}
+        <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5">
+          {report.priority && <PriorityBadge priority={report.priority} />}
+          <StatusBadge status={report.status} />
+          {report.actionability && (
+            <ActionabilityBadge value={report.actionability} />
+          )}
+          <Text className="text-[11px] text-gray-9" numberOfLines={1}>
             {timeDisplay}
           </Text>
         </View>

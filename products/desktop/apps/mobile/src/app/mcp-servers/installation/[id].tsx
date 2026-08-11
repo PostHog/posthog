@@ -1,5 +1,7 @@
+import { FloatingScreenHeader } from "@components/FloatingScreenHeader";
 import { Text } from "@components/text";
 import type { McpApprovalState } from "@posthog/api-client/types";
+import { isStdioMcpServer } from "@posthog/core/mcp-servers/presentation";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   ArrowsClockwise,
@@ -17,7 +19,6 @@ import {
   Switch,
   View,
 } from "react-native";
-import { FloatingMcpHeader } from "@/features/mcp/components/FloatingMcpHeader";
 import { ServerIcon } from "@/features/mcp/components/ServerIcon";
 import {
   useMcpInstallations,
@@ -28,7 +29,6 @@ import {
   useUpdateMcpToolApproval,
 } from "@/features/mcp/hooks";
 import { reauthorizeInstallation } from "@/features/mcp/oauth";
-import { isStdioMcpServer } from "@/features/mcp/presentation";
 import { getMcpConnectionManager } from "@/features/mcp/service";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { logger } from "@/lib/logger";
@@ -58,7 +58,7 @@ export default function McpInstallationDetailScreen() {
   if (installations.isPending || !installation) {
     return (
       <View className="flex-1 bg-background">
-        <FloatingMcpHeader title="Server" />
+        <FloatingScreenHeader title="Server" />
         <View
           className="flex-1 items-center justify-center"
           style={{ paddingTop: insets.top + 60 }}
@@ -134,7 +134,7 @@ export default function McpInstallationDetailScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <FloatingMcpHeader
+      <FloatingScreenHeader
         title={installation.display_name || installation.name}
       />
 
@@ -153,6 +153,9 @@ export default function McpInstallationDetailScreen() {
               tools.refetch();
             }}
             tintColor={themeColors.accent[9]}
+            // This ScrollView starts under the translucent floating header, so
+            // the spinner has to start below it or it refreshes out of sight.
+            progressViewOffset={insets.top + 60}
           />
         }
       >

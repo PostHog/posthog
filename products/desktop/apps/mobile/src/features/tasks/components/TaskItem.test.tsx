@@ -1,20 +1,49 @@
 import type { Task } from "@posthog/shared";
 import { createElement } from "react";
 import { act, create } from "react-test-renderer";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PrChipStatus } from "../utils/prPresentation";
 import { TaskItem } from "./TaskItem";
 
-vi.mock("phosphor-react-native", () => ({
-  Check: (props: Record<string, unknown>) => createElement("Check", props),
-  GitPullRequest: (props: Record<string, unknown>) =>
-    createElement("GitPullRequest", props),
+const { mockPrStatus } = vi.hoisted(() => ({
+  mockPrStatus: vi.fn<() => PrChipStatus | null>(() => null),
 }));
+
+// The row's own glyphs, plus every icon `taskOrigin` can hand back — the row
+// imports the whole origin map, so a missing entry here fails at import time
+// rather than in the assertion that needed it.
+vi.mock("phosphor-react-native", () => {
+  const icon = (name: string) => (props: Record<string, unknown>) =>
+    createElement(name, props);
+  return {
+    Binoculars: icon("Binoculars"),
+    Broadcast: icon("Broadcast"),
+    Bug: icon("Bug"),
+    Check: icon("Check"),
+    FilmSlate: icon("FilmSlate"),
+    Flask: icon("Flask"),
+    GitMerge: icon("GitMerge"),
+    GitPullRequest: icon("GitPullRequest"),
+    Laptop: icon("Laptop"),
+    Lifebuoy: icon("Lifebuoy"),
+    PushPin: icon("PushPin"),
+    Robot: icon("Robot"),
+    SlackLogo: icon("SlackLogo"),
+  };
+});
 
 vi.mock("@/lib/theme", () => ({
   useThemeColors: () => ({
-    gray: { 11: "#444444" },
+    gray: { 9: "#888888", 11: "#444444" },
     accent: { 9: "#ff5500" },
+    status: { success: "#00aa00", error: "#cc0000" },
   }),
+}));
+
+// The chip fetches live PR state through react-query; the row tests render
+// without a provider, so the hook stands in for the network.
+vi.mock("../hooks/usePrStatus", () => ({
+  usePrStatus: () => ({ data: mockPrStatus() }),
 }));
 
 vi.mock("@components/text", () => ({
@@ -58,15 +87,21 @@ function makeTask(run?: Partial<NonNullable<Task["latest_run"]>>): Task {
   };
 }
 
-function render(task: Task) {
+function render(task: Task, pinned = false) {
   let renderer!: ReturnType<typeof create>;
   act(() => {
-    renderer = create(createElement(TaskItem, { task, onPress: () => {} }));
+    renderer = create(
+      createElement(TaskItem, { task, pinned, onPress: () => {} }),
+    );
   });
   return renderer;
 }
 
 describe("TaskItem", () => {
+  beforeEach(() => {
+    mockPrStatus.mockReturnValue(null);
+  });
+
   function prIcons(renderer: ReturnType<typeof create>) {
     return renderer.root.findAll(
       (node) => String(node.type) === "GitPullRequest",
@@ -132,5 +167,160 @@ describe("TaskItem", () => {
     ],
   ])("does not show the PR badge when %s", (_label, task) => {
     expect(prIcons(render(task))).toHaveLength(0);
+  });
+
+  function chipLabelNode(renderer: ReturnType<typeof create>) {
+    return renderer.root.findAll(
+      (node) => String(node.type) === "Text" && node.props.children === "#2422",
+    )[0];
+  }
+
+  const prTask = () =>
+    makeTask({
+      output: { pr_url: "https://github.com/PostHog/code/pull/2422" },
+    });
+
+  it.each<[string, PrChipStatus | null, string]>([
+    ["unresolved", null, "text-gray-11"],
+    [
+      "open",
+      { state: "open", merged: false, draft: false },
+      "text-status-success",
+    ],
+    ["draft", { state: "open", merged: false, draft: true }, "text-gray-11"],
+    [
+      "closed",
+      { state: "closed", merged: false, draft: false },
+      "text-status-error",
+    ],
+    [
+      "merged",
+      { state: "closed", merged: true, draft: false },
+      "text-[#8e4ec6]",
+    ],
+  ])("colors the chip for a %s PR", (_label, status, expected) => {
+    mockPrStatus.mockReturnValue(status);
+
+    expect(chipLabelNode(render(prTask())).props.className).toContain(expected);
+  });
+
+  it("swaps in the merge glyph once the PR is merged", () => {
+    mockPrStatus.mockReturnValue({
+      state: "closed",
+      merged: true,
+      draft: false,
+    });
+    const renderer = render(prTask());
+
+    expect(
+      renderer.root.findAll((node) => String(node.type) === "GitMerge"),
+    ).toHaveLength(1);
+    expect(prIcons(renderer)).toHaveLength(0);
+  });
+
+  function pinIcons(renderer: ReturnType<typeof create>) {
+    return renderer.root.findAll((node) => String(node.type) === "PushPin");
+  }
+
+  it.each([
+    { pinned: true, expected: 1 },
+    { pinned: false, expected: 0 },
+  ])(
+    "renders $expected pin indicator(s) when pinned is $pinned",
+    ({ pinned, expected }) => {
+      expect(pinIcons(render(makeTask(), pinned))).toHaveLength(expected);
+    },
+  );
+
+  function laptopIcons(renderer: ReturnType<typeof create>) {
+    return renderer.root.findAll((node) => String(node.type) === "Laptop");
+  }
+
+  function titleNode(renderer: ReturnType<typeof create>) {
+    return renderer.root.findAll(
+      (node) =>
+        String(node.type) === "Text" && node.props.children === "Test task",
+    )[0];
+  }
+
+  it.each([
+    ["a finished desktop run", makeTask({ environment: "local" }), 1],
+    [
+      "a live desktop run",
+      makeTask({ environment: "local", status: "in_progress" }),
+      1,
+    ],
+    ["a cloud run", makeTask({ environment: "cloud" }), 0],
+    ["no run at all", makeTask(), 0],
+  ])(
+    "marks %s with the right number of laptop glyphs",
+    (_label, task, expected) => {
+      expect(laptopIcons(render(task))).toHaveLength(expected);
+    },
+  );
+
+  it("renders composer pseudo-tags in the description as readable text", () => {
+    const task = makeTask();
+    task.description =
+      'review <file path="/Users/vasco/repo/src/a.ts" /> for <github_pr number="12" title="Ship it" url="https://github.com/org/repo/pull/12" />';
+    const renderer = render(task);
+
+    const description = renderer.root.findAll(
+      (node) =>
+        String(node.type) === "Text" &&
+        typeof node.props.children === "string" &&
+        node.props.children.startsWith("review "),
+    )[0];
+
+    expect(description.props.children).toBe(
+      "review @src/a.ts for @#12 - Ship it",
+    );
+  });
+
+  it("dims the title of a desktop-local task", () => {
+    const local = titleNode(render(makeTask({ environment: "local" })));
+    const cloud = titleNode(render(makeTask({ environment: "cloud" })));
+
+    expect(local.props.className).toContain("text-gray-10");
+    expect(cloud.props.className).toContain("text-gray-12");
+  });
+
+  it.each<[string, string]>([
+    ["signal_report", "Broadcast"],
+    ["slack", "SlackLogo"],
+    ["automation", "Robot"],
+  ])("brands a %s task with its origin glyph", (origin, glyph) => {
+    const task = { ...makeTask(), origin_product: origin };
+    const renderer = render(task);
+
+    expect(
+      renderer.root.findAll((node) => String(node.type) === glyph),
+    ).toHaveLength(1);
+  });
+
+  it("names the origin for screen readers without spending a text label", () => {
+    const task = { ...makeTask(), origin_product: "signal_report" };
+    const labelled = render(task).root.findAll(
+      (node) => node.props.accessibilityLabel === "From inbox",
+    );
+
+    expect(labelled).toHaveLength(1);
+    // The glyph carries it visually — no visible caption at list density.
+    expect(
+      render(task).root.findAll(
+        (node) =>
+          String(node.type) === "Text" && node.props.children === "From inbox",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("leaves a task the user typed unbranded", () => {
+    const renderer = render({ ...makeTask(), origin_product: "user_created" });
+
+    for (const glyph of ["Broadcast", "SlackLogo", "Robot"]) {
+      expect(
+        renderer.root.findAll((node) => String(node.type) === glyph),
+      ).toHaveLength(0);
+    }
   });
 });

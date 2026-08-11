@@ -53,7 +53,7 @@ describe("AutomationSkillChooser", () => {
       refetch: vi.fn(),
     });
 
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
     act(() => {
       renderer = create(
         createElement(AutomationSkillChooser, {
@@ -62,10 +62,6 @@ describe("AutomationSkillChooser", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const labels = renderer.root
       .findAll((node) => typeof node.props.children === "string")
@@ -89,7 +85,7 @@ describe("AutomationSkillChooser", () => {
 
     const onCreateCustom = vi.fn();
     const onSelectSkill = vi.fn();
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
     act(() => {
       renderer = create(
         createElement(AutomationSkillChooser, {
@@ -98,10 +94,6 @@ describe("AutomationSkillChooser", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const buttons = renderer.root.findAll(
       (node) => typeof node.props.onPress === "function",
@@ -126,7 +118,7 @@ describe("AutomationSkillChooser", () => {
       refetch: vi.fn(),
     });
 
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
     act(() => {
       renderer = create(
         createElement(AutomationSkillChooser, {
@@ -135,10 +127,6 @@ describe("AutomationSkillChooser", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const searchInput = renderer.root.findByProps({
       placeholder: "Search skills",

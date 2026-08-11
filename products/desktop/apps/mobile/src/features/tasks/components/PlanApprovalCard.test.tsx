@@ -47,7 +47,7 @@ function findPressableWithText(
 describe("PlanApprovalCard", () => {
   it("renders the plan with the markdown renderer", () => {
     const plan = "# Plan\n\n1. Inspect renderer\n2. Fix markdown output";
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -76,16 +76,12 @@ describe("PlanApprovalCard", () => {
       );
     });
 
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
-
     expect(renderer.root.findByType("MarkdownText").props.content).toBe(plan);
   });
 
   it("sends the selected approval option immediately", () => {
     const onSendPermissionResponse = vi.fn();
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -114,10 +110,6 @@ describe("PlanApprovalCard", () => {
       );
     });
 
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
-
     const approveButton = findPressableWithText(
       renderer,
       "Yes, and manually approve edits",
@@ -136,7 +128,7 @@ describe("PlanApprovalCard", () => {
 
   it("collects feedback before sending the reject option", () => {
     const onSendPermissionResponse = vi.fn();
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -165,10 +157,6 @@ describe("PlanApprovalCard", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const feedbackOption = findPressableWithText(
       renderer,

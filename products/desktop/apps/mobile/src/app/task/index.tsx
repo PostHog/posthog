@@ -3,6 +3,7 @@ import {
   DEFAULT_CLAUDE_EXECUTION_MODE,
   getAvailableModesForAdapter,
 } from "@posthog/core/sessions/executionModes";
+import { getModelConfigOption } from "@posthog/core/task-detail/composerControls";
 import { resolveCloudComposerModelChange } from "@posthog/core/task-detail/composerModelPolicy";
 import {
   type Adapter,
@@ -31,17 +32,15 @@ import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   TextInput,
   View,
 } from "react-native";
-import {
-  useKeyboardHandler,
-  useReanimatedKeyboardAnimation,
-} from "react-native-keyboard-controller";
-import Animated, { runOnJS, useAnimatedStyle } from "react-native-reanimated";
-import { useVoiceRecording } from "@/features/chat";
+import { useMicPressHandlers, useVoiceRecording } from "@/features/chat";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { GitHubConnectionPrompt } from "@/features/tasks/components/GitHubConnectionPrompt";
 import { GitHubLoadNotice } from "@/features/tasks/components/GitHubLoadNotice";
@@ -61,10 +60,10 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   filterKimiModelConfigOptions,
   getMobileExecutionModes,
-  getModelConfigOption,
 } from "@/features/tasks/composer/options";
 import { RepositoryPickerInline } from "@/features/tasks/composer/RepositoryPickerInline";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
+import { taskKeys } from "@/features/tasks/hooks/useTasks";
 import { useUserIntegrations } from "@/features/tasks/hooks/useUserIntegrations";
 import { useWarmTask } from "@/features/tasks/hooks/useWarmTask";
 import { pendingPromptRecoveryStoreApi } from "@/features/tasks/stores/pendingPromptRecoveryStore";
@@ -85,7 +84,9 @@ import {
 } from "@/features/tasks/utils/repositorySelection";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { logger } from "@/lib/logger";
+import { MODAL_PRESENTATION } from "@/lib/navigation";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
+import { queryClient } from "@/lib/queryClient";
 import { toRgba, useThemeColors } from "@/lib/theme";
 
 const log = logger.scope("task-create");
@@ -108,7 +109,7 @@ export default function NewTaskScreen() {
   const router = useRouter();
   const themeColors = useThemeColors();
   const { insets, bottom } = useScreenInsets();
-  const keyboard = useReanimatedKeyboardAnimation();
+
   const restingBottom = bottom("compact");
   const [adapter, setAdapter] = useState<Adapter>("claude");
   const {
@@ -133,28 +134,24 @@ export default function NewTaskScreen() {
     getUserIntegrationId,
   } = useUserIntegrations();
 
-  const containerStyle = useAnimatedStyle(() => {
-    const kbHeight = -keyboard.height.value;
-    const progress = keyboard.progress.value;
-    return {
-      paddingBottom: kbHeight + restingBottom * (1 - progress),
-    };
-  });
-
-  const suggestionsStyle = useAnimatedStyle(() => ({
-    opacity: 1 - keyboard.progress.value,
-  }));
-
+  // Core RN keyboard handling, deliberately not the Reanimated-based
+  // keyboard-controller hooks: on this repo's dev builds the worklets runtime
+  // can fail to initialize, silently no-oping every Reanimated style — which
+  // rendered this screen as an empty dot canvas. KeyboardAvoidingView plus
+  // plain Keyboard listeners have no such dependency.
   const [keyboardActive, setKeyboardActive] = useState(false);
-  useKeyboardHandler(
-    {
-      onStart: (event) => {
-        "worklet";
-        runOnJS(setKeyboardActive)(event.height > 0);
-      },
-    },
-    [],
-  );
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardWillShow", () =>
+      setKeyboardActive(true),
+    );
+    const hideSub = Keyboard.addListener("keyboardWillHide", () =>
+      setKeyboardActive(false),
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Default the repo to the URL param (deep-link from a signal report etc.),
   // falling back to the most recently used repo so the user doesn't have to
@@ -239,19 +236,14 @@ export default function NewTaskScreen() {
   const isRecording = voiceStatus === "recording";
   const isTranscribing = voiceStatus === "transcribing";
 
-  const handleMicPress = useCallback(async () => {
-    if (isRecording) {
-      await stopRecording();
-    } else if (!isTranscribing) {
-      await startRecording();
-    }
-  }, [isRecording, isTranscribing, startRecording, stopRecording]);
-
-  const handleMicLongPress = useCallback(async () => {
-    if (isRecording) {
-      await cancelRecording();
-    }
-  }, [isRecording, cancelRecording]);
+  const { onMicPress, onMicLongPress, onMicPressOut } = useMicPressHandlers({
+    isRecording,
+    isTranscribing,
+    holdToRecordEnabled: !prompt.trim() && attachments.length === 0,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  });
 
   const addAttachment = useCallback(
     async (picker: () => Promise<PendingAttachment | null>) => {
@@ -352,6 +344,11 @@ export default function NewTaskScreen() {
       currentPendingKey = task.id;
       pendingPromptRecoveryStoreApi.clear(pendingKey);
 
+      // The task list only refetches while it already has an active run, so
+      // without an explicit invalidation the new task can stay hidden from
+      // the overview indefinitely.
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+
       // Seed the per-task composer config with the mode/model/reasoning the
       // user picked here, so the task detail screen reflects them and every
       // subsequent run (resume-after-terminal) reuses the selected mode rather
@@ -449,7 +446,7 @@ export default function NewTaskScreen() {
             headerTitle: "New task",
             headerStyle: { backgroundColor: themeColors.background },
             headerTintColor: themeColors.gray[12],
-            presentation: "modal",
+            presentation: MODAL_PRESENTATION,
           }}
         />
         <View className="flex-1 items-center justify-center bg-background">
@@ -469,7 +466,7 @@ export default function NewTaskScreen() {
             headerTitle: "New task",
             headerStyle: { backgroundColor: themeColors.background },
             headerTintColor: themeColors.gray[12],
-            presentation: "modal",
+            presentation: MODAL_PRESENTATION,
           }}
         />
         <View className="flex-1 justify-center bg-background px-4">
@@ -505,7 +502,10 @@ export default function NewTaskScreen() {
       <View className="flex-1 bg-background">
         <DotBackground />
 
-        <Animated.View style={[{ flex: 1 }, containerStyle]}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1, paddingBottom: restingBottom }}
+        >
           <View className="flex-1 justify-center px-4">
             <View style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}>
               <View className="mb-2">
@@ -685,12 +685,13 @@ export default function NewTaskScreen() {
                       isTranscribing
                         ? undefined
                         : isRecording
-                          ? handleMicPress
+                          ? onMicPress
                           : hasContent
                             ? handleCreateTask
-                            : handleMicPress
+                            : onMicPress
                     }
-                    onLongPress={handleMicLongPress}
+                    onLongPress={onMicLongPress}
+                    onPressOut={onMicPressOut}
                     disabled={
                       isTranscribing ||
                       (hasContent && !canSubmit && !isRecording)
@@ -742,8 +743,8 @@ export default function NewTaskScreen() {
               </View>
 
               {!repoSheetOpen && prompt.trim().length === 0 ? (
-                <Animated.View
-                  style={suggestionsStyle}
+                <View
+                  style={{ opacity: keyboardActive ? 0 : 1 }}
                   pointerEvents={keyboardActive ? "none" : "auto"}
                   className="mt-6"
                 >
@@ -763,11 +764,11 @@ export default function NewTaskScreen() {
                       </Pressable>
                     ))}
                   </View>
-                </Animated.View>
+                </View>
               ) : null}
             </View>
           </View>
-        </Animated.View>
+        </KeyboardAvoidingView>
       </View>
 
       <AttachmentSheet

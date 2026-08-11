@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useRef } from "react";
 import { InteractionManager, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { NavDrawer } from "@/features/navigation/components/NavDrawer";
 import { AutomationList } from "@/features/tasks/components/AutomationList";
 import { FloatingAutomationsHeader } from "@/features/tasks/components/FloatingAutomationsHeader";
 import { FloatingNewAutomationButton } from "@/features/tasks/components/FloatingNewAutomationButton";
@@ -58,6 +59,7 @@ export default function AutomationsScreen() {
       {hasAutomations ? (
         <FloatingNewAutomationButton onPress={handleCreateAutomation} />
       ) : null}
+      <NavDrawer />
     </View>
   );
 }

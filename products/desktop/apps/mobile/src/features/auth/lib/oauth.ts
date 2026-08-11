@@ -1,7 +1,8 @@
+import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
-import type { CloudRegion, OAuthConfig, OAuthTokenResponse } from "../types";
-import { getCloudUrlFromRegion, getOauthClientIdFromRegion } from "./constants";
+import type { OAuthConfig, OAuthTokenResponse } from "../types";
+import { getOauthClientIdFromRegion } from "./constants";
 
 // Required for web browser auth session to work properly
 WebBrowser.maybeCompleteAuthSession();

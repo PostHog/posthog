@@ -62,7 +62,7 @@ describe("AutomationForm", () => {
       refetch: vi.fn(),
     });
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -80,10 +80,6 @@ describe("AutomationForm", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     // Repository picker is only mounted when `repositoryRequired` is true.
     expect(renderer.root.findAllByType("RepositoryPickerInline")).toHaveLength(
@@ -122,7 +118,7 @@ describe("AutomationForm", () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -141,10 +137,6 @@ describe("AutomationForm", () => {
       );
     });
 
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
-
     expect(renderer.root.findAllByType("GitHubConnectionPrompt")).toHaveLength(
       1,
     );
@@ -159,7 +151,7 @@ describe("AutomationForm", () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -178,10 +170,6 @@ describe("AutomationForm", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     expect(renderer.root.findAllByType(TextInput)).toHaveLength(1);
     expect(renderer.root.findByType("MarkdownText").props.content).toBe(
@@ -205,7 +193,7 @@ describe("AutomationForm", () => {
       refetch: vi.fn(),
     });
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -223,10 +211,6 @@ describe("AutomationForm", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const repositoryPicker = renderer.root.findByType("RepositoryPickerInline");
 

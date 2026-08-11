@@ -1,6 +1,6 @@
 import { Text } from "@components/text";
-import { parseDiffLines } from "@posthog/core/inbox/activityLog";
 import { ScrollView, View } from "react-native";
+import { parseDiffLines } from "../activityLog";
 
 const LINE_CLASS: Record<string, string> = {
   add: "bg-status-success/15 text-status-success",

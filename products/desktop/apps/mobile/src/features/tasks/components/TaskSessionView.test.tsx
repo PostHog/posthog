@@ -168,7 +168,7 @@ describe("TaskSessionView", () => {
       },
     ];
 
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -179,10 +179,6 @@ describe("TaskSessionView", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     act(() => {
       renderer.update(

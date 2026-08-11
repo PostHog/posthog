@@ -1,21 +1,43 @@
 import { Text } from "@components/text";
-import { taskActivityTimestamp } from "@posthog/core/tasks/taskActivity";
 import type { Task } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
-import { Archive, GitBranch, Plus, Sparkle, X } from "phosphor-react-native";
-import { useCallback, useMemo, useState } from "react";
+import {
+  Archive,
+  CaretDown,
+  GitBranch,
+  Plus,
+  PushPin,
+  PushPinSlash,
+  Sparkle,
+  X,
+} from "phosphor-react-native";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   FlatList,
+  LayoutAnimation,
   Pressable,
   RefreshControl,
   View,
 } from "react-native";
 import { useThemeColors } from "@/lib/theme";
+import { useAwaitingInputTaskIds } from "../hooks/useAwaitingInputTasks";
+import { usePinnedTasks } from "../hooks/usePinnedTasks";
 import { useTasks } from "../hooks/useTasks";
 import { useUserIntegrations } from "../hooks/useUserIntegrations";
 import { useArchivedTasksStore } from "../stores/archivedTasksStore";
 import { useTaskStore } from "../stores/taskStore";
+import { resolveBulkPinTargets } from "../utils/bulkPin";
+import { buildTaskListItems } from "../utils/taskListItems";
 import { GitHubConnectionPrompt } from "./GitHubConnectionPrompt";
 import { GitHubLoadNotice } from "./GitHubLoadNotice";
 import { SwipeableTaskItem } from "./SwipeableTaskItem";
@@ -25,6 +47,11 @@ interface TaskListProps {
   onCreateTask?: () => void;
   /** Top inset so the list can scroll behind a floating header. */
   contentInsetTop?: number;
+  /** Fired when long-press multi-select starts/ends, so the parent can hide
+   *  chrome (e.g. the new-task FAB) that overlaps the selection bar. */
+  onSelectionModeChange?: (active: boolean) => void;
+  /** Rendered above the first row, scrolling with the list. */
+  listHeader?: ReactNode;
 }
 
 interface CreateTaskEmptyStateProps {
@@ -64,44 +91,88 @@ function CreateTaskEmptyState({ onCreateTask }: CreateTaskEmptyStateProps) {
   );
 }
 
-type ListItem =
-  | { type: "task"; task: Task }
-  | { type: "repo-header"; repoLabel: string; count: number }
-  | { type: "date-header"; label: string; count: number };
+function CollapseChevron({
+  collapsed,
+  color,
+}: {
+  collapsed: boolean;
+  color: string;
+}) {
+  const progress = useRef(new Animated.Value(collapsed ? 1 : 0)).current;
 
-const NO_REPO_LABEL = "No repository";
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: collapsed ? 1 : 0,
+      duration: 150,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  }, [collapsed, progress]);
 
-function relativeDateGroup(ms: number): string {
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfDate = new Date(ms);
-  startOfDate.setHours(0, 0, 0, 0);
-  const days = Math.round(
-    (startOfToday.getTime() - startOfDate.getTime()) / 86_400_000,
+  const rotate = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "-90deg"],
+  });
+
+  return (
+    <Animated.View style={{ transform: [{ rotate }] }}>
+      <CaretDown size={12} color={color} weight="bold" />
+    </Animated.View>
   );
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return "This week";
-  if (days < 30) return "This month";
-  return "Earlier";
 }
 
-const DATE_GROUP_ORDER = [
-  "Today",
-  "Yesterday",
-  "This week",
-  "This month",
-  "Earlier",
-];
+interface GroupHeaderProps {
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onPress: () => void;
+  icon?: ReactNode;
+  uppercase?: boolean;
+}
+
+function GroupHeader({
+  label,
+  count,
+  collapsed,
+  onPress,
+  icon,
+  uppercase = false,
+}: GroupHeaderProps) {
+  const themeColors = useThemeColors();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center gap-2 bg-gray-2 px-3 py-2 active:bg-gray-3"
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !collapsed }}
+      accessibilityLabel={`${label}, ${count} tasks`}
+      accessibilityHint={
+        collapsed ? "Expands the group" : "Collapses the group"
+      }
+    >
+      <CollapseChevron collapsed={collapsed} color={themeColors.gray[10]} />
+      {icon}
+      <Text
+        className={`flex-1 font-medium text-[12px] text-gray-11 ${uppercase ? "uppercase" : ""}`}
+        style={uppercase ? { letterSpacing: 0.5 } : null}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      <Text className="text-[11px] text-gray-9">{count}</Text>
+    </Pressable>
+  );
+}
 
 export function TaskList({
   onTaskPress,
   onCreateTask,
   contentInsetTop = 0,
+  onSelectionModeChange,
+  listHeader,
 }: TaskListProps) {
-  const { tasks, isLoading, error, refetch } = useTasks({
-    originProduct: "user_created",
-  });
+  const { tasks, isLoading, error, refetch } = useTasks();
   const {
     error: integrationsError,
     hasGithubIntegration,
@@ -110,12 +181,20 @@ export function TaskList({
   const themeColors = useThemeColors();
   const { archivedTasks, archive, archiveMany, unarchive } =
     useArchivedTasksStore();
+  const { isPinned, togglePin } = usePinnedTasks();
+  const awaitingInputTaskIds = useAwaitingInputTaskIds();
   const organizeMode = useTaskStore((s) => s.organizeMode);
   const sortMode = useTaskStore((s) => s.sortMode);
+  const collapsedGroups = useTaskStore((s) => s.collapsedGroups);
+  const toggleGroupCollapsed = useTaskStore((s) => s.toggleGroupCollapsed);
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const selectionMode = selectedIds.size > 0;
+
+  useEffect(() => {
+    onSelectionModeChange?.(selectionMode);
+  }, [selectionMode, onSelectionModeChange]);
 
   const exitSelection = useCallback(() => {
     setSelectedIds(new Set());
@@ -158,83 +237,45 @@ export function TaskList({
     exitSelection();
   }, [selectedIds, archiveMany, exitSelection]);
 
+  const { targetPinned: bulkPinWouldPin, toToggle: bulkPinToToggle } =
+    resolveBulkPinTargets(selectedIds, isPinned);
+
+  const handleBulkPin = useCallback(() => {
+    if (bulkPinToToggle.length === 0) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    for (const taskId of bulkPinToToggle) {
+      togglePin(taskId);
+    }
+    exitSelection();
+  }, [bulkPinToToggle, togglePin, exitSelection]);
+
   const handleRefresh = async () => {
     await Promise.all([refetch(), refetchIntegrations()]);
   };
 
-  const listItems = useMemo((): ListItem[] => {
-    const active = tasks.filter((task) => !(task.id in archivedTasks));
-    const items: ListItem[] = [];
+  const handleToggleGroup = useCallback(
+    (groupKey: string) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      toggleGroupCollapsed(groupKey);
+    },
+    [toggleGroupCollapsed],
+  );
 
-    if (organizeMode === "by-project") {
-      const groups = new Map<string, Task[]>();
-      for (const task of active) {
-        const key = task.repository?.trim() || NO_REPO_LABEL;
-        const bucket = groups.get(key);
-        if (bucket) {
-          bucket.push(task);
-        } else {
-          groups.set(key, [task]);
-        }
-      }
+  const collapsedGroupKeys = useMemo(
+    () => new Set(collapsedGroups),
+    [collapsedGroups],
+  );
 
-      for (const tasksInRepo of groups.values()) {
-        tasksInRepo.sort(
-          (a, b) =>
-            taskActivityTimestamp(b, sortMode) -
-            taskActivityTimestamp(a, sortMode),
-        );
-      }
-
-      const groupEntries = Array.from(groups.entries()).sort((a, b) => {
-        if (a[0] === NO_REPO_LABEL) return 1;
-        if (b[0] === NO_REPO_LABEL) return -1;
-        return (
-          taskActivityTimestamp(b[1][0], sortMode) -
-          taskActivityTimestamp(a[1][0], sortMode)
-        );
-      });
-
-      for (const [repoLabel, tasksInRepo] of groupEntries) {
-        items.push({
-          type: "repo-header",
-          repoLabel,
-          count: tasksInRepo.length,
-        });
-        for (const task of tasksInRepo) {
-          items.push({ type: "task", task });
-        }
-      }
-    } else {
-      const sorted = [...active].sort(
-        (a, b) =>
-          taskActivityTimestamp(b, sortMode) -
-          taskActivityTimestamp(a, sortMode),
-      );
-
-      const buckets = new Map<string, Task[]>();
-      for (const task of sorted) {
-        const label = relativeDateGroup(taskActivityTimestamp(task, sortMode));
-        const bucket = buckets.get(label);
-        if (bucket) {
-          bucket.push(task);
-        } else {
-          buckets.set(label, [task]);
-        }
-      }
-
-      for (const label of DATE_GROUP_ORDER) {
-        const bucket = buckets.get(label);
-        if (!bucket || bucket.length === 0) continue;
-        items.push({ type: "date-header", label, count: bucket.length });
-        for (const task of bucket) {
-          items.push({ type: "task", task });
-        }
-      }
-    }
-
-    return items;
-  }, [tasks, archivedTasks, organizeMode, sortMode]);
+  const listItems = useMemo(
+    () =>
+      buildTaskListItems({
+        tasks: tasks.filter((task) => !(task.id in archivedTasks)),
+        organizeMode,
+        sortMode,
+        collapsedGroupKeys,
+      }),
+    [tasks, archivedTasks, organizeMode, sortMode, collapsedGroupKeys],
+  );
 
   if (error) {
     return (
@@ -297,52 +338,42 @@ export function TaskList({
       <FlatList
         scrollEnabled={scrollEnabled}
         data={listItems}
-        keyExtractor={(item) => {
-          switch (item.type) {
-            case "repo-header":
-              return `__repo__${item.repoLabel}`;
-            case "date-header":
-              return `__date__${item.label}`;
-            case "task":
-              return item.task.id;
-          }
-        }}
+        keyExtractor={(item) =>
+          item.type === "task" ? item.task.id : item.groupKey
+        }
         ListHeaderComponent={
-          integrationsError ? (
-            <GitHubLoadNotice
-              message={integrationsError}
-              onRetry={handleRefresh}
-            />
-          ) : null
+          <>
+            {listHeader}
+            {integrationsError ? (
+              <GitHubLoadNotice
+                message={integrationsError}
+                onRetry={handleRefresh}
+              />
+            ) : null}
+          </>
         }
         renderItem={({ item }) => {
           if (item.type === "repo-header") {
             return (
-              <View className="flex-row items-center gap-2 bg-gray-2 px-3 py-2">
-                <GitBranch size={14} color={themeColors.gray[10]} />
-                <Text
-                  className="flex-1 font-medium text-[12px] text-gray-11"
-                  numberOfLines={1}
-                >
-                  {item.repoLabel}
-                </Text>
-                <Text className="text-[11px] text-gray-9">{item.count}</Text>
-              </View>
+              <GroupHeader
+                label={item.repoLabel}
+                count={item.count}
+                collapsed={item.collapsed}
+                onPress={() => handleToggleGroup(item.groupKey)}
+                icon={<GitBranch size={14} color={themeColors.gray[10]} />}
+              />
             );
           }
 
           if (item.type === "date-header") {
             return (
-              <View className="flex-row items-center gap-2 bg-gray-2 px-3 py-2">
-                <Text
-                  className="flex-1 font-medium text-[12px] text-gray-11 uppercase"
-                  style={{ letterSpacing: 0.5 }}
-                  numberOfLines={1}
-                >
-                  {item.label}
-                </Text>
-                <Text className="text-[11px] text-gray-9">{item.count}</Text>
-              </View>
+              <GroupHeader
+                label={item.label}
+                count={item.count}
+                collapsed={item.collapsed}
+                onPress={() => handleToggleGroup(item.groupKey)}
+                uppercase
+              />
             );
           }
 
@@ -356,6 +387,8 @@ export function TaskList({
               onLongPress={handleTaskLongPress}
               selectionMode={selectionMode}
               selected={selectedIds.has(item.task.id)}
+              pinned={isPinned(item.task.id)}
+              awaitingInput={awaitingInputTaskIds.has(item.task.id)}
               onSwipeStart={() => setScrollEnabled(false)}
               onSwipeEnd={() => setScrollEnabled(true)}
             />
@@ -366,6 +399,9 @@ export function TaskList({
             refreshing={isLoading}
             onRefresh={handleRefresh}
             tintColor={themeColors.accent[9]}
+            // The list scrolls behind a translucent floating header, so the
+            // spinner has to start below it or it refreshes out of sight.
+            progressViewOffset={contentInsetTop}
           />
         }
         contentContainerStyle={{
@@ -393,6 +429,26 @@ export function TaskList({
           >
             {selectedIds.size} selected
           </Text>
+          {/* Icon-only so the bar still fits a two-digit count plus Archive
+              on the narrowest phones. */}
+          <Pressable
+            onPress={handleBulkPin}
+            hitSlop={8}
+            className="h-10 w-10 items-center justify-center rounded-full bg-gray-3 active:bg-gray-4"
+            accessibilityLabel={
+              bulkPinWouldPin ? "Pin selected tasks" : "Unpin selected tasks"
+            }
+          >
+            {bulkPinWouldPin ? (
+              <PushPin size={18} color={themeColors.gray[11]} weight="fill" />
+            ) : (
+              <PushPinSlash
+                size={18}
+                color={themeColors.gray[11]}
+                weight="fill"
+              />
+            )}
+          </Pressable>
           <Pressable
             onPress={handleBulkArchive}
             className="flex-row items-center gap-2 rounded-full px-4 py-2.5 active:opacity-80"

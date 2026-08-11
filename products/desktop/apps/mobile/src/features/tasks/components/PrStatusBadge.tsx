@@ -3,6 +3,7 @@ import { Pressable } from "react-native";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { toRgba, useThemeColors } from "@/lib/theme";
 import { usePrStatus } from "../hooks/usePrStatus";
+import { MERGED_PR_COLOR } from "../utils/prPresentation";
 
 interface PrStatusBadgeProps {
   prUrl: string;
@@ -12,11 +13,6 @@ interface PrStatusBadgeProps {
   hideWhenUnresolved?: boolean;
   size?: "sm" | "md";
 }
-
-// Mirrors the desktop "merged" PR color (Radix purple-9 family). Theme tokens
-// don't include a purple, and merged-PR purple is recognisable enough that a
-// fixed value works in both light and dark.
-const MERGED_COLOR = "#8e4ec6";
 
 export function PrStatusBadge({
   prUrl,
@@ -37,7 +33,7 @@ export function PrStatusBadge({
   let label = "Open PR";
 
   if (status?.merged) {
-    color = MERGED_COLOR;
+    color = MERGED_PR_COLOR;
     Icon = GitMerge;
     label = "Open merged PR";
   } else if (status?.state === "closed") {

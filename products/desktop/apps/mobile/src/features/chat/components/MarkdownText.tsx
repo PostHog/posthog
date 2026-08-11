@@ -1,6 +1,8 @@
-import { useMemo } from "react";
+import { getCloudUrlFromRegion } from "@posthog/shared";
+import { Fragment, useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { getCloudUrlFromRegion, useAuthStore } from "@/features/auth";
+import { useAuthStore } from "@/features/auth";
+import { parsePseudoTags } from "@/features/chat/utils/pseudoTags";
 import { UNIVERSAL_LINK_PREFIX } from "@/lib/deep-links";
 import { parseGithubIssueUrl } from "@/lib/githubIssueUrl";
 import { openExternalUrl } from "@/lib/openExternalUrl";
@@ -8,6 +10,7 @@ import { type ParsePostHogUrlOptions, parsePostHogUrl } from "@/lib/posthogUrl";
 import { getColorForClass, highlightCode } from "@/lib/syntax-highlight";
 import { useThemeColors } from "@/lib/theme";
 import { CopyButton } from "./CopyButton";
+import { FileRefChip } from "./FileRefChip";
 import { GithubRefChip } from "./GithubRefChip";
 import { MarkdownImage } from "./MarkdownImage";
 import { PostHogRefChip } from "./PostHogRefChip";
@@ -309,7 +312,7 @@ function formatPostHogChipLabel(
   return `${normalizedLinkText} (${posthogRef.refId})`;
 }
 
-function renderInline(
+function renderMarkdownInline(
   text: string,
   posthogUrlOptions: ParsePostHogUrlOptions,
 ): React.ReactNode[] {
@@ -422,6 +425,52 @@ function renderInline(
   }
 
   return nodes.length > 0 ? nodes : [text];
+}
+
+/**
+ * Markdown inline rendering, with the desktop composer's pseudo-tags lifted out
+ * first so `<file path="…" />` / `<github_pr … />` render as chips instead of
+ * raw angle brackets. Tag text never reaches the markdown pass, so a title
+ * containing `*` or `_` can't corrupt the surrounding formatting.
+ */
+function renderInline(
+  text: string,
+  posthogUrlOptions: ParsePostHogUrlOptions,
+): React.ReactNode[] {
+  const segments = parsePseudoTags(text);
+  if (segments.length === 1 && segments[0].type === "text") {
+    return renderMarkdownInline(segments[0].text, posthogUrlOptions);
+  }
+
+  return segments.map((segment, i) => {
+    const key = `tag-${i}`;
+    if (segment.type === "file") {
+      return (
+        <FileRefChip
+          key={key}
+          label={segment.label}
+          fromDesktop={segment.fromDesktop}
+        />
+      );
+    }
+    if (segment.type === "github") {
+      return (
+        <GithubRefChip
+          key={key}
+          href={segment.url}
+          kind={segment.kind}
+          label={segment.label}
+        />
+      );
+    }
+    // Each text run keeps its own key scope, so the positional keys
+    // renderMarkdownInline assigns can't collide across segments.
+    return (
+      <Fragment key={key}>
+        {renderMarkdownInline(segment.text, posthogUrlOptions)}
+      </Fragment>
+    );
+  });
 }
 
 export function MarkdownText({

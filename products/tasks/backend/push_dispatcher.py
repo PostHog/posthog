@@ -266,6 +266,9 @@ def _enqueue_user(
 
     suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id)
     data["notificationKind"] = kind
+    # Push tokens are user-scoped, so the receiving device may have a
+    # different project active. teamId lets it switch before navigating.
+    data["teamId"] = str(task.team_id)
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.

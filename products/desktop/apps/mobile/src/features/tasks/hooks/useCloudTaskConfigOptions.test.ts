@@ -26,7 +26,7 @@ vi.mock("@/lib/posthogApiClient", () => ({
   }),
 }));
 
-import { getModelConfigOption } from "../composer/options";
+import { getModelConfigOption } from "@posthog/core/task-detail/composerControls";
 import { useCloudTaskConfigOptions } from "./useCloudTaskConfigOptions";
 
 function createWrapper(queryClient: QueryClient) {

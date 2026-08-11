@@ -2,6 +2,7 @@ import { Text } from "@components/text";
 import { LinearGradient } from "expo-linear-gradient";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useActiveProjectName } from "@/features/auth";
 import { MenuButton } from "@/features/navigation/components/MenuButton";
 import { toRgba, useThemeColors } from "@/lib/theme";
 import { TaskFilterButton } from "./TaskFilterMenu";
@@ -23,6 +24,7 @@ export function FloatingTasksHeader({
 }: FloatingTasksHeaderProps) {
   const insets = useSafeAreaInsets();
   const themeColors = useThemeColors();
+  const projectName = useActiveProjectName();
 
   const fadeHeight = insets.top + 88;
 
@@ -56,6 +58,11 @@ export function FloatingTasksHeader({
           >
             PostHog
           </Text>
+          {projectName ? (
+            <Text className="text-[11px] text-gray-10" numberOfLines={1}>
+              {projectName}
+            </Text>
+          ) : null}
         </View>
 
         {showFilter ? (

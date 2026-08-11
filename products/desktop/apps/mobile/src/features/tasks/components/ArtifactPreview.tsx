@@ -1,6 +1,6 @@
 import type { TaskRunArtifact } from "@posthog/shared";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowSquareOut, Warning, X } from "phosphor-react-native";
+import { ArrowSquareOut, Export, Warning, X } from "phosphor-react-native";
 import {
   ActivityIndicator,
   Image,
@@ -15,9 +15,16 @@ import WebView from "react-native-webview";
 import { MarkdownText } from "@/features/chat";
 import { applyCspToHtml } from "@/features/mcp/sandbox/mcpAppCsp";
 import { openExternalUrl } from "@/lib/openExternalUrl";
+import { shareUrl } from "@/lib/shareUrl";
 import { useThemeColors } from "@/lib/theme";
 import { useCloudAttachmentPreview } from "../hooks/useCloudAttachmentPreview";
-import { artifactPreviewKind } from "../utils/artifactPreview";
+import {
+  artifactPreviewKind,
+  artifactPreviewNeedsText,
+  formatJsonForPreview,
+} from "../utils/artifactPreview";
+
+const MAX_TEXT_PREVIEW_BYTES = 1_000_000;
 
 interface ArtifactPreviewProps {
   taskId: string;
@@ -42,16 +49,19 @@ export function ArtifactPreview({
     artifact.id ? { runId, artifactId: artifact.id } : undefined,
   );
 
-  // Markdown and HTML render from the file's text; images and the external
+  // Text-family kinds render from the file's body; images and the external
   // fallback only need the presigned URL.
-  const needsText = kind === "markdown" || kind === "html";
+  const needsText = artifactPreviewNeedsText(kind);
+  // A multi-megabyte log/CSV pulled into one Text node freezes the UI (or
+  // OOMs older devices); past this, fall through to "Open externally".
+  const previewTooLarge = (artifact.size ?? 0) > MAX_TEXT_PREVIEW_BYTES;
   const {
     data: text,
     isLoading: textLoading,
     isError: textError,
   } = useQuery({
     queryKey: ["artifactText", url],
-    enabled: needsText && Boolean(url),
+    enabled: needsText && Boolean(url) && !previewTooLarge,
     staleTime: Infinity,
     retry: false,
     queryFn: async (): Promise<string> => {
@@ -61,7 +71,7 @@ export function ArtifactPreview({
     },
   });
 
-  const loading = urlLoading || (needsText && textLoading);
+  const loading = urlLoading || (needsText && !previewTooLarge && textLoading);
 
   return (
     <Modal
@@ -79,14 +89,25 @@ export function ArtifactPreview({
             {name}
           </Text>
           {url ? (
-            <Pressable
-              onPress={() => openExternalUrl(url)}
-              hitSlop={8}
-              className="active:opacity-60"
-              accessibilityLabel="Open externally"
-            >
-              <ArrowSquareOut size={20} color={themeColors.gray[12]} />
-            </Pressable>
+            <>
+              <Pressable
+                onPress={() => void shareUrl(url, name)}
+                hitSlop={8}
+                className="active:opacity-60"
+                accessibilityRole="button"
+                accessibilityLabel={`Share ${name}`}
+              >
+                <Export size={20} color={themeColors.gray[12]} />
+              </Pressable>
+              <Pressable
+                onPress={() => openExternalUrl(url)}
+                hitSlop={8}
+                className="active:opacity-60"
+                accessibilityLabel="Open externally"
+              >
+                <ArrowSquareOut size={20} color={themeColors.gray[12]} />
+              </Pressable>
+            </>
           ) : null}
           <Pressable
             onPress={onClose}
@@ -103,7 +124,7 @@ export function ArtifactPreview({
             <View className="flex-1 items-center justify-center">
               <ActivityIndicator color={themeColors.accent[9]} />
             </View>
-          ) : !url || textError || kind === "unsupported" ? (
+          ) : !url || textError || previewTooLarge || kind === "unsupported" ? (
             <Unsupported
               url={url}
               onShare={() => url && openExternalUrl(url)}
@@ -121,6 +142,14 @@ export function ArtifactPreview({
             >
               <MarkdownText content={text ?? ""} disableRemoteImages />
             </ScrollView>
+          ) : kind === "json" || kind === "text" ? (
+            <PlainTextPreview
+              content={
+                kind === "json"
+                  ? formatJsonForPreview(text ?? "")
+                  : (text ?? "")
+              }
+            />
           ) : (
             <WebView
               originWhitelist={["*"]}
@@ -149,6 +178,25 @@ export function ArtifactPreview({
         </View>
       </View>
     </Modal>
+  );
+}
+
+/**
+ * Monospace body for data, config, and source files. Long lines scroll
+ * horizontally rather than wrapping, so CSV columns and code stay aligned.
+ */
+function PlainTextPreview({ content }: { content: string }) {
+  return (
+    <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <Text
+          className="font-mono text-[12px] text-gray-12 leading-4"
+          selectable
+        >
+          {content}
+        </Text>
+      </ScrollView>
+    </ScrollView>
   );
 }
 

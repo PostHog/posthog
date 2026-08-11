@@ -21,6 +21,7 @@ import {
   useUpdateTaskAutomation,
 } from "@/features/tasks/hooks/useAutomations";
 import { useTask } from "@/features/tasks/hooks/useTasks";
+import { MODAL_PRESENTATION } from "@/lib/navigation";
 import { useThemeColors } from "@/lib/theme";
 
 export default function AutomationDetailScreen() {
@@ -52,7 +53,7 @@ export default function AutomationDetailScreen() {
             headerTitle: "Automation",
             headerStyle: { backgroundColor: themeColors.background },
             headerTintColor: themeColors.gray[12],
-            presentation: "modal",
+            presentation: MODAL_PRESENTATION,
           }}
         />
         <View className="flex-1 items-center justify-center bg-background px-4">
@@ -80,7 +81,7 @@ export default function AutomationDetailScreen() {
             : (automation?.name ?? "Automation"),
           headerStyle: { backgroundColor: themeColors.background },
           headerTintColor: themeColors.gray[12],
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
         }}
       />
       <KeyboardAvoidingView
