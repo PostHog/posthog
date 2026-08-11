@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react'
 
-import type { ChartLegendConfig, ChartMargins, ScatterMarkerShape, TooltipContext } from '../../core/types'
+import type {
+    ChartLegendConfig,
+    ChartMargins,
+    ScatterMarkerShape,
+    TooltipConfig,
+    TooltipContext,
+} from '../../core/types'
 
 export type { ScatterMarkerShape }
 
@@ -56,6 +62,9 @@ export interface ScatterAxisConfig {
 export interface ScatterTooltipConfig<Meta = unknown> {
     /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
+    /** Where the tooltip anchors. Same values as {@link TooltipConfig.placement}; the app seam sets
+     *  `cursor` for every chart, so pass this through rather than letting it drop. */
+    placement?: TooltipConfig['placement']
     /** Format the header. Defaults to the point's `label`, or its series label. */
     labelFormatter?: (point: ScatterPointDatum<Meta>) => ReactNode
     /** Format the x readout. Defaults to the x axis' tick formatter. */
@@ -72,10 +81,16 @@ export interface ScatterChartConfig<Meta = unknown> {
     /** Marker fill opacity (0–1). Defaults to 0.7, so overlapping points in a dense cloud read as
      *  denser rather than painting over each other. Markers keep an opaque outline either way. */
     fillOpacity?: number
-    /** Draw grid lines at both axes' ticks. Defaults to true. */
+    // Chrome toggles, all off by default and named to match `ChartConfig`, so a host can spread the
+    // same defaults over this config as over every other chart's and get one house style.
+    /** Draw grid lines at both axes' ticks. */
     showGrid?: boolean
-    /** Draw the L-shaped axis baselines. Defaults to true. */
+    /** Draw the L-shaped axis baselines. */
     showAxisLines?: boolean
+    /** Draw short tick marks outside the plot next to each axis label. */
+    showTickMarks?: boolean
+    /** Draw a vertical crosshair line through the hovered point. */
+    showCrosshair?: boolean
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
     tooltip?: ScatterTooltipConfig<Meta>

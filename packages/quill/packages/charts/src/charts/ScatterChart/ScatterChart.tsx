@@ -3,7 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
-import { drawAxes, drawGrid, resolveAxisLineColor, traceScatterMarker } from '../../core/canvas-renderer'
+import { drawAxes, drawGrid, drawTickMarks, resolveAxisLineColor, traceScatterMarker } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -32,6 +32,7 @@ import {
     findNearestPointIndex,
     flattenScatterPoints,
     readScatterLayout,
+    resolveXTicks,
     scatterValueRange,
     toScatterPrivate,
     xLabelEdgeReserve,
@@ -148,8 +149,12 @@ function ScatterChartInner<Meta = unknown>({
         yAxis = EMPTY_AXIS_CONFIG,
         pointRadius: defaultPointRadius = DEFAULT_POINT_RADIUS,
         fillOpacity = DEFAULT_FILL_OPACITY,
-        showGrid = true,
-        showAxisLines = true,
+        // Off by default, like every other chart type — a host turns the chrome on for all of its
+        // charts at once through its shared config defaults, so the library owns no house style.
+        showGrid = false,
+        showAxisLines = false,
+        showTickMarks = false,
+        showCrosshair = false,
         margins,
     } = config ?? {}
     // Resolved to primitives (and one array each) so an inline `config` object literal — the
@@ -248,7 +253,7 @@ function ScatterChartInner<Meta = unknown>({
                     xScale,
                     yScale,
                     positions,
-                    xTicks: xScale.ticks?.(xTickCount) ?? [],
+                    xTicks: resolveXTicks(xScale, xTickCount, xTickFormatter),
                     maxRadius,
                 }),
             }
@@ -262,6 +267,7 @@ function ScatterChartInner<Meta = unknown>({
             yScaleType,
             yDomain,
             yStartAtZero,
+            xTickFormatter,
             defaultPointRadius,
             theme.colors,
         ]
@@ -281,11 +287,17 @@ function ScatterChartInner<Meta = unknown>({
                     gridColor: drawTheme.gridColor,
                     gridDash: drawTheme.gridDashPattern,
                     frame: !axisLineColor,
-                    // Unlike a category chart, the cross-axis grid sits at the x scale's numeric
-                    // ticks — the set ScatterXAxisLabels labels underneath, minus any it drops to
-                    // avoid overlap. Same relationship the y grid has with the y tick labels.
-                    categoryTicks: layout.xTicks.map((tick) => layout.xScale(tick)),
+                    // The cross-axis grid sits on the same resolved ticks the labels below it use,
+                    // rather than on every tick the scale offers — a log axis emits far more than
+                    // it can label, and a line under no label reads as a stray.
+                    categoryTicks: layout.xTicks.map((tick) => tick.x),
                 })
+            }
+
+            // The base chart marks the y axis; its x pass reads category labels, which a continuous
+            // axis has none of, so the x marks are drawn here off the same resolved ticks.
+            if (showTickMarks) {
+                drawTickMarks(ctx, dimensions, { xs: layout.xTicks.map((tick) => tick.x), ys: [] }, axisLineColor)
             }
 
             // Fill translucent, stroke opaque: an overlapping cloud reads as density while each
@@ -313,7 +325,7 @@ function ScatterChartInner<Meta = unknown>({
                 drawAxes(drawCtx, { axisColor: axisLineColor })
             }
         },
-        [showGrid, showAxisLines, fillOpacity]
+        [showGrid, showAxisLines, showTickMarks, fillOpacity]
     )
 
     const drawHover = useCallback(({ ctx, scales, hoverIndex, hoverProgress, theme: drawTheme }: ChartDrawArgs) => {
@@ -474,9 +486,22 @@ function ScatterChartInner<Meta = unknown>({
             hideXAxis: xAxis.hide,
             hideYAxis: yAxis.hide,
             margins: resolvedMargins,
-            tooltip: { enabled: tooltipConfig?.enabled },
+            showTickMarks,
+            showCrosshair,
+            tooltip: { enabled: tooltipConfig?.enabled, placement: tooltipConfig?.placement },
         }),
-        [yTickFormatter, xAxisLabel, yAxisLabel, xAxis.hide, yAxis.hide, resolvedMargins, tooltipConfig?.enabled]
+        [
+            yTickFormatter,
+            xAxisLabel,
+            yAxisLabel,
+            xAxis.hide,
+            yAxis.hide,
+            resolvedMargins,
+            showTickMarks,
+            showCrosshair,
+            tooltipConfig?.enabled,
+            tooltipConfig?.placement,
+        ]
     )
 
     return (
@@ -498,7 +523,7 @@ function ScatterChartInner<Meta = unknown>({
                 className={className}
                 dataAttr={dataAttr}
             >
-                {!xAxis.hide && <ScatterXAxisLabels tickFormatter={xTickFormatter} />}
+                {!xAxis.hide && <ScatterXAxisLabels />}
                 {children}
             </Chart>
         </ChartLegend>

@@ -4,6 +4,7 @@ import { X_LABEL_EDGE_PADDING } from '../../core/hooks/useChartMargins'
 import type { D3YScale, SeriesValueRange } from '../../core/scales'
 import { autoFormatterFor, extendValueRange, sanitizeFixedDomain } from '../../core/scales'
 import type { ChartScales, ScatterMarkerShape } from '../../core/types'
+import { computeVisibleValueTicks } from '../../overlays/AxisLabels'
 import { measureLabelWidth } from '../../utils/text-measure'
 import type { ScatterSeries } from './types'
 
@@ -42,9 +43,30 @@ export interface ScatterLayout {
     yScale: D3YScale
     /** Visible, drawable points in ascending x-pixel order — the hit-test's search space. */
     positions: ScatterPointPosition[]
-    xTicks: number[]
+    /** The x ticks that survive label-collision thinning, already formatted and positioned. Resolved
+     *  once here so the grid lines, the tick marks, and the labels are literally the same set — the
+     *  base chart keeps its own x axis in step the same way, via `computeVisibleXLabels`. */
+    xTicks: ScatterXTick[]
     /** Largest marker radius on the plot — the hit-test's pruning bound. */
     maxRadius: number
+}
+
+/** One rendered x-axis tick: its value, its formatted label, and its pixel. */
+export interface ScatterXTick {
+    tick: number
+    text: string
+    x: number
+}
+
+/** Resolve the x ticks the axis will actually show: nice values off the scale, formatted, then
+ *  thinned by the same collision pass a horizontal bar chart's value axis uses. */
+export function resolveXTicks(
+    xScale: D3YScale,
+    tickCount: number,
+    tickFormatter: ((value: number) => string) | undefined
+): ScatterXTick[] {
+    const ticks = xScale.ticks?.(tickCount) ?? []
+    return computeVisibleValueTicks(ticks, xScale, tickFormatter ?? autoFormatterFor(ticks))
 }
 
 interface ScatterChartPrivate {

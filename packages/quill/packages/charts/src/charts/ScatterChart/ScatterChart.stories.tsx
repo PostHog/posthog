@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 import { ScatterChart } from './ScatterChart'
-import type { ScatterAreaSelection, ScatterPoint, ScatterSeries } from './types'
+import type { ScatterAreaSelection, ScatterChartConfig, ScatterPoint, ScatterSeries } from './types'
 
 // Deterministic pseudo-random spread, so visual snapshots are stable across runs.
 function makeRandom(seed: number): () => number {
@@ -29,7 +29,11 @@ function makeCloud(count: number, seed: number, slope: number, spread: number): 
 
 const SINGLE: ScatterSeries[] = [{ key: 'orgs', label: 'Organizations', points: makeCloud(160, 1, 0.6, 260) }]
 
-const AXES = { xAxis: { label: 'GB ingested' }, yAxis: { label: 'Queries run' } }
+// Chrome is off by default in the library, so every story opts in — `showGrid` alone, matching the
+// other chart types' stories. `HostChrome` below shows what a product consumer sees instead.
+const CHROME = { showGrid: true } satisfies ScatterChartConfig
+
+const AXES = { ...CHROME, xAxis: { label: 'GB ingested' }, yAxis: { label: 'Queries run' } }
 
 const meta: Meta<typeof ScatterChart> = {
     title: 'Charts/ScatterChart',
@@ -83,6 +87,7 @@ export const LogScales: Story = {
                     series={[{ key: 'tenants', label: 'Tenants', points }]}
                     theme={theme}
                     config={{
+                        ...CHROME,
                         xAxis: { label: 'Rows stored', scaleType: 'log' },
                         yAxis: { label: 'Query cost', scaleType: 'log' },
                     }}
@@ -119,7 +124,7 @@ export const ClustersWithCentroids: Story = {
                 <ScatterChart
                     series={series}
                     theme={theme}
-                    config={{ xAxis: { hide: true }, yAxis: { hide: true }, legend: { show: true } }}
+                    config={{ ...CHROME, xAxis: { hide: true }, yAxis: { hide: true }, legend: { show: true } }}
                 />
             </Stage>
         )
@@ -137,6 +142,7 @@ export const DragToZoom: Story = {
                     series={SINGLE}
                     theme={theme}
                     config={{
+                        ...CHROME,
                         xAxis: { label: 'GB ingested', domain: zoom?.x },
                         yAxis: { label: 'Queries run', domain: zoom?.y },
                     }}
@@ -145,6 +151,29 @@ export const DragToZoom: Story = {
                 <button type="button" onClick={() => setZoom(null)} disabled={!zoom}>
                     Reset zoom
                 </button>
+            </Stage>
+        )
+    },
+}
+
+/** Every chrome toggle on, as a host's shared chart defaults set them: grid, L-axis, tick marks,
+ *  and a crosshair through the hovered point. Same keys `ChartConfig` uses, so one set of host
+ *  defaults styles a scatter and a line chart alike. */
+export const HostChrome: Story = {
+    render: function Render() {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={620} height={360}>
+                <ScatterChart
+                    series={SINGLE}
+                    theme={theme}
+                    config={{
+                        ...AXES,
+                        showAxisLines: true,
+                        showTickMarks: true,
+                        showCrosshair: true,
+                    }}
+                />
             </Stage>
         )
     },
