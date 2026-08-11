@@ -88,6 +88,7 @@ export namespace Schemas {
     properties?: (Array<ActionStepPropertyFilter> | null) | undefined;
     selector?: (string | null) | undefined;
     selector_regex: string | null;
+    selector_warning: string | null;
     tag_name?: (string | null) | undefined;
     text?: (string | null) | undefined;
     text_matching?: ((ActionStepMatchingEnum | NullEnum) | null) | undefined;

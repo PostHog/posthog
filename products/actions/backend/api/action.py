@@ -7,6 +7,7 @@ from typing import Any, cast
 from django.db import connection
 from django.db.models import Count
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
@@ -42,6 +43,8 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.product_analytics.backend.models.insight import Insight
 
+logger = structlog.get_logger(__name__)
+
 _PropertyFilterUnion = PolymorphicProxySerializer(
     component_name="ActionStepPropertyFilter",
     serializers=[
@@ -66,20 +69,36 @@ class _ActionStepPropertiesField(serializers.ListField):
     pass
 
 
-@lru_cache(maxsize=2048)
-def _compile_selector(selector_str: str) -> tuple[str | None, str | None]:
-    # Returns (regex, warning) for a selector. Cached because the selector_regex and
-    # selector_warning fields both need it for every serialized action step.
+# An entry holds the selector plus its compiled regex, which is larger, for the life of
+# the process. Nobody hand-writes a CSS selector this long, so cap what gets retained.
+_MAX_CACHED_SELECTOR_LENGTH = 1_000
+
+
+def _compile_selector_uncached(selector_str: str) -> tuple[str | None, str | None]:
     try:
         selector = Selector(selector_str, escape_slashes=False)
+        warning = None
+        if selector.has_unsupported_syntax():
+            warning = "This selector uses CSS we cannot match on. Try matching on the element tag, id, or class."
+        return build_selector_regex(selector), warning
     except Exception:
+        logger.exception("Failed to compile action selector")
         return None, "This selector could not be read, so it will not match any events. Check that it is valid CSS."
-    warning = None
-    if selector.has_unsupported_syntax():
-        warning = (
-            "This selector will not match any events. Try simplifying it, or match on the element tag, id, or class."
-        )
-    return build_selector_regex(selector), warning
+
+
+@lru_cache(maxsize=2048)
+def _compile_selector_cached(selector_str: str) -> tuple[str | None, str | None]:
+    return _compile_selector_uncached(selector_str)
+
+
+def _compile_selector(selector_str: str) -> tuple[str | None, str | None]:
+    # Returns (regex, warning) for a selector. Cached because the selector_regex and
+    # selector_warning fields both need it for every serialized action step. An
+    # outsized or non-string selector skips the cache: lru_cache hashes its argument
+    # before the body runs, so an unhashable one would raise from the lookup itself.
+    if not isinstance(selector_str, str) or len(selector_str) > _MAX_CACHED_SELECTOR_LENGTH:
+        return _compile_selector_uncached(selector_str)
+    return _compile_selector_cached(selector_str)
 
 
 def _selector_str(obj) -> str | None:
