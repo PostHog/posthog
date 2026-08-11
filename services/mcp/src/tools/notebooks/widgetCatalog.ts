@@ -1,6 +1,7 @@
 import notebookWidgetCatalog from 'products/notebooks/notebook-widget-catalog.json'
 
 type NotebookWidgetTagName = keyof typeof notebookWidgetCatalog.widgets
+type NotebookWidgetExtraProps = Record<string, { description: string; example: string | number }>
 
 export function getNotebookWidgetTagNames(): NotebookWidgetTagName[] {
     return Object.keys(notebookWidgetCatalog.widgets) as NotebookWidgetTagName[]
@@ -32,7 +33,7 @@ export function formatNotebookWidgetCatalogForAgents(): string {
         const views = [widget.defaultView, ...Object.entries(widget.views).map(([name, view]) => ({ name, ...view }))]
             .map((view) => `${view.name}: ${view.description}`)
             .join(' ')
-        const extraProps = 'extraProps' in widget ? widget.extraProps : {}
+        const extraProps = (widget as { extraProps?: NotebookWidgetExtraProps }).extraProps ?? {}
         const exampleProps: Record<string, string | number> = {
             [widget.idProp]: widget.idExample,
             ...Object.fromEntries(Object.entries(extraProps).map(([name, prop]) => [name, prop.example])),
