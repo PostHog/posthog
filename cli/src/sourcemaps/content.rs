@@ -8,9 +8,94 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
     api::symbol_sets::SymbolSetUpload,
-    sourcemaps::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE},
+    sourcemaps::constant::{
+        CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE,
+        CODE_SNIPPET_WITH_RELEASE_TEMPLATE, QUOTED_CHUNKID_PLACEHOLDER, RELEASE_ID_PLACEHOLDER,
+    },
     utils::files::SourceFile,
 };
+
+/// Build the injected IIFE for a chunk. Both ids are filled in as JSON-encoded string literals,
+/// so quotes/backslashes in the values can't break out of the snippet — chunk ids matter too,
+/// since re-injection reuses whatever the `//# chunkId=` comment carries.
+fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String> {
+    let Some(release_id) = release_id else {
+        return substitute_chunk_id(CODE_SNIPPET_TEMPLATE, chunk_id);
+    };
+    Ok(
+        substitute_chunk_id(CODE_SNIPPET_WITH_RELEASE_TEMPLATE, chunk_id)?
+            .replace(RELEASE_ID_PLACEHOLDER, &serde_json::to_string(release_id)?),
+    )
+}
+
+/// Fill a snippet template's quoted chunk-id placeholder with the JSON-encoded id. Every site
+/// that renders or searches for an injected snippet must encode the same way, or ids that
+/// need escaping would fail to round-trip through detection and removal.
+fn substitute_chunk_id(template: &str, chunk_id: &str) -> Result<String> {
+    Ok(template.replace(
+        QUOTED_CHUNKID_PLACEHOLDER,
+        &serde_json::to_string(chunk_id)?,
+    ))
+}
+
+struct ReleaseSnippetSpan {
+    start: usize,
+    end: usize,
+    release_id_start: usize,
+    release_id_end: usize,
+}
+
+/// Locate the release-variant snippet for `chunk_id` in `source`, if present.
+fn find_release_snippet(source: &str, chunk_id: &str) -> Option<ReleaseSnippetSpan> {
+    let (prefix, suffix) = CODE_SNIPPET_WITH_RELEASE_TEMPLATE
+        .split_once(RELEASE_ID_PLACEHOLDER)
+        .expect("release template has a release id placeholder");
+    let suffix = substitute_chunk_id(suffix, chunk_id).ok()?;
+
+    let start = source.find(prefix)?;
+    let release_id_start = start + prefix.len();
+    let release_id_len = source[release_id_start..].find(&suffix)?;
+    // The span between prefix and suffix must be the injected release id — a short JSON
+    // string literal. A distant suffix match means user code, not our snippet.
+    if release_id_len > 256 {
+        return None;
+    }
+    let release_id_end = release_id_start + release_id_len;
+
+    Some(ReleaseSnippetSpan {
+        start,
+        end: release_id_end + suffix.len(),
+        release_id_start,
+        release_id_end,
+    })
+}
+
+/// The source split around the release-variant snippet, so callers can hash the
+/// release-independent bytes without copying the whole file. The injected release id changes
+/// on every release even when the chunk's code didn't, so content hashes must skip it or the
+/// server would never skip an unchanged chunk. `None` for sources without the snippet.
+pub(crate) fn split_release_snippet<'a>(
+    source: &'a str,
+    chunk_id: &str,
+) -> Option<(&'a str, &'a str)> {
+    let span = find_release_snippet(source, chunk_id)?;
+    Some((&source[..span.start], &source[span.end..]))
+}
+
+/// When `source` carries the release-variant snippet, return it with the snippet removed.
+pub fn strip_release_snippet(source: &str, chunk_id: &str) -> Option<String> {
+    let (before, after) = split_release_snippet(source, chunk_id)?;
+    let mut stripped = String::with_capacity(before.len() + after.len());
+    stripped.push_str(before);
+    stripped.push_str(after);
+    Some(stripped)
+}
+
+/// Read the release id embedded in the source's release-variant snippet, if any.
+pub fn get_injected_release_id(source: &str, chunk_id: &str) -> Option<String> {
+    let span = find_release_snippet(source, chunk_id)?;
+    serde_json::from_str(&source[span.release_id_start..span.release_id_end]).ok()
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SourceMapContent {
@@ -176,12 +261,12 @@ impl MinifiedSourceFile {
         self.get_comment_value(&patterns)
     }
 
-    pub fn set_chunk_id(&mut self, chunk_id: &str) -> Result<SourceMap> {
+    pub fn set_chunk_id(&mut self, chunk_id: &str, release_id: Option<&str>) -> Result<SourceMap> {
         let (new_source_content, source_adjustment) = {
             // Update source content with chunk ID
             let source_content = &self.inner.content;
             let mut magic_source = MagicString::new(source_content);
-            let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, chunk_id);
+            let code_snippet = build_code_snippet(chunk_id, release_id)?;
             magic_source
                 .prepend(&code_snippet)
                 .map_err(|err| anyhow!("Failed to prepend code snippet: {err}"))?;
@@ -307,11 +392,15 @@ impl MinifiedSourceFile {
                     .map_err(|err| anyhow!("Failed to remove chunk comment: {err}"))?;
             }
 
-            let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+            let code_snippet = substitute_chunk_id(CODE_SNIPPET_TEMPLATE, &chunk_id)?;
             if let Some(code_snippet_start) = source_content.find(&code_snippet) {
                 let code_snippet_end = code_snippet_start as i64 + code_snippet.len() as i64;
                 magic_source
                     .remove(code_snippet_start as i64, code_snippet_end)
+                    .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
+            } else if let Some(span) = find_release_snippet(source_content, &chunk_id) {
+                magic_source
+                    .remove(span.start as i64, span.end as i64)
                     .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
             }
 
@@ -386,6 +475,7 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
             chunk_id,
             release_id,
             data,
+            content_hash: None,
         })
     }
 }
@@ -403,6 +493,66 @@ mod tests {
         MinifiedSourceFile {
             inner: SourceFile::new(PathBuf::from("chunk.js"), content.to_string()),
         }
+    }
+
+    #[test]
+    fn strip_release_snippet_yields_identical_output_across_releases() {
+        let chunk_id = "e0b0778e-ecb0-5900-9b2e-05642a44e6a9";
+        let original = r#"console.log("hi");
+//# sourceMappingURL=index.js.map"#;
+
+        let stripped: Vec<_> = [
+            "11111111-2222-4333-8444-555555555555",
+            "99999999-8888-4777-8666-000000000000",
+        ]
+        .iter()
+        .map(|release_id| {
+            let snippet = build_code_snippet(chunk_id, Some(release_id)).unwrap();
+            strip_release_snippet(&format!("{snippet}{original}"), chunk_id)
+        })
+        .collect();
+
+        assert_eq!(stripped[0].as_deref(), Some(original));
+        assert_eq!(stripped[0], stripped[1]);
+    }
+
+    #[test]
+    fn build_code_snippet_json_encodes_ids() {
+        let hostile = r#"a");window.x=1;("b"#;
+        let encoded = serde_json::to_string(hostile).unwrap();
+
+        let plain = build_code_snippet(hostile, None).unwrap();
+        let with_release = build_code_snippet(hostile, Some(hostile)).unwrap();
+
+        assert!(plain.contains(&encoded), "snippet: {plain}");
+        assert_eq!(
+            with_release.matches(&encoded).count(),
+            2,
+            "snippet: {with_release}"
+        );
+    }
+
+    #[test]
+    fn strip_release_snippet_handles_escaped_chunk_ids() {
+        let chunk_id = r#"weird"chunk\id"#;
+        let original = "code();";
+        let snippet = build_code_snippet(chunk_id, Some("rel")).unwrap();
+
+        let stripped = strip_release_snippet(&format!("{snippet}{original}"), chunk_id);
+
+        assert_eq!(stripped.as_deref(), Some(original));
+    }
+
+    #[test]
+    fn strip_release_snippet_ignores_sources_without_release_snippet() {
+        let chunk_id = "e0b0778e-ecb0-5900-9b2e-05642a44e6a9";
+        let plain_snippet = build_code_snippet(chunk_id, None).unwrap();
+
+        assert_eq!(
+            strip_release_snippet(&format!("{plain_snippet}code();"), chunk_id),
+            None
+        );
+        assert_eq!(strip_release_snippet("code();", chunk_id), None);
     }
 
     #[test]

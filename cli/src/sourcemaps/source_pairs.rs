@@ -1,6 +1,9 @@
 use crate::{
     api::symbol_sets::SymbolSetUpload,
-    sourcemaps::content::{MinifiedSourceFile, SourceMapFile},
+    sourcemaps::content::{
+        get_injected_release_id, split_release_snippet, MinifiedSourceFile, SourceMapFile,
+    },
+    utils::files::content_hash,
 };
 use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
@@ -33,6 +36,13 @@ impl SourcePair {
         self.sourcemap.get_release_id()
     }
 
+    /// The release id embedded in the source's injected snippet (no-release-bind mode),
+    /// as opposed to `get_release_id`, which reads the one stamped into the sourcemap.
+    pub fn get_injected_release_id(&self) -> Option<String> {
+        let chunk_id = self.get_chunk_id()?;
+        get_injected_release_id(&self.source.inner.content, &chunk_id)
+    }
+
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<()> {
         if self.get_chunk_id().as_ref() != Some(&chunk_id) {
             return Err(anyhow!("Chunk ID mismatch"));
@@ -49,16 +59,16 @@ impl SourcePair {
         new_chunk_id: String,
     ) -> Result<()> {
         self.remove_chunk_id(previous_chunk_id)?;
-        self.add_chunk_id(new_chunk_id)?;
+        self.add_chunk_id(new_chunk_id, None)?;
         Ok(())
     }
 
-    pub fn add_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+    pub fn add_chunk_id(&mut self, chunk_id: String, release_id: Option<&str>) -> Result<()> {
         if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
 
-        let adjustment = self.source.set_chunk_id(&chunk_id)?;
+        let adjustment = self.source.set_chunk_id(&chunk_id, release_id)?;
         // In cases where sourcemaps are shared across multiple chunks,
         // we should only apply the adjustment if the sourcemap doesn't
         // have a chunk ID set (since otherwise, it's already been adjusted)
@@ -121,8 +131,21 @@ impl TryInto<SymbolSetUpload> for SourcePair {
         let chunk_id = self
             .get_chunk_id()
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
+        let release_id = self.sourcemap.get_release_id();
         let source_content = self.source.inner.content;
         let sourcemap_content = serde_json::to_string(&self.sourcemap.inner.content)?;
+        // Release-injected sources embed a release id that changes every release, so hash
+        // them with the snippet skipped or identical chunks would re-upload each time.
+        // Sources without that snippet keep hashing the raw payload, matching hashes the
+        // server already stores.
+        let content_hash =
+            split_release_snippet(&source_content, &chunk_id).map(|(before, after)| {
+                content_hash([
+                    before.as_bytes(),
+                    after.as_bytes(),
+                    sourcemap_content.as_bytes(),
+                ])
+            });
         let data = SourceAndMap {
             minified_source: source_content,
             sourcemap: sourcemap_content,
@@ -133,7 +156,8 @@ impl TryInto<SymbolSetUpload> for SourcePair {
         Ok(SymbolSetUpload {
             chunk_id,
             data,
-            release_id: self.sourcemap.get_release_id(),
+            release_id,
+            content_hash,
         })
     }
 }
