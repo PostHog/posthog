@@ -74,10 +74,8 @@ next eligible item waits for the next launch, so overlapping announcements
 never show back to back. Required updates are exempt: one still blocks even
 after an announcement was handled in the same session.
 
-While an announcement is on stage, the What's New changelog auto-open is
-**cancelled** by default; set `suppressChangelog: false` at the top level of
-the payload to defer it instead so it shows once the announcement clears. A
-blocking announcement also suppresses `UpdateAvailableModal`.
+While an announcement is on stage, it hides the What's New changelog and
+`UpdateAvailableModal`.
 
 ## CTA rules
 
