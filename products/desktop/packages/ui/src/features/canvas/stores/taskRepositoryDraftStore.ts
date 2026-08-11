@@ -37,35 +37,22 @@ export const useTaskRepositoryDraftStore = create<TaskRepositoryDraftState>()(
 );
 
 /**
- * Rebind repositories only when the current project has one unambiguous
- * integration. The backend still verifies that it can access every repository.
+ * The selection a composer should show: the space draft when one exists,
+ * otherwise the space's saved defaults. An existing draft wins wholesale —
+ * an emptied repository list or cleared integration is a deliberate pick,
+ * not a gap to backfill from the defaults.
  */
 export function resolveTaskRepositoryDraft(
   draft: TaskRepositoryDraft | undefined,
   channelRepositories: string[],
   channelGithubIntegration: number | null,
-  availableGithubIntegrationIds: number[] = [],
 ): TaskRepositoryDraft {
-  const selection = draft ?? {
+  if (draft) {
+    return draft;
+  }
+  return {
     repositories: channelRepositories,
     githubIntegration: channelGithubIntegration,
     folder: "",
-  };
-  const availableGithubIntegrationId =
-    availableGithubIntegrationIds.length === 1
-      ? availableGithubIntegrationIds[0]
-      : undefined;
-
-  if (
-    selection.repositories.length === 0 ||
-    selection.githubIntegration !== null ||
-    availableGithubIntegrationId === undefined
-  ) {
-    return selection;
-  }
-
-  return {
-    ...selection,
-    githubIntegration: availableGithubIntegrationId,
   };
 }
