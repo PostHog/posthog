@@ -3929,7 +3929,7 @@ const api = {
                     ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
                     : notebookShortId
                       ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
-                      : null
+                      : undefined
         },
     },
 
