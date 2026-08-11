@@ -191,7 +191,7 @@ describe("ChannelSidebar recents list", () => {
     vi.useRealTimers();
   });
 
-  it("lists recents newest first without day separators", () => {
+  it("heads each run of days with the day it is", () => {
     mocks.items = [
       item({
         key: "task:a",
@@ -221,29 +221,24 @@ describe("ChannelSidebar recents list", () => {
 
     renderSidebar();
 
-    expect(screen.getByText("Today's work")).not.toBeNull();
-    expect(screen.getByText("Also today")).not.toBeNull();
-    expect(screen.getByText("Yesterday's work")).not.toBeNull();
-    expect(screen.getByText("Older work")).not.toBeNull();
-    expect(screen.queryByText("Today")).toBeNull();
-    expect(screen.queryByText("Yesterday")).toBeNull();
-    expect(screen.queryByText("Monday, July 20th")).toBeNull();
+    // The two same-day rows share one header rather than each getting their own.
+    const labelled = screen
+      .getAllByText(
+        /^(Today|Yesterday|Jul 20|Today's work|Also today|Yesterday's work|Older work)$/,
+      )
+      .map((el) => el.textContent);
+    expect(labelled).toEqual([
+      "Today",
+      "Today's work",
+      "Also today",
+      "Yesterday",
+      "Yesterday's work",
+      "Jul 20",
+      "Older work",
+    ]);
   });
 
-  it("keeps items from the same day as plain rows", () => {
-    mocks.items = [
-      item({ key: "task:a", id: "a", ts: new Date(2026, 6, 29, 9).getTime() }),
-      item({ key: "task:b", id: "b", ts: new Date(2026, 6, 29, 8).getTime() }),
-      item({ key: "task:c", id: "c", ts: new Date(2026, 6, 29, 1).getTime() }),
-    ];
-
-    renderSidebar();
-
-    expect(screen.getAllByText("Investigate signup drop-off")).toHaveLength(3);
-    expect(screen.queryByText("Today")).toBeNull();
-  });
-
-  it("lists pins in the one session list, ahead of newer items", () => {
+  it("leads with a pinned section, ahead of newer items", () => {
     mocks.items = [
       item({
         key: "task:newer",
@@ -262,14 +257,18 @@ describe("ChannelSidebar recents list", () => {
 
     renderSidebar();
 
-    // No section of its own — a pin is a mark on a session, and the row's badge
-    // is what says so.
-    expect(screen.queryByText("Pinned")).toBeNull();
-    const titles = screen
-      .getAllByText(/Kept at hand|Filed this morning/)
-      .map((el) => el.textContent);
     // Older, but pinned: it sorts above the newer row rather than risking the
-    // recents cap.
-    expect(titles).toEqual(["Kept at hand", "Filed this morning"]);
+    // recents cap, and it is listed under the pins rather than under its day.
+    const listed = screen
+      .getAllByText(/^(Pinned|Today|Kept at hand|Filed this morning)$/)
+      .map((el) => el.textContent);
+    expect(listed).toEqual([
+      "Pinned",
+      "Kept at hand",
+      "Today",
+      "Filed this morning",
+    ]);
+    // The header says it for the whole section, so the rows below drop the badge.
+    expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 });

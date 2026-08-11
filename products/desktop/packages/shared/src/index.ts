@@ -362,6 +362,7 @@ export {
   formatDaySeparatorLabel,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
+  formatShortDayLabel,
   getLocalDayDiff,
   getLocalDayKey,
   getRelativeDateGroup,

@@ -4,9 +4,11 @@ import {
   buildChannelItems,
   type ChannelItemFilters,
   type ChannelItemModel,
+  type ChannelItemSort,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
   filterChannelItems,
+  groupChannelItems,
   sortChannelItems,
 } from "./channelItems";
 import type { DashboardRecord } from "./dashboardSchemas";
@@ -385,5 +387,73 @@ describe("sortChannelItems", () => {
     for (const sort of ["recent", "created", "alpha"] as const) {
       expect(sortChannelItems(pinnedLast, sort)[0]?.id).toBe("pin");
     }
+  });
+});
+
+describe("groupChannelItems", () => {
+  const NOW = new Date(2026, 6, 29, 12);
+  const at = (day: number, hour: number) =>
+    new Date(2026, 6, day, hour).getTime();
+
+  function group(items: ChannelItemModel[], sort: ChannelItemSort = "recent") {
+    return groupChannelItems(sortChannelItems(items, sort), sort, NOW).map(
+      (section) => [section.label, ...section.items.map((i) => i.id)],
+    );
+  }
+
+  it("runs a day's items under one header", () => {
+    expect(
+      group([
+        model({ id: "morning", ts: at(29, 9) }),
+        model({ id: "earlier", ts: at(29, 8) }),
+        model({ id: "last-night", ts: at(28, 22) }),
+      ]),
+    ).toEqual([
+      ["Today", "morning", "earlier"],
+      ["Yesterday", "last-night"],
+    ]);
+  });
+
+  // The pin is what lifted it out of its day; leaving it in both places would
+  // list one session twice.
+  it("lists a pin under the pins and nowhere else", () => {
+    expect(
+      group([
+        model({ id: "today", ts: at(29, 9) }),
+        model({ id: "kept", ts: at(20, 9), pinned: true }),
+      ]),
+    ).toEqual([
+      ["Pinned", "kept"],
+      ["Today", "today"],
+    ]);
+  });
+
+  // Dating a created-first list by last activity would reopen a day the list
+  // had already passed, splitting one day across two headers.
+  it("dates a created-first list by when each session started", () => {
+    expect(
+      group(
+        [
+          model({ id: "started-today", createdAt: at(29, 9), ts: at(20, 9) }),
+          model({ id: "started-friday", createdAt: at(24, 9), ts: at(29, 11) }),
+        ],
+        "created",
+      ),
+    ).toEqual([
+      ["Today", "started-today"],
+      ["Friday", "started-friday"],
+    ]);
+  });
+
+  it("leaves an alphabetical list undated", () => {
+    expect(
+      group(
+        [
+          model({ id: "a", title: "A", ts: at(29, 9) }),
+          model({ id: "b", title: "B", ts: at(20, 9) }),
+        ],
+        "alpha",
+      ),
+    ).toEqual([[null, "a", "b"]]);
   });
 });

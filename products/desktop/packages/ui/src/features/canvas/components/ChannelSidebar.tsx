@@ -10,7 +10,9 @@ import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_SORT,
   filterChannelItems,
+  groupChannelItems,
   hasActiveChannelItemFilters,
+  PINNED_SECTION_KEY,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
 import {
@@ -45,7 +47,7 @@ import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
@@ -228,10 +230,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     return task ? `task:${task[1]}` : null;
   }, [pathname]);
 
-  // One list, pins included — a pin is a mark on a session, not a different kind
-  // of thing, and the row's own badge says so. They sort to the top because a pin
-  // is a request not to lose the thing: below the chosen order it would fall off
-  // the end of the cap.
+  // Pins sort to the top because a pin is a request not to lose the thing:
+  // below the chosen order it would fall off the end of the cap. The cap is
+  // applied to the flat list, before the sections, so the number of rows a
+  // reader gets doesn't depend on how many days they span.
   const recentItems = useMemo(
     () =>
       sortChannelItems(
@@ -239,6 +241,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         sort,
       ).slice(0, RECENTS_CAP),
     [items, query, filters, sort, me],
+  );
+  const sections = useMemo(
+    () => groupChannelItems(recentItems, sort),
+    [recentItems, sort],
   );
 
   const narrowed = filtersActive || searchOpen;
@@ -255,12 +261,13 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
     placeTaskInCommandCenter(taskId, taskTitle);
 
-  const taskRow = (item: (typeof items)[number]) => (
+  const taskRow = (item: (typeof items)[number], showPinBadge: boolean) => (
     <ChannelItemRow
       key={item.key}
       item={item}
       channelId={channelId}
       isActive={item.key === activeKey}
+      showPinBadge={showPinBadge}
       actions={actions}
       isEditing={item.kind === "task" && editingTaskId === item.id}
       onRename={
@@ -405,9 +412,18 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 showCreatedBy={!isPersonalChannel}
                 filtersActive={filtersActive}
               />
-              {recentItems.length > 0 ? (
+              {sections.length > 0 ? (
                 <div className="flex flex-col gap-px">
-                  {recentItems.map(taskRow)}
+                  {sections.map((section) => (
+                    <Fragment key={section.key}>
+                      {section.label && <MenuLabel>{section.label}</MenuLabel>}
+                      {/* Under "Pinned" every row would wear the same badge, so
+                          the header says it once instead. */}
+                      {section.items.map((item) =>
+                        taskRow(item, section.key !== PINNED_SECTION_KEY),
+                      )}
+                    </Fragment>
+                  ))}
                 </div>
               ) : (
                 <Empty className="border-0 py-6">
