@@ -1208,7 +1208,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const filtersKey = Object.keys(localStorage).find(
                 (k) => k.includes('persist_regression') && k.endsWith('.filters')
             )
-            expect(filtersKey).toBeDefined()
+            expect(typeof filtersKey).toBe('string')
             seed.unmount()
 
             // Poison the persisted entry, then reset the kea context so the reducer rehydrates from
