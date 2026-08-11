@@ -51,18 +51,12 @@ from products.signals.backend.models import SignalSourceConfig
 class _VisionAPITestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.
         self.refresh_estimate_patcher = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
         self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
 
     def tearDown(self) -> None:
         self.refresh_estimate_patcher.stop()
-        self.flag_patcher.stop()
         super().tearDown()
 
     @property
@@ -887,16 +881,6 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
         self.assertEqual(digest.created_by_id, self.user.id)
         self.assertTrue(digest.enabled)
 
-    def test_no_digest_when_actions_flag_off(self) -> None:
-        # Teams without the actions feature must not accrue billable synthesis runs they can't see.
-        with patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: key != "replay-vision-actions",
-        ):
-            resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
-
     def test_scanner_creation_survives_digest_failure(self) -> None:
         with patch("products.replay_vision.backend.digest.digest_name_for_scanner", side_effect=RuntimeError("boom")):
             resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
@@ -1013,27 +997,6 @@ class TestScannerSignalSourceEnablement(_VisionAPITestCase):
         resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
         self.assertEqual(resp.status_code, 200, resp.json())
         assert not self._has_source_config()
-
-
-class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
-    @property
-    def scanners_url(self) -> str:
-        return f"/api/environments/{self.team.id}/vision/scanners/"
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_list(self, _flag_mock) -> None:
-        resp = self.client.get(self.scanners_url)
-        self.assertEqual(resp.status_code, 404)
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_create(self, _flag_mock) -> None:
-        resp = self.client.post(self.scanners_url, data={"name": "x"}, format="json")
-        self.assertEqual(resp.status_code, 404)
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_estimate(self, _flag_mock) -> None:
-        resp = self.client.post(f"{self.scanners_url}estimate/", data={}, format="json")
-        self.assertEqual(resp.status_code, 404)
 
 
 class TestReplayObservationViewSet(_VisionAPITestCase):
@@ -2153,29 +2116,6 @@ class TestBulkObserveAction(_VisionAPITestCase):
             format="json",
         )
         self.assertEqual(too_many.status_code, 400)
-
-
-@patch("products.replay_vision.backend.api.trigger.async_to_sync")
-@patch("products.replay_vision.backend.api.trigger.sync_connect")
-class TestObserveActionFeatureFlag(APIBaseTest):
-    def test_flag_off_returns_404(self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock) -> None:
-        with patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=False,
-        ):
-            scanner = ReplayScanner.objects.create(
-                team=self.team,
-                name="off",
-                scanner_type=ScannerType.MONITOR,
-                scanner_config={"prompt": "p"},
-                model=ScannerModel.GEMINI_3_6_FLASH,
-            )
-            resp = self.client.post(
-                f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/observe/",
-                data={"session_id": "s"},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, 404)
 
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
