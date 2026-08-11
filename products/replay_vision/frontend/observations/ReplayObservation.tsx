@@ -49,7 +49,6 @@ import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
-import { replayScannerLogic } from '../replay_scanners/replayScannerLogic'
 import {
     type ClassifierScannerConfig,
     type MonitorScannerConfig,
@@ -127,10 +126,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
 
     const { observation, observationLoading, retrying } = useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
-    // Hooks can't follow the early returns below, and the scanner id isn't known until `observation`
-    // loads — 'new' is the sentinel replayScannerLogic already uses to skip its fetch, so this is a
-    // harmless placeholder until the real id is available and the logic remounts keyed on it.
-    const { scanner } = useValues(replayScannerLogic({ id: observation?.scanner_id ?? 'new' }))
 
     if (observationLoading && !observation) {
         return (
@@ -348,7 +343,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     errorReason={observation.error_reason}
                                     onRetry={() => retryObservation()}
                                     loading={retrying}
-                                    userAccessLevel={scanner?.user_access_level}
                                     emphasis="primary"
                                     size="small"
                                     dataAttr="vision-observation-detail-retry"
@@ -382,7 +376,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     errorReason={observation.error_reason}
                                     onRetry={() => retryObservation()}
                                     loading={retrying}
-                                    userAccessLevel={scanner?.user_access_level}
                                     size="small"
                                     dataAttr="vision-observation-detail-retry"
                                 />

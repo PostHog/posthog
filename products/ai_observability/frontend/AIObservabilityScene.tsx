@@ -424,7 +424,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     users: 'Understand how users are interacting with your AI features.',
     errors: 'Monitor and debug errors in your AI pipeline.',
     tools: 'See which tools your LLMs are calling and how often.',
-    sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction.',
+    sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction. Works best in English.',
     sessions: 'Analyze user sessions containing AI interactions.',
 }
 

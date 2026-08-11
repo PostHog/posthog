@@ -1,5 +1,7 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -720,6 +722,26 @@ return result`,
                     },
                 })
             })
+        })
+    })
+
+    describe('routing', () => {
+        it('opens a direct configuration link and keeps tab changes in the URL', async () => {
+            router.actions.push(
+                combineUrl(urls.aiObservabilityEvaluation('eval-123'), {
+                    evaluation_tab: 'configuration',
+                }).url
+            )
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess']).toMatchValues({
+                activeTab: 'configuration',
+            })
+
+            logic.actions.setActiveTab('runs')
+
+            expect(router.values.searchParams.evaluation_tab).toBeUndefined()
         })
     })
 
