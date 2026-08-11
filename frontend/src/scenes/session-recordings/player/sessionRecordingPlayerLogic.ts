@@ -541,8 +541,8 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
-    isSnapshotUnauthorized: boolean // snapshotDataLogic
     isRecordingDeleted: boolean // snapshotDataLogic
+    isSnapshotUnauthorized: boolean // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
