@@ -140,3 +140,11 @@ export function removeExpressionComment(query: string): string {
     }
     return query.trim()
 }
+
+// The load was attempted (queryId is set) but returned no response and reported no error.
+// A request that is aborted, superseded by a newer load, or dropped by a silent guard path
+// never reaches the failure reducer, so responseError stays null. This tells "the query never
+// finished" apart from "the query finished and found nothing".
+export function queryDidNotComplete(queryId: string | null, response: unknown, responseError: string | null): boolean {
+    return queryId !== null && response == null && !responseError
+}

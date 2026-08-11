@@ -7,6 +7,7 @@ import {
     getColumnsForQuery,
     getDefaultDataTablePersonColumns,
     orderByForSelectKey,
+    queryDidNotComplete,
     removeAsAlias,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
@@ -17,6 +18,16 @@ describe('DataTable utils', () => {
         expect(extractExpressionComment('')).toBe('')
         expect(extractExpressionComment('asd -- bla')).toBe('bla')
         expect(extractExpressionComment('asd -- asd --   bla  ')).toBe('bla')
+    })
+
+    it.each([
+        ['attempted load never returned a response', 'query-1', null, null, true],
+        ['load returned an empty result set', 'query-1', { results: [] }, null, false],
+        ['load returned rows', 'query-1', { results: [{ x: 1 }] }, null, false],
+        ['load failed with an error', 'query-1', null, 'boom', false],
+        ['no load attempted yet', null, null, null, false],
+    ])('queryDidNotComplete: %s', (_, queryId, response, responseError, expected) => {
+        expect(queryDidNotComplete(queryId as string | null, response, responseError as string | null)).toBe(expected)
     })
 
     it.each([

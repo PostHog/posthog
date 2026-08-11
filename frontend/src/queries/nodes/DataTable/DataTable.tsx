@@ -45,6 +45,7 @@ import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
     orderByForSelectKey,
+    queryDidNotComplete,
     removeAsAlias,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
@@ -182,6 +183,7 @@ export function DataTable({
         responseLoading,
         responseError,
         queryCancelled,
+        queryId,
         nextDataLoading,
         newDataLoading,
         highlightedRows,
@@ -1058,6 +1060,13 @@ export function DataTable({
                                                 onRetry={() => loadData('force_blocking')}
                                             />
                                         )
+                                    ) : queryDidNotComplete(queryId, response, responseError) ? (
+                                        <InsightErrorState
+                                            query={query}
+                                            excludeDetail
+                                            onRetry={() => loadData('force_blocking')}
+                                            title="This query didn't finish loading"
+                                        />
                                     ) : (
                                         <InsightEmptyState
                                             heading={context?.emptyStateHeading}
