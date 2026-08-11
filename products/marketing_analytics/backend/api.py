@@ -1213,7 +1213,10 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 
         date_from = request.validated_query_data["date_from"]
-        cache_key = _setup_plan_cache_key(self.team.pk, request.user.pk, date_from)
+        # `IsAuthenticated` on the viewset rules out AnonymousUser, which is the only
+        # reason `.pk` is optional here.
+        user = cast(User, request.user)
+        cache_key = _setup_plan_cache_key(self.team.pk, user.pk, date_from)
         if not request.validated_query_data["refresh"]:
             cached = cache.get(cache_key)
             if cached is not None:
@@ -1222,7 +1225,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             plan = async_to_sync(get_setup_plan)(
                 self.team,
                 date_from=date_from,
-                user=cast(User, request.user),
+                user=user,
             )
             # `model_dump(mode="json")` so the Pydantic op models inside each suggestion
             # come out as plain JSON — the serializer exposes them as JSONField.
