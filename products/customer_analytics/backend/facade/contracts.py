@@ -282,6 +282,45 @@ class AccountTableSort:
     definition_id: UUID | None = None
 
 
+class AccountTableAggregation(str, Enum):
+    SUM = "sum"
+    AVERAGE = "avg"
+    MINIMUM = "min"
+    MAXIMUM = "max"
+    MEDIAN = "median"
+
+
+class AccountTableThresholdOperator(str, Enum):
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    EQUAL = "exact"
+    NOT_EQUAL = "is_not"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountMetric:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAggregateMetric:
+    aggregation: AccountTableAggregation
+    definition_id: UUID
+    scale: float | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountThresholdMetric:
+    definition_id: UUID
+    operator: AccountTableThresholdOperator
+    value: float
+
+
+AccountTableMetric = AccountTableCountMetric | AccountTableAggregateMetric | AccountTableCountThresholdMetric
+
+
 @dataclass(frozen=True, kw_only=True)
 class AccountTableCustomPropertyHistoryPoint:
     timestamp: datetime

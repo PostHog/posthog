@@ -23,7 +23,7 @@ Use this skill when a vendor has released a new API version and an existing sour
 
 ## First: does the version need to exist at all?
 
-Spotting a new vendor label is not a reason to support it. Before touching any source file, diff the new version against the one it supersedes — the source's current `default_version`, not every entry in `supported_versions` — from the vendor's docs and changelog, area by area:
+Spotting a new vendor label is not a reason to support it. Before touching any source file, diff the new version against the one it supersedes — the source's current `default_version`, not every entry in `supported_versions` — from the vendor's docs and changelog, area by area. Diff against the wire the client actually sends, not against the label: the `UNVERSIONED_API_VERSION` default (`v1`) does not mean the client targets the vendor's oldest API — a source built before it declared versions may already speak a modern wire, in which case adding that wire's real label is a declaration-only relabel-and-repin (below), not a new request path.
 
 - authentication — credential fields, token/header scheme, scopes, permission probes
 - base URL, version header, and the paths actually served per resource
@@ -92,6 +92,7 @@ Add it when any of these hold:
 - When the vendor renames a collection between versions, keep the schema/table name set identical across versions and put the rename in a per-version path on the endpoint config — otherwise discovery diffs orphan the table on repin.
 - When the new version has no equivalent for an old endpoint (a dropped collection, not a rename), keep that table only on the versions that serve it and let the table set differ by version — never map it to a guessed path just to keep the sets equal, since docs are the sole source of truth and an unverified path makes a new source surface a table that 404s at sync time.
 - A source with no dispatch may currently read its version from a constant on a shared model (e.g. the OAuth `Integration` model) that also drives version-independent flows like OAuth token minting. Repoint only the sync request path onto the resolved pin; leave that constant, since bumping it changes those other flows' version with a blast radius beyond this source.
+- The opposite holds when the new version is a genuinely different vendor product rather than a renamed collection (the old and new labels serve different endpoints and tables): give the new version its own disjoint table set, don't force the old names onto it. That divergence is safe only because sources are never repinned — so a 2.5→3.0-style move is lossy, and its migration is documented-not-scripted, exactly like a rename that changes primary keys.
 
 ## Self-improvement
 

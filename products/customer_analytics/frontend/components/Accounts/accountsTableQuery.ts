@@ -40,8 +40,6 @@ const CUSTOM_PROPERTY_OPERATOR_MAP: Partial<Record<PropertyOperator, AccountsTab
     [PropertyOperator.IsNot]: AccountsTableCustomPropertyOperator.IsNot,
     [PropertyOperator.IContains]: AccountsTableCustomPropertyOperator.Contains,
     [PropertyOperator.NotIContains]: AccountsTableCustomPropertyOperator.DoesNotContain,
-    [PropertyOperator.Regex]: AccountsTableCustomPropertyOperator.Regex,
-    [PropertyOperator.NotRegex]: AccountsTableCustomPropertyOperator.NotRegex,
     [PropertyOperator.GreaterThan]: AccountsTableCustomPropertyOperator.GreaterThan,
     [PropertyOperator.GreaterThanOrEqual]: AccountsTableCustomPropertyOperator.GreaterThanOrEqual,
     [PropertyOperator.LessThan]: AccountsTableCustomPropertyOperator.LessThan,
@@ -88,7 +86,7 @@ function accountFieldFromExpression(expression: string): AccountsTableAccountFie
     return jsonField && ACCOUNT_FIELD_VALUES.has(jsonField) ? (jsonField as AccountsTableAccountField) : null
 }
 
-function columnFromExpression(
+export function columnFromExpression(
     expression: string,
     columnDisplay: AccountColumnDisplayState
 ): AccountsTableColumn | null {
@@ -133,12 +131,6 @@ function customPropertyFilter(
     const definition = definitionsById[filter.key]
     const operator = CUSTOM_PROPERTY_OPERATOR_MAP[filter.operator]
     if (!definition || !operator) {
-        return null
-    }
-    if (
-        operator === AccountsTableCustomPropertyOperator.Regex ||
-        operator === AccountsTableCustomPropertyOperator.NotRegex
-    ) {
         return null
     }
     if (
@@ -212,6 +204,25 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
         }
         filters.push(translatedFilter)
     }
+    if (input.tileFilter) {
+        const filter = input.tileFilter.filter
+        if (!filter) {
+            return null
+        }
+        const definition = input.customPropertyDefinitionsById[filter.definitionId]
+        if (!isUUIDLike(filter.definitionId) || !definition || !isNumericDisplayType(definition.display_type)) {
+            return null
+        }
+        if (filter.operator === AccountsTableCustomPropertyOperator.IsNot) {
+            filters.push({
+                kind: 'custom_property',
+                definitionId: filter.definitionId,
+                operator: AccountsTableCustomPropertyOperator.IsSet,
+                values: [],
+            })
+        }
+        filters.push(filter)
+    }
     return filters
 }
 
@@ -223,7 +234,7 @@ function sortableColumn(column: AccountsTableColumn): AccountsTableSortableColum
 }
 
 export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan | null {
-    if (input.tileFilter || input.querySelectColumns.length !== input.visibleColumnNames.length) {
+    if (input.querySelectColumns.length !== input.visibleColumnNames.length) {
         return null
     }
 
