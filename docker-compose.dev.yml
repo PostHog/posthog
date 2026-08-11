@@ -812,14 +812,13 @@ services:
             - '14268:14268' # jaeger.thrift
             - '14250:14250' # model.proto
 
-    localstack:
+    dynamodb:
         extends:
             file: docker-compose.base.yml
-            service: localstack
-        container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
+            service: dynamodb
+        container_name: '${DYNAMODB_DOCKER_NAME:-dynamodb-main}'
         ports:
-            - '127.0.0.1:4566:4566' # LocalStack Gateway
-            - '127.0.0.1:4510-4559:4510-4559' # external services port range
+            - '127.0.0.1:18000:8000' # DynamoDB API, off 8000 because the Django dev server owns it
 
     seaweedfs:
         extends:

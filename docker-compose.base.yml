@@ -844,12 +844,23 @@ services:
         networks:
             - otel_network
 
-    localstack:
-        image: localstack/localstack:4.12.0
-        environment:
-            - DEBUG=${DEBUG:-0}
-        volumes:
-            - '/var/run/docker.sock:/var/run/docker.sock'
+    dynamodb:
+        # Session recording encryption keys live in DynamoDB on Cloud (see getKeyStore in
+        # nodejs/src/ingestion/pipelines/sessionreplay/shared/keystore), so the keystore
+        # integration test needs a real DynamoDB API to exercise its composite key and
+        # conditional writes. -inMemory keeps runs from inheriting each other's tables, and
+        # -sharedDb makes every credential and region pair address the same tables, which the
+        # test relies on because it creates the table with one client and reads it with another.
+        image: amazon/dynamodb-local:3.3.1
+        command: ['-jar', 'DynamoDBLocal.jar', '-inMemory', '-sharedDb']
+        healthcheck:
+            # The image ships neither curl nor wget, so open the port from bash instead. Without a
+            # healthcheck `docker compose up --wait` returns as soon as the JVM process starts,
+            # which is before it accepts connections.
+            test: ['CMD-SHELL', 'exec 3<>/dev/tcp/localhost/8000']
+            interval: 5s
+            timeout: 3s
+            retries: 12
 
     seaweedfs:
         # Default open-access mode; see the `objectstorage` service above for rationale

@@ -49,8 +49,8 @@ services:
         profiles: [replay]
 
     # Cloud provider emulators
-    localstack:
-        profiles: [localstack]
+    dynamodb:
+        profiles: [dynamodb]
     objectstorage-azure:
         profiles: [azure]
 
