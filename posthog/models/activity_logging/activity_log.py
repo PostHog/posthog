@@ -540,11 +540,14 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "scim_provisioned_users",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
         "identity_provider_config",
+        # Join table mirroring that link; not a plain field diff.
+        "linked_identity_provider_configs",
     ],
     "IdentityProviderConfig": [
         "organization",
-        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
+        # Reverse relations to `OrganizationDomain` (FK and join table); not plain field diffs.
         "domains",
+        "linked_identity_provider_configs",
     ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another

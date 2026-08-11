@@ -7,6 +7,7 @@ from django.db import models, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.functional import cached_property
 
 import structlog
 import dns.resolver
@@ -14,7 +15,7 @@ import dns.resolver
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import DomainScope, IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
@@ -29,6 +30,22 @@ def generate_verification_challenge() -> str:
     return secrets.token_urlsafe(32)
 
 
+def resolves_to_identity_provider_config_q(configs: models.QuerySet[IdentityProviderConfig]) -> models.Q:
+    """
+    A filter on `OrganizationDomain` selecting the domains that resolve to any config in `configs`,
+    honouring each config's `domain_scope`: `selected` (and the legacy unset scope) matches only the
+    domains explicitly linked through `LinkedIdentityProviderConfig`, `all` matches every domain in
+    the config's organization.
+
+    Subqueries rather than joins, so the filter can't fan a domain out into duplicate rows.
+    """
+    explicitly_linked = LinkedIdentityProviderConfig.objects.filter(
+        organization_domain=models.OuterRef("pk"), identity_provider_config__in=configs
+    )
+    org_wide = configs.filter(domain_scope=DomainScope.ALL, organization_id=models.OuterRef("organization_id"))
+    return models.Q(models.Exists(explicitly_linked)) | models.Q(models.Exists(org_wide))
+
+
 class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
@@ -36,9 +53,10 @@ class OrganizationDomainManager(models.Manager):
         # has `enforce_verified_domains` on — the domain would drop out of the enforcement
         # allow-list and lock out every member on it at once, admins included. Suspend or flag
         # instead of clearing.
-        # `select_related` the IdP config since reads of SAML/SCIM/ID-JAG settings resolve through
-        # it (`OrganizationDomain.idp_config`) in the hot auth paths.
-        return self.exclude(verified_at__isnull=True).select_related("identity_provider_config")
+        # Reads of SAML/SCIM/ID-JAG settings resolve through `OrganizationDomain.idp_config`, which
+        # goes via `LinkedIdentityProviderConfig` rather than the FK — so there's nothing worth
+        # `select_related`ing here; `idp_config` caches its own lookup per instance instead.
+        return self.exclude(verified_at__isnull=True)
 
     def get_verified_for_email_address(self, email: str) -> Optional["OrganizationDomain"]:
         """
@@ -94,22 +112,22 @@ class OrganizationDomainManager(models.Manager):
         Returns whether SAML is available for a specific email address.
         """
         domain = email[email.index("@") + 1 :]
-        # SAML config is read from the linked `IdentityProviderConfig`. A domain with no linked
-        # config produces NULLs across the LEFT JOIN, so the `__isnull=True` excludes drop it.
+        # SAML config is read from the resolved `IdentityProviderConfig`s, so narrow to the domains
+        # that resolve to a fully-configured SAML config. Each SAML field is excluded on both ""
+        # and NULL — normally we'd have just one nil state (i.e. ""), but to avoid migration locks
+        # we had to introduce the nullable one too.
+        saml_configs = IdentityProviderConfig.objects.exclude(
+            models.Q(saml_entity_id="")
+            | models.Q(saml_entity_id__isnull=True)
+            | models.Q(saml_acs_url="")
+            | models.Q(saml_acs_url__isnull=True)
+            | models.Q(saml_x509_cert="")
+            | models.Q(saml_x509_cert__isnull=True)
+        )
         query = (
             self.verified_domains()
             .filter(domain__iexact=domain)
-            .exclude(
-                models.Q(identity_provider_config__saml_entity_id="")
-                | models.Q(identity_provider_config__saml_acs_url="")
-                | models.Q(identity_provider_config__saml_x509_cert="")
-                | models.Q(identity_provider_config__isnull=True)
-                | models.Q(
-                    identity_provider_config__saml_entity_id__isnull=True
-                )  # normally we would have just a nil state (i.e. ""), but to avoid migration locks we had to introduce this
-                | models.Q(identity_provider_config__saml_acs_url__isnull=True)
-                | models.Q(identity_provider_config__saml_x509_cert__isnull=True)
-            )
+            .filter(resolves_to_identity_provider_config_q(saml_configs))
             .values_list("organization__available_product_features", flat=True)
             .first()
         )
@@ -274,8 +292,12 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
 
     # ---- IdP config (home for SAML/SCIM/ID-JAG settings) ----
     # `IdentityProviderConfig` is the source of truth for SAML/SCIM/ID-JAG settings and can be
-    # shared by multiple domains. All reads and writes of those settings go through the linked
-    # config (`self.idp_config`); the FK link itself is still writable via this domain.
+    # shared by multiple domains. All reads and writes of those settings go through the resolved
+    # config (`self.idp_config`).
+    #
+    # This FK is the *write* interface for the domain<->config link and is kept mirrored into
+    # `LinkedIdentityProviderConfig` by `save()`. Reads resolve through that join table instead
+    # (`self.identity_provider_configs`), which is also how `domain_scope` gets honoured.
     identity_provider_config = models.ForeignKey(
         IdentityProviderConfig,
         on_delete=models.SET_NULL,
@@ -306,6 +328,16 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
                 )
         return errors
 
+    def _invalidate_idp_config_cache(self) -> None:
+        self.__dict__.pop("idp_config", None)
+
+    def refresh_from_db(self, *args: Any, **kwargs: Any) -> None:
+        # `idp_config` is resolved from other rows, so reloading this one has to drop it too —
+        # otherwise a caller that reads a setting, edits the config, then refreshes the domain
+        # would keep seeing the pre-edit config.
+        self._invalidate_idp_config_cache()
+        super().refresh_from_db(*args, **kwargs)
+
     def clean(self) -> None:
         errors = self._validate_identity_provider_config_organization()
         if errors:
@@ -322,9 +354,17 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
 
         with transaction.atomic():
             super().save(*args, **kwargs)
-            if self.identity_provider_config_id is None:
-                return
+            # The FK may have moved, so any cached resolution is stale now.
+            self._invalidate_idp_config_cache()
 
+            # Mirror the FK into the join table. The FK is still the only way to write the link, so
+            # links to any *other* config are leftovers from a previous value and have to go —
+            # otherwise this domain would keep resolving to the config it was just moved off.
+            links = LinkedIdentityProviderConfig.objects.filter(organization_domain=self)
+            if self.identity_provider_config_id is None:
+                links.delete()
+                return
+            links.exclude(identity_provider_config_id=self.identity_provider_config_id).delete()
             LinkedIdentityProviderConfig.objects.get_or_create(
                 organization_domain=self,
                 identity_provider_config_id=self.identity_provider_config_id,
@@ -347,13 +387,41 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         return bool(self.verified_at)
 
     @property
+    def identity_provider_configs(self) -> models.QuerySet[IdentityProviderConfig]:
+        """
+        Every `IdentityProviderConfig` that applies to this domain: the ones explicitly linked
+        through `LinkedIdentityProviderConfig`, plus the organization's `all`-scoped ones (which
+        cover every domain without needing a link).
+
+        Explicitly linked configs sort first — a config picked for this domain beats one that
+        merely applies to the whole organization. Ties break on `created_at`, then `id`, so the
+        resolution is deterministic and can't be steered by row ordering.
+        """
+        if self.pk is None:
+            return IdentityProviderConfig.objects.none()
+        return (
+            IdentityProviderConfig.objects.filter(organization_id=self.organization_id)
+            .annotate(
+                is_explicitly_linked=models.Exists(
+                    LinkedIdentityProviderConfig.objects.filter(
+                        organization_domain=self, identity_provider_config=models.OuterRef("pk")
+                    )
+                )
+            )
+            .filter(models.Q(is_explicitly_linked=True) | models.Q(domain_scope=DomainScope.ALL))
+            .order_by("-is_explicitly_linked", "created_at", "id")
+        )
+
+    @cached_property
     def idp_config(self) -> IdentityProviderConfig:
         """
-        The linked `IdentityProviderConfig` (source of truth for SAML/SCIM/ID-JAG reads), or an
-        empty in-memory config when none is linked yet so reads resolve to safe empty values
-        without null-guards.
+        The `IdentityProviderConfig` that applies to this domain (source of truth for
+        SAML/SCIM/ID-JAG reads), or an empty in-memory config when none does, so reads resolve to
+        safe empty values without null-guards.
+
+        Cached per instance since resolving hits the database; `save()` clears the cache.
         """
-        return self.identity_provider_config or IdentityProviderConfig()
+        return self.identity_provider_configs.first() or IdentityProviderConfig()
 
     @property
     def has_saml(self) -> bool:
@@ -409,5 +477,12 @@ def delete_orphaned_identity_provider_config(
     Note: This is temporary. In the future IDP configs will be explicitly managed in the UI. However, they are currently implicitly
     managed by their relationship to the org domains so we need to make sure they get cleaned up when all linked org domains are deleted
     """
-    if instance.identity_provider_config_id is not None:
-        IdentityProviderConfig.objects.filter(pk=instance.identity_provider_config_id, domains__isnull=True).delete()
+    if instance.identity_provider_config_id is None:
+        return
+
+    # The deleted domain's join-table rows are already gone by the time this fires (cascade), so
+    # asking the config which domains it still applies to answers "is it orphaned?" directly — and
+    # keeps an `all`-scoped config alive as long as its organization has any domain left.
+    config = IdentityProviderConfig.objects.filter(pk=instance.identity_provider_config_id).first()
+    if config is not None and not config.organization_domains.exists():
+        config.delete()

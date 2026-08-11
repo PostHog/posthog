@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
@@ -6,12 +8,21 @@ import structlog
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
+if TYPE_CHECKING:
+    from posthog.models.organization_domain import OrganizationDomain
+
 logger = structlog.get_logger(__name__)
 
 
 class DomainScope(models.TextChoices):
     ALL = "all"
     SELECTED = "selected"
+
+
+# `domain_scope` is nullable (the column was added to rows that predate it), so an unset scope has
+# to mean something. It means `SELECTED`: a config only ever reaches the domains it was explicitly
+# linked to until someone opts it into the whole organization.
+DEFAULT_DOMAIN_SCOPE = DomainScope.SELECTED
 
 
 class ConfigScope(models.TextChoices):
@@ -26,8 +37,8 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
 
     Groups IdP-specific settings — SAML, SCIM, and ID-JAG (XAA) today, custom SSO in the
     future — in one place, decoupled from any single domain. One config can be mapped to
-    multiple `OrganizationDomain` rows (via `OrganizationDomain.identity_provider_config`),
-    and an organization can have zero, one, or many configs.
+    multiple `OrganizationDomain` rows (see `organization_domains`), and an organization can
+    have zero, one, or many configs.
 
     This model is the sole read/write interface for IdP settings (SAML/SCIM/ID-JAG). The legacy
     IdP columns on `OrganizationDomain` are no longer written to — they're frozen.
@@ -89,6 +100,34 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
 
     def __str__(self) -> str:
         return self.name or str(self.id)
+
+    @property
+    def effective_domain_scope(self) -> str:
+        """`domain_scope` with the legacy unset value resolved to `DEFAULT_DOMAIN_SCOPE`."""
+        return self.domain_scope or DEFAULT_DOMAIN_SCOPE
+
+    @property
+    def applies_to_all_domains(self) -> bool:
+        return self.effective_domain_scope == DomainScope.ALL
+
+    @property
+    def organization_domains(self) -> models.QuerySet["OrganizationDomain"]:
+        """
+        The organization domains this config applies to.
+
+        With `domain_scope` `all` that's every domain in the config's organization; with
+        `selected` (or an unset scope) it's only the domains explicitly linked through
+        `LinkedIdentityProviderConfig`.
+        """
+        # Deferred: `organization_domain` imports this module at module level.
+        from posthog.models.organization_domain import OrganizationDomain
+
+        # The org filter is what makes `all` mean "all of *this* organization's domains"; for
+        # `selected` it's a redundant-but-cheap guard, since links are validated as same-org.
+        domains = OrganizationDomain.objects.filter(organization_id=self.organization_id)
+        if self.applies_to_all_domains:
+            return domains
+        return domains.filter(linked_identity_provider_configs__identity_provider_config=self)
 
     @property
     def has_saml(self) -> bool:

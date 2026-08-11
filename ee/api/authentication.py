@@ -34,8 +34,9 @@ from social_django.utils import load_backend, load_strategy
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_domain import OrganizationDomain, resolves_to_identity_provider_config_q
 
 from ee import settings
 from ee.api.scim.utils import mask_email
@@ -132,7 +133,9 @@ class MultitenantSAMLAuth(SAMLAuth):
         # source of truth for SAML settings, so match the issuer against its `saml_entity_id`.
         matches = list(
             # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
-            OrganizationDomain.objects.verified_domains().filter(identity_provider_config__saml_entity_id=issuer)
+            OrganizationDomain.objects.verified_domains().filter(
+                resolves_to_identity_provider_config_q(IdentityProviderConfig.objects.filter(saml_entity_id=issuer))
+            )
         )
         if len(matches) != 1:
             if len(matches) > 1:

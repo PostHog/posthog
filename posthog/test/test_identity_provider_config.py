@@ -2,8 +2,10 @@ import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from posthog.models import IdentityProviderConfig, LinkedIdentityProviderConfig, Organization, OrganizationDomain
+from posthog.models.identity_provider_config import DomainScope
 
 # Legacy `OrganizationDomain` columns that mirror fields on `IdentityProviderConfig`. Test-only:
 # used to build underscore-prefixed kwargs and to guard the two models' field shapes against drift.
@@ -182,3 +184,155 @@ class TestIdentityProviderConfig(BaseTest):
         assert not domain.has_saml
         assert not domain.has_scim
         assert not domain.has_id_jag
+
+
+class TestIdentityProviderConfigDomainScope(BaseTest):
+    SAML_KWARGS = {
+        "saml_entity_id": "entity-id",
+        "saml_acs_url": "https://idp.example.com/acs",
+        "saml_x509_cert": "cert-contents",
+    }
+
+    def _create_domain(self, domain: str = "posthog.com", **kwargs) -> OrganizationDomain:
+        return OrganizationDomain.objects.create(organization=self.organization, domain=domain, **kwargs)
+
+    def _create_config(self, **kwargs) -> IdentityProviderConfig:
+        return IdentityProviderConfig.objects.create(organization=self.organization, **kwargs)
+
+    def _create_config_with_identifiers(self, name: str, **kwargs) -> IdentityProviderConfig:
+        # `OrganizationDomain.save()` backfills empty identifiers with the domain's id, which
+        # collides across configs once a domain moves between them. Pre-set them so tests about
+        # linking aren't derailed by that.
+        return self._create_config(name=name, saml_relay_state=name, scim_slug=name, **kwargs)
+
+    def test_unset_domain_scope_is_treated_as_selected(self):
+        config = self._create_config()
+        assert config.domain_scope is None
+        assert config.effective_domain_scope == DomainScope.SELECTED
+        assert not config.applies_to_all_domains
+
+    def test_selected_scope_only_covers_linked_domains(self):
+        config = self._create_config(domain_scope=DomainScope.SELECTED)
+        linked = self._create_domain(identity_provider_config=config)
+        unlinked = self._create_domain("other.posthog.com")
+
+        assert list(config.organization_domains) == [linked]
+        assert list(unlinked.identity_provider_configs) == []
+        assert unlinked.idp_config._state.adding  # the empty in-memory fallback
+
+    def test_unset_scope_only_covers_linked_domains(self):
+        config = self._create_config()
+        linked = self._create_domain(identity_provider_config=config)
+        self._create_domain("other.posthog.com")
+
+        assert list(config.organization_domains) == [linked]
+
+    def test_all_scope_covers_every_domain_in_the_organization(self):
+        config = self._create_config(domain_scope=DomainScope.ALL, **self.SAML_KWARGS)
+        linked = self._create_domain(identity_provider_config=config)
+        unlinked = self._create_domain("other.posthog.com")
+
+        assert set(config.organization_domains) == {linked, unlinked}
+        # The unlinked domain resolves to the config without any join-table row of its own.
+        assert list(unlinked.identity_provider_configs) == [config]
+        assert unlinked.idp_config == config
+        assert unlinked.has_saml
+
+    def test_all_scope_does_not_cover_another_organizations_domains(self):
+        other_org = Organization.objects.create(name="Other")
+        other_domain = OrganizationDomain.objects.create(organization=other_org, domain="other.example.com")
+        config = self._create_config(domain_scope=DomainScope.ALL)
+
+        assert other_domain not in set(config.organization_domains)
+        assert list(other_domain.identity_provider_configs) == []
+
+    def test_explicitly_linked_config_wins_over_org_wide_one(self):
+        org_wide = self._create_config(domain_scope=DomainScope.ALL, name="org-wide")
+        linked = self._create_config(name="linked")
+        domain = self._create_domain(identity_provider_config=linked)
+
+        assert list(domain.identity_provider_configs) == [linked, org_wide]
+        assert domain.idp_config == linked
+
+    def test_org_wide_config_is_not_duplicated_by_links_to_other_domains(self):
+        config = self._create_config(domain_scope=DomainScope.ALL)
+        self._create_domain("a.posthog.com", identity_provider_config=config)
+        self._create_domain("b.posthog.com", identity_provider_config=config)
+        unlinked = self._create_domain("c.posthog.com")
+
+        assert list(unlinked.identity_provider_configs) == [config]
+
+    def test_repointing_the_domain_fk_drops_the_stale_link(self):
+        first = self._create_config_with_identifiers("first")
+        second = self._create_config_with_identifiers("second")
+        domain = self._create_domain(identity_provider_config=first)
+
+        domain.identity_provider_config = second
+        domain.save()
+
+        assert list(
+            LinkedIdentityProviderConfig.objects.filter(organization_domain=domain).values_list(
+                "identity_provider_config_id", flat=True
+            )
+        ) == [second.pk]
+        assert domain.idp_config == second
+        assert list(first.organization_domains) == []
+
+    def test_clearing_the_domain_fk_drops_the_link(self):
+        config = self._create_config()
+        domain = self._create_domain(identity_provider_config=config)
+
+        domain.identity_provider_config = None
+        domain.save()
+
+        assert not LinkedIdentityProviderConfig.objects.filter(organization_domain=domain).exists()
+        assert list(config.organization_domains) == []
+        assert domain.idp_config._state.adding
+
+    def test_deleting_domain_keeps_org_wide_config_while_other_domains_remain(self):
+        config = self._create_config(domain_scope=DomainScope.ALL)
+        domain = self._create_domain(identity_provider_config=config)
+        self._create_domain("other.posthog.com")
+
+        domain.delete()
+        assert IdentityProviderConfig.objects.filter(pk=config.pk).exists()
+
+    def test_deleting_the_last_domain_deletes_the_org_wide_config(self):
+        config = self._create_config(domain_scope=DomainScope.ALL)
+        domain = self._create_domain(identity_provider_config=config)
+
+        domain.delete()
+        assert not IdentityProviderConfig.objects.filter(pk=config.pk).exists()
+
+    def test_saml_availability_resolves_through_the_join_table(self):
+        config = self._create_config(**self.SAML_KWARGS)
+        domain = self._create_domain(identity_provider_config=config)
+        domain.verified_at = timezone.now()
+        domain.save()
+        self.organization.available_product_features = [{"key": "saml", "name": "saml"}]
+        self.organization.save()
+
+        assert OrganizationDomain.objects.get_is_saml_available_for_email("someone@posthog.com")
+
+        LinkedIdentityProviderConfig.objects.filter(organization_domain=domain).delete()
+        assert not OrganizationDomain.objects.get_is_saml_available_for_email("someone@posthog.com")
+
+    def test_saml_availability_resolves_through_an_org_wide_config(self):
+        self._create_config(domain_scope=DomainScope.ALL, **self.SAML_KWARGS)
+        domain = self._create_domain()  # never linked to the config
+        domain.verified_at = timezone.now()
+        domain.save()
+        self.organization.available_product_features = [{"key": "saml", "name": "saml"}]
+        self.organization.save()
+
+        assert OrganizationDomain.objects.get_is_saml_available_for_email("someone@posthog.com")
+
+    def test_saml_availability_ignores_a_partially_configured_config(self):
+        self._create_config(domain_scope=DomainScope.ALL, saml_entity_id="entity-id")  # no ACS URL or cert
+        domain = self._create_domain()
+        domain.verified_at = timezone.now()
+        domain.save()
+        self.organization.available_product_features = [{"key": "saml", "name": "saml"}]
+        self.organization.save()
+
+        assert not OrganizationDomain.objects.get_is_saml_available_for_email("someone@posthog.com")
