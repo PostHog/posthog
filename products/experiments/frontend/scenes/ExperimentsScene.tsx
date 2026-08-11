@@ -41,7 +41,6 @@ import {
     getShippedVariantKey,
     isSingleVariantShipped,
 } from 'scenes/experiments/experimentsLogic'
-import { ExperimentsSettings } from 'scenes/experiments/ExperimentsSettings'
 import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import MaxTool from 'scenes/max/MaxTool'
@@ -66,7 +65,12 @@ import {
 } from '~/types'
 
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+/**
+ * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
+ * having their own routes.
+ */
 import { ExperimentsHoldoutsScene } from 'products/experiments/frontend/scenes/ExperimentsHoldoutsScene'
+import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 
 export const scene: SceneExport = {
@@ -652,7 +656,7 @@ export function ExperimentsScene(): JSX.Element {
                     {
                         key: ExperimentsTabs.Settings,
                         label: 'Settings',
-                        content: <ExperimentsSettings />,
+                        content: <ExperimentsSettingsScene />,
                     },
                 ]}
             />
