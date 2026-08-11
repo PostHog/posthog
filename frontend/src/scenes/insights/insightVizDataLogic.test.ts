@@ -884,6 +884,23 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('hasRenderableResults', () => {
+        it('tracks whether the loaded response contains results', async () => {
+            await expectLogic(builtInsightVizDataLogic).toMatchValues({ hasRenderableResults: false })
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess({ result: funnelResult.result })
+            }).toMatchValues({ hasRenderableResults: true })
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess({
+                    cache_key: 'cache_1_abc',
+                    query_status: { id: 'cache_1_abc', complete: false },
+                } as Record<string, any>)
+            }).toMatchValues({ hasRenderableResults: false })
+        })
+    })
+
     describe('isSingleSeriesOutput', () => {
         it('returns true for single series without breakdown', () => {
             expectLogic(builtInsightVizDataLogic, () => {
