@@ -63,6 +63,10 @@ export interface TimeSeriesLineChartConfig {
 
 export interface TimeSeriesLineChartProps<Meta = unknown> {
     series: Series<Meta>[]
+    /** One x value per data index, unique across the array (use ISO date strings, not formatted
+     *  display labels). The x-scale keys positions off these strings, so a repeated value
+     *  collapses onto the first occurrence's position and draws the series backwards. Display
+     *  formatting belongs in `xAxis.timezone`/`interval` (auto tick formatter) or `tickFormatter`. */
     labels: string[]
     theme: ChartTheme
     config?: TimeSeriesLineChartConfig

@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterSource } from './agentRosterMeta'
@@ -61,14 +62,97 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element {
 interface AgentCardProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
+    tool?: SourceToolStatus
+    enablingTool: boolean
     onToggle: (source: AgentRosterSource) => void
+    onEnableTool: (tool: SourceToolStatus) => void
+    onRetryData: () => void
 }
 
-const AgentCard = memo(function AgentCard({ agent, state, onToggle }: AgentCardProps): JSX.Element {
+function ToolDataStatus({
+    agent,
+    status,
+    onRetry,
+}: {
+    agent: AgentRosterDefinition
+    status: SourceToolDataStatus
+    onRetry: () => void
+}): JSX.Element | null {
+    if (status === 'unavailable') {
+        return null
+    }
+
+    if (status === 'loading') {
+        return (
+            <div className="flex items-center gap-1.5 mt-2 ml-11 text-xs text-muted">
+                <Spinner className="text-xs" />
+                Checking for recent data
+            </div>
+        )
+    }
+
+    if (status === 'error') {
+        return (
+            <div className="flex items-center gap-2 mt-2 ml-11 text-xs text-muted">
+                <span>Couldn't check recent data.</span>
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        onRetry()
+                    }}
+                >
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (status === 'recent') {
+        return (
+            <div className="flex items-center gap-1.5 mt-2 ml-11 text-xs text-muted">
+                <span className="size-1.5 rounded-full bg-success" />
+                Data received in the last 30 days
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex items-center gap-2 mt-2 ml-11 text-xs text-muted">
+            <span className="size-1.5 rounded-full bg-border-bold" />
+            <span>No data received in the last 30 days.</span>
+            {agent.docsUrl && (
+                <Link
+                    to={agent.docsUrl}
+                    target="_blank"
+                    className="inline-flex items-center gap-1"
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    Check setup
+                    <IconArrowUpRight />
+                </Link>
+            )}
+        </div>
+    )
+}
+
+const AgentCard = memo(function AgentCard({
+    agent,
+    state,
+    tool,
+    enablingTool,
+    onToggle,
+    onEnableTool,
+    onRetryData,
+}: AgentCardProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus } = state
     const status = resolveAgentStatus(armed, syncStatus)
     const statusTag = STATUS_TAG[status]
-    const isInteractive = !loading
+    const toolOff = tool?.enabled === false
+    // An off tool blocks arming (the source would watch nothing), never disarming.
+    const armingBlocked = toolOff && !armed
+    const isInteractive = !loading && !armingBlocked
 
     const handleCardClick = useCallback(() => {
         if (!isInteractive) {
@@ -115,9 +199,15 @@ const AgentCard = memo(function AgentCard({ agent, state, onToggle }: AgentCardP
 
                 {/* eslint-disable-next-line react/no-unknown-property */}
                 <div className="flex flex-col items-end gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <LemonTag type={statusTag.type} size="small">
-                        {statusTag.label}
-                    </LemonTag>
+                    {toolOff ? (
+                        <LemonTag type="warning" size="small">
+                            Tool off
+                        </LemonTag>
+                    ) : (
+                        <LemonTag type={statusTag.type} size="small">
+                            {statusTag.label}
+                        </LemonTag>
+                    )}
                     {loading ? (
                         <Spinner className="text-lg" />
                     ) : requiresSetup ? (
@@ -128,11 +218,37 @@ const AgentCard = memo(function AgentCard({ agent, state, onToggle }: AgentCardP
                         <LemonSwitch
                             checked={armed}
                             onChange={() => onToggle(agent.source)}
+                            disabledReason={
+                                armingBlocked
+                                    ? `Turn on ${tool?.toolName} first. This source reads its data.`
+                                    : undefined
+                            }
                             aria-label={`Arm ${agent.label}`}
                         />
                     )}
                 </div>
             </div>
+
+            {toolOff && tool ? (
+                // eslint-disable-next-line react/no-unknown-property
+                <div className="flex items-center gap-2 mt-2 ml-11" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-sm text-warning">
+                        {tool.toolName} is off, so this source has nothing to read.
+                    </span>
+                    {tool.enablement && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            loading={enablingTool}
+                            onClick={() => onEnableTool(tool)}
+                        >
+                            Turn it on
+                        </LemonButton>
+                    )}
+                </div>
+            ) : tool ? (
+                <ToolDataStatus agent={agent} status={tool.dataStatus} onRetry={onRetryData} />
+            ) : null}
 
             {armed && agent.source === 'session_replay' && status === 'syncing' && (
                 <div className="flex items-center gap-2 mt-2 ml-11">
@@ -170,6 +286,8 @@ export function AgentsRoster(): JSX.Element {
         isPgAnalyzeIssuesToggling,
         isHealthChecksToggling,
         isCiSignalsToggling,
+        toolStatusBySource,
+        enablingTool,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -180,6 +298,8 @@ export function AgentsRoster(): JSX.Element {
         toggleAnomalyInvestigation,
         toggleHealthChecks,
         initiateDataWarehouseSourceToggle,
+        enableSourceTool,
+        loadToolDataEvents,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -338,7 +458,13 @@ export function AgentsRoster(): JSX.Element {
                                     key={agent.source}
                                     agent={agent}
                                     state={stateFor(agent.source)}
+                                    tool={toolStatusBySource[agent.source]}
+                                    enablingTool={
+                                        !!enablingTool && enablingTool === toolStatusBySource[agent.source]?.enablement
+                                    }
                                     onToggle={handleToggle}
+                                    onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
+                                    onRetryData={loadToolDataEvents}
                                 />
                             ))}
                     </div>

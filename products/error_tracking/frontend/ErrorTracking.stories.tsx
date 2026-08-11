@@ -1,6 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
+import { useLayoutEffect, useState } from 'react'
 
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -144,6 +149,8 @@ const meta: Meta = {
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/spike_events': [200, { results: [] }],
+                // Empty keeps this story's snapshot unchanged; the populated section has its own story.
+                '/api/projects/:team_id/signals/reports/': [200, { next: null, results: [] }],
                 '/api/environments/:team_id/session_recordings/:id/capture_diagnostics/': [
                     200,
                     { properties: { $has_recording: true, $recording_status: 'active' } },
@@ -173,7 +180,129 @@ export default meta
 
 type Story = StoryObj<{}>
 export const ListPage: Story = {}
+
+// An unresolved source maps recommendation renders the wizard banner above the
+// issue list without the sticky filters bar overlapping its bottom edge
+export const ListPageWithSourceMapsBanner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/environments/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'source-maps-recommendation',
+                                type: 'source_maps',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    total_frames: 100,
+                                    unresolved_frames: 62,
+                                    unresolved_pct: 0.62,
+                                    threshold_pct: 0.25,
+                                    min_sample_frames: 50,
+                                    lookback_hours: 24,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+// Autocapture must be on for the issue list to render instead of the full setup prompt,
+// and it comes from the bootstrap app context, so an msw override isn't enough
+function IngestionWarningStory(): JSX.Element | null {
+    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+    const [ready, setReady] = useState(false)
+
+    useLayoutEffect(() => {
+        loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, autocapture_exceptions_opt_in: true })
+        setReady(true)
+    }, [loadCurrentTeamSuccess])
+
+    return ready ? <App /> : null
+}
+
+// No exceptions ingested yet, but autocapture enabled — the ingestion warning banner
+// renders above the issue list without the sticky filters bar overlapping it
+export const ListPageWithIngestionWarning: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/error_tracking/issues/exists/': () => [200, { exists: false }],
+            },
+        }),
+    ],
+    render: () => <IngestionWarningStory />,
+}
 export const GroupPage: Story = {
     name: 'Issue scene',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+}
+
+export const GroupPageLoading: Story = {
+    name: 'Issue scene loading',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind/': () => new Promise<never>(() => {}),
+            },
+        }),
+    ],
+}
+
+// Self-driving investigated this issue, so its section renders in the right pane above the exception
+// card. This is the only coverage of the placement: the section's own story fabricates a pane around
+// it, so it cannot show that the two header strips line up, that the section paints the background the
+// pane leaves unpainted, or that a single border separates the two.
+export const GroupPageWithSelfDriving: Story = {
+    name: 'Issue scene with self-driving',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': () => [
+                    200,
+                    {
+                        next: null,
+                        results: [
+                            {
+                                id: '019f9582-93e7-77c1-8912-4f541d70cb13',
+                                status: 'ready',
+                                title: 'fix(replay): guard against a missing snapshot index',
+                                summary:
+                                    'The player throws when a recording ends on a snapshot the index never received.',
+                                implementation_pr_url: 'https://github.com/PostHog/posthog/pull/64772',
+                                implementation_pr_merged: false,
+                                updated_at: '2024-07-08T21:00:00Z',
+                            },
+                            {
+                                id: '019f954a-8ed0-7a18-a198-3ffed1a2def0',
+                                status: 'resolved',
+                                title: 'fix(replay): stop dropping events after a tab regains focus',
+                                summary: 'Events queued while the tab was hidden are discarded when it regains focus.',
+                                implementation_pr_url: 'https://github.com/PostHog/posthog/pull/64773',
+                                implementation_pr_merged: true,
+                                updated_at: '2024-07-08T15:00:00Z',
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
 }

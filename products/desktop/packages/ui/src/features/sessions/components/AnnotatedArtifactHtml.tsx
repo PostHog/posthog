@@ -7,8 +7,13 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  selectionAnchor,
+  withSelectionPosition,
+} from "./artifactHtmlCommentPosition";
 import { ArtifactHtmlFrame } from "./artifactHtmlFrame";
 import {
   ARTIFACT_HTML_BRIDGE_MARKER,
@@ -23,6 +28,7 @@ import {
   type HighlightResolution,
   readCommentContext,
 } from "./commentViewTypes";
+import type { CommentSurfaceTheme } from "./selectionCommentAction";
 
 function isFrameRect(value: unknown): value is ArtifactHtmlFrameRect {
   if (!value || typeof value !== "object") return false;
@@ -60,6 +66,12 @@ export function AnnotatedArtifactHtml({
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }) {
   const channelRef = useRef(`artifact-comments-${crypto.randomUUID()}`);
+  const theme = useThemeStore(
+    (s): CommentSurfaceTheme => (s.isDarkMode ? "dark" : "light"),
+  );
+  // Baked into the document at mount; live theme changes ride the `theme`
+  // message below so a flip doesn't tear down and reload the running preview.
+  const initialTheme = useRef(theme).current;
   const [pendingAnchor, setPendingAnchor] = useState<TextCommentAnchor | null>(
     null,
   );
@@ -69,18 +81,21 @@ export function AnnotatedArtifactHtml({
       scriptedArtifactHtmlDocument(
         html,
         commentsEnabled ? channelRef.current : undefined,
+        initialTheme,
       ),
-    [commentsEnabled, html],
+    [commentsEnabled, html, initialTheme],
   );
   const fallbackDocument = useMemo(
     () =>
       artifactHtmlDocument(
         html,
         commentsEnabled ? channelRef.current : undefined,
+        initialTheme,
       ),
-    [commentsEnabled, html],
+    [commentsEnabled, html, initialTheme],
   );
 
+  const selectionOpen = selection !== null;
   const bridgeItems = useMemo(
     () =>
       comments.flatMap((comment) => {
@@ -105,20 +120,34 @@ export function AnnotatedArtifactHtml({
       {
         marker: ARTIFACT_HTML_BRIDGE_MARKER,
         channel: channelRef.current,
+        type: "theme",
+        theme,
+      },
+      {
+        marker: ARTIFACT_HTML_BRIDGE_MARKER,
+        channel: channelRef.current,
         type: "comments",
         items: bridgeItems,
       },
     ];
+    if (!selectionOpen) {
+      next.push({
+        marker: ARTIFACT_HTML_BRIDGE_MARKER,
+        channel: channelRef.current,
+        type: "selection-dismissed",
+      });
+    }
     if (locateRequest) {
       next.push({
         marker: ARTIFACT_HTML_BRIDGE_MARKER,
         channel: channelRef.current,
         type: "locate",
         id: locateRequest.id,
+        nonce: locateRequest.nonce,
       });
     }
     return next;
-  }, [bridgeItems, commentsEnabled, locateRequest]);
+  }, [bridgeItems, commentsEnabled, locateRequest, selectionOpen, theme]);
 
   const receive = useCallback(
     (value: unknown, frameBox: ArtifactHtmlFrameRect) => {
@@ -151,7 +180,14 @@ export function AnnotatedArtifactHtml({
         onResolutionsChange(resolutions);
         return;
       }
-      if (data.type !== "selection" || !isFrameRect(data.triggerRect)) return;
+      if (data.type === "selection-position" && isFrameRect(data.rect)) {
+        const rect = data.rect;
+        setSelection((current) =>
+          withSelectionPosition(current, frameBox, rect),
+        );
+        return;
+      }
+      if (data.type !== "selection" || !isFrameRect(data.rect)) return;
       const parsed = commentAnchorSchema.safeParse(data.anchor);
       if (!parsed.success || parsed.data.kind !== "text") return;
       setPendingAnchor(parsed.data);
@@ -159,13 +195,7 @@ export function AnnotatedArtifactHtml({
         text: parsed.data.quote,
         fromLine: parsed.data.start + 1,
         toLine: parsed.data.end + 1,
-        anchor: {
-          top: frameBox.top + data.triggerRect.bottom,
-          left: Math.min(
-            frameBox.left + data.triggerRect.right + 6,
-            window.innerWidth - 440,
-          ),
-        },
+        anchor: selectionAnchor(frameBox, data.rect),
       });
     },
     [onActivateThread, onResolutionsChange],
