@@ -3,6 +3,7 @@ import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -247,7 +248,17 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 if (!journey) {
                     return null
                 }
-                return await insightsApi.getByNumericId(journey.insight)
+                try {
+                    return await insightsApi.getByNumericId(journey.insight)
+                } catch (error) {
+                    // A journey can point at a soft-deleted insight (the FK cascade does not fire for
+                    // soft deletes), so the insight endpoint 404s. Treat it as a missing insight and
+                    // let the journeys tab show its empty state instead of a global error toast.
+                    if (error instanceof ApiError && error.status === 404) {
+                        return null
+                    }
+                    throw error
+                }
             },
         },
     })),
