@@ -456,6 +456,113 @@ def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypat
     assert sum("DROP TABLE IF EXISTS" in query and "__ph_previous_" in query for query in executed) == 1
 
 
+def test_coalesce_activity_rewrites_fragmented_table_and_cleans_generation_landing(monkeypatch):
+    monkeypatch.setattr(registration_module, "DUCKLAKE_REGISTER_COALESCE_FILE_THRESHOLD", 1)
+    monkeypatch.setattr(
+        registration_module,
+        "_copy_prepared_parquet_files",
+        lambda source_uri, landing_uri: (
+            [f"{landing_uri}/part-1.parquet", f"{landing_uri}/part-2.parquet"],
+            300,
+        ),
+    )
+    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    s3 = MagicMock()
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "SELECT count(*) FROM" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=(2,)))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(
+        registration_module,
+        "_connect_to_duckgres_for_team",
+        lambda team_id: contextlib.nullcontext(conn),
+    )
+    heartbeater = MagicMock()
+    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
+    heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+    _mock_activity_workload_metrics(monkeypatch)
+
+    assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is True
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    create_table_query = next(query for query in executed if "CREATE TABLE" in query and "AS SELECT" in query)
+    parquet_glob = (
+        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+        "1234567890_abcdef12/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
+    )
+    assert parquet_glob in create_table_query
+    assert "LIMIT 0" not in create_table_query
+    assert not any("ducklake_add_data_files" in query for query in executed)
+    assert not any("SET PARTITIONED BY" in query for query in executed)
+    assert sum("SELECT count(*) FROM" in query for query in executed) == 1
+    assert len([query for query in executed if "RENAME TO" in query]) == 2
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_previous_" in query for query in executed) == 1
+    conn.transaction.assert_called_once_with()
+    s3.delete.assert_called_once_with(
+        "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/1234567890_abcdef12",
+        recursive=True,
+    )
+
+
+def test_coalesce_activity_cleans_shadow_and_landing_when_generation_becomes_stale(monkeypatch):
+    monkeypatch.setattr(registration_module, "DUCKLAKE_REGISTER_COALESCE_FILE_THRESHOLD", 1)
+    monkeypatch.setattr(
+        registration_module,
+        "_copy_prepared_parquet_files",
+        lambda source_uri, landing_uri: (
+            [f"{landing_uri}/part-1.parquet", f"{landing_uri}/part-2.parquet"],
+            300,
+        ),
+    )
+    freshness = MagicMock(side_effect=[True, False])
+    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", freshness)
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    s3 = MagicMock()
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "SELECT count(*) FROM" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=(2,)))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(
+        registration_module,
+        "_connect_to_duckgres_for_team",
+        lambda team_id: contextlib.nullcontext(conn),
+    )
+    heartbeater = MagicMock()
+    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
+    heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+    stale_counter = MagicMock()
+    stale_metric = MagicMock(return_value=stale_counter)
+    monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_stale_metric", stale_metric)
+    _mock_activity_workload_metrics(monkeypatch)
+
+    assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is False
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert freshness.call_count == 2
+    conn.transaction.assert_not_called()
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed) == 1
+    assert not any("RENAME TO" in query for query in executed)
+    s3.delete.assert_called_once_with(
+        "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/1234567890_abcdef12",
+        recursive=True,
+    )
+    stale_metric.assert_called_once_with(team_id=1, schema_id="schema", stage="publish")
+    stale_counter.add.assert_called_once_with(1)
+
+
 @pytest.mark.asyncio
 async def test_workflow_does_not_record_duration_when_disabled(monkeypatch):
     execute_activity = AsyncMock(return_value=False)
