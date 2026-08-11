@@ -118,10 +118,16 @@ def _resource(resource_type: str, resource_id: str, **attributes: Any) -> dict[s
     }
 
 
-def _page(resources: list[dict[str, Any]], next_url: str | None = None) -> dict[str, Any]:
+def _page(
+    resources: list[dict[str, Any]],
+    next_url: str | None = None,
+    included: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     body: dict[str, Any] = {"data": resources, "meta": {"paging": {"total": len(resources)}}}
     if next_url:
         body["links"] = {"next": next_url}
+    if included is not None:
+        body["included"] = included
     return body
 
 
@@ -443,6 +449,66 @@ class TestAppFanoutEndpoints:
         rows = _collect("customer_reviews", self._api(), manager)
 
         assert [row["id"] for row in rows] == ["R1", "R2", "R3"]
+
+
+def _responded_review(review_id: str, response_id: str) -> dict[str, Any]:
+    review = _resource("customerReviews", review_id, rating=5)
+    review["relationships"]["response"] = {"data": {"type": "customerReviewResponses", "id": response_id}}
+    return review
+
+
+class TestReviewResponses:
+    def _api(self) -> _FakeApi:
+        reviews_url = f"{BASE_URL}/v1/apps/A1/customerReviews"
+        return _FakeApi(
+            {
+                f"{BASE_URL}/v1/apps": _page([_resource("apps", "A1")]),
+                reviews_url: _page(
+                    [_responded_review("R1", "RESP1"), _responded_review("R2", "RESP2")],
+                    included=[
+                        _resource("customerReviewResponses", "RESP1", responseBody="thanks!", state="PUBLISHED"),
+                        _resource("customerReviewResponses", "RESP2", responseBody="sorry!", state="PUBLISHED"),
+                        # An included resource of another type (e.g. a review territory)
+                        # must not leak into the responses table.
+                        _resource("territories", "USA", currency="USD"),
+                    ],
+                ),
+            }
+        )
+
+    def test_rows_come_from_included_responses_with_review_and_app_ids(self) -> None:
+        rows = _collect("review_responses", self._api(), _FakeManager())
+
+        assert [(row["app_id"], row["id"], row["review_id"], row["responseBody"]) for row in rows] == [
+            ("A1", "RESP1", "R1", "thanks!"),
+            ("A1", "RESP2", "R2", "sorry!"),
+        ]
+
+    def test_walk_requests_only_reviews_with_published_responses(self) -> None:
+        # Dropping the include param loses every row; dropping the exists filter pages
+        # through the full review history (mostly unresponded) on every sync.
+        api = self._api()
+        _collect("review_responses", api, _FakeManager())
+
+        reviews_params = next(params for url, params in api.calls if url.endswith("/v1/apps/A1/customerReviews"))
+        assert reviews_params["include"] == "response"
+        assert reviews_params["exists[publishedResponse]"] == "true"
+
+    def test_source_response_is_unpartitioned(self) -> None:
+        # The only timestamp on a response is lastModifiedDate, which changes on edit;
+        # partitioning on it would move rows between partitions.
+        response = app_store_connect_source(
+            issuer_id="issuer",
+            key_id="KEY123",
+            private_key=PRIVATE_KEY_PEM,
+            vendor_number=None,
+            endpoint="review_responses",
+            logger=MagicMock(),
+            resumable_source_manager=_FakeManager(),
+        )
+        assert response.primary_keys == ["app_id", "id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
 
 
 class TestReportColumnNames:

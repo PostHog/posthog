@@ -11,6 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
+from django.db.models import QuerySet
 
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
@@ -38,6 +40,46 @@ MAX_FIXED_TEAM_IDS_TO_LOG = 10
 
 # Maximum number of per-team fix detail logs emitted at INFO per verification run.
 MAX_FIX_DETAIL_INFO_LOGS = 10
+
+# A verification sweep pages through every team on one long-lived Django connection.
+# Poolers rotate and drop that connection mid-sweep, so the batch fetch retries with a
+# fresh connection rather than throwing away a partially-completed run.
+TEAM_BATCH_FETCH_MAX_ATTEMPTS = 4
+TEAM_BATCH_FETCH_BACKOFF_SECONDS = 1.0
+
+
+class TeamBatchFetchError(Exception):
+    """A team batch could not be fetched after exhausting connection retries."""
+
+
+def _fetch_team_batch(base_qs: QuerySet[Team], last_id: int, chunk_size: int) -> list[Team]:
+    """Fetch the next page of teams, reconnecting to Postgres on a dropped connection.
+
+    Django's ``ensure_connection`` only reconnects when the connection object is
+    ``None``, so a connection psycopg has already closed keeps raising until it is
+    discarded — hence the explicit ``close_old_connections()`` between attempts.
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(1, TEAM_BATCH_FETCH_MAX_ATTEMPTS + 1):
+        try:
+            return list(base_qs.filter(id__gt=last_id)[:chunk_size])
+        except (OperationalError, InterfaceError) as e:
+            last_error = e
+            if attempt == TEAM_BATCH_FETCH_MAX_ATTEMPTS:
+                break
+            logger.warning(
+                "Team batch fetch failed, reconnecting and retrying",
+                last_team_id=last_id,
+                attempt=attempt,
+                error=str(e),
+            )
+            close_old_connections()
+            time.sleep(TEAM_BATCH_FETCH_BACKOFF_SECONDS * 2 ** (attempt - 1))
+
+    raise TeamBatchFetchError(
+        f"Failed to fetch team batch after {TEAM_BATCH_FETCH_MAX_ATTEMPTS} attempts (last_team_id={last_id})"
+    ) from last_error
 
 
 @dataclass
@@ -124,7 +166,7 @@ def verify_and_fix_all_teams(
 
     batch_number = 0
     while True:
-        teams = list(base_qs.filter(id__gt=last_id)[:chunk_size])
+        teams = _fetch_team_batch(base_qs, last_id, chunk_size)
 
         if not teams:
             break

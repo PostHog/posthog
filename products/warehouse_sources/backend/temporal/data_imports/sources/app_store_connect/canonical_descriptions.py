@@ -98,6 +98,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "territory": "App Store territory the review was written in.",
         },
     },
+    "review_responses": {
+        "description": "A developer response published to a customer review, one row per responded review.",
+        "docs_url": "https://developer.apple.com/documentation/appstoreconnectapi/customerreviewresponsev1",
+        "columns": {
+            "id": "Apple's opaque identifier for the response.",
+            "type": "JSON:API resource type, always `customerReviewResponses`.",
+            "app_id": "Identifier of the app the responded review was left on.",
+            "review_id": "Identifier of the review this response answers; joins to the customer_reviews table.",
+            "responseBody": "Body text of the developer's response.",
+            "lastModifiedDate": "When the response was created or last edited.",
+            "state": "Publication state of the response, PUBLISHED or PENDING_PUBLISH.",
+        },
+    },
     "in_app_purchases": {
         "description": "An in-app purchase product configured for an app.",
         "docs_url": "https://developer.apple.com/documentation/appstoreconnectapi/inapppurchasev2",

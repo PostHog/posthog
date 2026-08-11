@@ -106,7 +106,9 @@ function registerApp(
     const meta = buildUiAppResourceMeta(baseUrl, context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL)
     const html = buildAppStubHtml(appDir, baseUrl)
 
-    server.registerResource(name, uri, { mimeType: RESOURCE_MIME_TYPE, description }, async (uri) => {
+    // `_meta` goes on the registration too, so a host that builds the iframe CSP from
+    // `resources/list` alone still allows the stub's script and stylesheet from `baseUrl`.
+    server.registerResource(name, uri, { mimeType: RESOURCE_MIME_TYPE, description, _meta: meta }, async (uri) => {
         return {
             contents: [
                 {

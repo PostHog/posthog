@@ -13,9 +13,9 @@ from typing import Any, Literal, cast
 
 from django.db.models import QuerySet
 
-from openai import OpenAI
+from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitError
 from openai.types.chat import ChatCompletionMessageParam
-from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential, wait_random
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_random
 
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
@@ -334,9 +334,14 @@ def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -
 
 
 @retry(
-    # Only transient failures earn a retry: a reply that structurally cannot satisfy the schema
-    # fails identically all three times and just triples the spend.
-    retry=retry_if_not_exception_type(OutputParseError),
+    # Allowlist, not a blacklist: only failures that can plausibly succeed on a retry earn one.
+    # APIConnectionError covers its APITimeoutError subclass too. Everything else — most
+    # importantly AuthenticationError and OutputParseError — fails identically on every attempt,
+    # so retrying it just triples the spend for the same outcome. This also stops tenacity's
+    # three attempts from stacking with the SDK's own retries on a hard failure like a bad
+    # gateway credential; see max_retries=0 at every client construction site for the other half
+    # of that fix.
+    retry=retry_if_exception_type((APIConnectionError, RateLimitError, InternalServerError)),
     stop=stop_after_attempt(3),
     # Jitter so a worker pool that all hit a 429 together doesn't retry in lockstep.
     wait=wait_exponential(multiplier=1, min=2, max=30) + wait_random(0, 2),

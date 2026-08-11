@@ -21,9 +21,19 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-node @opentelemetry/resources zod
+                            npm install @posthog/ai "ai@^6" "@ai-sdk/openai@^3" @opentelemetry/sdk-node @opentelemetry/resources zod
                         `}
                     />
+
+                    <Blockquote>
+                        <Markdown>
+                            **AI SDK version:** this integration requires AI SDK v5 or v6. AI SDK v7 removed its
+                            OpenTelemetry instrumentation, so it no longer emits the `ai.*` spans that
+                            `PostHogSpanProcessor` reads, and `telemetry.metadata` is no longer accepted. Installing
+                            `ai` without a version constraint gets you v7, which will not produce any events. Pin
+                            `ai@^6` with the matching `@ai-sdk/openai@^3` until PostHog ships v7 support.
+                        </Markdown>
+                    </Blockquote>
                 </>
             ),
         },
@@ -51,7 +61,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                               }),
                               spanProcessors: [
                                 new PostHogSpanProcessor({
-                                  apiKey: '<ph_project_token>',
+                                  projectToken: '<ph_project_token>',
                                   host: '<ph_client_api_host>',
                                 }),
                               ],

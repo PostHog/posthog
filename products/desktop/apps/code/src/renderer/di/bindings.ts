@@ -230,6 +230,10 @@ import {
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
 import {
+  ARTIFACT_HTML_FRAME_COMPONENT,
+  type ArtifactHtmlFrameComponent,
+} from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
+import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,
 } from "@posthog/ui/features/sessions/components/session-update/identifiers";
@@ -296,6 +300,7 @@ export interface RendererBindings {
   [FOCUS_CONTROLLER_DEPS]: FocusControllerDeps;
   [DIFF_WORKER_FACTORY]: DiffWorkerFactory;
   [REVIEW_HOST]: ReviewHost;
+  [ARTIFACT_HTML_FRAME_COMPONENT]: ArtifactHtmlFrameComponent;
   [MCP_TOOL_BLOCK_COMPONENT]: McpToolBlockComponent;
   [MCP_APP_HOST_COMPONENT]: McpAppHostComponent;
   [MCP_SANDBOX_PROXY_URL]: McpSandboxProxyUrlProvider;

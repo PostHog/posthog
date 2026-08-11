@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone as django_timezone
+
 from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
@@ -96,6 +98,48 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert mock_warm.call_args.kwargs["sandbox_environment_id"] == sandbox_environment.id
         assert mock_warm.call_args.kwargs["custom_image_id"] == custom_image.id
 
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_accepts_repo_less_request(self, mock_warm, _mock_warm_enabled):
+        mock_warm.return_value = None
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"repository": None, "github_integration": None, "branch": None},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert mock_warm.call_args.kwargs["repository"] is None
+        assert mock_warm.call_args.kwargs["github_integration_id"] is None
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    def test_warm_endpoint_rejects_duplicate_repositories(self, _mock_warm_enabled):
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {
+                "repositories": ["PostHog/PostHog", "posthog/posthog"],
+                "github_integration": self.integration.id,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert b"Repositories must be unique" in response.content
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    def test_warm_endpoint_limits_repository_clone_budget(self, _mock_warm_enabled):
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {
+                "repositories": ["posthog/one", "posthog/two", "posthog/three", "posthog/four"],
+                "github_integration": self.integration.id,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400
+
     def test_provisions_selected_sandbox_environment_and_custom_image(self):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=self.team,
@@ -142,6 +186,34 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert task.github_integration_id == self.integration.id
         assert task.description == ""
         assert task.runs.filter(id=result.run_id).exists()
+
+    def test_births_repo_less_draft_and_returns_warm_dto(self):
+        def fake_warm(self_warmer, **kwargs):
+            run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
+            return WarmResult(run=run, just_created=True)
+
+        with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
+            result = self._warm(repository=None, github_integration_id=None, branch=None)
+
+        assert result is not None
+        task = Task.objects.get(id=result.task_id)
+        assert task.repository is None
+
+    def test_births_multi_repository_draft(self):
+        def fake_warm(self_warmer, **kwargs):
+            run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
+            return WarmResult(run=run, just_created=True)
+
+        repositories = ["posthog/posthog", "posthog/posthog-js"]
+        with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
+            result = self._warm(repositories=repositories)
+
+        assert result is not None
+        task = Task.objects.get(id=result.task_id)
+        run = TaskRun.objects.get(id=result.run_id)
+        assert task.repository == repositories[0]
+        assert task.repositories == repositories
+        assert run.state["repositories"] == repositories
 
     def test_returns_none_and_soft_deletes_draft_when_capped(self):
         with patch(f"{WARM_SRC}.warm", side_effect=Throttled()):
@@ -261,10 +333,22 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.integration = Integration.objects.create(team=self.team, kind="github", config={})
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={},
+            repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
 
     def _warm_run(
-        self, *, repository="posthog/posthog", branch="main", created_by=None, extra_state: dict[str, Any] | None = None
+        self,
+        *,
+        repository="posthog/posthog",
+        repositories: list[str] | None = None,
+        branch="main",
+        created_by=None,
+        extra_state: dict[str, Any] | None = None,
     ) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
@@ -273,7 +357,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             origin_product=Task.OriginProduct.USER_CREATED,
             created_by=created_by or self.user,
             repository=repository,
-            github_integration=self.integration,
+            repositories=repositories or ([repository] if repository else []),
+            github_integration=self.integration if repository else None,
         )
         run = task.create_run(
             mode="interactive",
@@ -283,7 +368,12 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         return task, run
 
     def _create(self, **data):
-        validated = {"description": "fix the bug", "repository": "posthog/posthog", "branch": "main"}
+        validated = {
+            "description": "fix the bug",
+            "repository": "posthog/posthog",
+            "github_integration": self.integration,
+            "branch": "main",
+        }
         validated.update(data)
         return facade.create_task(self.team.id, self.user.id, validated_data=validated)
 
@@ -305,6 +395,34 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         # The agent-server re-reads run state on the forwarded first message, so this
         # must be persisted for the warm run to honor the setting.
         assert run.state.get("auto_publish") is True
+
+    def test_reuses_matching_multi_repository_warm_task(self):
+        repositories = ["posthog/posthog", "posthog/posthog-js"]
+        warm_task, run = self._warm_run(repositories=repositories)
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(repositories=repositories, github_integration=self.integration)
+
+        assert str(dto.id) == str(warm_task.id)
+        run.refresh_from_db()
+        assert "await_user_message" not in run.state
+
+    def test_does_not_reuse_warm_task_from_a_different_github_integration(self):
+        warm_task, _ = self._warm_run()
+        other_integration = Integration.objects.create(team=self.team, kind="github", config={})
+
+        dto = self._create(github_integration=other_integration)
+
+        assert str(dto.id) != str(warm_task.id)
+
+    def test_reuses_matching_repo_less_warm_task(self):
+        warm_task, run = self._warm_run(repository=None, branch=None)
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(repository=None, github_integration=None, branch=None)
+
+        assert str(dto.id) == str(warm_task.id)
+        run.refresh_from_db()
+        assert "await_user_message" not in run.state
 
     def test_does_not_overwrite_existing_warm_description(self):
         warm_task, _ = self._warm_run()
@@ -466,6 +584,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 {
                     "description": "/millie readme this skill",
                     "repository": "posthog/posthog",
+                    "github_integration": self.integration.id,
                     "branch": "main",
                     "pending_user_message": "resolved skill message",
                     "pending_user_artifact_ids": ["artifact-1"],

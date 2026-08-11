@@ -19,7 +19,12 @@ from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionE
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms, record_boot_total_ms
+from products.tasks.backend.temporal.metrics import (
+    StepTimer,
+    record_agent_server_session_init_ms,
+    record_boot_total_ms,
+    sandbox_runtime_label,
+)
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -146,6 +151,7 @@ class StartAgentServerInput:
     # Workflow start time (ISO 8601); when set, the activity that completes boot records
     # the wall-clock workflow-start → agent-ready total.
     workflow_start_at: str | None = None
+    boot_excluded_ms: int = 0
 
 
 @dataclass
@@ -418,7 +424,7 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
         # letting the aware-naive subtraction raise. Metrics must never fail the boot.
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
-        boot_total_ms = max(0, int((datetime.now(UTC) - started_at).total_seconds() * 1000))
+        boot_total_ms = max(0, int((datetime.now(UTC) - started_at).total_seconds() * 1000) - input.boot_excluded_ms)
     except (TypeError, ValueError):
         logger.warning("boot_total_unparseable_start_time", workflow_start_at=input.workflow_start_at)
         return None
@@ -428,6 +434,7 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
         used_snapshot=input.used_snapshot,
         has_repo=input.context.repository is not None,
         origin_product=input.context.origin_product,
+        runtime=sandbox_runtime_label(input.context.use_modal_vm_sandbox),
     )
     return boot_total_ms
 
@@ -456,7 +463,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         _ensure_repository_on_disk(ctx, sandbox)
         params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
-        with StepTimer("agent_server_ready", boot_path=input.boot_path) as ready_timer:
+        runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        with StepTimer(
+            "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        ) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
@@ -464,7 +474,9 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         session_init_ms = sandbox.read_agent_server_session_init_ms()
         if session_init_ms is not None:
-            record_agent_server_session_init_ms(session_init_ms, boot_path=input.boot_path)
+            record_agent_server_session_init_ms(
+                session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            )
 
         boot_total_ms = _record_boot_total(input)
 
@@ -495,7 +507,10 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
-        with StepTimer("agent_server_launch", boot_path=input.boot_path) as launch_timer:
+        runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        with StepTimer(
+            "agent_server_launch", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        ) as launch_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file, wait_for_health=False)
 
         activity.logger.info(f"Agent server process launched for task {ctx.task_id}")
@@ -528,7 +543,10 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         agentsh_domains = _agentsh_domains_for(ctx)
 
         try:
-            with StepTimer("agent_server_ready", boot_path=input.boot_path) as ready_timer:
+            runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+            with StepTimer(
+                "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            ) as ready_timer:
                 sandbox.wait_for_agent_server_ready(agentsh_domains)
         except Exception:
             if agentsh_domains is not None:
@@ -541,7 +559,9 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
 
         session_init_ms = sandbox.read_agent_server_session_init_ms()
         if session_init_ms is not None:
-            record_agent_server_session_init_ms(session_init_ms, boot_path=input.boot_path)
+            record_agent_server_session_init_ms(
+                session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            )
 
         boot_total_ms = _record_boot_total(input)
 

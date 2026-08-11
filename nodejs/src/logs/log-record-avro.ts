@@ -50,6 +50,9 @@ export interface LogRecord {
     event_name: string | null
     attributes: Record<string, string> | null
     bytes_uncompressed?: number | null
+    /** Per-row retention in days, stamped by the retention stage from team retention rules. Null/undefined
+     * leaves ClickHouse to fall back to the batch `retention-days` header (the team default). */
+    retention_days?: number | null
 }
 
 export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, string, LogRecord[]]> {

@@ -293,6 +293,24 @@ tools:
             creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting,
             experiment exclusion. Fails when the window has no users or none resolve to a person profile.
         feature_flag: replay-vision
+    vision-scanners-backfills-cancel-create:
+        operation: vision_scanners_backfills_cancel_create
+        enabled: false
+    vision-scanners-backfills-create:
+        operation: vision_scanners_backfills_create
+        enabled: false
+    vision-scanners-backfills-estimate-create:
+        operation: vision_scanners_backfills_estimate_create
+        enabled: false
+    vision-scanners-backfills-list:
+        operation: vision_scanners_backfills_list
+        enabled: false
+    vision-scanners-backfills-resume-create:
+        operation: vision_scanners_backfills_resume_create
+        enabled: false
+    vision-scanners-backfills-retrieve:
+        operation: vision_scanners_backfills_retrieve
+        enabled: false
     vision-scanners-bulk-observe-create:
         operation: vision_scanners_bulk_observe_create
         enabled: false

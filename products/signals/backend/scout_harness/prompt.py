@@ -117,6 +117,18 @@ _HOW_A_RUN_WORKS_HEAD = """# How a run works
 2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about associating your task with a report (`task_run` artefacts), which applies to a run actually working a report and would staple your run onto a sibling's.
 3. **Investigate.** Use the PostHog MCP read tools to gather evidence, discovering what's available at run time. Your skill body tells you *what* to look at."""
 
+# Rendered into the head's investigate step only when the team's data catalog is enabled, because
+# `system.information_schema.metrics` and `data-catalog-metric-run` don't exist for flag-off teams
+# and unconditioned steering would burn those runs' budget on failing queries.
+_METRICS_CATALOG_RULE = """ When a hypothesis rests on a business measure (revenue, MRR, churn, activation), check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
+
+
+def _how_a_run_works_head(*, data_catalog_enabled: bool) -> str:
+    if not data_catalog_enabled:
+        return _HOW_A_RUN_WORKS_HEAD
+    return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_RULE
+
+
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
 # numbered differently (the report channel has an extra search step), so both are rendered from here.
 _CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON object matching the schema in *Output format* below. Its `summary` field is your run close-out; see *Writing the summary* for how to structure it. A quiet day is a real outcome: "looked, found nothing meaningful" is a genuine, useful summary, not a failure, so don't manufacture {output} to fill space. The harness parses the JSON and writes `summary` to the run row as searchable prose."""
@@ -147,8 +159,6 @@ _REPORT_STEPS_EDIT_ONLY = """4. **Find the report to update.** Locate the report
    - **Edit** the existing report (`scout-edit-report`): `append_note` with your fresh evidence, or rewrite `title`/`summary` on a report you own.
    - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
    - **Skip** with a one-line note in your final summary, including when nothing in the inbox matches and there's therefore nothing to update."""
-
-_HOW_A_RUN_WORKS_SIGNAL = f"{_HOW_A_RUN_WORKS_HEAD}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}"
 
 _SCRATCHPAD_KEYS = """# Scratchpad keys
 
@@ -662,12 +672,14 @@ Respond at end_turn with a single JSON object matching this schema:
 </jsonschema>"""
 
 
-def _signal_tail_sections(*, followup_section: str, structured_output_section: str = "") -> list[str]:
+def _signal_tail_sections(
+    *, followup_section: str, structured_output_section: str = "", data_catalog_enabled: bool = False
+) -> list[str]:
     """Signal-channel tail. `followup_section` is the per-run composed self-validation section —
     channel-matched, so it can't live in a static list; `structured_output_section` is likewise
     per-run composed (empty when the config carries no schema)."""
     return [
-        _HOW_A_RUN_WORKS_SIGNAL,
+        f"{_how_a_run_works_head(data_catalog_enabled=data_catalog_enabled)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
         # Ground rules lead the tail: the untrusted-input rule is stated once there, and the sections
         # that read an untrusted source point back at it rather than restating the reasoning.
         _GROUND_RULES,
@@ -696,6 +708,7 @@ def _report_tail_sections(
     followup_section: str,
     github_read_access: bool = False,
     structured_output_section: str = "",
+    data_catalog_enabled: bool = False,
 ) -> list[str]:
     """Report-channel tail, tailored to the report tools the scout actually opted into.
 
@@ -709,8 +722,9 @@ def _report_tail_sections(
     `github_read_access` appends the `gh` evidence section only when the sandbox actually got a
     read-only GitHub token — every persona here can set reviewers (edit-only routes unrouted
     reports), so it slots in wherever reviewer guidance lives."""
+    head = _how_a_run_works_head(data_catalog_enabled=data_catalog_enabled)
     if can_emit and can_edit:
-        how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
+        how_a_run_works = f"{head}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
             _AUTHORING_VS_EDITING_REPORT_BOTH,
             _REPORT_SCRATCHPAD_POINTER,
@@ -720,7 +734,7 @@ def _report_tail_sections(
             _REPORT_CHARTS,
         ]
     elif can_emit:
-        how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
+        how_a_run_works = f"{head}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
             _AUTHORING_REPORT_EMIT_ONLY,
             _REPORT_SCRATCHPAD_POINTER,
@@ -730,7 +744,7 @@ def _report_tail_sections(
             _REPORT_CHARTS,
         ]
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
-        how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
+        how_a_run_works = f"{head}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
             _EDITING_REPORT_EDIT_ONLY,
             _REPORT_SCRATCHPAD_POINTER,
@@ -811,6 +825,7 @@ def build_run_prompt(
     started_at: datetime,
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
+    data_catalog_enabled: bool = False,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -847,6 +862,10 @@ def build_run_prompt(
     GitHub token: it appends the `gh` reviewer-evidence section (report channel only), and naming
     `gh` in a tokenless run would just burn budget on 401s.
 
+    `data_catalog_enabled` must mirror the team's `product-data-catalog` flag: it renders the
+    governed-metrics catalog-first rule, and the catalog surfaces it names don't exist for
+    flag-off teams (see the note on `_METRICS_CATALOG_RULE`).
+
     Every prompt carries the self-validation follow-ups section: the scout keeps a `followup:`
     scratchpad queue and decides for itself, run by run, whether to spend the run validating it —
     there is no harness-side cadence or trigger. The section's re-surface guidance is
@@ -872,6 +891,7 @@ def build_run_prompt(
             followup_section=followup_section,
             github_read_access=github_read_access,
             structured_output_section=structured_output_section,
+            data_catalog_enabled=data_catalog_enabled,
         )
         # Point the run-identity line at a report tool the scout can actually call — prefer authoring,
         # fall back to editing for an edit-only scout. Never name a tool that would fail closed.
@@ -879,7 +899,9 @@ def build_run_prompt(
     else:
         intro = _BASE_PROMPT_INTRO
         sections = _signal_tail_sections(
-            followup_section=followup_section, structured_output_section=structured_output_section
+            followup_section=followup_section,
+            structured_output_section=structured_output_section,
+            data_catalog_enabled=data_catalog_enabled,
         )
         emit_tool = "scout-emit-signal"
     # Slot the origin-matched improvement channel between friction reporting and the output format

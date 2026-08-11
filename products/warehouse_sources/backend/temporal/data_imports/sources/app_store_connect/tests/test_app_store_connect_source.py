@@ -201,3 +201,23 @@ class TestAppStoreConnectSource:
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
         assert all(message for message in errors.values())
+
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Max retries exceeded "
+                'with url: /v1/apps?limit=200 (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)\"))",
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
+        # `_get` has no retry loop of its own — it relies on the tracked session's urllib3 adapter.
+        # Once that's exhausted, this keeps the benign, self-recovering failure out of error tracking.
+        retryable_errors = AppStoreConnectSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)

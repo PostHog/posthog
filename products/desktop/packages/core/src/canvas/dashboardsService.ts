@@ -258,12 +258,21 @@ export class DashboardsService {
 
   // Read a canvas's build lifecycle (pointers + recent builds). Publishing
   // queues a build server-side; callers poll this until it settles.
-  async getBuilds(id: string): Promise<CanvasBuildLifecycle> {
+  async getBuilds(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasBuildLifecycle> {
+    const suffix = input.versionId
+      ? `?version_id=${encodeURIComponent(input.versionId)}`
+      : "";
     const body = await this.api.json<{
       published_build_id: string | null;
       current_version_id: string | null;
       builds: Record<string, unknown>[];
-    }>(`canvases/${encodeURIComponent(id)}/builds/`, "load canvas builds");
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/builds/${suffix}`,
+      "load canvas builds",
+    );
     // Each build row is already validated by tryToBuildRecord; this endpoint is
     // polled every couple of seconds during builds, so don't re-run the whole
     // lifecycle schema (which would zod-parse every record a second time).

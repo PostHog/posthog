@@ -1603,6 +1603,12 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbdp001")
+        # Object delivery needs the deployment setting and a per-user rollout flag. These
+        # cases exercise the transport, so put the user in the rollout; the fallback case
+        # below overrides this to cover the other side.
+        rollout = patch("products.notebooks.backend.sql_v2_data_plane.is_frame_store_enabled", return_value=True)
+        rollout.start()
+        self.addCleanup(rollout.stop)
 
     def _post(self, body: dict, token: str | None = None):
         kwargs: dict[str, Any] = {"data": json.dumps(body), "content_type": "application/json"}
@@ -1690,14 +1696,30 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         self.assertEqual(columns, ["number", "uid"])
         self.assertEqual(rows[0][1], frame_uuid)  # a string, not 16 bytes
 
-    def test_object_delivery_falls_back_to_inline_when_frame_store_disabled(self):
-        # Degraded mode: object storage off must not hard-fail the cell — the inline
-        # (Redis) path still serves the frame, clamped at the async ceiling.
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=False):
-            response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
-        self.assertEqual(response.status_code, 200, response.content)
-        _columns, rows, _types = decode_arrow_stream(response.content)
-        self.assertEqual(len(rows), 3)
+    @parameterized.expand(
+        [
+            ("frame_store_disabled", False, True),
+            ("user_not_in_rollout", True, False),
+        ]
+    )
+    def test_object_delivery_falls_back_to_inline(self, _name, frame_store_enabled, in_rollout):
+        # Either gate failing must degrade to the inline (Redis) path rather than hard-fail
+        # the cell, and must write no object. The rollout case is the one that matters for
+        # the flag: dropping that check would put every user's frames on object storage.
+        from posthog.storage import object_storage
+
+        from products.notebooks.backend import frame_store
+
+        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=frame_store_enabled, OBJECT_STORAGE_ENABLED=True):
+            with patch(
+                "products.notebooks.backend.sql_v2_data_plane.is_frame_store_enabled",
+                return_value=in_rollout,
+            ):
+                response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
+            self.assertEqual(response.status_code, 200, response.content)
+            _columns, rows, _types = decode_arrow_stream(response.content)
+            self.assertEqual(len(rows), 3)
+            self.assertIsNone(object_storage.list_objects(frame_store.team_prefix(self.team.id)))
 
     def test_object_delivery_failure_surfaces_error_and_stores_no_object(self):
         # An upload failure must reach the kernel as an error status, and no (partial or

@@ -108,6 +108,17 @@ The secret key starts with `sk_live_`.
             # Clerk answers 410 for endpoints it has removed. Schema discovery retires the table
             # within a few hours, so this only covers runs that start in between.
             "410 Client Error: Gone for url: https://api.clerk.com": "Clerk removed this endpoint from its API, so this table can't sync any more. Turn off syncing for this table.",
+            # Clerk's own API spec documents only 402/403/422 as possible error responses for this
+            # (deprecated) list endpoint — no successful, well-formed request should ever hit this,
+            # so a 422 here means SAML connections (Enterprise SSO) aren't available on this Clerk
+            # instance. Scoped to this path, not all of api.clerk.com, since 422 elsewhere can mean
+            # a genuinely bad request that's worth investigating rather than an account limitation.
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections": "SAML connections (Enterprise SSO) aren't available on your Clerk plan or instance. Turn off syncing for this table, or enable SAML connections in your Clerk dashboard.",
+            # Clerk's list api_keys endpoint requires a subject (a user or organization id), so the
+            # unfiltered list request we send is rejected with a 400 every run. Scoped to this path,
+            # not all of api.clerk.com, since a 400 elsewhere can be a genuinely bad request worth
+            # investigating rather than an endpoint that can't be listed.
+            "400 Client Error: Bad Request for url: https://api.clerk.com/v1/api_keys": "The API keys table can't be synced from Clerk. Turn off syncing for this table.",
             **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 
