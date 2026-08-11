@@ -16,7 +16,8 @@ export interface Config {
     /** How often to re-read the mount. Kubelet updates it in roughly 60-90s. */
     reloadSeconds: number
 
-    metricsToken: string
+    /** Serves /metrics on its own listener, kept off the ingress like every other service. */
+    metricsPort: number
 }
 
 function intFromEnv(key: string, fallback: number): number {
@@ -47,22 +48,11 @@ export function loadConfig(): Config {
         // of the mount changing.
         reloadSeconds: intFromEnv('INTEGRATION_SERVICE_RELOAD_SECONDS', 30),
 
-        metricsToken: process.env.INTEGRATION_SERVICE_METRICS_TOKEN ?? '',
+        metricsPort: intFromEnv('INTEGRATION_SERVICE_METRICS_PORT', 9090),
     }
 
-    if (process.env.NODE_ENV === 'production') {
-        const missing: string[] = []
-        if (!process.env.INTEGRATION_SERVICE_ENV) {
-            missing.push('INTEGRATION_SERVICE_ENV')
-        }
-        // /metrics carries no credential values, but the resolve counter is a precise map
-        // of which deployment reads which credential, so exposing it must be deliberate.
-        if (!config.metricsToken) {
-            missing.push('INTEGRATION_SERVICE_METRICS_TOKEN')
-        }
-        if (missing.length > 0) {
-            throw new Error(`missing required configuration: ${missing.join(', ')}`)
-        }
+    if (process.env.NODE_ENV === 'production' && !process.env.INTEGRATION_SERVICE_ENV) {
+        throw new Error('missing required configuration: INTEGRATION_SERVICE_ENV')
     }
 
     return config

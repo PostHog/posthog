@@ -33,7 +33,7 @@ function config(mountDir: string, prestopDelayMs: number): Config {
         env: 'test',
         mountDir,
         reloadSeconds: 3600,
-        metricsToken: '',
+        metricsPort: 0,
     }
 }
 

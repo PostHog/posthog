@@ -35,7 +35,6 @@ async function mint(
 function build(
     overrides: {
         lifecycle?: Partial<Lifecycle>
-        metricsToken?: string
         credentials?: () => MountedCredentials | null
     } = {}
 ): { app: ReturnType<typeof createApp>; lifecycle: Lifecycle } {
@@ -44,7 +43,6 @@ function build(
         verifier: new JwtVerifier({ entries: () => Object.entries(KEYS) } as SigningKeyLoader),
         lifecycle,
         credentials: overrides.credentials ?? ((): MountedCredentials | null => MOUNTED),
-        metricsToken: overrides.metricsToken ?? '',
     })
     return { app, lifecycle }
 }
@@ -137,33 +135,11 @@ describe('http surface', () => {
         })
     })
 
-    describe('metrics', () => {
-        it('is open when no token is configured, for in-cluster scrapes', async () => {
-            expect((await build().app.request('http://svc/metrics')).status).toBe(200)
-        })
+    it('never exposes a credential value in the scrape', async () => {
+        const { app } = build()
+        await app.request(await authed(await mint()))
 
-        // The resolve counter is a precise map of which deployment reads which credential,
-        // so exposing it has to be a decision somebody took.
-        it.each([
-            ['no token', undefined, 401],
-            ['a wrong token', 'nope', 401],
-            ['the right token', 'scrape-token', 200],
-        ])('with a token configured, answers %s with %i', async (_label, provided, status) => {
-            const { app } = build({ metricsToken: 'scrape-token' })
-            const res = await app.request(
-                new Request('http://svc/metrics', {
-                    headers: provided ? { Authorization: `Bearer ${provided}` } : {},
-                })
-            )
-            expect(res.status).toBe(status)
-        })
-
-        it('never exposes a credential value in the scrape', async () => {
-            const { app } = build()
-            await app.request(await authed(await mint()))
-
-            expect(await (await app.request('http://svc/metrics')).text()).not.toContain('hunter2-zx9q')
-        })
+        expect(await register.metrics()).not.toContain('hunter2-zx9q')
     })
 
     // An unmatched path must not become a label value, or anyone can grow the series set

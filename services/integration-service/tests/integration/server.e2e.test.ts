@@ -27,7 +27,7 @@ function config(mountDir: string): Config {
         env: 'test',
         mountDir,
         reloadSeconds: 3600,
-        metricsToken: '',
+        metricsPort: 0,
     }
 }
 
@@ -140,6 +140,16 @@ describe('integration server end to end', () => {
             await server.reload()
             expect((await resolve(port, token)).status).toBe(401)
             expect((await resolve(port, await mint({ signingKey: OTHER_SIGNING_KEY }))).status).toBe(200)
+
+            // The scrape lives on its own listener and never carries a credential value.
+            const metricsPort = server.metricsPort()
+            expect(metricsPort).toBeDefined()
+            expect(metricsPort).not.toBe(port)
+            const scrape = await fetch(`http://127.0.0.1:${metricsPort}/metrics`)
+            expect(scrape.status).toBe(200)
+            const scrapeBody = await scrape.text()
+            expect(scrapeBody).toContain('integration_service_http_requests_total')
+            expect(scrapeBody).not.toContain('current-value-1')
         } finally {
             await server.stop('SIGTERM')
             await rm(dir, { recursive: true, force: true })

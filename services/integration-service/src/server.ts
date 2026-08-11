@@ -6,12 +6,15 @@
 
 import { serve } from '@hono/node-server'
 import type { Hono } from 'hono'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 
 import { JwtVerifier } from './auth/jwt'
 import { SigningKeyLoader } from './auth/registry'
 import { createApp } from './http/app'
 import type { Config } from './lib/config'
 import { logger } from './lib/logging'
+import { register, shuttingDown } from './metrics'
 import { SecretMount } from './mount'
 import type { Lifecycle } from './types'
 
@@ -51,6 +54,7 @@ export function every(intervalMs: number, task: () => Promise<void>): () => void
 export class IntegrationServer {
     private readonly lifecycle: Lifecycle = { shuttingDown: false, ready: false }
     private server: DrainableServer | undefined
+    private metricsServer: Server | undefined
     private mount: SecretMount | undefined
     private signingKeys: SigningKeyLoader | undefined
     private cancelTimers: (() => void)[] = []
@@ -65,6 +69,12 @@ export class IntegrationServer {
     /** For probes and tests. The object is live; do not mutate it. */
     lifecycleState(): Lifecycle {
         return this.lifecycle
+    }
+
+    /** The port the metrics listener bound, once start() has run. */
+    metricsPort(): number | undefined {
+        const address = this.metricsServer?.address()
+        return address && typeof address === 'object' ? (address as AddressInfo).port : undefined
     }
 
     /** Re-read the mount and the signing keys now, without waiting for the timer. */
@@ -88,7 +98,6 @@ export class IntegrationServer {
             verifier: new JwtVerifier(signingKeys),
             lifecycle: this.lifecycle,
             credentials: () => mount.current(),
-            metricsToken: config.metricsToken,
         })
 
         await mount.reload()
@@ -101,6 +110,28 @@ export class IntegrationServer {
         this.server = serveFn({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
             logger.info('server:started', { host: config.host, port: info.port, env: config.env })
         })
+
+        // Its own listener, never the serving port: the chart exposes only `port`, so the
+        // scrape stays in-cluster the same way every other service's does.
+        this.metricsServer = createServer((req, res) => {
+            if (req.url !== '/metrics') {
+                res.statusCode = 404
+                res.end()
+                return
+            }
+            shuttingDown.set(this.lifecycle.shuttingDown ? 1 : 0)
+            register.metrics().then(
+                (body) => {
+                    res.setHeader('Content-Type', register.contentType)
+                    res.end(body)
+                },
+                () => {
+                    res.statusCode = 500
+                    res.end()
+                }
+            )
+        })
+        this.metricsServer.listen(config.metricsPort, config.host)
 
         this.cancelTimers.push(every(config.reloadSeconds * 1000, () => this.reload()))
 
@@ -129,6 +160,7 @@ export class IntegrationServer {
         if (server) {
             await Promise.race([new Promise<void>((resolve) => server.close(() => resolve())), sleep(DRAIN_TIMEOUT_MS)])
         }
+        this.metricsServer?.close()
 
         logger.info('shutdown:complete', {})
         const exit = this.overrides.exit ?? process.exit

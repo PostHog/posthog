@@ -27,11 +27,8 @@ describe('loadConfig integers', () => {
     })
 })
 
-// The guard is what keeps /metrics bearer-gated in production. The resolve counter maps
-// which deployment reads which credential, so an ungated scrape has to be impossible by
-// accident rather than by review.
 describe('loadConfig production guards', () => {
-    const PROD_VARS = ['NODE_ENV', 'INTEGRATION_SERVICE_ENV', 'INTEGRATION_SERVICE_METRICS_TOKEN']
+    const PROD_VARS = ['NODE_ENV', 'INTEGRATION_SERVICE_ENV']
 
     afterEach(() => {
         for (const key of PROD_VARS) {
@@ -39,24 +36,14 @@ describe('loadConfig production guards', () => {
         }
     })
 
-    function setProduction(): void {
+    it('refuses to boot in production without INTEGRATION_SERVICE_ENV', () => {
         process.env.NODE_ENV = 'production'
-        process.env.INTEGRATION_SERVICE_ENV = 'prod-us'
-        process.env.INTEGRATION_SERVICE_METRICS_TOKEN = 'scrape-token'
-    }
-
-    it.each([['INTEGRATION_SERVICE_ENV'], ['INTEGRATION_SERVICE_METRICS_TOKEN']])(
-        'refuses to boot in production without %s',
-        (missing) => {
-            setProduction()
-            delete process.env[missing]
-
-            expect(() => loadConfig()).toThrow(missing)
-        }
-    )
+        expect(() => loadConfig()).toThrow('INTEGRATION_SERVICE_ENV')
+    })
 
     it('boots in production once every required variable is set', () => {
-        setProduction()
-        expect(loadConfig().metricsToken).toBe('scrape-token')
+        process.env.NODE_ENV = 'production'
+        process.env.INTEGRATION_SERVICE_ENV = 'prod-us'
+        expect(loadConfig().env).toBe('prod-us')
     })
 })

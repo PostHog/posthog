@@ -3,31 +3,20 @@
 // credential response as cacheable.
 
 import { Hono } from 'hono'
-import { createHash, timingSafeEqual } from 'node:crypto'
 
 import { bearerToken, type JwtVerifier } from '../auth/jwt'
 import { AuthError } from '../auth/types'
 import { logger } from '../lib/logging'
-import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal, register, shuttingDown } from '../metrics'
+import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal } from '../metrics'
 import { resolveKeys } from '../resolve'
 import type { Lifecycle, MountedCredentials } from '../types'
 
-const KNOWN_PATHS = new Set(['/_liveness', '/_readiness', '/metrics', '/v1/secrets/resolve'])
-
-// Hash both sides so timingSafeEqual gets equal-length buffers without leaking the
-// configured token's length through an early mismatch return.
-function tokensMatch(provided: string, expected: string): boolean {
-    return timingSafeEqual(
-        createHash('sha256').update(provided).digest(),
-        createHash('sha256').update(expected).digest()
-    )
-}
+const KNOWN_PATHS = new Set(['/_liveness', '/_readiness', '/v1/secrets/resolve'])
 
 export interface AppOptions {
     verifier: JwtVerifier
     lifecycle: Lifecycle
     credentials: () => MountedCredentials | null
-    metricsToken: string
 }
 
 export function createApp(opts: AppOptions): Hono {
@@ -59,18 +48,6 @@ export function createApp(opts: AppOptions): Hono {
             return c.json({ status: 'starting' }, 503)
         }
         return c.json({ status: 'ok' })
-    })
-
-    app.get('/metrics', async (c) => {
-        if (opts.metricsToken) {
-            const header = c.req.header('Authorization')
-            const provided = header?.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : ''
-            if (!provided || !tokensMatch(provided, opts.metricsToken)) {
-                return c.json({ error: 'Unauthorized' }, 401)
-            }
-        }
-        shuttingDown.set(opts.lifecycle.shuttingDown ? 1 : 0)
-        return c.text(await register.metrics(), 200, { 'Content-Type': register.contentType })
     })
 
     app.post('/v1/secrets/resolve', async (c) => {

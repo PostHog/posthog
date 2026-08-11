@@ -31,8 +31,9 @@ maintained pretending otherwise.
 ```text
 GET  /_liveness          200 always
 GET  /_readiness         200 once the pod holds credentials
-GET  /metrics            prometheus text (bearer-gated when a token is configured)
 POST /v1/secrets/resolve
+
+GET  /metrics            prometheus text, on its own port (INTEGRATION_SERVICE_METRICS_PORT)
 ```
 
 **The request scope lives in the JWT and there is no request body.** The token _is_ the request,
@@ -185,8 +186,8 @@ Two of these exist because a fail-open needs to be visible: the signing-key relo
 previous keys when an edit is malformed, and an unreadable mount keeps what is already held. Alert
 on the two staleness signals, or neither degradation is observable.
 
-`/metrics` is bearer-gated and the token is production-required: the resolve counter is a precise
-map of which deployment reads which credential, even though it carries no values.
+`/metrics` listens on its own port, which the chart keeps off the ingress; in-cluster Prometheus
+scrapes it unauthenticated, the same shape as every other service.
 
 ## Isolation
 
@@ -220,7 +221,7 @@ mount.
 | `INTEGRATION_SERVICE_ENV`            | `dev`                      | Logical env, recorded on every startup log line         |
 | `INTEGRATION_SERVICE_SECRETS_DIR`    | `/etc/integration-secrets` | Where the Kubernetes Secret is mounted                  |
 | `INTEGRATION_SERVICE_RELOAD_SECONDS` | `30`                       | How often to re-read the mount                          |
-| `INTEGRATION_SERVICE_METRICS_TOKEN`  | —                          | Bearer token for `/metrics`. Required in production     |
+| `INTEGRATION_SERVICE_METRICS_PORT`   | `9090`                     | Dedicated `/metrics` listener, kept off the ingress     |
 | `INTEGRATION_SERVICE_LOG_LEVEL`      | by `NODE_ENV`              | `debug`, `info`, `warn` or `error`                      |
 | `PORT`                               | `8004`                     |                                                         |
 | `HOST`                               | `0.0.0.0`                  |                                                         |
