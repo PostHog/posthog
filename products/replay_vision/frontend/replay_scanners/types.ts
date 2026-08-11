@@ -30,6 +30,7 @@ export const OBSERVATION_TRIGGER_TAG: Record<
     schedule: { label: 'Schedule', type: 'default' },
     on_demand: { label: 'On demand', type: 'highlight' },
     retry: { label: 'Retry', type: 'completion' },
+    backfill: { label: 'Backfill', type: 'caution' },
 }
 
 // Typed against the generated retrieve params so a renamed or dropped backend filter fails the build.
@@ -242,36 +243,54 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
-// Test variant of the replay-vision-model-tier-naming-experiment flag: capability tiers instead of
-// provider model names. Every surface that shows a model must pass the same variant so a user never
-// sees both naming schemes for one scanner.
-const MODEL_TIER_NAMES: Record<ScannerModelEnumApi, string> = {
-    [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
-    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
-    [ScannerModelEnumApi.Gemini36Flash]: 'Ultra',
+// Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
+// of provider model names, keyed by the flag's variant key. Every surface that shows a model must
+// resolve the variant the same way so a user never sees mixed naming schemes for one scanner.
+export type ModelNamingVariant = 'test' | 'lite-standard-pro'
+
+const MODEL_TIER_NAMES: Record<ModelNamingVariant, Record<ScannerModelEnumApi, string>> = {
+    test: {
+        [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
+        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
+        [ScannerModelEnumApi.Gemini36Flash]: 'Ultra',
+    },
+    'lite-standard-pro': {
+        [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
+        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
+        [ScannerModelEnumApi.Gemini36Flash]: 'Pro',
+    },
 }
 
-export function getModelOptions(showTierNames: boolean): { value: ScannerModelEnumApi; label: string }[] {
+// Narrows a raw flag value to a naming variant. Control, booleans, and variant keys this build
+// doesn't know yet all resolve to null (provider model names), so a flag/frontend version skew
+// degrades to the control experience instead of mislabeling an arm.
+export function modelNamingVariant(flagValue: unknown): ModelNamingVariant | null {
+    return typeof flagValue === 'string' && flagValue in MODEL_TIER_NAMES ? (flagValue as ModelNamingVariant) : null
+}
+
+export function getModelOptions(
+    namingVariant: ModelNamingVariant | null
+): { value: ScannerModelEnumApi; label: string }[] {
     return Object.values(ScannerModelEnumApi).map((value) => ({
         value,
-        label: `${modelName(value, showTierNames)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+        label: `${modelName(value, namingVariant)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
     }))
 }
 
 // Falls back to the raw id for retired models frozen in old observation snapshots.
-export function modelLabel(model: string | null | undefined, showTierNames: boolean = false): string {
+export function modelLabel(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
     if (!model) {
         return '—'
     }
-    return getModelOptions(showTierNames).find((opt) => opt.value === model)?.label ?? model
+    return getModelOptions(namingVariant).find((opt) => opt.value === model)?.label ?? model
 }
 
 /** Plain model name without the price suffix, for surfaces that show the price separately. */
-export function modelName(model: string | null | undefined, showTierNames: boolean = false): string {
+export function modelName(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
     if (!model) {
         return '—'
     }
-    const names = showTierNames ? MODEL_TIER_NAMES : MODEL_NAMES
+    const names = namingVariant ? MODEL_TIER_NAMES[namingVariant] : MODEL_NAMES
     return names[model as ScannerModelEnumApi] ?? model
 }
 

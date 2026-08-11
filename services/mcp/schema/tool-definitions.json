@@ -89,7 +89,7 @@
         }
     },
     "experiment-results-get": {
-        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
+        "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results may be served from cache; pass refresh=true to force fresh computation (slower). Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
@@ -270,104 +270,6 @@
             "readOnlyHint": true
         }
     },
-    "evaluations-get": {
-        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List AI observability evaluations.",
-        "title": "List evaluations",
-        "required_scopes": ["evaluation:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "evaluation-get": {
-        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge, hog, or sentiment), configuration, conditions, and enabled status.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get a specific evaluation by ID.",
-        "title": "Get evaluation",
-        "required_scopes": ["evaluation:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "evaluation-create": {
-        "description": "Create a new AI observability evaluation. Supported types are 'llm_judge' (LLM scores generations against a prompt), 'hog' (deterministic code returning a boolean), and 'sentiment' (user-message sentiment analysis). For llm_judge evaluations, provide evaluation_config.prompt and model_configuration. For hog evaluations, provide evaluation_config.source. For sentiment evaluations, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Create a new evaluation.",
-        "title": "Create evaluation",
-        "required_scopes": ["evaluation:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-update": {
-        "description": "Update an existing AI observability evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update an evaluation.",
-        "title": "Update evaluation",
-        "required_scopes": ["evaluation:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-delete": {
-        "description": "Delete an AI observability evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete an evaluation.",
-        "title": "Delete evaluation",
-        "required_scopes": ["evaluation:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-run": {
-        "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Run an evaluation on a specific event.",
-        "title": "Run evaluation",
-        "required_scopes": ["evaluation:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-test-hog": {
-        "description": "Test Hog evaluation code against recent data without persisting results. Compiles the provided Hog source code and runs it against a sample from the last 7 days — set target to 'generation' to sample individual $ai_generation events or 'trace' to sample whole traces and run against trace-level globals. Returns per-sample results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Dry-run Hog evaluation code against sample events.",
-        "title": "Test Hog evaluation",
-        "required_scopes": ["evaluation:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "notebook-edit": {
         "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
@@ -445,7 +347,7 @@
         }
     },
     "get-llm-total-costs-for-project": {
-        "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
+        "description": "Fetch daily LLM cost per model for the project over the last N days (default 7). Runs a trends query summing $ai_total_cost_usd on $ai_generation events broken down by $ai_model — call when the user asks how much the team is spending on LLMs or which model costs the most. For the current user's own spend use llma-personal-spend; for custom cost cuts (per user, per trace, per provider) query $ai_generation events with execute-sql.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
@@ -812,7 +714,7 @@
         }
     },
     "workflows-archive": {
-        "description": "Archive a draft or disabled workflow.",
+        "description": "Archive a workflow — sets its status to 'archived', retiring it from active use while keeping it readable via workflows-list / workflows-get. Use when the user asks to archive, retire, or clean up a workflow they no longer run; the workflow must be a draft or disabled first. Not a delete: no content or history is removed. Adjacent intents: workflows-enable takes a workflow live; workflows-discard-draft throws away staged edits without changing status.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Archive workflow",
@@ -854,7 +756,7 @@
         }
     },
     "workflows-schedule-create": {
-        "description": "Attach a recurring RRULE schedule to a batch workflow. The workflow must already be active (enable it first). Each run broadcasts real messages to the trigger audience — STOP and get the user's explicit confirmation first, then pass acknowledged_affected_count from workflows-blast-radius.",
+        "description": "Attach a recurring RRULE schedule to a batch workflow so it re-broadcasts to its trigger audience on a cadence (iCalendar RRULE, e.g. 'FREQ=WEEKLY;BYDAY=MO'; at most one occurrence per hour). Only valid on workflows with a 'batch' trigger, and the workflow must already be active (workflows-enable first). Every firing sends real messages: run workflows-blast-radius, STOP and get the user's explicit confirmation of the count, then pass both acknowledged_affected_count and the confirm_token from that same preview — the API rejects the call without a fresh token (15-minute expiry, stale if the audience filters change). For a one-off send use workflows-run-batch; to change an existing schedule use workflows-update-schedule (schedule IDs appear in workflows-get's 'schedules').",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Schedule workflow runs",
