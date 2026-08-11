@@ -318,32 +318,29 @@ export function DashboardsTable({
                             : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
                     rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
                     headerAriaLabel: 'Select all dashboards on this page',
-                    renderActions: (ctx) => {
-                        return (
-                            <>
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    onClick={() => {
-                                        // Copied because clearSelection below mutates the live selection.
-                                        moveDashboardsToFolder([...ctx.selectedKeys], 'bulk')
-                                        ctx.clearSelection()
-                                    }}
-                                    data-attr="dashboards-bulk-move-to-folder"
-                                >
-                                    Move to folder
-                                </LemonButton>
-                                <BulkUpdateTagsButton
-                                    resource="dashboards"
-                                    selectedIds={ctx.selectedKeys}
-                                    onSuccess={() => {
-                                        ctx.clearSelection()
-                                        dashboardsModel.actions.loadDashboards()
-                                    }}
-                                />
-                            </>
-                        )
-                    },
+                    renderActions: (ctx) => (
+                        <>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                onClick={() => {
+                                    moveDashboardsToFolder([...ctx.selectedKeys], 'bulk')
+                                    ctx.clearSelection()
+                                }}
+                                data-attr="dashboards-bulk-move-to-folder"
+                            >
+                                Move to folder
+                            </LemonButton>
+                            <BulkUpdateTagsButton
+                                resource="dashboards"
+                                selectedIds={ctx.selectedKeys}
+                                onSuccess={() => {
+                                    ctx.clearSelection()
+                                    dashboardsModel.actions.loadDashboards()
+                                }}
+                            />
+                        </>
+                    ),
                 }}
             />
         </>

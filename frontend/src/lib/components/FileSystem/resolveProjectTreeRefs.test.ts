@@ -10,13 +10,19 @@ const entry = (id: string, ref: string, extras: Partial<FileSystemEntry> = {}): 
 
 describe('resolveProjectTreeRefs', () => {
     let listedRefs: string[]
+    let listedTypeParams: Record<string, string | null>[]
 
     const mockFileSystem = (resultsByRef: Record<string, FileSystemEntry[]>): void => {
         useMocks({
             get: {
                 '/api/environments/:team_id/file_system': ({ request }) => {
-                    const ref = new URL(request.url).searchParams.get('ref') ?? ''
+                    const params = new URL(request.url).searchParams
+                    const ref = params.get('ref') ?? ''
                     listedRefs.push(ref)
+                    listedTypeParams.push({
+                        type: params.get('type'),
+                        type__startswith: params.get('type__startswith'),
+                    })
                     return [200, { count: 0, results: resultsByRef[ref] ?? [] }]
                 },
             },
@@ -25,6 +31,7 @@ describe('resolveProjectTreeRefs', () => {
 
     beforeEach(() => {
         listedRefs = []
+        listedTypeParams = []
         initKeaTests()
     })
 
@@ -37,14 +44,21 @@ describe('resolveProjectTreeRefs', () => {
         expect(listedRefs).toEqual(['1'])
     })
 
-    // A shortcut shares its ref with the row it points at. Moving the shortcut leaves the object where it
-    // was, so the lookup has to skip past it.
     it('skips shortcut rows', async () => {
         mockFileSystem({ '1': [entry('fs-shortcut', '1', { shortcut: true }), entry('fs-1', '1')] })
 
         const entries = await resolveProjectTreeRefs([{ type: 'dashboard', ref: '1' }])
 
         expect(entries).toEqual([expect.objectContaining({ id: 'fs-1' })])
+    })
+
+    it('matches on a type prefix when the ref carries one', async () => {
+        mockFileSystem({ '1': [entry('fs-1', '1', { type: 'hog/site_destination' })] })
+
+        const entries = await resolveProjectTreeRefs([{ type: 'hog/', ref: '1' }])
+
+        expect(entries).toEqual([expect.objectContaining({ id: 'fs-1' })])
+        expect(listedTypeParams).toEqual([{ type: null, type__startswith: 'hog/' }])
     })
 
     it('drops refs that have no row, keeping the ones that do', async () => {
@@ -61,7 +75,6 @@ describe('resolveProjectTreeRefs', () => {
         expect(listedRefs).toEqual(['1', '2'])
     })
 
-    // More refs than one batch, to prove nothing is dropped when the lookup chunks its requests.
     it('resolves every ref in a selection larger than one batch', async () => {
         const ids = Array.from({ length: 25 }, (_, index) => String(index))
         mockFileSystem(Object.fromEntries(ids.map((id) => [id, [entry(`fs-${id}`, id)]])))

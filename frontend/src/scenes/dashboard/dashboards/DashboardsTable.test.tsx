@@ -15,15 +15,14 @@ jest.mock('./DashboardsFiltersBar', () => ({ DashboardsFiltersBar: () => null })
 // Render the row menu's overlay inline, so the row actions are assertable without driving a popover open.
 jest.mock('lib/lemon-ui/LemonButton/More', () => ({ More: ({ overlay }: any) => <div>{overlay}</div> }))
 
-// Stub LemonTable down to the two surfaces under test: the bulk-action bar (driven by a controllable
-// selection context) and the actions column of each row.
+// Stubbed down to the bulk-action bar and each row's actions column.
 let mockCtx: { selectedKeys: number[]; clearSelection: jest.Mock }
 jest.mock('lib/lemon-ui/LemonTable', () => ({
     LemonTable: ({ bulkSelection, columns, dataSource }: any) => (
         <div>
             {bulkSelection ? bulkSelection.renderActions(mockCtx) : null}
             {dataSource.map((row: any) => (
-                <div key={row.id}>{columns[columns.length - 1].render(undefined, row)}</div>
+                <div key={row.id}>{columns.at(-1).render(undefined, row)}</div>
             ))}
         </div>
     ),
@@ -52,8 +51,6 @@ describe('DashboardsTable move to folder', () => {
         })
     })
 
-    // No file system entries are supplied or loaded anywhere here: that's the point. The move affordances
-    // used to be gated on a preloaded entry, which left them absent for practically every dashboard.
     const renderTable = (rows: number[], selectedKeys: number[] = []): void => {
         mockCtx = { selectedKeys, clearSelection }
         render(
