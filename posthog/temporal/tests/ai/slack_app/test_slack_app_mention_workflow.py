@@ -62,6 +62,10 @@ class _Recorder:
         self.forward_results: dict[str, bool] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
         self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed", "needs_user_github"]] = {}
+        # ts per personal-GitHub gate call, in execution order.
+        self.github_gate_calls: list[str] = []
+        # event text per needs-repo classifier call, in execution order.
+        self.needs_repo_calls: list[str] = []
         # ts -> gate the create-task fake blocks on, to hold a message mid-processing.
         self.create_gates: dict[str, asyncio.Event] = {}
         self.create_reached: dict[str, asyncio.Event] = {}
@@ -117,6 +121,7 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
     async def needs_repo(event_text: str, thread_messages: list[dict[str, str]]) -> bool:
+        rec.needs_repo_calls.append(event_text)
         return True
 
     @activity.defn(name="discover_posthog_code_repository_via_agent_activity")
@@ -144,27 +149,17 @@ def _fake_activities(rec: _Recorder) -> list:
         rec.picker_workflow_id = workflow_id
         rec.picker_posted.set()
 
-    @activity.defn(name="resolve_posthog_code_authorship_activity")
-    async def resolve_authorship(
-        inputs: PostHogCodeSlackMentionWorkflowInputs,
-        channel: str,
-        thread_ts: str,
-        slack_user_id: str,
-        user_id: int,
-        workflow_id: str,
-        repository: str,
-    ) -> str:
-        return "proceed"
-
     @activity.defn(name="block_posthog_code_task_if_no_personal_github_activity")
     async def block_github(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
         channel: str,
         thread_ts: str,
         user_id: int,
-        allow_bot_prs: bool = False,
     ) -> bool:
-        return False
+        rec.github_gate_calls.append(inputs.event["ts"])
+        # Blocks whenever it is reached, so a test that expects a task can only pass
+        # by not reaching it.
+        return True
 
     @activity.defn(name="classify_slack_app_model_override_activity")
     async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
@@ -198,10 +193,6 @@ def _fake_activities(rec: _Recorder) -> list:
     async def picker_timeout(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         return None
 
-    @activity.defn(name="post_posthog_code_authorship_timeout_activity")
-    async def authorship_timeout(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
-        return None
-
     @activity.defn(name="post_posthog_code_internal_error_activity")
     async def internal_error(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         rec.internal_errors.append(inputs.event["ts"])
@@ -231,12 +222,10 @@ def _fake_activities(rec: _Recorder) -> list:
         needs_repo,
         discover,
         post_picker,
-        resolve_authorship,
         block_github,
         classify_model_override,
         create_task,
         picker_timeout,
-        authorship_timeout,
         internal_error,
         resolve_user,
     ]
@@ -381,6 +370,20 @@ async def test_duplicate_slack_event_id_is_processed_once():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_mention_resolving_no_repo_creates_a_task_without_the_github_gate():
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "no_repo"
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == [("1.1", None)]
+    assert rec.github_gate_calls == []
+    assert rec.needs_repo_calls == []
 
 
 @pytest.mark.asyncio

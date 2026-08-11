@@ -15,8 +15,10 @@ import os
 import re
 import json
 import shlex
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
@@ -243,6 +245,12 @@ def build_agent_runtime_env_prefix(
 class SandboxBase(ABC):
     id: str
     config: SandboxConfig
+    supports_creation_cancellation = False
+    creation_timeout_seconds = 300
+
+    @staticmethod
+    def creation_cancellation_scope(cancel_event: threading.Event) -> AbstractContextManager[None]:
+        return nullcontext()
 
     @property
     @abstractmethod
