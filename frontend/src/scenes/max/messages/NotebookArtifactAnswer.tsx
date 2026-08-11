@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconCollapse, IconExpand, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { isNetworkError, NETWORK_ERROR_MESSAGE } from 'lib/api-error'
 import {
     InsightBreakdownSummary,
     PropertiesSummary,
@@ -287,9 +288,12 @@ function LoadingBlockPreview({ block }: { block: LoadingBlock }): JSX.Element {
 }
 
 function ErrorBlockPreview({ block }: { block: ErrorBlock }): JSX.Element {
+    // A raw browser string like "Failed to fetch" is meaningless to the reader, so map transient
+    // network failures to copy that says what broke and what to do next.
+    const message = isNetworkError(new Error(block.message)) ? NETWORK_ERROR_MESSAGE : block.message
     return (
         <div className="border border-danger-dark rounded p-3 bg-danger-highlight text-danger text-sm">
-            <span className="font-medium">Error:</span> {block.message}
+            <span className="font-medium">Error:</span> {message}
         </div>
     )
 }

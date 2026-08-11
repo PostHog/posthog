@@ -1,4 +1,4 @@
-import { ApiError } from './api-error'
+import { ApiError, isNetworkError } from './api-error'
 
 describe('ApiError.fromResponse', () => {
     it.each([
@@ -53,5 +53,19 @@ describe('ApiError.fromResponse', () => {
         } as unknown as Response
 
         await expect(ApiError.fromResponse(response)).rejects.toBe(abortError)
+    })
+})
+
+describe('isNetworkError', () => {
+    it.each([
+        ['Chrome/Edge fetch failure', new TypeError('Failed to fetch'), true],
+        ['Firefox fetch failure', new TypeError('NetworkError when attempting to fetch resource.'), true],
+        ['Safari fetch failure', new TypeError('Load failed'), true],
+        ['ApiError with no status (fetch threw)', new ApiError('Failed to fetch', undefined), true],
+        ['ApiError with a status', new ApiError('Server error', 500), false],
+        ['a server error message', new Error('Something went wrong on the server'), false],
+        ['a non-error value', 'Failed to fetch', false],
+    ])('detects %s as network error = %s', (_, error, expected) => {
+        expect(isNetworkError(error)).toBe(expected)
     })
 })

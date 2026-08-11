@@ -20,6 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { isNetworkError, NETWORK_ERROR_MESSAGE } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
@@ -148,6 +149,24 @@ const concurrencyController = new ConcurrencyController(1)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
+
+// How many times a query load retries a transient network failure before giving up, and the pause
+// between attempts. Mirrors the chat stream's offline recovery so a chart doesn't dead-end on a blip.
+const MAX_NETWORK_RETRIES = 2
+const NETWORK_RETRY_DELAY_MS = 1000
+
+function responseErrorMessage(error: string | null, errorObject: Record<string, any> | null): string {
+    if (isNetworkError(errorObject)) {
+        return NETWORK_ERROR_MESSAGE
+    }
+    if (errorObject && 'error' in errorObject) {
+        return errorObject.error ?? 'Error loading data'
+    }
+    if (errorObject && 'detail' in errorObject) {
+        return errorObject.detail ?? 'Error loading data'
+    }
+    return error ?? 'Error loading data'
+}
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     const mountedSceneLogic = sceneLogic.findMounted()
@@ -1000,35 +1019,62 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
-                        const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
-                            debugTag: query.kind,
-                            abortController,
-                            priority: props.loadPriority,
-                            fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
-                                const now = performance.now()
+                        const runQuery = (): Promise<{ duration: number; data: Record<string, any> }> =>
+                            getConcurrencyController(query, values.currentTeam as TeamType).run({
+                                debugTag: query.kind,
+                                abortController,
+                                priority: props.loadPriority,
+                                fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
+                                    const now = performance.now()
+                                    try {
+                                        breakpoint()
+                                        const data =
+                                            (await performQuery<DataNode>(
+                                                addModifiers(query, props.modifiers),
+                                                methodOptions,
+                                                refresh,
+                                                queryId,
+                                                actions.setPollResponse,
+                                                props.filtersOverride,
+                                                props.variablesOverride,
+                                                pollOnly,
+                                                props.limitContext
+                                            )) ?? null
+                                        const duration = performance.now() - now
+                                        return { data, duration }
+                                    } catch (error: any) {
+                                        const duration = performance.now() - now
+                                        error.duration = duration
+                                        throw error
+                                    }
+                                },
+                            })
+
+                        const runWithNetworkRetry = async (): Promise<{
+                            duration: number
+                            data: Record<string, any>
+                        }> => {
+                            for (let attempt = 0; ; attempt++) {
                                 try {
-                                    breakpoint()
-                                    const data =
-                                        (await performQuery<DataNode>(
-                                            addModifiers(query, props.modifiers),
-                                            methodOptions,
-                                            refresh,
-                                            queryId,
-                                            actions.setPollResponse,
-                                            props.filtersOverride,
-                                            props.variablesOverride,
-                                            pollOnly,
-                                            props.limitContext
-                                        )) ?? null
-                                    const duration = performance.now() - now
-                                    return { data, duration }
+                                    return await runQuery()
                                 } catch (error: any) {
-                                    const duration = performance.now() - now
-                                    error.duration = duration
+                                    // Retry a transient network blip a couple of times before failing.
+                                    // The breakpoint both paces the retry and drops it if a newer load
+                                    // supersedes this one or the query is cancelled.
+                                    if (
+                                        attempt < MAX_NETWORK_RETRIES &&
+                                        isNetworkError(error) &&
+                                        !abortController.signal.aborted
+                                    ) {
+                                        await breakpoint(NETWORK_RETRY_DELAY_MS)
+                                        continue
+                                    }
                                     throw error
                                 }
-                            },
-                        })
+                            }
+                        }
+
+                        const response = await runWithNetworkRetry()
                         breakpoint()
                         actions.setElapsedTime(response.duration)
                         return response.data
@@ -1301,24 +1347,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 loadData: () => null,
                 loadNewData: () => null,
-                loadDataFailure: (_, { error, errorObject }) => {
-                    if (errorObject && 'error' in errorObject) {
-                        return errorObject.error ?? 'Error loading data'
-                    }
-                    if (errorObject && 'detail' in errorObject) {
-                        return errorObject.detail ?? 'Error loading data'
-                    }
-                    return error ?? 'Error loading data'
-                },
-                loadNewDataFailure: (_, { error, errorObject }) => {
-                    if (errorObject && 'error' in errorObject) {
-                        return errorObject.error ?? 'Error loading data'
-                    }
-                    if (errorObject && 'detail' in errorObject) {
-                        return errorObject.detail ?? 'Error loading data'
-                    }
-                    return error ?? 'Error loading data'
-                },
+                loadDataFailure: (_, { error, errorObject }) => responseErrorMessage(error, errorObject),
+                loadNewDataFailure: (_, { error, errorObject }) => responseErrorMessage(error, errorObject),
                 loadDataSuccess: (_, { response }) =>
                     response && 'error' in response ? (response.error ?? null) : null,
                 loadNewDataSuccess: (_, { response }) =>

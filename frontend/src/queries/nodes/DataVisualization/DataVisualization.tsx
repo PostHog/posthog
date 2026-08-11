@@ -208,7 +208,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     )
     const alertThresholdLines = insight?.id ? alertsToThresholdGoalLines(alerts) : []
 
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { toggleChartSettingsPanel, loadData } = useActions(dataVisualizationLogic)
 
     const { queryId, pollResponse } = useValues(dataNodeLogic)
 
@@ -225,6 +225,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <InsightErrorState
                     query={props.query}
                     excludeDetail
+                    onRetry={() =>
+                        loadData(
+                            shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking',
+                            undefined,
+                            query.source
+                        )
+                    }
                     title={
                         queryCancelled
                             ? 'The query was cancelled'

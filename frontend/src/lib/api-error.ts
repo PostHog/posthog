@@ -15,6 +15,27 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
+/**
+ * A failed `fetch` — the request never reached a response. Browsers word this differently, and
+ * `handleFetch` wraps it as an `ApiError` with no status:
+ *   Chrome/Edge: "Failed to fetch"
+ *   Firefox:     "NetworkError when attempting to fetch resource."
+ *   Safari:      "Load failed"
+ * These are transient (offline, DNS, dropped connection) and usually clear on a quick retry.
+ */
+export function isNetworkError(error: unknown): boolean {
+    if (error instanceof ApiError) {
+        return !error.status
+    }
+    if (error instanceof Error) {
+        return /failed to fetch|network\s*error|load failed/i.test(error.message)
+    }
+    return false
+}
+
+/** User-facing copy for a network fetch failure. Says what broke and points at the fix. */
+export const NETWORK_ERROR_MESSAGE = "Couldn't reach PostHog to load this. Check your connection and try again."
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
