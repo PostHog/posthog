@@ -196,24 +196,23 @@ async function executeQuery<N extends DataNode>(
         const isBlockingRefresh = refreshParam === 'blocking' || refreshParam === 'force_blocking'
         let requestOptions = methodOptions
         let deadlineExceeded = false
+        let clearDeadline: (() => void) | undefined
         if (isBlockingRefresh) {
             const deadlineController = new AbortController()
             const parentSignal = methodOptions?.signal
-            const timeoutSignal = AbortSignal.timeout(QUERY_BLOCKING_TOTAL_SECONDS * 1000)
             if (parentSignal?.aborted) {
                 deadlineController.abort()
             } else {
                 parentSignal?.addEventListener('abort', () => deadlineController.abort(), { once: true })
             }
-            const onDeadline = (): void => {
+            const deadlineTimer = setTimeout(() => {
                 deadlineExceeded = true
                 deadlineController.abort()
-            }
-            if (timeoutSignal.aborted) {
-                onDeadline()
-            } else {
-                timeoutSignal.addEventListener('abort', onDeadline, { once: true })
-            }
+            }, QUERY_BLOCKING_TOTAL_SECONDS * 1000)
+            // Don't let a pending deadline keep the Node/test event loop alive; `clearDeadline` still
+            // cancels it as soon as the request settles.
+            ;(deadlineTimer as unknown as { unref?: () => void }).unref?.()
+            clearDeadline = () => clearTimeout(deadlineTimer)
             requestOptions = { ...methodOptions, signal: deadlineController.signal }
         }
 
@@ -236,6 +235,8 @@ async function executeQuery<N extends DataNode>(
                     throw timeoutError
                 }
                 throw e
+            } finally {
+                clearDeadline?.()
             }
         })()
 

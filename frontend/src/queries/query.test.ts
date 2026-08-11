@@ -169,17 +169,23 @@ describe('query', () => {
     })
 
     it('raises a timeout when a blocking query passes the client-side deadline', async () => {
-        // Fire the deadline at once instead of waiting out the real 10-minute bound.
-        const timeoutSpy = jest.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort())
-        const q: EventsQuery = setLatestVersionsOnQuery({
-            kind: NodeKind.EventsQuery,
-            select: ['timestamp'],
-            limit: 100,
-        })
+        jest.useFakeTimers()
+        try {
+            // Never resolve, so only the client-side deadline can settle the request.
+            useMocks({ post: { '/api/environments/:team_id/query/:kind': () => new Promise(() => {}) } })
+            const q: EventsQuery = setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['timestamp'],
+                limit: 100,
+            })
 
-        await expect(performQuery(q, undefined, 'force_blocking')).rejects.toThrow(QUERY_TIMEOUT_ERROR_MESSAGE)
-
-        timeoutSpy.mockRestore()
+            const promise = performQuery(q, undefined, 'force_blocking')
+            const expectation = expect(promise).rejects.toThrow(QUERY_TIMEOUT_ERROR_MESSAGE)
+            await jest.advanceTimersByTimeAsync(11 * 60 * 1000)
+            await expectation
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     describe('waitForPageVisible', () => {
