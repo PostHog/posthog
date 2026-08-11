@@ -75,7 +75,7 @@ export function TimelineRow({
   return (
     <div
       className={cn(
-        "group flex items-start gap-2 rounded-md py-1 pr-2 pl-2 transition-colors",
+        "group flex items-start gap-2 rounded-md py-1.5 pr-2 pl-2 transition-colors",
         hasDetail &&
           "cursor-pointer focus-within:bg-gray-2 hover:bg-gray-2 has-[:focus-visible]:bg-gray-2",
       )}
@@ -103,29 +103,63 @@ export function TimelineRow({
   );
 }
 
-function IconBubble({ children }: { children: ReactNode }) {
+/** Each bead is tinted to its event's hue: a wash for the fill, a step up for the edge, and
+ *  the high-contrast step for the glyph. Neutral rows keep the gray bead, so colour means
+ *  something rather than decorating every row. */
+const BEAD_TONES = {
+  neutral: "border-gray-7 bg-gray-5 text-gray-12",
+  blue: "border-blue-7 bg-blue-4 text-blue-11",
+  green: "border-green-7 bg-green-4 text-green-11",
+  amber: "border-amber-7 bg-amber-4 text-amber-11",
+  violet: "border-violet-7 bg-violet-4 text-violet-11",
+  red: "border-red-7 bg-red-4 text-red-11",
+} as const;
+
+type BeadTone = keyof typeof BEAD_TONES;
+
+function IconBubble({
+  children,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  tone?: BeadTone;
+}) {
   return (
-    <span className="relative z-10 flex size-5 items-center justify-center rounded-full bg-gray-3 ring-4 ring-gray-1">
+    <span
+      className={cn(
+        "relative z-10 flex size-5 items-center justify-center rounded-full border ring-4 ring-gray-1",
+        BEAD_TONES[tone],
+      )}
+    >
       {children}
     </span>
   );
 }
 
+const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
+  run_started: "blue",
+  run_failed: "red",
+  awaiting_input: "amber",
+  artifact_created: "violet",
+  artifact_revised: "violet",
+  canvas_created: "violet",
+  pr_created: "neutral",
+  pr_merged: "violet",
+  pr_closed: "red",
+  message_forwarded: "blue",
+};
+
 const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
-  run_started: <PlayIcon size={10} weight="fill" className="text-blue-11" />,
-  run_failed: <XCircleIcon size={12} weight="fill" className="text-red-11" />,
-  awaiting_input: (
-    <WarningIcon size={11} weight="fill" className="text-amber-11" />
-  ),
-  artifact_created: <FileTextIcon size={11} className="text-violet-11" />,
-  artifact_revised: (
-    <ArrowsClockwiseIcon size={12} className="text-violet-11" />
-  ),
-  canvas_created: <FileTextIcon size={11} className="text-violet-11" />,
-  pr_created: <GitPullRequestIcon size={11} className="text-gray-12" />,
-  pr_merged: <GitPullRequestIcon size={11} className="text-violet-11" />,
-  pr_closed: <GitPullRequestIcon size={11} className="text-red-11" />,
-  message_forwarded: <ArrowRightIcon size={11} className="text-blue-11" />,
+  run_started: <PlayIcon size={10} weight="fill" />,
+  run_failed: <XCircleIcon size={12} weight="fill" />,
+  awaiting_input: <WarningIcon size={11} weight="fill" />,
+  artifact_created: <FileTextIcon size={11} />,
+  artifact_revised: <ArrowsClockwiseIcon size={12} />,
+  canvas_created: <FileTextIcon size={11} />,
+  pr_created: <GitPullRequestIcon size={11} />,
+  pr_merged: <GitPullRequestIcon size={11} />,
+  pr_closed: <GitPullRequestIcon size={11} />,
+  message_forwarded: <ArrowRightIcon size={11} />,
 };
 
 /** The sentence an event reads as. Written so a person skimming the panel learns what
@@ -235,6 +269,26 @@ function eventDetail(event: ActivityEvent): ReactNode {
   }
 }
 
+/** A quiet inline action under an opened row — reads as a link, not a form control. */
+export function DetailAction({
+  children,
+  onClick,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded px-0.5 text-[12px] text-muted-foreground underline-offset-2 transition-colors hover:text-gray-12 hover:underline"
+    >
+      {children}
+      <CaretRightIcon size={10} />
+    </button>
+  );
+}
+
 /** The shared shape of an opened row's content: one quoted block, indented to the copy. */
 export function DetailBlock({ children }: { children: ReactNode }) {
   return (
@@ -263,7 +317,11 @@ export function ActivityEventRow({
 }) {
   return (
     <TimelineRow
-      gutter={<IconBubble>{EVENT_ICONS[event.kind]}</IconBubble>}
+      gutter={
+        <IconBubble tone={EVENT_TONES[event.kind]}>
+          {EVENT_ICONS[event.kind]}
+        </IconBubble>
+      }
       timestamp={timestamp}
       detail={detail ?? eventDetail(event)}
     >
@@ -285,15 +343,11 @@ export function RunStatusRow({
   return (
     <TimelineRow
       gutter={
-        <IconBubble>
+        <IconBubble tone={succeeded ? "green" : "red"}>
           {succeeded ? (
-            <CheckCircleIcon
-              size={12}
-              weight="fill"
-              className="text-green-11"
-            />
+            <CheckCircleIcon size={12} weight="fill" />
           ) : (
-            <XCircleIcon size={12} weight="fill" className="text-red-11" />
+            <XCircleIcon size={12} weight="fill" />
           )}
         </IconBubble>
       }
@@ -359,9 +413,7 @@ export function CommentRow({
             </div>
           )}
           {onSelect && (
-            <Button variant="default" size="sm" onClick={onSelect}>
-              Open thread
-            </Button>
+            <DetailAction onClick={onSelect}>Open thread</DetailAction>
           )}
         </div>
       }
@@ -387,19 +439,11 @@ export function CommentStateRow({
   return (
     <TimelineRow
       gutter={
-        <IconBubble>
+        <IconBubble tone={resolved ? "green" : "amber"}>
           {resolved ? (
-            <CheckCircleIcon
-              size={12}
-              weight="fill"
-              className="text-green-11"
-            />
+            <CheckCircleIcon size={12} weight="fill" />
           ) : (
-            <WarningCircleIcon
-              size={12}
-              weight="fill"
-              className="text-amber-11"
-            />
+            <WarningCircleIcon size={12} weight="fill" />
           )}
         </IconBubble>
       }
@@ -425,7 +469,7 @@ export function ActivityLoadingState() {
     <output className="relative block px-1 py-2" aria-label="Loading timeline">
       <div
         aria-hidden
-        className="pointer-events-none absolute top-5 bottom-5 left-8 w-px bg-border"
+        className="pointer-events-none absolute top-5 bottom-5 left-8 w-px bg-gray-8"
       />
       <div className="relative z-10">
         {/* Widths vary so the block reads as copy rather than a progress bar. */}

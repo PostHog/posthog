@@ -53,7 +53,11 @@ function renderTimeline(canOpenInPlace?: boolean, items = conversationItems) {
 }
 
 beforeEach(() => {
-  useThreadNavigationStore.setState({ scrollRequests: {} });
+  // A transcript registers itself when mounted; the jump is only offered when one has.
+  useThreadNavigationStore.setState({
+    scrollRequests: {},
+    listeners: { "task-1": 1 },
+  });
 });
 
 describe("ActivityTimeline", () => {
@@ -86,8 +90,10 @@ describe("ActivityTimeline", () => {
     );
   });
 
-  it("offers no transcript jump when there is nothing alongside to drive", () => {
-    renderTimeline();
+  it("offers no transcript jump when no transcript is listening", () => {
+    // Without this the button rendered in panes with no transcript and did nothing.
+    useThreadNavigationStore.setState({ listeners: {} });
+    renderTimeline(true);
 
     fireEvent.click(screen.getByRole("button", { name: /first thing/ }));
 

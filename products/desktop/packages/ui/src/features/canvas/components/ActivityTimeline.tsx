@@ -23,6 +23,7 @@ import {
   ActivityEventRow,
   CommentRow,
   CommentStateRow,
+  DetailAction,
   DetailBlock,
   RunStatusRow,
   TimelineRow,
@@ -37,7 +38,10 @@ import { useCommentNavigationStore } from "@posthog/ui/features/sessions/comment
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
-import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
+import {
+  useHasTranscriptListener,
+  useThreadNavigationStore,
+} from "@posthog/ui/features/sessions/threadNavigationStore";
 import { Fragment, useMemo } from "react";
 
 type ConversationItem = ReturnType<
@@ -81,7 +85,7 @@ function UserMessageRow({
         // initials out of the row's accessible name.
         <div
           aria-hidden
-          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full ring-4 ring-gray-1"
+          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full border border-gray-7 ring-4 ring-gray-1"
         >
           <UserAvatar user={author} size="sm" className="size-5" />
         </div>
@@ -113,9 +117,7 @@ function UserMessageRow({
             </Collapsible>
           )}
           {onSelect && (
-            <Button variant="default" size="sm" onClick={onSelect}>
-              Show in transcript
-            </Button>
+            <DetailAction onClick={onSelect}>Show in transcript</DetailAction>
           )}
         </div>
       }
@@ -174,6 +176,9 @@ export function ActivityTimeline({
   const requestScrollToMessage = useThreadNavigationStore(
     (state) => state.requestScrollToMessage,
   );
+  // The jump only lands if a transcript is mounted for this task. Without this the button
+  // renders in panes that have no transcript beside them and does nothing when clicked.
+  const hasTranscript = useHasTranscriptListener(task.id);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
   );
@@ -265,12 +270,8 @@ export function ActivityTimeline({
         return (
           <TimelineRow
             gutter={
-              <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-gray-3 ring-4 ring-gray-1">
-                <PlusCircleIcon
-                  size={14}
-                  weight="fill"
-                  className="text-gray-11"
-                />
+              <span className="relative z-10 flex size-5 items-center justify-center rounded-full border border-gray-7 bg-gray-5 text-gray-12 ring-4 ring-gray-1">
+                <PlusCircleIcon size={11} weight="fill" />
               </span>
             }
             timestamp={task.created_at}
@@ -285,7 +286,7 @@ export function ActivityTimeline({
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
             onSelect={
-              canOpenInPlace
+              canOpenInPlace && hasTranscript
                 ? () => requestScrollToMessage(task.id, row.item.id)
                 : undefined
             }
@@ -359,7 +360,7 @@ export function ActivityTimeline({
           as spanning them rather than running past. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute top-6 bottom-6 left-8 w-px bg-border"
+        className="pointer-events-none absolute top-5 bottom-5 left-8 w-px bg-gray-8"
       />
       <div className="relative z-10">
         <ThreadItemGroup>
