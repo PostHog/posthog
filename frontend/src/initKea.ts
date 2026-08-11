@@ -48,6 +48,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
     'loadToolDataEvents',
+    'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
+    'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
 ]
 
 /*
