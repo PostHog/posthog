@@ -116,6 +116,12 @@
       "captureProduced": true
     },
     {
+      "type": "identify_missing_anon_distinct_id",
+      "category": "merge",
+      "severity": "warning",
+      "captureProduced": false
+    },
+    {
       "type": "ignored_invalid_timestamp",
       "category": "event",
       "severity": "warning",

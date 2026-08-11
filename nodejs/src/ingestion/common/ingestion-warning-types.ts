@@ -43,6 +43,11 @@ export const INGESTION_WARNING_TYPES = {
     cannot_merge_already_identified: { category: 'merge', severity: 'warning' },
     cannot_merge_with_illegal_distinct_id: { category: 'merge', severity: 'warning' },
     merge_race_condition: { category: 'merge', severity: 'error' },
+    // $identify arrived with no $anon_distinct_id, so no anonymous person is
+    // merged into the identified one. Common from server SDKs that omit the
+    // property; otherwise invisible, so the anonymous and identified persons
+    // stay split with nothing in the product to explain why.
+    identify_missing_anon_distinct_id: { category: 'merge', severity: 'warning' },
 
     // Event validation — malformed or rejected event data
     client_ingestion_warning: { category: 'event', severity: 'info' },

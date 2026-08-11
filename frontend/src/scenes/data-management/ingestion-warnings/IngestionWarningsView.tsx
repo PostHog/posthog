@@ -27,6 +27,8 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
+    identify_missing_anon_distinct_id:
+        'Received an $identify with no $anon_distinct_id, so no anonymous user was merged',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
@@ -118,6 +120,19 @@ export const WARNING_TYPE_RENDERER = {
                 <Link to={urls.personByDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
                 <Link to={urls.personByDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
                 $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    identify_missing_anon_distinct_id: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            distinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                An $identify for <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link>{' '}
+                carried no $anon_distinct_id, so no anonymous user was merged into it (event uuid:{' '}
+                <code>{details.eventUuid}</code>).
             </>
         )
     },

@@ -154,6 +154,19 @@ export class PersonMergeService {
                     this.context.team.id,
                     this.context.timestamp
                 )
+            } else if (this.context.event.event === '$identify') {
+                // A $identify with no $anon_distinct_id requests no merge, so the split goes
+                // unreported unless we warn. Debounce by distinct id so one repeatedly
+                // identifying user cannot flood the topic.
+                await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                    type: 'identify_missing_anon_distinct_id',
+                    details: {
+                        distinctId: this.context.distinctId,
+                        eventUuid: this.context.event.uuid,
+                    },
+                    key: this.context.distinctId,
+                    pipelineStep: 'person-merge',
+                })
             }
         } catch (e) {
             if (e instanceof PersonClaimedByLifecycleOpError) {
