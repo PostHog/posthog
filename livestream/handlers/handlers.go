@@ -160,6 +160,16 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+
+		// Flush the response head at once so the client sees the stream open in a
+		// single round trip. Without it the browser fetch stays unresolved until the
+		// first real event, and a tab that hides before then tears the connection down.
+		open := Event{Comment: []byte("connected")}
+		if err := open.WriteTo(w); err != nil {
+			return err
+		}
+		w.Flush()
+
 		timeout := time.After(30 * time.Minute)
 		for {
 			select {
@@ -301,6 +311,16 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+
+		// Flush the response head at once so the client sees the stream open in a
+		// single round trip. Without it the browser fetch stays unresolved until the
+		// first notification or heartbeat, and a tab that hides before then tears the
+		// connection down.
+		open := Event{Comment: []byte("connected")}
+		if err := open.WriteTo(w); err != nil {
+			return err
+		}
+		w.Flush()
 
 		heartbeat := time.NewTicker(15 * time.Second)
 		defer heartbeat.Stop()

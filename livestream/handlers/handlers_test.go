@@ -147,6 +147,67 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 	}
 }
 
+func TestStreamEventsHandler_FlushesHeadOnConnect(t *testing.T) {
+	viper.Set("jwt.secret", "test-secret-for-handlers")
+
+	logger := echo.New().Logger
+	subChan := make(chan events.Subscription, 10)
+	unSubChan := make(chan events.Subscription, 10)
+	handler := StreamEventsHandler(logger, subChan, unSubChan)
+
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id":   7,
+		"api_token": "valid-token",
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/events", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	ctx, canc := context.WithTimeout(context.Background(), time.Millisecond)
+	defer canc()
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, handler(c))
+	assert.True(t, rec.Flushed, "response head should be flushed before the first event")
+	assert.Contains(t, rec.Body.String(), ": connected", "stream should open with a flushed comment")
+}
+
+func TestNotificationsHandler_FlushesHeadOnConnect(t *testing.T) {
+	viper.Set("jwt.secret", "test-secret-for-notifications")
+
+	mr := miniredis.RunT(t)
+	client, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:  []string{mr.Addr()},
+		DisableCache: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+
+	handler := NotificationsHandler(client)
+
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id":         7,
+		"api_token":       "valid-token",
+		"organization_id": "org-123",
+		"user_id":         42,
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/notifications", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	ctx, canc := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer canc()
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, handler(c))
+	assert.True(t, rec.Flushed, "response head should be flushed before the first notification or heartbeat")
+	assert.Contains(t, rec.Body.String(), ": connected", "stream should open with a flushed comment")
+}
+
 func createJWTToken(audience string, claims jwt.MapClaims) string {
 	newClaims := jwt.MapClaims{
 		"aud": audience,
