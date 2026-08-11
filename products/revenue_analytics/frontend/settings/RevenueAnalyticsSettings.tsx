@@ -131,9 +131,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
                                     <span className="text-xs text-muted-alt">
                                         Only Stripe is supported currently. <br />
-                                        <Link to="https://posthog.com/roadmap">
-                                            Request more revenue integrations.
-                                        </Link>
+                                        <Link to="https://posthog.com/roadmap">Request more revenue integrations.</Link>
                                     </span>
                                 </div>
                             </>
