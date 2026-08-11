@@ -22,6 +22,7 @@ import {
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { PendingPromptRecovery } from "@/features/tasks/components/PendingPromptRecovery";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { MODAL_PRESENTATION } from "@/lib/navigation";
 import {
   POSTHOG_API_KEY,
   POSTHOG_OPTIONS,
@@ -142,22 +143,22 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
           `posthog://inbox/<reportId>/<slug>` both resolve here. */}
       <Stack.Screen
         name="inbox/[...id]"
-        options={{ presentation: "modal", headerShown: false }}
+        options={{ presentation: MODAL_PRESENTATION, headerShown: false }}
       />
 
       {/* Task routes - modal presentation, no native header. */}
       <Stack.Screen
         name="task/index"
-        options={{ presentation: "modal", headerShown: false }}
+        options={{ presentation: MODAL_PRESENTATION, headerShown: false }}
       />
       <Stack.Screen
         name="task/[id]"
-        options={{ presentation: "modal", headerShown: false }}
+        options={{ presentation: MODAL_PRESENTATION, headerShown: false }}
       />
       <Stack.Screen
         name="automation/index"
         options={{
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
           headerShown: true,
           title: "Create automation",
           headerStyle: { backgroundColor: themeColors.background },
@@ -167,7 +168,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen
         name="automation/create"
         options={{
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
           headerShown: true,
           title: "New automation",
           headerStyle: { backgroundColor: themeColors.background },
@@ -177,7 +178,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen
         name="automation/[id]"
         options={{
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
           headerShown: true,
           headerStyle: { backgroundColor: themeColors.background },
           headerTintColor: themeColors.gray[12],
@@ -186,7 +187,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen
         name="pr-diff"
         options={{
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
           headerShown: true,
           title: "Files changed",
           headerStyle: { backgroundColor: themeColors.background },

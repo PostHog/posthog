@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { InteractionManager, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FloatingNewTaskButton } from "@/features/tasks/components/FloatingNewTaskButton";
@@ -18,6 +18,7 @@ export default function TasksScreen() {
   const readyRef = useRef(true);
   const filterMenu = useTaskFilterMenu();
   const { tasks } = useTasks();
+  const [selectionActive, setSelectionActive] = useState(false);
   const archivedTasks = useArchivedTasksStore((s) => s.archivedTasks);
   const hasActiveTasks = useMemo(
     () => tasks.some((task) => !(task.id in archivedTasks)),
@@ -40,19 +41,29 @@ export default function TasksScreen() {
     }, []),
   );
 
+  // Re-arm on a timer as well as on refocus: if a modal's dismissal fails to
+  // deliver the focus event (seen with interactive sheet dismissal), the gate
+  // must not leave the whole screen permanently tap-dead.
+  const armAfterNavigation = useCallback(() => {
+    readyRef.current = false;
+    setTimeout(() => {
+      readyRef.current = true;
+    }, 700);
+  }, []);
+
   const handleCreateTask = useCallback(() => {
     if (!readyRef.current) return;
-    readyRef.current = false;
+    armAfterNavigation();
     router.push("/task");
-  }, [router]);
+  }, [router, armAfterNavigation]);
 
   const handleTaskPress = useCallback(
     (taskId: string) => {
       if (!readyRef.current) return;
-      readyRef.current = false;
+      armAfterNavigation();
       router.push(`/task/${taskId}`);
     },
-    [router],
+    [router, armAfterNavigation],
   );
 
   // Header occupies insets.top + 6 (top pad) + 44 (button) + 8 (bottom pad),
@@ -65,6 +76,7 @@ export default function TasksScreen() {
         onTaskPress={handleTaskPress}
         onCreateTask={handleCreateTask}
         contentInsetTop={headerHeight}
+        onSelectionModeChange={setSelectionActive}
       />
 
       <FloatingTasksHeader
@@ -72,7 +84,7 @@ export default function TasksScreen() {
         showFilter={hasActiveTasks}
       />
 
-      {hasActiveTasks ? (
+      {hasActiveTasks && !selectionActive ? (
         <FloatingNewTaskButton onPress={handleCreateTask} />
       ) : null}
 

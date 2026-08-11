@@ -2,6 +2,7 @@ import { Stack, useRouter } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { Text } from "@/components/text";
 import { AutomationSkillChooser } from "@/features/tasks/components/AutomationSkillChooser";
+import { MODAL_PRESENTATION } from "@/lib/navigation";
 import { useThemeColors } from "@/lib/theme";
 
 export default function AutomationTemplateScreen() {
@@ -16,7 +17,7 @@ export default function AutomationTemplateScreen() {
           headerTitle: "Create automation",
           headerStyle: { backgroundColor: themeColors.background },
           headerTintColor: themeColors.gray[12],
-          presentation: "modal",
+          presentation: MODAL_PRESENTATION,
         }}
       />
       <ScrollView

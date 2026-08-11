@@ -11,15 +11,20 @@
       "icon": "./assets/app.icon",
       "supportsTablet": true,
       "bundleIdentifier": "com.posthog.code.mobile",
-      "associatedDomains": ["applinks:code.posthog.com"],
+      "associatedDomains": [
+        "applinks:code.posthog.com"
+      ],
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Allow PostHog to use your microphone for voice-to-text input",
         "NSSpeechRecognitionUsageDescription": "Allow PostHog to transcribe your voice input on-device",
         "NSPhotoLibraryUsageDescription": "Allow PostHog to access your photos for attaching images to tasks",
         "NSCameraUsageDescription": "Allow PostHog to use your camera to scan QR codes for sign-in",
         "ITSAppUsesNonExemptEncryption": false,
-        "LSApplicationQueriesSchemes": ["posthog-code"]
-      }
+        "LSApplicationQueriesSchemes": [
+          "posthog-code"
+        ]
+      },
+      "appleTeamId": "2ZQLYN8HTB"
     },
     "android": {
       "adaptiveIcon": {
@@ -31,7 +36,9 @@
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "intentFilters": [
         {
@@ -43,7 +50,10 @@
               "host": "code.posthog.com"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },

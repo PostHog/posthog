@@ -3,7 +3,7 @@ import { taskActivityTimestamp } from "@posthog/core/tasks/taskActivity";
 import type { Task } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { Archive, GitBranch, Plus, Sparkle, X } from "phosphor-react-native";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -25,6 +25,9 @@ interface TaskListProps {
   onCreateTask?: () => void;
   /** Top inset so the list can scroll behind a floating header. */
   contentInsetTop?: number;
+  /** Fired when long-press multi-select starts/ends, so the parent can hide
+   *  chrome (e.g. the new-task FAB) that overlaps the selection bar. */
+  onSelectionModeChange?: (active: boolean) => void;
 }
 
 interface CreateTaskEmptyStateProps {
@@ -98,6 +101,7 @@ export function TaskList({
   onTaskPress,
   onCreateTask,
   contentInsetTop = 0,
+  onSelectionModeChange,
 }: TaskListProps) {
   const { tasks, isLoading, error, refetch } = useTasks();
   const {
@@ -114,6 +118,10 @@ export function TaskList({
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const selectionMode = selectedIds.size > 0;
+
+  useEffect(() => {
+    onSelectionModeChange?.(selectionMode);
+  }, [selectionMode, onSelectionModeChange]);
 
   const exitSelection = useCallback(() => {
     setSelectedIds(new Set());

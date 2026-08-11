@@ -10,10 +10,10 @@ import {
 } from "phosphor-react-native";
 import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
-  Dimensions,
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Animated, {
@@ -32,8 +32,6 @@ import { useThemeColors } from "@/lib/theme";
 import { useNavDrawerStore } from "../stores/navDrawerStore";
 import { SwipeableArchivedDrawerRow } from "./SwipeableArchivedDrawerRow";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const DRAWER_WIDTH = Math.min(320, Math.round(SCREEN_WIDTH * 0.85));
 const OPEN_DURATION = 280;
 const CLOSE_DURATION = 220;
 
@@ -313,6 +311,11 @@ export function NavDrawer() {
   const close = useNavDrawerStore((s) => s.close);
   const insets = useSafeAreaInsets();
   const { isConnected } = useNetworkStatus();
+  // Live window width (not a module-scope capture): stays correct through
+  // rotation, Split View, and Stage Manager, and can never be 0 from a
+  // prewarmed launch before a window exists.
+  const { width: windowWidth } = useWindowDimensions();
+  const drawerWidth = Math.min(320, Math.round(windowWidth * 0.85));
 
   // When offline, the banner occupies `insets.top + OFFLINE_BANNER_HEIGHT` at
   // the top of the screen — push the panel down by that amount and drop the
@@ -340,7 +343,7 @@ export function NavDrawer() {
   }, [progress]);
 
   const drawerStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -DRAWER_WIDTH + progress.value * DRAWER_WIDTH }],
+    transform: [{ translateX: -drawerWidth + progress.value * drawerWidth }],
   }));
 
   const backdropStyle = useAnimatedStyle(() => ({
@@ -366,7 +369,7 @@ export function NavDrawer() {
 
       <Animated.View
         className="absolute bottom-0 left-0 border-gray-6 border-r bg-gray-2"
-        style={[{ top: drawerTop, width: DRAWER_WIDTH }, drawerStyle]}
+        style={[{ top: drawerTop, width: drawerWidth }, drawerStyle]}
       >
         <NavDrawerContent paddingTop={drawerPaddingTop} />
       </Animated.View>

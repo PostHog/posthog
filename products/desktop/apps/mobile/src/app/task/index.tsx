@@ -86,6 +86,7 @@ import {
 } from "@/features/tasks/utils/repositorySelection";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { logger } from "@/lib/logger";
+import { MODAL_PRESENTATION } from "@/lib/navigation";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { queryClient } from "@/lib/queryClient";
 import { toRgba, useThemeColors } from "@/lib/theme";
@@ -456,7 +457,7 @@ export default function NewTaskScreen() {
             headerTitle: "New task",
             headerStyle: { backgroundColor: themeColors.background },
             headerTintColor: themeColors.gray[12],
-            presentation: "modal",
+            presentation: MODAL_PRESENTATION,
           }}
         />
         <View className="flex-1 items-center justify-center bg-background">
@@ -476,7 +477,7 @@ export default function NewTaskScreen() {
             headerTitle: "New task",
             headerStyle: { backgroundColor: themeColors.background },
             headerTintColor: themeColors.gray[12],
-            presentation: "modal",
+            presentation: MODAL_PRESENTATION,
           }}
         />
         <View className="flex-1 justify-center bg-background px-4">
