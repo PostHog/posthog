@@ -218,7 +218,7 @@ export function PrimarySidebar() {
   const onSpaceClick = (channel: Channel) => {
     if (activeSpaceId === channel.id && !isActivity) {
       // Re-clicking the current space toggles its panel.
-      patchNavPanelSearch({ panel: panelOpen ? "off" : null });
+      patchNavPanelSearch({ panel: panelOpen ? "off" : "auto" });
       return;
     }
     navigateToSpaceFresh(channel.id);

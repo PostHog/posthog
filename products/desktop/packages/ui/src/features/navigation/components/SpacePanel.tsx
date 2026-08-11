@@ -72,7 +72,7 @@ function SpaceLoopsList({ channelId }: { channelId: string }) {
   );
 }
 
-function SpaceArtifactsList({ channelId }: { channelId: string }) {
+function SpaceCanvasesList({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
   const { dashboards } = useDashboards(channelId);
 
@@ -83,9 +83,9 @@ function SpaceArtifactsList({ channelId }: { channelId: string }) {
           <EmptyMedia variant="icon">
             <PackageIcon size={18} />
           </EmptyMedia>
-          <EmptyTitle>No artifacts yet</EmptyTitle>
+          <EmptyTitle>No canvases yet</EmptyTitle>
           <EmptyDescription>
-            Canvases and artifacts made in this space show up here.
+            Canvases made in this space show up here.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -115,11 +115,11 @@ function SpaceArtifactsList({ channelId }: { channelId: string }) {
 const SPACE_TABS: readonly { key: SpacePanelTab; label: string }[] = [
   { key: "sessions", label: "Sessions" },
   { key: "loops", label: "Loops" },
-  { key: "artifacts", label: "Artifacts" },
+  { key: "canvases", label: "Canvases" },
 ] as const;
 
 /**
- * The secondary panel for a space: its sessions, loops, and artifacts as
+ * The secondary panel for a space: its sessions, loops, and canvases as
  * compact lists (click one, it opens in the content pane), with the gear
  * linking to the space's context/settings page.
  */
@@ -135,9 +135,8 @@ export function SpacePanel({ channelId }: { channelId: string }) {
   const tabs = loopsEnabled
     ? SPACE_TABS
     : SPACE_TABS.filter((tab) => tab.key !== "loops");
-  const requestedTab = search.stab ?? "sessions";
-  const tab = tabs.some((t) => t.key === requestedTab)
-    ? requestedTab
+  const tab = tabs.some((t) => t.key === search.stab)
+    ? search.stab
     : "sessions";
   const onContextPage = pathname === `/website/${channelId}/context`;
 
@@ -145,7 +144,7 @@ export function SpacePanel({ channelId }: { channelId: string }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-1 pr-1 pl-3">
         <span className="min-w-0 flex-1 truncate font-medium text-[13px]">
-          <span className="text-muted-foreground">#</span> {channelName}
+          {channelName}
         </span>
         <Button
           variant="default"
@@ -160,9 +159,7 @@ export function SpacePanel({ channelId }: { channelId: string }) {
         <Tabs
           value={tab}
           onValueChange={(value: string) =>
-            patchNavPanelSearch({
-              stab: value === "sessions" ? null : (value as SpacePanelTab),
-            })
+            patchNavPanelSearch({ stab: value as SpacePanelTab })
           }
         >
           <TabsList
@@ -171,7 +168,7 @@ export function SpacePanel({ channelId }: { channelId: string }) {
             className="h-[31px] gap-0.5 p-0"
           >
             {tabs.map((t) => (
-              <TabsTrigger key={t.key} value={t.key} className="px-2.5">
+              <TabsTrigger key={t.key} value={t.key} className="px-1">
                 <span className="font-medium text-[13px]">{t.label}</span>
               </TabsTrigger>
             ))}
@@ -217,9 +214,9 @@ export function SpacePanel({ channelId }: { channelId: string }) {
             <SpaceLoopsList channelId={channelId} />
           </div>
         )}
-        {tab === "artifacts" && (
+        {tab === "canvases" && (
           <div className="h-full overflow-y-auto">
-            <SpaceArtifactsList channelId={channelId} />
+            <SpaceCanvasesList channelId={channelId} />
           </div>
         )}
       </div>

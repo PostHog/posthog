@@ -11,14 +11,16 @@ import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/u
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { PrimarySidebar } from "@posthog/ui/features/navigation/components/PrimarySidebar";
-import { SecondaryPanel } from "@posthog/ui/features/navigation/components/SecondaryPanel";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
 import { SidebarNavSection } from "@posthog/ui/features/sidebar/components/SidebarNavSection";
 import { TasksHeader } from "@posthog/ui/features/sidebar/components/TasksHeader";
 import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBanner";
-import { CHANNELS_SIDEBAR_MIN_WIDTH } from "@posthog/ui/features/sidebar/constants";
+import {
+  CHANNELS_SIDEBAR_MIN_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -94,12 +96,15 @@ export function ChannelsSidebar() {
     layout: channelsLayout ? "channels" : "code",
   });
 
-  const minWidth = channelsLayout ? CHANNELS_SIDEBAR_MIN_WIDTH : undefined;
+  // One width serves both layouts, and the chrome's floor is the narrower of
+  // the two — so the Code layout has to raise it back to its own on arrival,
+  // not just the other way round.
+  const minWidth = channelsLayout
+    ? CHANNELS_SIDEBAR_MIN_WIDTH
+    : SIDEBAR_MIN_WIDTH;
   useEffect(() => {
-    if (channelsLayout && width < CHANNELS_SIDEBAR_MIN_WIDTH) {
-      setWidth(CHANNELS_SIDEBAR_MIN_WIDTH);
-    }
-  }, [channelsLayout, width, setWidth]);
+    if (width < minWidth) setWidth(minWidth);
+  }, [width, minWidth, setWidth]);
 
   const archivedTaskIds = useArchivedTaskIds();
 
@@ -140,85 +145,80 @@ export function ChannelsSidebar() {
   ]);
 
   return (
-    <>
-      <ResizableSidebar
-        open={open}
-        width={width}
-        setWidth={setWidth}
-        isResizing={isResizing}
-        setIsResizing={setIsResizing}
-        side="left"
-        minWidth={minWidth}
-        setOpen={setOpen}
-        peek={peek}
-        onPeekEnter={beginSidebarPeek}
-        onPeekLeave={() => endSidebarPeek()}
-        onPeekDismiss={cancelSidebarPeek}
-      >
-        <Flex direction="column" className="h-full bg-chrome">
-          {!channelsLayout && (
-            <>
-              <SidebarNavSection />
-              <TasksHeader />
-            </>
-          )}
+    <ResizableSidebar
+      open={open}
+      width={width}
+      setWidth={setWidth}
+      isResizing={isResizing}
+      setIsResizing={setIsResizing}
+      side="left"
+      minWidth={minWidth}
+      setOpen={setOpen}
+      peek={peek}
+      onPeekEnter={beginSidebarPeek}
+      onPeekLeave={() => endSidebarPeek()}
+      onPeekDismiss={cancelSidebarPeek}
+    >
+      <Flex direction="column" className="h-full bg-chrome">
+        {!channelsLayout && (
+          <>
+            <SidebarNavSection />
+            <TasksHeader />
+          </>
+        )}
 
-          {channelsLayout ? (
-            <>
-              {/* Which project you're in is the outermost thing about this window,
+        {channelsLayout ? (
+          <>
+            {/* Which project you're in is the outermost thing about this window,
                 so under the layout it sits above the nav row rather than in the
                 footer. Its menu opens downward, which is the right direction
                 from the top of a sidebar. */}
-              <Box className="shrink-0 px-2 pb-1">
-                <ProjectSwitcher />
-              </Box>
-              <ErrorBoundary name="primary-sidebar" fallback={null}>
-                <PrimarySidebar />
-              </ErrorBoundary>
-            </>
-          ) : bodyChannelsWorld ? (
-            <>
-              <Separator />
-              <Box className="relative min-h-0 flex-1">
-                <ChannelsList />
-                <ChannelsFab />
-              </Box>
-            </>
-          ) : (
-            <Box className="min-h-0 flex-1">
-              <SidebarMenu />
-            </Box>
-          )}
-
-          <UpdateBanner />
-
-          {showArchivedRow && archivedTaskIds.size > 0 && (
-            <Box className="shrink-0 border-border border-t">
-              <button
-                type="button"
-                className="flex w-full items-center gap-1 bg-transparent px-2 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
-                onClick={navigateToArchived}
-              >
-                <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-gray-10">
-                  <ArchiveIcon size={14} />
-                </span>
-                <span className="text-gray-11">Archived</span>
-              </button>
-            </Box>
-          )}
-
-          {/* The code layout keeps it in the footer: that sidebar's top is the nav
-            section and task header, and there's no nav row to sit above. */}
-          {!channelsLayout && (
-            <Box className="shrink-0 px-2 pb-2">
+            <Box className="shrink-0 px-2 pb-1">
               <ProjectSwitcher />
             </Box>
-          )}
-        </Flex>
-      </ResizableSidebar>
-      {/* The second chrome column — a space's lists or the activity feed. Its
-        own resizable width; whether it's open follows the URL. */}
-      {channelsLayout && <SecondaryPanel />}
-    </>
+            <ErrorBoundary name="primary-sidebar" fallback={null}>
+              <PrimarySidebar />
+            </ErrorBoundary>
+          </>
+        ) : bodyChannelsWorld ? (
+          <>
+            <Separator />
+            <Box className="relative min-h-0 flex-1">
+              <ChannelsList />
+              <ChannelsFab />
+            </Box>
+          </>
+        ) : (
+          <Box className="min-h-0 flex-1">
+            <SidebarMenu />
+          </Box>
+        )}
+
+        <UpdateBanner />
+
+        {showArchivedRow && archivedTaskIds.size > 0 && (
+          <Box className="shrink-0 border-border border-t">
+            <button
+              type="button"
+              className="flex w-full items-center gap-1 bg-transparent px-2 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
+              onClick={navigateToArchived}
+            >
+              <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-gray-10">
+                <ArchiveIcon size={14} />
+              </span>
+              <span className="text-gray-11">Archived</span>
+            </button>
+          </Box>
+        )}
+
+        {/* The code layout keeps it in the footer: that sidebar's top is the nav
+            section and task header, and there's no nav row to sit above. */}
+        {!channelsLayout && (
+          <Box className="shrink-0 px-2 pb-2">
+            <ProjectSwitcher />
+          </Box>
+        )}
+      </Flex>
+    </ResizableSidebar>
   );
 }

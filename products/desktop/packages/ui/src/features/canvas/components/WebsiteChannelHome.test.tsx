@@ -23,8 +23,10 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     isLoading: false,
   }),
 }));
+// The dock only exists off the chrome, so the layout is per-test state.
+const layout = vi.hoisted(() => ({ channels: false }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
-  useChannelsLayout: () => true,
+  useChannelsLayout: () => layout.channels,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
   PERSONAL_CHANNEL_NAME: "me",
@@ -83,6 +85,7 @@ import { WebsiteChannelHome } from "./WebsiteChannelHome";
 
 describe("WebsiteChannelHome", () => {
   beforeEach(() => {
+    layout.channels = false;
     useThreadPanelStore.setState({
       openByChannel: {},
       collapsed: false,
@@ -103,18 +106,25 @@ describe("WebsiteChannelHome", () => {
     expect(useThreadPanelStore.getState().openByChannel["chan-1"]).toBeNull();
   });
 
-  it("shows the task sidebar for a thread opened from this feed", () => {
-    render(
-      <Theme>
-        <WebsiteChannelHome channelId="chan-1" />
-      </Theme>,
-    );
+  it.each([
+    { channels: false, docked: true },
+    { channels: true, docked: false },
+  ])(
+    "thread opened from this feed docks=$docked when channels layout is $channels",
+    ({ channels, docked }) => {
+      layout.channels = channels;
+      render(
+        <Theme>
+          <WebsiteChannelHome channelId="chan-1" />
+        </Theme>,
+      );
 
-    act(() => {
-      useThreadPanelStore.getState().openThread("chan-1", "task-1");
-    });
+      act(() => {
+        useThreadPanelStore.getState().openThread("chan-1", "task-1");
+      });
 
-    expect(screen.getByTestId("task-sidebar")).toBeTruthy();
-    expect(screen.queryByTestId("feed")).toBeTruthy();
-  });
+      expect(Boolean(screen.queryByTestId("task-sidebar"))).toBe(docked);
+      expect(screen.queryByTestId("feed")).toBeTruthy();
+    },
+  );
 });

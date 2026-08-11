@@ -213,7 +213,7 @@ export function TaskDetail({
           leafLabel={task.title}
           editScopeKey={taskId}
           onRename={handleTitleEditSubmit}
-          trailing={trailing}
+          leafTrailing={trailing}
         />
       ) : (
         <Flex align="center" justify="between" gap="2" width="100%">

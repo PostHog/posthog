@@ -29,9 +29,11 @@ export function SecondaryPanel() {
       setIsResizing={setIsResizing}
       side="left"
       minWidth={SECONDARY_PANEL_MIN_WIDTH}
-      setOpen={(next) => patchNavPanelSearch({ panel: next ? null : "off" })}
+      setOpen={(next) => patchNavPanelSearch({ panel: next ? "auto" : "off" })}
     >
-      <div className="h-full min-h-0 bg-chrome">
+      {/* Inside the content frame now, so it takes the content surface rather
+          than the sidebar's chrome — the divider alone separates the two. */}
+      <div className="h-full min-h-0 bg-background">
         {destination?.kind === "activity" && <ActivityFeedPanel />}
         {destination?.kind === "space" && (
           <ErrorBoundary

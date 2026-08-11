@@ -55,7 +55,7 @@ function useActiveSide(taskId: string | null): RightPanelSide | null {
   const reviewMode = useReviewNavigationStore((s) =>
     taskId ? (s.reviewModes[taskId] ?? "closed") : "closed",
   );
-  if (search.side) return search.side;
+  if (search.side !== "none") return search.side;
   if (taskId && reviewMode !== "closed") return "changes";
   return null;
 }
@@ -70,7 +70,7 @@ function toggleSide(
   const key = taskId ?? SESSIONLESS_KEY;
 
   if (active === side) {
-    patchNavPanelSearch({ side: null });
+    patchNavPanelSearch({ side: "none" });
     if (taskId) setReviewMode(taskId, "closed");
     setSideForKey(key, undefined);
     return;
@@ -80,7 +80,7 @@ function toggleSide(
   if (side === "changes" && taskId) {
     // Changes rides the review store so the command menu, PR links, and diff
     // toggles that already open review all land on the same panel.
-    patchNavPanelSearch({ side: null });
+    patchNavPanelSearch({ side: "none" });
     setReviewMode(taskId, "split");
     return;
   }
@@ -210,7 +210,7 @@ export function RightPanel() {
   const key = taskId ?? SESSIONLESS_KEY;
   const seededRef = useRef(false);
   const lastKeyRef = useRef(key);
-  const urlSide = search.side ?? null;
+  const urlSide = search.side === "none" ? null : search.side;
   useEffect(() => {
     const store = useRightPanelStore.getState();
     if (!seededRef.current) {
@@ -224,11 +224,11 @@ export function RightPanel() {
     const remembered = store.sideByKey[key];
     const { setReviewMode } = useReviewNavigationStore.getState();
     if (remembered === "changes" && taskId) {
-      patchNavPanelSearch({ side: null });
+      patchNavPanelSearch({ side: "none" });
       setReviewMode(taskId, "split");
       return;
     }
-    patchNavPanelSearch({ side: remembered ?? null });
+    patchNavPanelSearch({ side: remembered ?? "none" });
     // Review mode is already per-task, so a session switch restores it on its
     // own — only an explicit non-changes panel needs it closed.
     if (remembered && taskId) setReviewMode(taskId, "closed");

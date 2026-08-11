@@ -47,7 +47,9 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
+import { SecondaryPanel } from "@posthog/ui/features/navigation/components/SecondaryPanel";
 import {
+  NAV_PANEL_DEFAULTS,
   NAV_PANEL_SEARCH_KEYS,
   validateNavPanelSearch,
 } from "@posthog/ui/features/navigation/navPanelSearch";
@@ -90,6 +92,7 @@ import {
   createRootRoute,
   Outlet,
   retainSearchParams,
+  stripSearchParams,
   useCanGoBack,
   useRouter,
   useRouterState,
@@ -112,10 +115,17 @@ export const Route = createRootRoute({
   component: RootLayout,
   // The chrome's panel state (secondary panel, its tab, the right panel) is
   // root-level search state so it survives every in-app navigation — widths
-  // stay in stores. Retained so a plain navigate doesn't silently drop it.
+  // stay in stores. Retained so a plain navigate doesn't silently drop it, then
+  // stripped back out whenever a param sits at its default, which is also what
+  // lets the chrome reset one: retain restores any key the navigation didn't
+  // name, so a default has to be written out loud and dropped here rather than
+  // deleted at the call site.
   validateSearch: validateNavPanelSearch,
   search: {
-    middlewares: [retainSearchParams([...NAV_PANEL_SEARCH_KEYS])],
+    middlewares: [
+      retainSearchParams([...NAV_PANEL_SEARCH_KEYS]),
+      stripSearchParams(NAV_PANEL_DEFAULTS),
+    ],
   },
 });
 
@@ -500,12 +510,17 @@ function RootLayout() {
           {/* Content sits in a bordered, rounded card inset from the window
               edges — the framed pane from the design. */}
           <Box flexGrow="1" className="overflow-hidden">
-            <Box
+            <Flex
               className={`h-full overflow-hidden border-border border-t border-l bg-background ${
                 sidebarOpen ? "rounded-tl-sm" : ""
               }`}
             >
-              <Flex direction="column" height="100%">
+              {/* The second chrome column — a space's lists or the activity
+                  feed — rides inside the frame, so one border wraps it and the
+                  content together rather than fencing off each in turn. Its own
+                  resizable width; whether it's open follows the URL. */}
+              {channelsLayout && <SecondaryPanel />}
+              <Flex direction="column" className="min-w-0 flex-1">
                 {/* Inside the framed pane, not the app column: announcements
                     overlay the content, never the sidebar. */}
                 <AnnouncementBanner />
@@ -517,7 +532,7 @@ function RootLayout() {
                   {showBlankTab ? <BlankTabView /> : <Outlet />}
                 </Box>
               </Flex>
-            </Box>
+            </Flex>
           </Box>
         </Flex>
         <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} />

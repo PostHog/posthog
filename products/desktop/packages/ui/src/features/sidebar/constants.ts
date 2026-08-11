@@ -3,12 +3,13 @@ import type { SidebarNavItem } from "@posthog/shared/analytics-events";
 export const SIDEBAR_MIN_WIDTH = 240;
 
 /**
- * Wider floor for the channels layout only. The title bar's left strip is
- * pinned to the sidebar width and none of its contents shrink; that layout
- * adds a search button, taking the strip to 228px, so 240 would leave the two
- * groups touching. Off, the strip needs 208px and keeps the usual floor.
+ * The channels layout's floor, and where it starts. The title bar's left strip
+ * is pinned to the sidebar width and none of its contents shrink; under this
+ * layout it needs 219px (the traffic-light inset, the logo and sidebar toggle,
+ * then back/forward), so this is as narrow as the strip goes. The layout's own
+ * search button lives in the sidebar's Spaces heading, not up here.
  */
-export const CHANNELS_SIDEBAR_MIN_WIDTH = 272;
+export const CHANNELS_SIDEBAR_MIN_WIDTH = 220;
 
 export const CUSTOMIZABLE_NAV_ITEMS = [
   { id: "inbox", label: "Inbox", analyticsId: "inbox", defaultVisible: true },

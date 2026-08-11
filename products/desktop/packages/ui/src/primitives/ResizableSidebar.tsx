@@ -67,12 +67,27 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   // re-registers the listeners with the post-close open/peek values, so the
   // closure state can't be trusted for the width restore.
   const dragEndedClosedRef = React.useRef(false);
+  // The panel's anchored edge in window coordinates — its left for a left-hand
+  // panel, its right for a right-hand one. Width is the pointer's distance from
+  // it, so a panel that doesn't start at the window edge (the secondary panel
+  // sits after the sidebar) still tracks the cursor. Captured on mousedown:
+  // resizing moves the far edge, never this one.
+  const boxRef = React.useRef<HTMLDivElement | null>(null);
+  const anchorRef = React.useRef(0);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     dragOriginRef.current = open ? "docked" : "overlay";
     dragStartWidthRef.current = width;
     dragEndedClosedRef.current = false;
+    const rect = boxRef.current?.getBoundingClientRect();
+    anchorRef.current = rect
+      ? side === "left"
+        ? rect.left
+        : rect.right
+      : side === "left"
+        ? 0
+        : window.innerWidth;
     setIsResizing(true);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -101,9 +116,12 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
 
-      // Distance from the sidebar's window edge, regardless of side.
+      // Distance from the panel's own anchored edge, regardless of side — that
+      // distance is the width the pointer is asking for.
       const pointer =
-        side === "left" ? e.clientX : window.innerWidth - e.clientX;
+        side === "left"
+          ? e.clientX - anchorRef.current
+          : anchorRef.current - e.clientX;
       const maxWidth = window.innerWidth * 0.5;
       const clamped = Math.max(minWidth, Math.min(maxWidth, pointer));
 
@@ -153,7 +171,9 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
       }
       if (!open && peek) {
         const pointer =
-          side === "left" ? e.clientX : window.innerWidth - e.clientX;
+          side === "left"
+            ? e.clientX - anchorRef.current
+            : anchorRef.current - e.clientX;
         if (pointer > width + PEEK_CLOSE_MARGIN) onPeekLeave?.();
       }
     };
@@ -213,6 +233,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
 
   return (
     <Box
+      ref={boxRef}
       style={{
         width: open ? `${width}px` : "0",
         minWidth: open ? `${width}px` : "0",
@@ -223,8 +244,10 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
         // min/max-width must animate too — they clamp the rendered width, so
         // left un-transitioned they snap the box to 0 and the content jumps.
         transition: isResizing && open ? "none" : SLIDE_WIDTH_TRANSITION,
-        borderLeft: !isLeft && open ? "1px solid var(--border)" : "none",
-        borderRight: isLeft && open ? "1px solid var(--border)" : "none",
+        // No border here: the panel below is sized to this box's full width, so
+        // a border on this box sits under the panel's own background and never
+        // paints. The docked panel draws the divider itself, as the floating
+        // one already does.
       }}
       className="relative h-full shrink-0"
     >
@@ -261,7 +284,9 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
                 // a sliver over the content.
                 overlayVisible ? "shadow-lg" : ""
               }`
-            : "relative h-full min-w-0 transition-transform duration-200 ease-out motion-reduce:transition-none"
+            : `relative h-full min-w-0 border-border transition-transform duration-200 ease-out motion-reduce:transition-none ${
+                isLeft ? "border-r" : "border-l"
+              }`
         }
       >
         {children}
