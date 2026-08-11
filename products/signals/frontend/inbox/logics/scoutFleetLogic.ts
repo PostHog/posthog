@@ -292,7 +292,7 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         scoutBannerMessage: (scoutMetadata: ScoutMetadataApi | null) => string | null
-        rollups: (scoutRuns: any) => Map<string, ScoutRollup>
+        rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>
