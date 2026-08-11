@@ -64,6 +64,7 @@ from products.endpoints.backend.facade.api import (
     EndpointCrudService,
     EndpointExecutionService,
     EndpointMaterializationService,
+    MaterializationNotSupportedError,
     build_materialization_info,
     generate_openapi_spec,
     get_last_execution_times,
@@ -76,7 +77,6 @@ from products.endpoints.backend.facade.api import (
 )
 from products.endpoints.backend.facade.enums import ENDPOINT_NAME_REGEX, ENDPOINTS_LOG_SOURCE
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
-from products.endpoints.backend.materialization_transforms import MaterializationNotSupportedError
 from products.endpoints.backend.presentation.serializers import (
     EndpointMaterializationConditionsSerializer,
     EndpointMaterializationSerializer,

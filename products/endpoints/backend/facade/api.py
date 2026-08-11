@@ -51,6 +51,7 @@ if TYPE_CHECKING:
         validate_endpoint_request,
         validate_update_request,
     )
+    from products.endpoints.backend.materialization_transforms import MaterializationNotSupportedError
     from products.endpoints.backend.openapi import generate_openapi_spec
 
 # symbol -> source module (relative to products.endpoints.backend)
@@ -63,6 +64,7 @@ _LAZY = {
     "suggest_materialization_fix": "logic.ai_materialization_fix",
     "EndpointMaterializationService": "logic.materialization",
     "build_materialization_info": "logic.materialization",
+    "MaterializationNotSupportedError": "materialization_transforms",
     "validate_bucket_overrides": "logic.validation",
     "validate_endpoint_request": "logic.validation",
     "validate_update_request": "logic.validation",
@@ -148,6 +150,7 @@ __all__ = [
     "EndpointCrudService",
     "EndpointExecutionService",
     "EndpointMaterializationService",
+    "MaterializationNotSupportedError",
     "build_materialization_info",
     "generate_openapi_spec",
     "get_endpoint",

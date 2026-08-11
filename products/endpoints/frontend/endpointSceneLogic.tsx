@@ -566,17 +566,16 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     return await api.endpoint.getMaterializationPreview(endpoint.name, version, overrides)
                 } catch (error: any) {
                     // Degrade a failed preview into the "can't materialize" banner the tab already renders,
-                    // so a backend error reads as an in-tab message instead of an uncaught error.
+                    // so a backend error reads as an in-tab message instead of an uncaught error. Cast to the
+                    // success shape so both branches share one type and kea-typegen stays stable.
                     return {
                         can_materialize: false,
                         reason:
                             error?.detail || error?.message || 'Could not load the materialization preview. Try again.',
                         transformed_query: null,
-                        execution_query: null,
-                        display_execution_query: null,
                         range_pairs: [],
                         aggregates: [],
-                    }
+                    } as Awaited<ReturnType<typeof api.endpoint.getMaterializationPreview>>
                 }
             },
         },
