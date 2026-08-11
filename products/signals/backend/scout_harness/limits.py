@@ -34,14 +34,40 @@ STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 # auto-paused (`SignalScoutConfig.auto_paused_at`). Nothing else in the harness notices a
 # scout that has never once succeeded: every dispatch takes a fresh sandbox lease for the
 # full runtime cap, produces nothing, and books a `failed` run — so a permanently broken
-# (team, skill) lane costs a lease per interval forever. The threshold has to absorb not
-# just per-lane bad luck (a flaky sandbox spawn, one upstream provider error) but a
-# platform-wide outage, which fails every run fleet-wide and racks up the streak fastest on
-# the tight cadences: at 5, an hourly scout paused after a multi-hour outage and then sat
-# out the 24h probe cooldown long after the platform recovered. Twelve lets an hourly lane
-# ride out roughly half a day of continuous failure while a genuinely wedged lane still
-# trips within its first day on the tight cadences.
-FAILURE_STREAK_PAUSE_THRESHOLD = 12
+# (team, skill) lane costs a lease per interval forever. Five in a row is well past any
+# plausible run of bad luck (a flaky sandbox spawn, one upstream provider error), and on the
+# default daily cadence it is also the whole story: a multi-hour platform outage can cost
+# such a lane at most one run, so nothing wider buys it outage tolerance — it only buys a
+# permanently broken lane more leases before the breaker notices.
+FAILURE_STREAK_MIN_RUNS = 5
+
+# A lane on a tight cadence is the case the run count alone gets wrong: an outage fails
+# every run fleet-wide, so at one run an hour five failures land inside an outage most of a
+# workday shorter than the 24h probe cooldown the pause then costs — the healthy scouts the
+# breaker exists to leave alone are exactly the ones it trips first. So the streak also has
+# to span this much wall clock before it counts as a wedge, which is what
+# `failure_streak_pause_threshold` converts into a per-cadence run count.
+FAILURE_STREAK_MIN_SPAN_MINUTES = 12 * 60
+
+# Ceiling on the derived threshold, so a cadence at or below the schedule floor can never
+# turn the span into an unbounded lease budget. The 30-minute floor on `run_interval_minutes`
+# (and on the minimum gap between cron occurrences) puts the tightest real lane exactly here.
+FAILURE_STREAK_MAX_RUNS = 24
+
+
+def failure_streak_pause_threshold(cadence_minutes: int) -> int:
+    """Consecutive failures this lane's cadence has to reach before the breaker pauses it.
+
+    Deliberately not a fleet-wide number: the same count means hours on an hourly scout and
+    weeks on a monthly one, so one constant either trips healthy tight lanes during an outage
+    or lets broken slow lanes burn leases for months. Callers pass the lane's effective
+    cadence (`run_interval_minutes`, or the tightest gap of its cron schedule).
+    """
+    if cadence_minutes <= 0:
+        return FAILURE_STREAK_MIN_RUNS
+    runs_to_span = -(-FAILURE_STREAK_MIN_SPAN_MINUTES // cadence_minutes)  # ceil
+    return max(FAILURE_STREAK_MIN_RUNS, min(FAILURE_STREAK_MAX_RUNS, runs_to_span))
+
 
 # Cooldown a paused lane holds before the coordinator dispatches one probe — the half-open
 # state. A pause is not a tombstone: whatever wedged the lane (a broken sandbox env, a skill

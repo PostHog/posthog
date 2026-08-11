@@ -32,7 +32,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import FAILURE_STREAK_PAUSE_THRESHOLD, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
 from products.signals.backend.scout_harness.runner import (
@@ -41,6 +41,7 @@ from products.signals.backend.scout_harness.runner import (
     RunResult,
     _ai_stage,
     _create_run_row,
+    _effective_cadence_minutes,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -1088,6 +1089,48 @@ async def test_sandbox_env_matches_config_network_access(
 
 @parameterized.expand(
     [
+        # The schedule floor. Bounded, so the tightest lane cannot turn the span into an
+        # unbounded lease budget.
+        ("floor_cadence", 30, 24),
+        # The outage case the breaker used to get wrong: hourly lanes accrued five failures
+        # inside an outage shorter than the 24h probe cooldown the pause then cost them.
+        ("hourly", 60, 12),
+        ("two_hourly", 120, 6),
+        # Past the span the count floor takes over — a broken lane must not get more leases
+        # just because it runs rarely.
+        ("six_hourly", 360, 5),
+        ("daily_default", 1440, 5),
+        ("monthly_ceiling", 43200, 5),
+    ]
+)
+def test_failure_breaker_threshold_scales_with_cadence(_name, cadence_minutes, expected):
+    # A fleet-wide count means hours on a tight lane and months on a slow one: it either trips
+    # healthy hourly scouts during a platform outage or lets a wedged daily scout burn leases
+    # for weeks. Both directions have to hold at once.
+    assert failure_streak_pause_threshold(cadence_minutes) == expected
+
+
+@parameterized.expand(
+    [
+        # A cron schedule wins at dispatch, but `run_interval_minutes` keeps whatever it held
+        # before — so reading the column alone would size an hourly lane as a daily one.
+        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 60),
+        # Uneven gaps: failures accrue at the tightest one, which is the tolerant answer.
+        ("uneven_gaps_use_tightest", "0 9,17 * * *", 1440, 480),
+        ("no_cron_uses_interval", None, 60, 60),
+        # Only reachable by an out-of-band write; a run's breaker bookkeeping must not die on it.
+        ("malformed_cron_falls_back", "not a cron", 120, 120),
+    ]
+)
+def test_effective_cadence_prefers_the_schedule_the_lane_actually_runs_on(
+    _name, cron_schedule, interval_minutes, expected
+):
+    config = SignalScoutConfig(run_cron_schedule=cron_schedule, run_interval_minutes=interval_minutes)
+    assert _effective_cadence_minutes(config) == expected
+
+
+@parameterized.expand(
+    [
         ("canonical", "signals-scout-general", "scout:general"),
         ("team_authored", "signals-scout-our-own-thing", "scout:custom"),
     ]
@@ -1422,22 +1465,28 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
         )
 
     capture = MagicMock()
-    for _ in range(FAILURE_STREAK_PAUSE_THRESHOLD - 1):
+    await _run_once(failing=True, capture=capture)
+    config = await _reload()
+    # The breaker scales with the lane's cadence, so the streak this run has to reach is
+    # derived from the config rather than fixed.
+    threshold = failure_streak_pause_threshold(config.run_interval_minutes)
+    for _ in range(threshold - 2):
         await _run_once(failing=True, capture=capture)
     config = await _reload()
-    assert config.consecutive_failure_count == FAILURE_STREAK_PAUSE_THRESHOLD - 1
+    assert config.consecutive_failure_count == threshold - 1
     assert config.status == SignalScoutConfig.Status.ACTIVE
     assert _paused_events(capture) == []
 
     await _run_once(failing=True, capture=capture)
     config = await _reload()
-    assert config.consecutive_failure_count == FAILURE_STREAK_PAUSE_THRESHOLD
+    assert config.consecutive_failure_count == threshold
     assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
     assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
     assert config.enabled is False
     trip = _paused_events(capture)
     assert len(trip) == 1
-    assert trip[0].kwargs["properties"]["consecutive_failure_count"] == FAILURE_STREAK_PAUSE_THRESHOLD
+    assert trip[0].kwargs["properties"]["consecutive_failure_count"] == threshold
+    assert trip[0].kwargs["properties"]["failure_streak_threshold"] == threshold
     assert "timed out after 900s" in trip[0].kwargs["properties"]["auto_pause_reason"]
 
     # A failed probe leaves the lane paused but must not re-alert — otherwise the event stops

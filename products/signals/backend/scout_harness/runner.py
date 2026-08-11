@@ -4,13 +4,14 @@ import time
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
+from croniter import CroniterError, croniter
 
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
@@ -25,8 +26,8 @@ from products.signals.backend.scout_harness.derived_metadata import stamp_derive
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
-    FAILURE_STREAK_PAUSE_THRESHOLD,
     STALE_RUN_CUTOFF_S,
+    failure_streak_pause_threshold,
 )
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
@@ -68,6 +69,13 @@ SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME = "SIGNALS_SCOUT_FULL_NETWORK"
 # Every scout `ai_stage` starts with this, so `ai_stage LIKE 'scout:%'` rolls the whole fleet
 # up as one stage even though the tag names the individual scout.
 SCOUT_AI_STAGE_PREFIX = "scout:"
+
+# Window `_effective_cadence_minutes` samples a cron schedule over to find its tightest gap.
+# Fixed reference (not `now`) so a lane's breaker threshold is a property of its schedule
+# rather than of when it happened to fail; enough occurrences to cover a weekly pattern's
+# every-slot cycle, which is the longest period the five-field grammar can express.
+_CRON_CADENCE_REFERENCE = datetime(2026, 1, 1, tzinfo=UTC)
+_CRON_CADENCE_SAMPLES = 100
 
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
@@ -391,6 +399,7 @@ async def arun_signals_scout(
                 skill_name=skill.name,
                 run_id=run_id,
                 failure_count=streak.count,
+                failure_streak_threshold=streak.threshold,
                 reason=str(exc)[:300],
             )
         return RunResult(
@@ -834,6 +843,7 @@ class _FailureStreak:
 
     count: int
     tripped: bool
+    threshold: int
 
 
 def _clear_failure_streak(config_id: Any) -> None:
@@ -867,6 +877,31 @@ def _clear_failure_streak(config_id: Any) -> None:
         logger.exception("signals_scout: failed to clear failure streak", extra={"scout_config_id": str(config_id)})
 
 
+def _effective_cadence_minutes(config: SignalScoutConfig) -> int:
+    """How often this lane actually runs, in minutes — the input the failure breaker scales on.
+
+    A cron schedule takes precedence over `run_interval_minutes` at dispatch, and the column
+    keeps whatever value it held before the cron was set, so reading the column alone would
+    size the breaker off a cadence the lane no longer runs at. Cron gaps can be uneven
+    ("0 9,17 * * *"), and the breaker wants the tolerant answer, so sample from a fixed
+    reference and take the tightest gap — the one that accrues failures fastest. A malformed
+    expression can only arrive via an out-of-band write (the API validates on save); fall back
+    to the rolling interval rather than fail a run's breaker bookkeeping over it.
+    """
+    if config.run_cron_schedule:
+        try:
+            iterator = croniter(config.run_cron_schedule, _CRON_CADENCE_REFERENCE)
+            occurrences = [iterator.get_next(datetime) for _ in range(_CRON_CADENCE_SAMPLES)]
+            min_gap_s = min((later - earlier).total_seconds() for earlier, later in zip(occurrences, occurrences[1:]))
+            return max(1, int(min_gap_s // 60))
+        except (CroniterError, ValueError):
+            logger.warning(
+                "signals_scout: invalid cron schedule while sizing failure breaker",
+                extra={"scout_config_id": str(config.pk)},
+            )
+    return config.run_interval_minutes
+
+
 def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
     """Bump the failure streak and pause the lane at the threshold. Returns None when the row
     is gone or the write failed — the caller only uses the result to decide whether to emit the
@@ -875,6 +910,10 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
     The bump is an atomic `F()` increment, not read-then-write: the runner's single-flight guard
     means one run per (team, skill) at a time, but a config edit's streak reset can land
     concurrently, and a stale absolute write would resurrect the streak the edit just cleared.
+    The threshold is per-lane, derived from the cadence the config actually runs at
+    (`failure_streak_pause_threshold`), so the same wall-clock tolerance holds whether the lane
+    runs hourly or monthly.
+
     The pause goes through the transition helper: `tripped` is True only when the helper actually
     moved the status, so a re-failed probe (already paused, transition is a no-op) re-arms the
     cooldown via its own `last_run_at` stamp without firing the trip event again. The error text
@@ -891,13 +930,14 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
         if config is None:
             return None
         count = config.consecutive_failure_count
+        threshold = failure_streak_pause_threshold(_effective_cadence_minutes(config))
         tripped = False
-        if count >= FAILURE_STREAK_PAUSE_THRESHOLD:
+        if count >= threshold:
             tripped = config.transition_status_by_system(
                 SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
                 pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
             )
-        return _FailureStreak(count=count, tripped=tripped)
+        return _FailureStreak(count=count, tripped=tripped, threshold=threshold)
     except Exception:
         logger.exception("signals_scout: failed to record failure streak", extra={"scout_config_id": str(config_id)})
         return None
@@ -1032,6 +1072,7 @@ def _capture_config_auto_paused(
     skill_name: str,
     run_id: Any,
     failure_count: int,
+    failure_streak_threshold: int,
     reason: str,
 ) -> None:
     """Emit a scout-owned event when a lane's failure-streak breaker trips.
@@ -1051,7 +1092,10 @@ def _capture_config_auto_paused(
                 "scout_config_id": str(config.id),
                 "run_id": str(run_id),
                 "consecutive_failure_count": failure_count,
-                "failure_streak_threshold": FAILURE_STREAK_PAUSE_THRESHOLD,
+                # Per-lane now, not a fleet constant — a wedge count is only readable next to
+                # the threshold the lane was actually held to.
+                "failure_streak_threshold": failure_streak_threshold,
+                "run_interval_minutes": config.run_interval_minutes,
                 "auto_pause_reason": reason,
             },
             groups=groups(team.organization, team),
