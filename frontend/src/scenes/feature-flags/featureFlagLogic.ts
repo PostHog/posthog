@@ -475,6 +475,10 @@ export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
 }
 
+function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
+    return removeProjectIdIfPresent(router.values.location.pathname) === urls.featureFlag(id)
+}
+
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
 // This doesn't work for forms because variant-keys can be updated too which would invalidate the dictionary entry.
 // If a multivariant flag is returned, the payload dictionary will be transformed to be <variant-key-index>: <payload>
@@ -3473,7 +3477,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             lemonToast.success('Feature flag saved')
             actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
-            featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
+            if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
+                router.actions.replace(urls.featureFlag(featureFlag.id))
+            }
             actions.editFeatureFlag(false)
 
             const isCreate = props.id === 'new'
@@ -3508,9 +3514,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagFailure: ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
-                // Redirect to detail page so user can see the CR banner
-                router.actions.replace(urls.featureFlag(values.featureFlag.id))
-                actions.editFeatureFlag(false)
+                if (isOnFeatureFlagPage(props.id)) {
+                    // Redirect to detail page so user can see the CR banner
+                    router.actions.replace(urls.featureFlag(values.featureFlag.id))
+                    actions.editFeatureFlag(false)
+                }
                 return
             }
         },
@@ -4467,7 +4475,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setSelectedTab: () => {
             // The logic outlives the scene in places (e.g. the flag is embedded elsewhere),
             // so only rewrite the URL while we're actually on this flag's page
-            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.featureFlag(props.id ?? 'new')) {
+            if (!isOnFeatureFlagPage(props.id)) {
                 return
             }
 
