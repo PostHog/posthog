@@ -49,6 +49,11 @@ export function SdkHealthScene(): JSX.Element {
         snoozeSdkHealth()
     }
 
+    const unsnoozeWarning = (): void => {
+        posthog.capture('sdk doctor unsnooze warning')
+        unsnooze()
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -127,7 +132,7 @@ export function SdkHealthScene(): JSX.Element {
                             hideIcon={false}
                             action={{
                                 children: 'Unsnooze',
-                                onClick: unsnooze,
+                                onClick: unsnoozeWarning,
                             }}
                         >
                             <p className="font-semibold">
