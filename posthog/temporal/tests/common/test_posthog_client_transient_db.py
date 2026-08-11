@@ -5,10 +5,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import InterfaceError, OperationalError
 
+import psycopg.errors
 from parameterized import parameterized
 from temporalio.worker import ExecuteActivityInput
 
 from posthog.temporal.common.posthog_client import _PostHogClientActivityInboundInterceptor
+
+
+def _wrapped_by_django(message: str, cause: Exception) -> OperationalError:
+    error = OperationalError(message)
+    error.__cause__ = cause
+    return error
 
 
 @dataclass
@@ -41,7 +48,14 @@ class TestTransientDatabaseErrorReporting:
         [
             ("pool_wait_timeout", OperationalError("query_wait_timeout")),
             ("connection_dropped", OperationalError("server closed the connection unexpectedly")),
-            ("interface_error", InterfaceError("connection failed")),
+            ("interface_error", InterfaceError("connection reset by peer")),
+            (
+                "server_shutdown_sqlstate",
+                _wrapped_by_django(
+                    "terminating connection due to administrator command",
+                    psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
+                ),
+            ),
         ]
     )
     async def test_transient_db_errors_are_not_reported(self, _name, error):
@@ -49,6 +63,20 @@ class TestTransientDatabaseErrorReporting:
         mock_capture = await _run_and_capture(error)
         mock_capture.assert_not_called()
 
-    async def test_other_database_errors_are_still_reported(self):
-        mock_capture = await _run_and_capture(OperationalError("deadlock detected"))
+    @parameterized.expand(
+        [
+            ("deadlock", OperationalError("deadlock detected")),
+            # psycopg prefixes every failed connect with "connection failed:", so persistent
+            # misconfiguration must not be swallowed as transient.
+            (
+                "bad_credentials",
+                OperationalError(
+                    'connection failed: connection to server at "127.0.0.1", port 6432 failed: '
+                    'FATAL:  password authentication failed for user "posthog"'
+                ),
+            ),
+        ]
+    )
+    async def test_other_database_errors_are_still_reported(self, _name, error):
+        mock_capture = await _run_and_capture(error)
         mock_capture.assert_called_once()
