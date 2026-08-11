@@ -60,13 +60,25 @@ class TestIdentityProviderConfig(BaseTest):
         assert config.saml_relay_state == str(domain.pk)
         assert config.scim_slug == str(domain.pk)
 
-    def test_linking_config_updates_cached_identifier_values(self):
+    def test_linking_config_preserves_identifiers_on_stale_partial_save(self):
         config = IdentityProviderConfig.objects.create(organization=self.organization)
         stale_config = IdentityProviderConfig.objects.get(pk=config.pk)
         domain = self._create_domain(identity_provider_config=config)
 
         stale_config.saml_entity_id = "entity-id"
         stale_config.save(update_fields=["saml_entity_id"])
+        stale_config.refresh_from_db()
+
+        assert stale_config.saml_relay_state == str(domain.pk)
+        assert stale_config.scim_slug == str(domain.pk)
+
+    def test_linking_config_preserves_identifiers_on_stale_full_save(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        stale_config = IdentityProviderConfig.objects.get(pk=config.pk)
+        domain = self._create_domain(identity_provider_config=config)
+
+        stale_config.scim_enabled = True
+        stale_config.save()
         stale_config.refresh_from_db()
 
         assert stale_config.saml_relay_state == str(domain.pk)
