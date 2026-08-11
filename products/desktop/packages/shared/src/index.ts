@@ -139,6 +139,7 @@ export {
   type TaskRunArtifact,
   type TaskRunArtifactMetadata,
   type TaskRunEnvironment,
+  type TaskRunState,
   type TaskRunStatus,
   TERMINAL_STATUSES,
 } from "./domain-types";

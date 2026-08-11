@@ -283,6 +283,20 @@ export function isContentlessTask(task: {
   return !task.title?.trim() && !task.description?.trim();
 }
 
+/**
+ * Keys of `TaskRun.state` a client is expected to read. The bag is otherwise
+ * free-form server-side scratch space, so everything else stays `unknown`.
+ */
+export interface TaskRunState {
+  /**
+   * Set by the backend when an interactive run finishes a turn and is blocked on
+   * its user, cleared when the user replies or the run terminates. The only
+   * awaiting-input signal available to a client that is not streaming the run.
+   */
+  awaiting_user_input?: boolean;
+  [key: string]: unknown;
+}
+
 export interface TaskRun {
   id: string;
   task: string; // Task ID
@@ -297,7 +311,7 @@ export interface TaskRun {
   log_url: string;
   error_message: string | null;
   output: Record<string, unknown> | null; // Structured output (PR URL, commit SHA, etc.)
-  state: Record<string, unknown>; // Intermediate run state (defaults to {}, never null)
+  state: TaskRunState; // Intermediate run state (defaults to {}, never null)
   artifacts?: TaskRunArtifact[];
   created_at: string;
   updated_at: string;

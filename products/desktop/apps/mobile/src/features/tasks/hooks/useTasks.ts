@@ -1,6 +1,7 @@
 import { filterAndSortTasks } from "@posthog/core/tasks/taskActivity";
 import type { Task } from "@posthog/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { useAuthStore, useUserQuery } from "@/features/auth";
 import { logger } from "@/lib/logger";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
@@ -98,13 +99,16 @@ export function useTasks(filters?: {
       ),
   });
 
-  const listedTasks = filterListedTasks(query.data ?? [], includeAutomation);
+  // Memoized because callers use these arrays as effect/memo dependencies — a
+  // fresh array every render would defeat the task list's grouping memo.
+  const listedTasks = useMemo(
+    () => filterListedTasks(query.data ?? [], includeAutomation),
+    [query.data, includeAutomation],
+  );
 
-  const filteredTasks = filterAndSortTasks(
-    listedTasks,
-    sortMode,
-    showInternal,
-    filter,
+  const filteredTasks = useMemo(
+    () => filterAndSortTasks(listedTasks, sortMode, showInternal, filter),
+    [listedTasks, sortMode, showInternal, filter],
   );
 
   return {
