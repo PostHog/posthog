@@ -1694,10 +1694,29 @@ export interface AssistantRecordingsQuery {
     session_ids?: string[]
 }
 
+/**
+ * Product analytics query rendered by an `AssistantInsightVizNode`. Discriminated on `kind`.
+ */
+export type AssistantInsightVizNodeSource =
+    | AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantRetentionQuery
+    | AssistantPathsQuery
+    | AssistantStickinessQuery
+    | AssistantLifecycleQuery
+
 export interface AssistantInsightVizNode {
     kind: NodeKind.InsightVizNode
-    /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
-    source: Record<string, any>
+    /**
+     * The query to visualize. Pick the kind that matches the question:
+     * - `TrendsQuery` — counts over time, aggregations, formulas.
+     * - `FunnelsQuery` — conversion and drop-off across ordered steps.
+     * - `RetentionQuery` — whether users come back after a first action.
+     * - `PathsQuery` — the routes users take between events or pages.
+     * - `StickinessQuery` — how many days in a period users were active.
+     * - `LifecycleQuery` — new, returning, resurrecting, and dormant users.
+     */
+    source: AssistantInsightVizNodeSource
 }
 
 /**
@@ -1840,7 +1859,7 @@ export interface AssistantDataVisualizationTableSettings {
 export interface AssistantDataVisualizationNode {
     kind: NodeKind.DataVisualizationNode
     /** HogQL query object that produces the rows to visualize. */
-    source: Record<string, any>
+    source: AssistantHogQLQuery
     /**
      * Visualization type. Defaults to `ActionsTable` when omitted.
      *

@@ -6,7 +6,10 @@ import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 
 // Minimal valid input per tool: create requires `query`, update requires `id`.
 const cases = [
-    { tool: 'insight-create', base: { query: { source: { kind: 'TrendsQuery' } } } },
+    {
+        tool: 'insight-create',
+        base: { query: { source: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }] } } },
+    },
     { tool: 'insight-update', base: { id: 1 } },
 ]
 

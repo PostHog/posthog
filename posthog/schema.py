@@ -697,20 +697,6 @@ class AssistantHogQLQuery(BaseModel):
     )
 
 
-class AssistantInsightVizNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["InsightVizNode"] = "InsightVizNode"
-    source: dict[str, Any] = Field(
-        ...,
-        description=(
-            "Product analtycs query objects like TrendsQuery, FunnelsQuery,"
-            " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery"
-        ),
-    )
-
-
 class AssistantPathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8899,7 +8885,7 @@ class AssistantDataVisualizationNode(BaseModel):
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
-    source: dict[str, Any] = Field(..., description="HogQL query object that produces the rows to visualize.")
+    source: AssistantHogQLQuery = Field(..., description="HogQL query object that produces the rows to visualize.")
     tableSettings: AssistantDataVisualizationTableSettings | None = Field(
         default=None,
         description=("Table configuration. Only applies when `display` is `ActionsTable` or omitted."),
@@ -17236,10 +17222,6 @@ class InsightActorsQueryBase(BaseModel):
     response: ActorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):
-    root: AssistantInsightVizNode | AssistantDataVisualizationNode
 
 
 class IsolationForestDetectorConfig(BaseModel):
@@ -27403,6 +27385,32 @@ class SessionsQuery(BaseModel):
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
 
 
+class AssistantInsightVizNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["InsightVizNode"] = "InsightVizNode"
+    source: (
+        AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantPathsQuery
+        | AssistantStickinessQuery
+        | AssistantLifecycleQuery
+    ) = Field(
+        ...,
+        description=(
+            "The query to visualize. Pick the kind that matches the question:\n-"
+            " `TrendsQuery` — counts over time, aggregations, formulas.\n-"
+            " `FunnelsQuery` — conversion and drop-off across ordered steps.\n-"
+            " `RetentionQuery` — whether users come back after a first action.\n-"
+            " `PathsQuery` — the routes users take between events or pages.\n-"
+            " `StickinessQuery` — how many days in a period users were active.\n-"
+            " `LifecycleQuery` — new, returning, resurrecting, and dormant users."
+        ),
+    )
+
+
 class CalendarHeatmapQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -27544,6 +27552,10 @@ class ExperimentMetricTypeProps(
         | ExperimentRatioMetricTypeProps
         | ExperimentRetentionMetricTypeProps
     )
+
+
+class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):
+    root: AssistantInsightVizNode | AssistantDataVisualizationNode
 
 
 class LifecycleQuery(BaseModel):

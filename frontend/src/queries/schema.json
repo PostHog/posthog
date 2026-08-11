@@ -2177,8 +2177,8 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "HogQL query object that produces the rows to visualize.",
-                    "type": "object"
+                    "$ref": "#/definitions/AssistantHogQLQuery",
+                    "description": "HogQL query object that produces the rows to visualize."
                 },
                 "tableSettings": {
                     "$ref": "#/definitions/AssistantDataVisualizationTableSettings",
@@ -3273,12 +3273,35 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
-                    "type": "object"
+                    "$ref": "#/definitions/AssistantInsightVizNodeSource",
+                    "description": "The query to visualize. Pick the kind that matches the question:\n- `TrendsQuery` — counts over time, aggregations, formulas.\n- `FunnelsQuery` — conversion and drop-off across ordered steps.\n- `RetentionQuery` — whether users come back after a first action.\n- `PathsQuery` — the routes users take between events or pages.\n- `StickinessQuery` — how many days in a period users were active.\n- `LifecycleQuery` — new, returning, resurrecting, and dormant users."
                 }
             },
             "required": ["kind", "source"],
             "type": "object"
+        },
+        "AssistantInsightVizNodeSource": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantPathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantStickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantLifecycleQuery"
+                }
+            ],
+            "description": "Product analytics query rendered by an `AssistantInsightVizNode`. Discriminated on `kind`."
         },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
