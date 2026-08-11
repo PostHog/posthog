@@ -33,6 +33,7 @@ import {
     AccessControlResourceType,
     AccessControlRolesResponse,
     AvailableFeature,
+    ObjectRuleResource,
     OrganizationMemberType,
     SidePanelTab,
 } from '~/types'
@@ -129,7 +130,7 @@ export interface accessControlsLogicValues {
     loading: boolean
     membersData: AccessControlMembersResponse | null
     membersDataLoading: boolean
-    objectRuleResourceOptions: APIScopeObject[]
+    objectRuleResourceOptions: ObjectRuleResource[]
     panelEntry: AccessControlSettingsEntry | null
     panelEntryLoading: boolean
     panelOptionsSubject: AccessDetailSubject | null
@@ -524,7 +525,7 @@ export interface accessControlsLogicMeta {
             selectedTab: SidePanelTab | null,
             selectedTabOptions: string | null
         ) => AccessDetailSubject | null
-        objectRuleResourceOptions: (defaults: AccessControlDefaultsResponse | null) => APIScopeObject[]
+        objectRuleResourceOptions: (defaults: AccessControlDefaultsResponse | null) => ObjectRuleResource[]
         toolsCollapse: (
             resourceKeys: {
                 key: APIScopeObject
@@ -1121,7 +1122,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         /** Picker options for object rules, served by the backend so nothing is hardcoded here. */
         objectRuleResourceOptions: [
             (s) => [s.defaults],
-            (defaults: AccessControlDefaultsResponse | null): APIScopeObject[] => defaults?.object_rule_resources ?? [],
+            (defaults: AccessControlDefaultsResponse | null): ObjectRuleResource[] =>
+                defaults?.object_rule_resources ?? [],
         ],
 
         /**

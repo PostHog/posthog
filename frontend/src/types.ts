@@ -5919,14 +5919,22 @@ export interface EffectiveAccessControlEntry {
     maximum: AccessControlLevel
 }
 
+export interface ObjectRuleResource {
+    resource: APIScopeObject
+    available_access_levels: AccessControlLevel[]
+    /** Levels below this are rejected by the backend, so the pickers offer them disabled. */
+    minimum_access_level: AccessControlLevel
+}
+
 export interface AccessControlDefaultsResponse {
     available_project_levels: AccessControlLevel[]
     available_resource_levels: AccessControlLevel[]
     can_edit: boolean
     project_access_level: AccessControlLevel
     resource_access_levels: Record<string, EffectiveAccessControlEntry>
-    /** Resources supporting object-level rules, derived server-side from viewset registration. */
-    object_rule_resources: APIScopeObject[]
+    /** Resources supporting object-level rules, derived server-side from viewset registration,
+     * each with the levels a rule on it accepts. */
+    object_rule_resources: ObjectRuleResource[]
 }
 
 export interface AccessControlRolesResponse {

@@ -7,6 +7,7 @@ import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
 
 export interface AccessLevelSelectProps {
     size?: LemonSelectProps<any>['size']
+    fullWidth?: boolean
     /** Pass "bottom-end" when the trigger sits at the right edge of a row, so the wider menu
      * hangs inward instead of off the edge. Left-positioned triggers keep the default. */
     dropdownPlacement?: LemonSelectProps<any>['dropdownPlacement']
@@ -74,11 +75,12 @@ export function AccessLevelSelect(props: AccessLevelSelectProps): JSX.Element {
     return (
         <LemonSelect<AccessControlLevel | null>
             size={props.size}
+            fullWidth={props.fullWidth}
+            dropdownMatchSelectWidth={props.fullWidth ?? false}
             placeholder="Select level..."
             value={props.level}
             onChange={props.onChange}
             disabledReason={props.disabledReason}
-            dropdownMatchSelectWidth={false}
             dropdownPlacement={props.dropdownPlacement}
             tooltip={
                 // A disabled control explains itself through disabledReason; adding the inherited

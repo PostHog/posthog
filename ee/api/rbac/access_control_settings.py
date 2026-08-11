@@ -290,10 +290,17 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 "project_access_level": project_access_level,
                 "resource_access_levels": resource_access_levels,
                 # The resources the settings UI can search and rule on; every entry works with
-                # access_control_object_search and access_control_object_rules
-                "object_rule_resources": sorted(
-                    r for r in resources_with_object_access_controls() if _display_model(r) is not None
-                ),
+                # access_control_object_search and access_control_object_rules. Levels ride along
+                # per resource, like the per-resource access_controls endpoint returns them, so the
+                # picker can only offer what a write would accept
+                "object_rule_resources": [
+                    {
+                        "resource": r,
+                        "available_access_levels": list(ordered_access_levels(r)),
+                        "minimum_access_level": minimum_access_level(r),
+                    }
+                    for r in sorted(r for r in resources_with_object_access_controls() if _display_model(r) is not None)
+                ],
             }
         )
 

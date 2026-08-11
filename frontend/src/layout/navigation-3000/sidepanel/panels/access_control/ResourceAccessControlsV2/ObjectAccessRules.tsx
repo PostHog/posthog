@@ -15,8 +15,6 @@ import {
 
 import { toSentenceCase } from 'lib/utils/strings'
 
-import { AccessControlLevel } from '~/types'
-
 import { AccessLevelSelect } from '../AccessLevelSelect'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessObjectRule, accessDetailLogic, objectRuleUrl } from './accessDetailLogic'
@@ -25,13 +23,6 @@ import { addObjectOverrideModalLogic } from './addObjectOverrideModalLogic'
 import { humanizeAccessControlLevel } from './helpers'
 import { ScopeIcon } from './ScopeIcon'
 import type { ScopeType } from './types'
-
-const OBJECT_LEVELS: AccessControlLevel[] = [
-    AccessControlLevel.None,
-    AccessControlLevel.Viewer,
-    AccessControlLevel.Editor,
-    AccessControlLevel.Manager,
-]
 
 export interface ObjectAccessRulesProps {
     projectId: string
@@ -54,6 +45,7 @@ export function ObjectAccessRules({
     cannotEditReason,
 }: ObjectAccessRulesProps): JSX.Element {
     const { objects, objectsLoading, ruleSaving } = useValues(accessDetailLogic({ projectId, scopeType, subjectId }))
+    const { objectRuleResourceOptions, availableResourceLevels } = useValues(accessControlsLogic({ projectId }))
     const { setObjectRule } = useActions(accessDetailLogic({ projectId, scopeType, subjectId }))
     const { openModal } = useActions(addObjectOverrideModalLogic({ projectId, scopeType, subjectId }))
 
@@ -98,18 +90,22 @@ export function ObjectAccessRules({
                         title: 'Access',
                         key: 'access',
                         align: 'right',
-                        render: (_, o: AccessObjectRule) => (
-                            <div className="flex justify-end py-1.5">
-                                <AccessLevelSelect
-                                    size="small"
-                                    dropdownPlacement="bottom-end"
-                                    level={o.access_level}
-                                    levels={OBJECT_LEVELS}
-                                    onChange={(level) => setObjectRule(o.resource, o.resource_id, level)}
-                                    disabledReason={editDisabledReason}
-                                />
-                            </div>
-                        ),
+                        render: (_, o: AccessObjectRule) => {
+                            const resourceLevels = objectRuleResourceOptions.find((r) => r.resource === o.resource)
+                            return (
+                                <div className="flex justify-end py-1.5">
+                                    <AccessLevelSelect
+                                        size="small"
+                                        dropdownPlacement="bottom-end"
+                                        level={o.access_level}
+                                        levels={resourceLevels?.available_access_levels ?? availableResourceLevels}
+                                        minimumLevel={resourceLevels?.minimum_access_level}
+                                        onChange={(level) => setObjectRule(o.resource, o.resource_id, level)}
+                                        disabledReason={editDisabledReason}
+                                    />
+                                </div>
+                            )
+                        },
                     },
                     {
                         title: '',
@@ -170,8 +166,10 @@ function AddObjectRuleModal({
         existingRule,
         objectInputKey,
     } = useValues(logic)
-    const { objectRuleResourceOptions } = useValues(accessControlsLogic({ projectId }))
+    const { objectRuleResourceOptions, availableResourceLevels } = useValues(accessControlsLogic({ projectId }))
     const { closeModal, setResource, setSearch, setObjectId, setLevel, submitRule } = useActions(logic)
+
+    const resourceLevels = objectRuleResourceOptions.find((r) => r.resource === resource)
 
     return (
         <LemonModal
@@ -211,8 +209,8 @@ function AddObjectRuleModal({
                         value={resource}
                         onChange={setResource}
                         options={objectRuleResourceOptions.map((r) => ({
-                            value: r,
-                            label: toSentenceCase(r.replace(/_/g, ' ')),
+                            value: r.resource,
+                            label: toSentenceCase(r.resource.replace(/_/g, ' ')),
                         }))}
                         fullWidth
                     />
@@ -235,10 +233,11 @@ function AddObjectRuleModal({
                 </div>
                 <div>
                     <LemonLabel>Access</LemonLabel>
-                    <LemonSelect
-                        value={level}
-                        onChange={setLevel}
-                        options={OBJECT_LEVELS.map((l) => ({ value: l, label: humanizeAccessControlLevel(l) }))}
+                    <AccessLevelSelect
+                        level={level}
+                        levels={resourceLevels?.available_access_levels ?? availableResourceLevels}
+                        minimumLevel={resourceLevels?.minimum_access_level}
+                        onChange={(newLevel) => newLevel && setLevel(newLevel)}
                         fullWidth
                     />
                 </div>
