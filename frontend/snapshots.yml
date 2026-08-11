@@ -2612,6 +2612,10 @@ snapshots:
         hash: v1.k794b7964.51c09169b5a57e217572bc35c0882b15252b4af936921569bf8d2a1d3a330f2f.red8aW6nElMIxDUdAHhilR3Ls2NgRChoEmFzfpGcgbU
     insights-funneltrendstable--default--light:
         hash: v1.k794b7964.f4486460f4481d343ecf8e0890d94f8d4c3da70164008d53bc762b6900623bc1.MRfTllR3ODYt6mNxjI-nTmfYZk0V2cXLMRmUwbKFC1Q
+    insights-insightseriestooltip--long-series-name-with-breakdown--dark:
+        hash: v1.k794b7964.199545e36ed0533f2e52b4e8a88497c4f3587208a61eb2bade6f19e09e6acb09.chYT5gr5mJZO2rmHIGW03J--hW6-dcHe9-3SSmlvfGc
+    insights-insightseriestooltip--long-series-name-with-breakdown--light:
+        hash: v1.k794b7964.7458a50ee4ac7fc39850215d33661ce955b9668aac29b58741f7972dfe97e02c.lNsTCNe5pr3yPPDVrpuuCvM02RTOqkomfXzb9jWJVdQ
     insights-insightseriestooltip--multiple-formulas-with-breakdown--dark:
         hash: v1.k794b7964.c2c1e9d12c2e6c27ebecdd94aaa799f9b49fd5b0f0b9e86c3ab126cab2b8ab3a.Mp3xiWvz6KnRuqNh4R3aBrrtVMdG-q0tTMyPvM4g35U
     insights-insightseriestooltip--multiple-formulas-with-breakdown--light:
