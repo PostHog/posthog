@@ -6,29 +6,27 @@ import { chunk } from 'lib/utils/arrays'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
 
-// One request per ref, so chunk rather than firing a full page of them at once.
-const BATCH_SIZE = 10
+// Refs per request. The whole selection in one call would be unbounded, and the row cap below
+// multiplies against it.
+const BATCH_SIZE = 50
 // shortcut is nullable, so the API's ordering does not reliably put the real row first; scan a few.
 const ROWS_PER_REF = 10
 
-async function resolveOne({ type, ref }: ProjectTreeRef): Promise<FileSystemEntry | null> {
-    if (!ref) {
-        return null
-    }
+async function resolveBatch(type: string, refs: string[]): Promise<FileSystemEntry[]> {
     try {
         // A trailing slash means `type` is a prefix covering several internal types — see `ProjectTreeRef`.
-        const response = await api.fileSystem.list(
-            type.endsWith('/')
-                ? { type__startswith: type, ref, limit: ROWS_PER_REF }
-                : { type, ref, limit: ROWS_PER_REF }
-        )
-        // A shortcut shares the ref of the row it points at; moving it would leave the object where it was.
-        return response.results.find((entry) => !entry.shortcut) ?? null
+        const typeFilter = type.endsWith('/') ? { type__startswith: type } : { type }
+        const response = await api.fileSystem.list({
+            ...typeFilter,
+            refs,
+            limit: refs.length * ROWS_PER_REF,
+        })
+        return response.results
     } catch (error) {
         // Callers run this from async listeners rather than kea-loaders, so initKea's global onFailure
         // never sees it.
-        posthog.captureException(error, { ref, type })
-        return null
+        posthog.captureException(error, { refs, type })
+        return []
     }
 }
 
@@ -37,10 +35,28 @@ async function resolveOne({ type, ref }: ProjectTreeRef): Promise<FileSystemEntr
  * nothing are dropped, so the result can be shorter than the input; callers decide how to report that.
  */
 export async function resolveProjectTreeRefs(refs: ProjectTreeRef[]): Promise<FileSystemEntry[]> {
-    const entries: FileSystemEntry[] = []
-    for (const batch of chunk(refs, BATCH_SIZE)) {
-        const resolved = await Promise.all(batch.map(resolveOne))
-        entries.push(...resolved.filter((entry): entry is FileSystemEntry => !!entry))
+    const wanted = refs.filter((ref): ref is ProjectTreeRef & { ref: string } => !!ref.ref)
+    const byType = new Map<string, string[]>()
+    for (const { type, ref } of wanted) {
+        byType.set(type, [...(byType.get(type) ?? []), ref])
     }
-    return entries
+
+    // Keyed on the requested type, not the row's own: a prefix query returns rows whose type is the
+    // full internal one, and two types can share a ref value.
+    const found = new Map<string, FileSystemEntry>()
+    for (const [type, typeRefs] of byType) {
+        for (const batch of chunk(typeRefs, BATCH_SIZE)) {
+            for (const entry of await resolveBatch(type, batch)) {
+                const key = `${type}::${entry.ref}`
+                // A shortcut shares the ref of the row it points at; moving it would leave the object where it was.
+                if (entry.ref && !entry.shortcut && !found.has(key)) {
+                    found.set(key, entry)
+                }
+            }
+        }
+    }
+
+    return wanted
+        .map(({ type, ref }) => found.get(`${type}::${ref}`))
+        .filter((entry): entry is FileSystemEntry => !!entry)
 }

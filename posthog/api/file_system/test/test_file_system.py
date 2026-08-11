@@ -974,6 +974,55 @@ class TestFileSystemAPI(APIBaseTest):
         paths = {item["path"] for item in resp.json()["results"]}
         self.assertSetEqual(paths, {"Doc1", "Doc2"})
 
+    def test_ref_filter_accepts_several_refs_in_one_request(self):
+        for ref in ["1", "2", "3"]:
+            FileSystem.objects.create(
+                team=self.team, path=f"Dashboards/D{ref}", type="dashboard", ref=ref, created_by=self.user
+            )
+
+        url = f"/api/projects/{self.team.id}/file_system/?type=dashboard&ref=1&ref=2"
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertSetEqual({item["ref"] for item in resp.json()["results"]}, {"1", "2"})
+
+    def test_ref_filter_still_matches_one_ref_exactly(self):
+        FileSystem.objects.create(team=self.team, path="Dashboards/D1", type="dashboard", ref="1", created_by=self.user)
+        FileSystem.objects.create(
+            team=self.team, path="Dashboards/D11", type="dashboard", ref="11", created_by=self.user
+        )
+
+        url = f"/api/projects/{self.team.id}/file_system/?type=dashboard&ref=1"
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual([item["ref"] for item in resp.json()["results"]], ["1"])
+
+    def test_ref_filter_returns_shortcuts_and_real_rows_for_every_ref(self):
+        for ref in ["1", "2"]:
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Shortcuts/S{ref}",
+                type="dashboard",
+                ref=ref,
+                shortcut=True,
+                created_by=self.user,
+            )
+            FileSystem.objects.create(
+                team=self.team, path=f"Dashboards/D{ref}", type="dashboard", ref=ref, created_by=self.user
+            )
+
+        url = f"/api/projects/{self.team.id}/file_system/?type=dashboard&ref=1&ref=2"
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        results = resp.json()["results"]
+        for ref in ["1", "2"]:
+            for_ref = [item for item in results if item["ref"] == ref]
+            self.assertEqual(len(for_ref), 2)
+            real = [item for item in for_ref if not item["shortcut"]]
+            self.assertEqual([item["path"] for item in real], [f"Dashboards/D{ref}"])
+
     def test_meta_sync_create_or_update_file(self):
         """
         When `create_or_update_file` is called with explicit `created_at`

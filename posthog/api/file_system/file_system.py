@@ -464,7 +464,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         type_param = self.request.query_params.get("type")
         not_type_param = self.request.query_params.get("not_type")
         type__startswith_param = self.request.query_params.get("type__startswith")
-        ref_param = self.request.query_params.get("ref")
+        # Repeatable, so a caller resolving a selection asks once instead of once per ref.
+        ref_params = self.request.query_params.getlist("ref")
         order_by_param = self.request.query_params.get("order_by")
         created_at__gt = self.request.query_params.get("created_at__gt")
         created_at__lt = self.request.query_params.get("created_at__lt")
@@ -496,8 +497,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         queryset = self._filter_by_access_control(queryset)
 
-        if ref_param:
-            queryset = queryset.filter(ref=ref_param)
+        if ref_params:
+            queryset = (
+                queryset.filter(ref=ref_params[0]) if len(ref_params) == 1 else queryset.filter(ref__in=ref_params)
+            )
             queryset = queryset.order_by("shortcut")  # override order
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:

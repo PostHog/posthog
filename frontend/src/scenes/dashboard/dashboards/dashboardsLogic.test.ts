@@ -486,10 +486,18 @@ describe('dashboardsLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/file_system': ({ request }) => {
-                    const ref = new URL(request.url).searchParams.get('ref')
+                    const refs = new URL(request.url).searchParams.getAll('ref')
                     return [
                         200,
-                        { count: 0, results: [{ id: `fs-${ref}`, ref, type: 'dashboard', path: 'Marketing' }] },
+                        {
+                            count: 0,
+                            results: refs.map((ref) => ({
+                                id: `fs-${ref}`,
+                                ref,
+                                type: 'dashboard',
+                                path: 'Marketing',
+                            })),
+                        },
                     ]
                 },
             },
@@ -525,8 +533,10 @@ describe('dashboardsLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/file_system': ({ request }) => {
-                    const ref = new URL(request.url).searchParams.get('ref')
-                    const results = ref === '11' ? [{ id: 'fs-11', ref, type: 'dashboard', path: 'Marketing' }] : []
+                    const refs = new URL(request.url).searchParams.getAll('ref')
+                    const results = refs
+                        .filter((ref) => ref === '11')
+                        .map((ref) => ({ id: 'fs-11', ref, type: 'dashboard', path: 'Marketing' }))
                     return [200, { count: 0, results }]
                 },
             },
@@ -545,8 +555,10 @@ describe('dashboardsLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/file_system': ({ request }) => {
-                    const ref = new URL(request.url).searchParams.get('ref')
-                    const results = ref === '11' ? [{ id: 'fs-11', ref, type: 'dashboard', path: 'Marketing' }] : []
+                    const refs = new URL(request.url).searchParams.getAll('ref')
+                    const results = refs
+                        .filter((ref) => ref === '11')
+                        .map((ref) => ({ id: 'fs-11', ref, type: 'dashboard', path: 'Marketing' }))
                     return [200, { count: 0, results }]
                 },
             },

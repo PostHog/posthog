@@ -11,19 +11,21 @@ const entry = (id: string, ref: string, extras: Partial<FileSystemEntry> = {}): 
 describe('resolveProjectTreeRefs', () => {
     let listedRefs: string[]
     let listedTypeParams: Record<string, string | null>[]
+    let requestCount: number
 
     const mockFileSystem = (resultsByRef: Record<string, FileSystemEntry[]>): void => {
         useMocks({
             get: {
                 '/api/environments/:team_id/file_system': ({ request }) => {
                     const params = new URL(request.url).searchParams
-                    const ref = params.get('ref') ?? ''
-                    listedRefs.push(ref)
+                    const refs = params.getAll('ref')
+                    listedRefs.push(...refs)
+                    requestCount += 1
                     listedTypeParams.push({
                         type: params.get('type'),
                         type__startswith: params.get('type__startswith'),
                     })
-                    return [200, { count: 0, results: resultsByRef[ref] ?? [] }]
+                    return [200, { count: 0, results: refs.flatMap((ref) => resultsByRef[ref] ?? []) }]
                 },
             },
         })
@@ -32,6 +34,7 @@ describe('resolveProjectTreeRefs', () => {
     beforeEach(() => {
         listedRefs = []
         listedTypeParams = []
+        requestCount = 0
         initKeaTests()
     })
 
@@ -75,34 +78,44 @@ describe('resolveProjectTreeRefs', () => {
         expect(listedRefs).toEqual(['1', '2'])
     })
 
-    it('drops a ref whose lookup fails, keeping the rest of the batch', async () => {
+    it('drops a batch whose request fails, keeping the batches that succeed', async () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/file_system': ({ request }) => {
-                    const ref = new URL(request.url).searchParams.get('ref') ?? ''
-                    if (ref === '1') {
+                    const refs = new URL(request.url).searchParams.getAll('ref')
+                    if (refs.includes('0')) {
                         return [500, { detail: 'boom' }]
                     }
-                    return [200, { count: 0, results: [entry(`fs-${ref}`, ref)] }]
+                    return [200, { count: 0, results: refs.map((ref) => entry(`fs-${ref}`, ref)) }]
                 },
             },
         })
 
-        const entries = await resolveProjectTreeRefs([
-            { type: 'dashboard', ref: '1' },
-            { type: 'dashboard', ref: '2' },
-        ])
+        const ids = Array.from({ length: 60 }, (_, index) => String(index))
+        const entries = await resolveProjectTreeRefs(ids.map((ref) => ({ type: 'dashboard', ref })))
 
-        expect(entries).toEqual([expect.objectContaining({ id: 'fs-2' })])
+        // The first batch of 50 carries ref '0' and fails; the remaining 10 still resolve.
+        expect(entries.map((e) => e.id)).toEqual(ids.slice(50).map((ref) => `fs-${ref}`))
+    })
+
+    it('asks once for a whole selection instead of once per ref', async () => {
+        mockFileSystem({ '1': [entry('fs-1', '1')], '2': [entry('fs-2', '2')], '3': [entry('fs-3', '3')] })
+
+        const entries = await resolveProjectTreeRefs(['1', '2', '3'].map((ref) => ({ type: 'dashboard', ref })))
+
+        expect(entries.map((e) => e.id)).toEqual(['fs-1', 'fs-2', 'fs-3'])
+        expect(requestCount).toEqual(1)
+        expect(listedRefs).toEqual(['1', '2', '3'])
     })
 
     it('resolves every ref in a selection larger than one batch', async () => {
-        const ids = Array.from({ length: 25 }, (_, index) => String(index))
+        const ids = Array.from({ length: 120 }, (_, index) => String(index))
         mockFileSystem(Object.fromEntries(ids.map((id) => [id, [entry(`fs-${id}`, id)]])))
 
         const entries = await resolveProjectTreeRefs(ids.map((ref) => ({ type: 'dashboard', ref })))
 
-        expect(entries).toHaveLength(25)
+        expect(entries).toHaveLength(120)
+        expect(requestCount).toEqual(3)
         expect(listedRefs.sort()).toEqual(ids.sort())
     })
 })

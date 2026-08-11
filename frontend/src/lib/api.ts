@@ -2449,6 +2449,7 @@ const api = {
             orderBy,
             search,
             ref,
+            refs,
             notType,
             type,
             type__startswith,
@@ -2465,6 +2466,8 @@ const api = {
             orderBy?: string
             search?: string
             ref?: string
+            /** Repeated as `?ref=a&ref=b`, so one request can resolve a whole selection. */
+            refs?: string[]
             notType?: string
             type?: string
             type__startswith?: string
@@ -2475,22 +2478,28 @@ const api = {
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
-                .withQueryString({
-                    parent,
-                    path,
-                    depth,
-                    limit,
-                    offset,
-                    search,
-                    ref,
-                    type,
-                    not_type: notType,
-                    order_by: orderBy,
-                    type__startswith,
-                    created_at__gt: createdAtGt,
-                    created_at__lt: createdAtLt,
-                    search_name_only: searchNameOnly,
-                })
+                // Exploded, so `refs` becomes repeated `ref` params rather than one JSON-encoded value.
+                .withQueryString(
+                    toParams(
+                        {
+                            parent,
+                            path,
+                            depth,
+                            limit,
+                            offset,
+                            search,
+                            ref: refs ?? ref,
+                            type,
+                            not_type: notType,
+                            order_by: orderBy,
+                            type__startswith,
+                            created_at__gt: createdAtGt,
+                            created_at__lt: createdAtLt,
+                            search_name_only: searchNameOnly,
+                        },
+                        true
+                    )
+                )
                 .get({ signal })
         },
         async unfiled(type?: string): Promise<CountResponse | null> {
