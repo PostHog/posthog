@@ -2782,6 +2782,36 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
 
 /**
+ * Announce the commits one push put on the run's branch. Called by the signed-commit tool, which is the only actor that observes the push: the commits are created through GitHub's API from inside the sandbox, so no webhook sees them. Keyed on the head SHA, so a retried call records the push once.
+ * @summary Record a push
+ */
+export const tasksRunsCommitsCreateBodyBranchMax = 255
+
+export const tasksRunsCommitsCreateBodyRepositoryMax = 255
+
+export const tasksRunsCommitsCreateBodyCommitsItemShaMax = 64
+
+export const TasksRunsCommitsCreateBody = /* @__PURE__ */ zod
+    .object({
+        branch: zod.string().max(tasksRunsCommitsCreateBodyBranchMax).describe('Branch the commits landed on.'),
+        repository: zod
+            .string()
+            .max(tasksRunsCommitsCreateBodyRepositoryMax)
+            .optional()
+            .describe('Repository as owner\/repo.'),
+        commits: zod
+            .array(
+                zod.object({
+                    sha: zod.string().max(tasksRunsCommitsCreateBodyCommitsItemShaMax).describe('Commit SHA.'),
+                    subject: zod.string().optional().describe('Commit headline; truncated for display.'),
+                    url: zod.url().optional().describe('Commit URL on the host.'),
+                })
+            )
+            .describe('Commits in the push, oldest first.'),
+    })
+    .describe('A push the signed-commit tool made, oldest commit first.')
+
+/**
  * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
  * @summary Relay run message to Slack
  */

@@ -97,6 +97,7 @@ import type {
     TaskRunCancelRequestApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
+    TaskRunCommitsRequestApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
     TaskRunLivingArtifactChartRequestApi,
@@ -1882,6 +1883,29 @@ export const tasksRunsCommandCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunCommandRequestApi),
+    })
+}
+
+export const getTasksRunsCommitsCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/commits/`
+}
+
+/**
+ * Announce the commits one push put on the run's branch. Called by the signed-commit tool, which is the only actor that observes the push: the commits are created through GitHub's API from inside the sandbox, so no webhook sees them. Keyed on the head SHA, so a retried call records the push once.
+ * @summary Record a push
+ */
+export const tasksRunsCommitsCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunCommitsRequestApi: TaskRunCommitsRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsCommitsCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCommitsRequestApi),
     })
 }
 

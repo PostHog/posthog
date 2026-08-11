@@ -75110,6 +75110,36 @@ export namespace Schemas {
       error?: TaskRunCommandResponseError;
     }
 
+    export interface TaskRunCommit {
+      /**
+         * Commit SHA.
+         * @maxLength 64
+         */
+      sha: string;
+      /** Commit headline; truncated for display. */
+      subject?: string;
+      /** Commit URL on the host. */
+      url?: string;
+    }
+
+    /**
+     * A push the signed-commit tool made, oldest commit first.
+     */
+    export interface TaskRunCommitsRequest {
+      /**
+         * Branch the commits landed on.
+         * @maxLength 255
+         */
+      branch: string;
+      /**
+         * Repository as owner/repo.
+         * @maxLength 255
+         */
+      repository?: string;
+      /** Commits in the push, oldest first. */
+      commits: TaskRunCommit[];
+    }
+
     export interface TaskRunResumeRequestSchema {
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *

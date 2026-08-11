@@ -493,6 +493,9 @@ tools:
     tasks-runs-command-create:
         operation: tasks_runs_command_create
         enabled: false
+    tasks-runs-commits-create:
+        operation: tasks_runs_commits_create
+        enabled: false
     tasks-runs-connection-token-retrieve:
         operation: tasks_runs_connection_token_retrieve
         enabled: false
