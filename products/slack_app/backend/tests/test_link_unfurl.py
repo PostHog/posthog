@@ -20,7 +20,12 @@ from posthog.models.user_integration import UserIntegration
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
-from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+from products.slack_app.backend.api import (
+    ROUTE_HANDLED_LOCALLY,
+    ROUTE_PROXIED,
+    _link_shared_target_region,
+    route_posthog_code_event_to_relevant_region,
+)
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.slack_link_unfurl import (
@@ -564,3 +569,101 @@ class TestLinkUnfurlChannelGate(TestCase):
 
         assert result == ROUTE_HANDLED_LOCALLY
         assert mock_unfurl.called is expect_unfurled
+
+
+class TestLinkSharedTargetRegion:
+    @parameterized.expand(
+        [
+            ("us_host", "https://us.posthog.com/project/2/dashboard/416809", "US"),
+            ("legacy_app_host", "https://app.posthog.com/project/2/dashboard/416809", "US"),
+            ("eu_host", "https://eu.posthog.com/project/9/dashboard/5", "EU"),
+            ("bare_marketing_host", "https://posthog.com/docs/slack", None),
+            ("unknown_host", "https://example.com/project/2/dashboard/1", None),
+        ]
+    )
+    def test_single_link_region(self, _name: str, url: str, expected: str | None) -> None:
+        assert _link_shared_target_region({"links": [{"url": url}]}) == expected
+
+    def test_mixed_regions_returns_none(self) -> None:
+        # One message naming both regions can't be resolved to a single owner — fall back.
+        event = {"links": [{"url": "https://us.posthog.com/i/a"}, {"url": "https://eu.posthog.com/i/b"}]}
+        assert _link_shared_target_region(event) is None
+
+    def test_no_links_returns_none(self) -> None:
+        assert _link_shared_target_region({}) is None
+
+
+class TestLinkUnfurlRegionRouting(TestCase):
+    """A shared link names its region in the host, so the ingress region forwards a link it doesn't
+    own instead of resolving the URL's project id against a same-numbered local project."""
+
+    SLACK_TEAM_ID = "TRegion01"
+
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Region Org")
+        self.team = Team.objects.create(organization=self.organization, name="Region Team")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id=self.SLACK_TEAM_ID,
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        write_auth_state_ok(self.integration.id, bot_user_id=None)
+
+    def _route(self, *, host: str, url: str) -> str:
+        event = {
+            "type": "link_shared",
+            "channel": "C1",
+            "user": "U_SHARER",
+            "message_ts": "1.2",
+            "links": [{"url": url}],
+        }
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST=host)
+        return route_posthog_code_event_to_relevant_region(request, event, self.SLACK_TEAM_ID)
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="EU")
+    @patch("products.slack_app.backend.api._proxy_event_to_region", return_value=MagicMock())
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    def test_us_link_on_eu_ingress_forwards_to_us(self, mock_unfurl: MagicMock, mock_proxy: MagicMock) -> None:
+        # The reported bug: on EU this resolved against EU's own project of the same id and silently
+        # found nothing. It must forward to US, not unfurl locally.
+        result = self._route(host="eu.posthog.com", url=f"https://us.posthog.com/project/{self.team.pk}/dashboard/1")
+        assert result == ROUTE_PROXIED
+        assert mock_proxy.called
+        assert not mock_unfurl.called
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="EU")
+    @patch("products.slack_app.backend.api._proxy_event_to_region", return_value=MagicMock())
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    def test_eu_link_on_eu_ingress_handled_locally(self, mock_unfurl: MagicMock, mock_proxy: MagicMock) -> None:
+        result = self._route(host="eu.posthog.com", url=f"https://eu.posthog.com/project/{self.team.pk}/dashboard/1")
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert not mock_proxy.called
+        assert mock_unfurl.called
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    @patch("products.slack_app.backend.api._proxy_event_to_region", return_value=MagicMock())
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    def test_us_link_on_us_ingress_handled_locally(self, mock_unfurl: MagicMock, mock_proxy: MagicMock) -> None:
+        result = self._route(host="us.posthog.com", url=f"https://us.posthog.com/project/{self.team.pk}/dashboard/1")
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert not mock_proxy.called
+        assert mock_unfurl.called
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="EU")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
+    @patch("products.slack_app.backend.api._proxy_event_to_region", return_value=MagicMock())
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    def test_bare_domain_keeps_region_agnostic_path(
+        self, mock_unfurl: MagicMock, mock_proxy: MagicMock, _claims: MagicMock
+    ) -> None:
+        # No region in the host → the local-match + US-precedence probe still decides. With US not
+        # claiming the workspace, EU handles it locally rather than forwarding. The probe is still
+        # scoped to the URL's project id.
+        result = self._route(host="eu.posthog.com", url=f"https://posthog.com/project/{self.team.pk}/dashboard/1")
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert not mock_proxy.called
+        assert mock_unfurl.called
+        assert _claims.call_args.kwargs["team_id"] == self.team.pk

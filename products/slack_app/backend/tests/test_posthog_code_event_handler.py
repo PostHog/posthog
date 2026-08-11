@@ -744,7 +744,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
 
         assert result == ROUTE_HANDLED_LOCALLY
-        assert mock_claims.call_args.kwargs["team_id"] == other_team.id
+        # The link names this region (us.posthog.com on a US instance), so it resolves straight to the
+        # URL's project integration without consulting the cross-region ownership probe.
+        mock_claims.assert_not_called()
         mock_unfurl.assert_called_once_with(event, other_integration)
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")

@@ -2197,10 +2197,24 @@ def route_posthog_code_event_to_relevant_region(
         )
 
     # link_shared (unfurl) works with either integration kind.
+    #
+    # Slack posts every event to one Request URL (a single region), but a link names its own region
+    # in the host. When it names the other region, forward the event there instead of resolving its
+    # `/project/<id>` against a same-numbered project in this region — the regions number projects
+    # independently, so a us.posthog.com/project/2 link matched here on EU would look the resource
+    # up in EU's project 2 and silently find nothing. A bare posthog.com host, an unknown host, or a
+    # cross-region mix yields None and keeps the region-agnostic path below.
+    link_region = _link_shared_target_region(event)
+    if link_region is not None and link_region != get_instance_region() and can_defer_to_other_region:
+        return _proxy_event_and_return_route(request, other_domain)
+
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
     local_match = _link_shared_integration(event, link_result.candidates)
     if local_match:
-        if _us_should_handle_instead(
+        # The US-precedence probe matches on a region-blind team id, so skip it when the link
+        # explicitly names this region — otherwise a same-numbered project in the other region would
+        # still hand the event across (an eu. link to US, or a us. link to EU).
+        if link_region is None and _us_should_handle_instead(
             slack_team_id,
             list(SLACK_INTEGRATION_KINDS),
             can_defer_to_other_region,
@@ -3024,6 +3038,40 @@ def _is_posthog_app_url(url: str) -> bool:
         "posthog.com",
         "us.posthog.com",
     }
+
+
+# A modern PostHog Cloud app URL names its region in the host. ``app.posthog.com`` is the legacy
+# US primary and still resolves to US. Bare ``posthog.com`` (marketing/docs) carries no region and
+# is intentionally absent.
+_POSTHOG_HOST_REGION: dict[str, str] = {
+    "us.posthog.com": "US",
+    "app.posthog.com": "US",
+    "eu.posthog.com": "EU",
+}
+
+
+def _link_shared_target_region(event: dict[str, Any]) -> str | None:
+    """The Cloud region (``US``/``EU``) the shared links point at, read from their hosts.
+
+    Returns ``None`` when no link carries a region-bearing host (bare ``posthog.com``, an unknown
+    host) or when links disagree on the region, so the caller keeps the region-agnostic behavior.
+    Region ownership matters because the two regions number projects independently: a
+    ``us.posthog.com/project/2`` link resolved on EU would look the resource up in EU's project 2.
+    """
+    links = event.get("links")
+    if not isinstance(links, list):
+        return None
+    regions: set[str] = set()
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        url = link.get("url")
+        if not isinstance(url, str):
+            continue
+        region = _POSTHOG_HOST_REGION.get((urlparse(url).hostname or "").lower())
+        if region is not None:
+            regions.add(region)
+    return next(iter(regions)) if len(regions) == 1 else None
 
 
 def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
