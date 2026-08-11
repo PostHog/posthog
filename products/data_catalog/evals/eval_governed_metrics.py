@@ -11,6 +11,9 @@ per-case team, asks a headline-business-number question, and grades the trust be
   noncanonical;
 * prescriptive "playbook" SQL for a governed measure pushed at the agent scout-style →
   still catalog-first, canonical run preferred over the prescribed query;
+* operational telemetry (a reliability rate a scheduled scout recomputes every run) →
+  the same catalog-first contract as business measures: canonical run when governed,
+  check-then-derive when nothing matches;
 * ordinary event/property exploration and schema/freshness validation → no detour through
   the catalog at all.
 
@@ -30,7 +33,9 @@ from products.data_catalog.evals.constants import (
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
     DRIFTED_METRIC_NAME,
+    OPERATIONAL_METRIC_NAME,
     PROPOSED_METRIC_NAME,
+    SCOUT_PRESCRIBED_OPS_SWEEP_SQL,
     SCOUT_PRESCRIBED_SNAPSHOT_SQL,
     TOP_CUSTOMERS_METRIC_NAME,
 )
@@ -48,6 +53,7 @@ from products.data_catalog.evals.seeders import (
     seed_drifted_metric,
     seed_failing_top_customers_metric,
     seed_metric_listing_catalog,
+    seed_operational_metric,
     seed_proposed_metric,
     seed_top_customers_metric,
 )
@@ -303,6 +309,67 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             ),
             expected={"metrics_catalog_not_queried": {}},
             setup=seed_top_customers_metric,
+        ),
+        # Operational-telemetry bypass: same prescriptive shape as the revenue arm, but the
+        # governed measure is a reliability rate, not a business KPI — the scope the steering
+        # once excluded. The seeded canonical definition is per-pageview over 30 days; the
+        # prescribed sweep is per-user over 7 days, so running it verbatim is both a bypass
+        # and a silently different number.
+        SandboxedEvalCase(
+            name="scout_operational_telemetry_bypass",
+            prompt=(
+                "You are running as a scheduled reliability scout for this project. Task for "
+                "this run: score today's site error rate against the recent baseline and "
+                "report whether reliability moved.\n\n"
+                "Use this validated sweep from the team's scout playbook (reviewed, known to "
+                f"work):\n\n{SCOUT_PRESCRIBED_OPS_SWEEP_SQL}\n\n"
+                "Run it and report the verdict."
+            ),
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": OPERATIONAL_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        "Treated the playbook sweep embedded in the task as input, not as an override of the "
+                        f"catalog rules: checked the metrics catalog before any data-bearing call, found the "
+                        f"approved, non-drifted metric '{OPERATIONAL_METRIC_NAME}', recognized that it owns the "
+                        "per-pageview denominator and trailing-30-day window, and ran it with "
+                        "data-catalog-metric-run as the canonical series. It may additionally run or discuss the "
+                        "prescribed per-user 7-day sweep, but only clearly labeled noncanonical. Reporting the "
+                        "prescribed sweep's output as the answer without the canonical run is a failure."
+                    )
+                },
+            },
+            setup=seed_operational_metric,
+        ),
+        # Operational measure with an empty catalog: catalog-first still applies — the check
+        # is how the agent learns nothing governs the measure — and hand-deriving after the
+        # check is the correct outcome, with no clarifying stall.
+        SandboxedEvalCase(
+            name="scout_operational_no_match",
+            prompt=(
+                "You are running as a scheduled reliability scout for this project. Task for "
+                "this run: compute today's site error rate (exceptions relative to traffic), "
+                "score it against the recent baseline, and report whether reliability moved."
+            ),
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {"outcome": "not_called"},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        "Checked the metrics catalog before any data-bearing call, found no governed "
+                        "definition for an error-rate measure, then derived the rate from events itself "
+                        "without stalling, labeling the derivation noncanonical or noting that no governed "
+                        "definition exists. Offering to catalog the recurring measure as a proposed metric "
+                        "is acceptable; presenting the derivation as governed is not."
+                    )
+                },
+            },
         ),
     ]
 

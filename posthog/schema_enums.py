@@ -2531,6 +2531,9 @@ class ExternalDataSourceType(StrEnum):
     SEVALLA = "Sevalla"
     MOTION = "Motion"
     FRAMER = "Framer"
+    DEPOT = "Depot"
+    SCHEMATIC = "Schematic"
+    DOKPLOY = "Dokploy"
 
 
 class ExternalQueryErrorCode(StrEnum):
