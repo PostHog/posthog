@@ -88,6 +88,7 @@ pub enum LeaderCall {
     },
     PropertyPush {
         person_id: i64,
+        is_identified: Option<bool>,
     },
 }
 
@@ -550,6 +551,7 @@ impl PropertyWriter for SimLeader {
             .ok_or_else(|| Status::not_found("person is destroyed"))?;
         self.record(LeaderCall::PropertyPush {
             person_id: request.person_id,
+            is_identified: request.is_identified,
         });
         Ok(UpdatePersonPropertiesResponse {
             person: Some(person),
