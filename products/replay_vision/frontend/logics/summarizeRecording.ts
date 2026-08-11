@@ -37,9 +37,12 @@ export function summarizeOutcomeMessage(outcome: ScanOutcomeEnumApi | undefined)
     switch (outcome) {
         case 'started':
             return { level: 'success', message: 'Summary started' }
-        case 'already_scanned':
         case 'already_running':
-            return { level: 'info', message: 'This recording has already been summarized.' }
+            return { level: 'info', message: 'A summary of this recording is already being generated.' }
+        case 'already_scanned':
+            // `already_scanned` covers every terminal status, so the existing row may be a failure or an
+            // ineligible recording rather than a summary. Point at the result instead of claiming success.
+            return { level: 'info', message: 'This recording already has a summary result below.' }
         case 'skipped_quota':
             return { level: 'warning', message: "You've hit the monthly Replay vision credit limit." }
         case 'skipped_limit':

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconChevronDown, IconEye, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
@@ -8,6 +8,8 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
@@ -115,24 +117,48 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
     const { summarizing } = useValues(logic)
     const { summarize } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const [consentRequested, setConsentRequested] = useState(false)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
     // An inline scan mints a scanner, so the endpoint holds it to scanner-editor access. Without this the
     // button looks available to a viewer and answers 403.
     const accessDisabledReason = getReplayVisionEditDisabledReason()
 
-    return (
+    const button = (
         <LemonButton
             size="small"
             type="secondary"
             icon={<IconNotebook />}
             loading={summarizing}
-            onClick={() => summarize()}
+            // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
+            onClick={() => (dataProcessingAccepted ? summarize() : setConsentRequested(true))}
             disabledReason={accessDisabledReason ?? quotaDisabledReason}
             tooltip={quotaTooltip ?? 'Write a summary of what happened in this recording'}
             data-attr="vision-summarize-recording"
         >
-            Summarize this recording
+            {dataProcessingAccepted ? 'Summarize this recording' : 'Allow AI analysis and summarize'}
         </LemonButton>
+    )
+
+    if (dataProcessingAccepted) {
+        return button
+    }
+
+    return (
+        <AIConsentPopoverWrapper
+            placement="bottom-end"
+            showArrow
+            ignoreDismissal
+            hideTrainingDisclaimer
+            hidden={!consentRequested}
+            onApprove={() => {
+                setConsentRequested(false)
+                summarize()
+            }}
+            onDismiss={() => setConsentRequested(false)}
+        >
+            {button}
+        </AIConsentPopoverWrapper>
     )
 }
 
