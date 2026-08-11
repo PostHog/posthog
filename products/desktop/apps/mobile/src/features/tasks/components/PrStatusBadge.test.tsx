@@ -32,12 +32,11 @@ function setStatus(data: PrStatus | null | undefined) {
 }
 
 function render(props: Parameters<typeof PrStatusBadge>[0]) {
-  let renderer: ReturnType<typeof create> | null = null;
+  let renderer!: ReturnType<typeof create>;
   act(() => {
     renderer = create(createElement(PrStatusBadge, props));
   });
-  if (!renderer) throw new Error("Renderer not created");
-  return renderer as ReturnType<typeof create>;
+  return renderer;
 }
 
 function label(renderer: ReturnType<typeof create>): string | undefined {

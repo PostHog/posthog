@@ -38,7 +38,7 @@ function skillFixture(description: string): LlmSkillListItem {
 describe("AutomationSkillCard", () => {
   it("collapses long descriptions by default and expands on demand", () => {
     const onPress = vi.fn();
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -50,10 +50,6 @@ describe("AutomationSkillCard", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const descriptionText =
       "A longer description that should overflow two lines in the card preview when measured by the native text layout callback.";
