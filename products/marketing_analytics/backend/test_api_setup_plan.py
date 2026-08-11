@@ -5,6 +5,7 @@ from django.core.cache import cache
 
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.marketing_analytics.backend.services.setup_types import (
     Capability,
@@ -221,6 +222,20 @@ class TestSetupPlanCaching(APIBaseTest):
         # minute after whatever caused them recovered.
         with patch(_PLAN_TARGET, return_value=_plan()) as build:
             self.client.get(self.url)
+            self.client.get(self.url)
+
+        assert build.call_count == 2
+
+    def test_one_users_plan_is_not_served_to_another(self):
+        """The plan is built from HogQL run as the caller, and `execute_hogql_query`
+        applies warehouse access control from that user — so a shared entry would serve
+        the first caller's campaigns, UTM values and spend to someone whose own access
+        would not return them."""
+        other_user = User.objects.create_and_join(self.organization, "second@posthog.com", "password")
+
+        with patch(_PLAN_TARGET, return_value=_clean_plan()) as build:
+            self.client.get(self.url)
+            self.client.force_login(other_user)
             self.client.get(self.url)
 
         assert build.call_count == 2

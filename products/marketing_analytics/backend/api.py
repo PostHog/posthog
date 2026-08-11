@@ -715,10 +715,13 @@ class SetupPlanQuerySerializer(serializers.Serializer):
 _SETUP_PLAN_CACHE_SECONDS = 60
 
 
-def _setup_plan_cache_key(team_id: int, date_from: str) -> str:
-    # Keyed on the window too: the same team asking about a different range is a
-    # different question, and one shared entry would answer the wrong one.
-    return f"marketing_analytics:setup_plan:{team_id}:{date_from}"
+def _setup_plan_cache_key(team_id: int, user_id: int, date_from: str) -> str:
+    # Keyed on the window because the same team asking about a different range is a
+    # different question, and on the user because the plan is built from HogQL queries
+    # run as them — `execute_hogql_query(..., user=user)` applies warehouse access
+    # control, so two users can legitimately see different campaigns and spend. A
+    # team-wide entry would serve the first caller's view to everyone.
+    return f"marketing_analytics:setup_plan:{team_id}:{user_id}:{date_from}"
 
 
 class SuggestionSerializer(serializers.Serializer):
@@ -1210,7 +1213,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 
         date_from = request.validated_query_data["date_from"]
-        cache_key = _setup_plan_cache_key(self.team.pk, date_from)
+        cache_key = _setup_plan_cache_key(self.team.pk, request.user.pk, date_from)
         if not request.validated_query_data["refresh"]:
             cached = cache.get(cache_key)
             if cached is not None:
