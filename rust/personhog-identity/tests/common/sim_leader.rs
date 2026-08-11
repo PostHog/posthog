@@ -232,7 +232,7 @@ impl SimLeader {
                 uuid: uuid.to_string(),
                 team_id,
                 properties: serde_json::to_vec(&properties).unwrap(),
-                created_at: created_at.timestamp(),
+                created_at: created_at.timestamp_millis(),
                 version,
                 is_identified,
                 last_seen_at: self.last_seen.lock().unwrap().get(&person_id).copied(),

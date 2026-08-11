@@ -173,29 +173,19 @@ fn merge_outcome_enum(outcome: &str) -> MergeSourceOutcome {
 }
 
 /// The survivor document recorded by the saga, converted to the wire
-/// person. The fold's `created_at` is in the leader plane's unit (epoch
-/// seconds today); the read-plane wire person carries epoch millis. Every
-/// seconds-to-millis conversion the response performs lives in this pair
-/// of helpers and nowhere else.
+/// person. The fold's `created_at` is already epoch millis — the leader
+/// plane's wire unit — so it passes through unscaled.
 fn survivor_to_proto(survivor: &Value, team_id: i64) -> ProtoPerson {
     ProtoPerson {
         id: survivor["id"].as_i64().unwrap_or_default(),
         uuid: survivor["uuid"].as_str().unwrap_or_default().to_string(),
         team_id,
         properties: serde_json::to_vec(&survivor["properties"]).unwrap_or_default(),
-        created_at: survivor["created_at"].as_i64().unwrap_or_default() * 1000,
+        created_at: survivor["created_at"].as_i64().unwrap_or_default(),
         version: survivor["version"].as_i64().unwrap_or_default(),
         is_identified: survivor["is_identified"].as_bool().unwrap_or(true),
         ..Default::default()
     }
-}
-
-/// A person returned by a leader RPC, normalized to the read-plane wire
-/// unit. Without this, the inline-push branch would answer `created_at` in
-/// seconds while every other branch answers millis.
-fn leader_person_to_read_plane(mut person: ProtoPerson) -> ProtoPerson {
-    person.created_at *= 1000;
-    person
 }
 
 /// Assemble the response for an op that ran the saga: inline outcomes from
@@ -457,11 +447,7 @@ impl PersonHogLifecycle for PersonHogLifecycleService {
                 .collect();
             return Ok(Response::new(MergePersonsResponse {
                 op_id: op_id.to_string(),
-                survivor: Some(
-                    pushed
-                        .map(leader_person_to_read_plane)
-                        .unwrap_or_else(|| target_person.into()),
-                ),
+                survivor: Some(pushed.unwrap_or_else(|| target_person.into())),
                 results,
             }));
         }

@@ -1636,11 +1636,10 @@ async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
     let survivor = response.survivor.expect("survivor present");
     assert_eq!(survivor.id, target);
     // The survivor's created_at unit must not depend on which branch
-    // produced it: the leader push answers epoch seconds and must be
-    // normalized to the read plane's millis.
-    // floor() matches the leader plane's whole-second truncation.
+    // produced it: the leader already answers epoch millis, so the
+    // response must pass it through unscaled.
     let target_created_ms: i64 = sqlx::query_scalar(
-        "SELECT (floor(extract(epoch from created_at))::bigint) * 1000 \
+        "SELECT floor(extract(epoch from created_at) * 1000)::bigint \
          FROM posthog_person WHERE team_id = $1 AND id = $2",
     )
     .bind(h.ctx.team_id as i32)
