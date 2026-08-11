@@ -216,6 +216,20 @@ tools:
     canvases-partial-update:
         operation: canvases_partial_update
         enabled: false
+    canvas-publish-current-version:
+        operation: canvases_publish_current_version_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish current canvas version
+        description: >
+            Queue a build for the canvas's current source version without changing its source or metadata. Any project
+            member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale
+            value returns a 409 version_conflict.
     canvases-retrieve:
         operation: canvases_retrieve
         enabled: false

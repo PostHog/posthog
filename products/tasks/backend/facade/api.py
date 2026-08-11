@@ -4820,11 +4820,10 @@ def update_task(
         return None
 
     validated_data = dict(validated_data)
-    # Immutable after creation; origin_product controls visibility, signal_report is set-once.
+    # origin_product controls visibility and signal_report is set once.
     validated_data.pop("signal_report", None)
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
-    validated_data.pop("channel", None)
     validated_data.pop("branch", None)
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
@@ -5826,7 +5825,7 @@ def resolve_slack_thread_context(
     mapping = (
         SlackThreadTaskMapping.objects.select_related("task", "task__created_by")
         .filter(channel=channel, thread_ts=thread_ts, team_id=team_id)
-        .filter(task_visibility_q(user_id, relation="task"))
+        .filter(task_run_visibility_q(user_id))
         .first()
     )
     if mapping is None:
@@ -6081,7 +6080,7 @@ def update_channel(
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
 ) -> contracts.ChannelDTO | str:
-    """Update a channel, keeping repository configuration creator-owned."""
+    """Update a visible channel."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
@@ -6090,8 +6089,6 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
-    elif channel.created_by_id != user_id:
-        return "not_found"
     update_fields: list[str] = []
     if name is not None:
         normalized = normalize_channel_name(name)
@@ -6113,14 +6110,12 @@ def update_channel(
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public channel owned by the user."""
+    """Soft-delete an empty public channel."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:
         return "personal" if channel.created_by_id == user_id else "not_found"
-    if channel.created_by_id != user_id:
-        return "not_found"
     if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
         return "not_empty"
     channel.deleted = True
@@ -6154,7 +6149,7 @@ def visible_channels_q(user_id: int | None, *, relation: Literal["", "channel"] 
 
 
 def visible_tasks_q(user_id: int | None, *, relation: Literal["", "task"] = "") -> Q:
-    return task_visibility_q(user_id, relation=relation)
+    return task_run_visibility_q(user_id) if relation == "task" else task_visibility_q(user_id)
 
 
 def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) -> bool:

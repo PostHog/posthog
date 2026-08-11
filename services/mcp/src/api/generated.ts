@@ -14344,6 +14344,11 @@ export namespace Schemas {
       current_version_id: string | null;
     }
 
+    export interface CanvasPublishCurrentVersion {
+      /** Current source version to publish. A changed head returns a 409 version_conflict. */
+      expected_current_version_id: string;
+    }
+
     /**
      * Payload for reverting the canvas's head to an existing source version.
      */
@@ -59818,6 +59823,11 @@ export namespace Schemas {
          * @nullable
          */
       auto_publish?: boolean | null;
+      /**
+         * Space this task belongs to. Omit it when creating a task to use your private #me space.
+         * @nullable
+         */
+      channel?: string | null;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -75350,7 +75360,7 @@ export namespace Schemas {
          */
       auto_publish?: boolean | null;
       /**
-         * Space this task is created in. Omit it to use your private #me space.
+         * Space this task belongs to. Omit it when creating a task to use your private #me space.
          * @nullable
          */
       channel?: string | null;
@@ -76503,6 +76513,11 @@ export namespace Schemas {
          * @nullable
          */
       auto_publish?: boolean | null;
+      /**
+         * Space this task belongs to. Omit it when creating a task to use your private #me space.
+         * @nullable
+         */
+      channel?: string | null;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };

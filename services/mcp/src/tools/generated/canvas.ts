@@ -17,6 +17,8 @@ import {
     CanvasesPromoteCreateParams,
     CanvasesPublishCreateBody,
     CanvasesPublishCreateParams,
+    CanvasesPublishCurrentVersionCreateBody,
+    CanvasesPublishCurrentVersionCreateParams,
     CanvasesSourceRetrieveParams,
     CanvasesSourceRetrieveQueryParams,
     CanvasesValidateCreateBody,
@@ -271,6 +273,28 @@ const canvasValidateCreate = (): ToolBase<typeof CanvasValidateCreateSchema, Sch
     },
 })
 
+const CanvasPublishCurrentVersionSchema = CanvasesPublishCurrentVersionCreateParams.omit({ project_id: true }).extend(
+    CanvasesPublishCurrentVersionCreateBody.shape
+)
+
+const canvasPublishCurrentVersion = (): ToolBase<typeof CanvasPublishCurrentVersionSchema, Schemas.CanvasBuild> => ({
+    name: 'canvas-publish-current-version',
+    schema: CanvasPublishCurrentVersionSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasPublishCurrentVersionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        const result = await context.api.request<Schemas.CanvasBuild>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/publish-current-version/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-builds-retrieve': canvasBuildsRetrieve,
     'canvas-create': canvasCreate,
@@ -282,4 +306,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-publish-create': canvasPublishCreate,
     'canvas-source-retrieve': canvasSourceRetrieve,
     'canvas-validate-create': canvasValidateCreate,
+    'canvas-publish-current-version': canvasPublishCurrentVersion,
 }

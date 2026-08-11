@@ -345,6 +345,45 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert body["current_version_id"] == version_id
         assert body["project"]["files"]["src/extra.ts"] == "export const x = 1"
 
+    def test_public_members_can_publish_current_source_but_cannot_edit(self):
+        canvas_id = self._create_canvas()
+        first = self._publish(canvas_id, expected_current_version_id=None)
+        assert first.status_code == status.HTTP_200_OK
+        version_id = first.json()["current_version_id"]
+        other_user = self._create_user("canvas-member@example.com")
+        self.client.force_login(other_user)
+        base = f"/api/projects/{self.team.id}/canvases/{canvas_id}"
+
+        metadata_edit = self.client.patch(f"{base}/", {"name": "Changed"}, format="json")
+        source_edit = self.client.post(
+            f"{base}/edit/",
+            {
+                "operations": [{"path": "src/canvas.tsx", "content": "export default function C() { return 2 }"}],
+                "expected_current_version_id": version_id,
+            },
+            format="json",
+        )
+        source_publish = self.client.post(
+            f"{base}/publish/",
+            {
+                "project": self._project("export default function C() { return 2 }"),
+                "expected_current_version_id": version_id,
+            },
+            format="json",
+        )
+        current_version_publish = self.client.post(
+            f"{base}/publish-current-version/",
+            {"expected_current_version_id": version_id},
+            format="json",
+        )
+
+        assert metadata_edit.status_code == status.HTTP_404_NOT_FOUND
+        assert source_edit.status_code == status.HTTP_404_NOT_FOUND
+        assert source_publish.status_code == status.HTTP_404_NOT_FOUND
+        assert current_version_publish.status_code == status.HTTP_200_OK, current_version_publish.json()
+        assert current_version_publish.json()["source_version_id"] == version_id
+        assert str(Canvas.objects.unscoped().get(id=canvas_id).current_source_version_id) == version_id
+
     def test_stale_guard_conflicts(self):
         canvas_id = self._create_canvas()
         first = self._publish(canvas_id, expected_current_version_id=None)

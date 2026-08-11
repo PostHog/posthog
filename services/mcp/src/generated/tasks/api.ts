@@ -1069,7 +1069,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod
         channel: zod
             .string()
             .nullish()
-            .describe('Space this task is created in. Omit it to use your private #me space.'),
+            .describe('Space this task belongs to. Omit it when creating a task to use your private #me space.'),
         sandbox_environment_id: zod
             .string()
             .nullish()

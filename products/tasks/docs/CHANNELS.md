@@ -93,17 +93,23 @@ membership without adding permissions to Task.
   so every user always has one.
 - `POST / {name}` — resolve-or-create a public channel by name
   (`get_or_create`, so concurrent creates and name-bridging are race-safe).
-- `PATCH /{id}/ {name}` - rename a public channel. Only its creator can change it. Private `#me` spaces cannot be renamed.
-- `DELETE /{id}/` - soft-delete an empty public channel. Only its creator can delete it. Private `#me` and non-empty spaces cannot be deleted.
+- `PATCH /{id}/ {name}` - any project member can rename or configure a public channel. Private `#me` spaces cannot be renamed.
+- `DELETE /{id}/` - any project member can delete an empty public channel. Private `#me` and non-empty spaces cannot be deleted.
 
 ### Task endpoints
 
 - `TaskCreateSerializer` accepts `channel` (UUID). It must belong to the team. A
   private `#me` space is accepted only from its owner.
 - Omitting `channel` for an ordinary user task files it into the user's `#me` space.
-- Task updates cannot change `channel`.
+- A task controller can move a task by updating `channel` to a public or owned private space.
 - `TaskSerializer` / `TaskDetailDTO` emit `channel`.
 - `GET /tasks/?channel=<uuid>` filters the list to a channel's feed.
+
+### Canvas endpoints
+
+- Project members can create and read Canvases in public channels.
+- Only a Canvas creator can change Canvas metadata or source.
+- Any project member can queue a build for the current source version through `publish-current-version`.
 
 ### `/api/projects/{id}/tasks/{task_id}/thread_messages/`
 
