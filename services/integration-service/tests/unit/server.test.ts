@@ -1,0 +1,148 @@
+import { SignJWT } from 'jose'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { Pool } from 'pg'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { AUDIENCE } from '@/auth/types.js'
+import type { Config } from '@/lib/config.js'
+import { IntegrationServer } from '@/server.js'
+
+const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
+const SIGNING_KEY = 'server-test-signing-key'
+
+const dirs: string[] = []
+
+afterEach(async () => {
+    await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })))
+})
+
+async function secretsDir(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'integration-server-'))
+    dirs.push(dir)
+    await writeFile(join(dir, KEY), 'hunter2-zx9q')
+    await writeFile(join(dir, 'CALLER_KEY_TEST_DEPLOYMENT'), SIGNING_KEY)
+    return dir
+}
+
+function config(secrets: string, prestopDelayMs: number): Config {
+    return {
+        port: 0,
+        host: '127.0.0.1',
+        isProduction: false,
+        shutdownGraceMs: 2000,
+        shutdownPrestopDelayMs: prestopDelayMs,
+        env: 'test',
+        awsRegion: 'us-east-1',
+        awsEndpoint: undefined,
+        secretsDir: secrets,
+        databaseUrl: undefined,
+        reloadSeconds: 3600,
+        usageFlushMs: 3_600_000,
+        retentionDays: 9,
+        retireQuietHours: 24,
+        usageBucket: undefined,
+        usageKmsKeyId: undefined,
+        usagePublishIntervalMs: 3_600_000,
+        metricsToken: '',
+    }
+}
+
+async function mint(): Promise<string> {
+    return new SignJWT({ caller: 'warehouse-sources', keys: [KEY] })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setAudience(AUDIENCE)
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(new TextEncoder().encode(SIGNING_KEY))
+}
+
+interface Started {
+    server: IntegrationServer
+    events: string[]
+    fetch: (req: Request) => Response | Promise<Response>
+    exitCode: () => number | undefined
+}
+
+/** Start a real IntegrationServer with a fake pool, a fake listener and a captured exit. */
+async function startServer(prestopDelayMs = 0): Promise<Started> {
+    const events: string[] = []
+    let exitCode: number | undefined
+    let fetch!: Started['fetch']
+
+    const pool = {
+        query: (sql: string) => {
+            if (sql.includes('INSERT INTO integration_secret_usage')) {
+                events.push('flush')
+            }
+            return Promise.resolve({ rows: [] })
+        },
+        end: () => {
+            events.push('pool.end')
+            return Promise.resolve()
+        },
+    } as unknown as Pool
+
+    const server = new IntegrationServer(config(await secretsDir(), prestopDelayMs), {
+        pool,
+        serve: (options) => {
+            fetch = options.fetch as Started['fetch']
+            return {
+                close: (cb) => {
+                    events.push(`drain draining=${server.lifecycleState().shuttingDown}`)
+                    cb()
+                },
+            }
+        },
+        exit: (code) => {
+            exitCode = code
+        },
+    })
+    await server.start()
+    return { server, events, fetch, exitCode: () => exitCode }
+}
+
+describe('integration server', () => {
+    it('shuts down in order: mark draining, prestop delay, drain, flush, end pool', async () => {
+        const { server, events, fetch } = await startServer(30)
+
+        // A served credential leaves a pending usage read, so the flush has work to order.
+        const res = await fetch(
+            new Request('http://svc/v1/secrets/resolve', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${await mint()}` },
+            })
+        )
+        expect(res.status).toBe(200)
+
+        const stoppedAt = Date.now()
+        await server.stop('SIGTERM')
+
+        expect(events).toEqual(['drain draining=true', 'flush', 'pool.end'])
+        // The drain must not start before the prestop window has passed.
+        expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(25)
+    })
+
+    it('exits non-zero through the same graceful path on a crash', async () => {
+        const { server, events, exitCode } = await startServer()
+
+        await server.stop('uncaughtException', new Error('boom'))
+
+        expect(events).toEqual(['drain draining=true', 'pool.end'])
+        expect(exitCode()).toBe(1)
+    })
+
+    it('stops only once and removes its process listeners', async () => {
+        const before = process.listenerCount('SIGTERM')
+        const { server, events, exitCode } = await startServer()
+        expect(process.listenerCount('SIGTERM')).toBe(before + 1)
+
+        await server.stop('SIGTERM')
+        await server.stop('SIGTERM')
+
+        expect(process.listenerCount('SIGTERM')).toBe(before)
+        expect(events.filter((e) => e === 'pool.end')).toHaveLength(1)
+        expect(exitCode()).toBe(0)
+    })
+})
