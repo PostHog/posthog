@@ -576,8 +576,12 @@ jobs:
 
             # Unit tests for the harness's own verification logic — a
             # false-negative verifier would pass gates that lost data.
+            # Ignored tests need the Postgres this job already started,
+            # so they run here rather than in the plain test job.
             - name: Test the harness verification logic
-              run: cargo test -p personhog-test-harness
+              run: cargo test -p personhog-test-harness -- --include-ignored
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
 
             - name: Run the e2e gate
               run: |

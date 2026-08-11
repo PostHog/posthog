@@ -82,15 +82,15 @@ const STALE_ROW_AGE: Duration = Duration::from_secs(3600);
 pub async fn run(args: TrafficArgs) -> Result<()> {
     validate_args(&args)?;
 
-    // Multi-instance beds stride their team pair by ordinal, so N
-    // replicas own N disjoint team spaces with one configuration.
-    let ordinal = resolve_ordinal(args.instance_ordinal, std::env::var("POD_NAME").ok());
-    let team_id = args.team_id + args.team_stride * ordinal;
-    let hostile_team_id = args.hostile_team_id + args.team_stride * ordinal;
+    let team_id = args.team_id;
+    let hostile_team_id = args.hostile_team_id;
+    // Instances share the team pair; disjointness comes from the boot
+    // nonce in every distinct id, so verification (id-scoped) and the
+    // janitor (age-guarded) never cross instances.
+    let nonce = format!("{:08x}", rand::random::<u32>());
+    tracing::info!(%nonce, team_id, hostile_team_id, "instance identity");
 
     traffic_metrics::spawn_server(args.metrics_port)?;
-    gauge!("personhog_traffic_instance_ordinal").set(ordinal as f64);
-    tracing::info!(ordinal, team_id, hostile_team_id, "instance identity");
     gauge!("personhog_traffic_enabled").set(if args.enabled { 1.0 } else { 0.0 });
     if !args.enabled {
         // Deployed but switched off: stay alive and observable so the
@@ -124,10 +124,11 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // small (fixed keys, no journal growth) and their outcomes are only
     // observed, never verified.
     let hostile_ids = if args.hostile_rate > 0.0 {
-        // Boot-unique ids: a restart must insert fresh hostile rows, not
-        // revive the previous boot's tombstones.
-        let boot = std::process::id();
-        let distinct_ids: Vec<String> = (0..4).map(|i| format!("bed-hostile-{boot}-{i}")).collect();
+        // Nonce'd ids: a restart must insert fresh hostile rows, not
+        // revive the previous boot's tombstones, and a sibling instance
+        // must never resolve onto this one's rows.
+        let distinct_ids: Vec<String> =
+            (0..4).map(|i| format!("bed-hostile-{nonce}-{i}")).collect();
         Arc::new(seed::seed_persons_via_identity(&identity, hostile_team_id, &distinct_ids).await?)
     } else {
         Arc::new(Vec::new())
@@ -149,19 +150,14 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     }
 
     // Chaos is a singleton: N instances compounding kill cadences would
-    // roll the stack permanently, so only ordinal 0 runs it.
-    let chaos_here = args.chaos_enabled && ordinal == 0;
-    if args.chaos_enabled && !chaos_here {
-        tracing::info!(ordinal, "chaos enabled but deferred to ordinal 0");
-    }
-    gauge!("personhog_traffic_chaos_enabled").set(if chaos_here { 1.0 } else { 0.0 });
-    if chaos_here {
-        // Chaos runs for the process lifetime, independent of epochs:
-        // the bed is expected to stay correct while pods die under load.
-        let cfg = chaos_config(&args);
+    // roll the stack permanently, so a Postgres advisory lock elects
+    // exactly one killer and the rest stay candidates.
+    gauge!("personhog_traffic_chaos_enabled").set(0.0);
+    if args.chaos_enabled {
+        let args = args.clone();
         let shutdown = shutdown.clone();
         tokio::spawn(async move {
-            chaos::run(cfg, shutdown).await;
+            chaos_singleton(&args, shutdown).await;
         });
     }
 
@@ -187,10 +183,12 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
         }
 
-        // Fresh ids every epoch: each create inserts a new row rather
-        // than reviving the previous epoch's tombstone.
+        // Fresh ids every epoch, nonce'd per instance: each create
+        // inserts a new row rather than reviving a tombstone, and
+        // sibling instances on the shared team never resolve onto each
+        // other's rows.
         let distinct_ids: Vec<String> = (0..args.pool_size)
-            .map(|i| format!("bed-e{epoch}-p{i}"))
+            .map(|i| format!("bed-{nonce}-e{epoch}-p{i}"))
             .collect();
         let person_ids =
             Arc::new(seed::seed_persons_via_identity(&identity, team_id, &distinct_ids).await?);
@@ -302,18 +300,71 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 /// personhog charts follow: `app.kubernetes.io/name` equals the release
 /// (and namespace) name, and `component=app` excludes the pgbouncer
 /// sidecars sharing the namespace.
-/// Explicit ordinal wins; otherwise the trailing integer of a
-/// StatefulSet pod name; otherwise 0 (single instance, or a Deployment
-/// whose hash suffix is not an ordinal).
-fn resolve_ordinal(explicit: Option<i64>, pod_name: Option<String>) -> i64 {
-    if let Some(ordinal) = explicit {
-        return ordinal;
+/// The advisory-lock key electing the chaos singleton. Arbitrary and
+/// fixed: every bed instance in an environment competes for this one
+/// key on the persons database.
+const CHAOS_LOCK_KEY: i64 = 0x0070_6863_6861_6f73;
+
+/// Session-scoped chaos election. The winner holds a dedicated Postgres
+/// session for the process lifetime and runs chaos; losers retry on a
+/// slow cadence. A lost session releases the lock server-side, so the
+/// holder demotes itself when its heartbeat fails rather than killing
+/// pods alongside a new winner.
+async fn chaos_singleton(args: &TrafficArgs, shutdown: Arc<AtomicBool>) {
+    use sqlx::Connection;
+    const RETRY: Duration = Duration::from_secs(30);
+
+    while !shutdown.load(Ordering::SeqCst) {
+        let mut conn = match sqlx::postgres::PgConnection::connect(&args.persons_db_url).await {
+            Ok(conn) => conn,
+            Err(error) => {
+                tracing::warn!(%error, "chaos lock connection failed; retrying");
+                tokio::time::sleep(RETRY).await;
+                continue;
+            }
+        };
+        match try_acquire_chaos_lock(&mut conn).await {
+            Ok(true) => {
+                gauge!("personhog_traffic_chaos_enabled").set(1.0);
+                tracing::info!("chaos lock acquired; this instance runs chaos");
+                let chaos = chaos::run(chaos_config(args), shutdown.clone());
+                tokio::pin!(chaos);
+                let mut probe = tokio::time::interval(Duration::from_secs(15));
+                probe.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tokio::select! {
+                        _ = &mut chaos => break,
+                        _ = probe.tick() => {
+                            let alive = sqlx::query_scalar::<_, i32>("SELECT 1")
+                                .fetch_one(&mut conn)
+                                .await
+                                .is_ok();
+                            if !alive {
+                                tracing::warn!("chaos lock session lost; demoting to candidate");
+                                break;
+                            }
+                        }
+                    }
+                }
+                gauge!("personhog_traffic_chaos_enabled").set(0.0);
+            }
+            Ok(false) => {
+                tokio::time::sleep(RETRY).await;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "chaos lock probe failed; retrying");
+                tokio::time::sleep(RETRY).await;
+            }
+        }
     }
-    pod_name
-        .as_deref()
-        .and_then(|name| name.rsplit('-').next())
-        .and_then(|suffix| suffix.parse::<i64>().ok())
-        .unwrap_or(0)
+}
+
+async fn try_acquire_chaos_lock(conn: &mut sqlx::postgres::PgConnection) -> anyhow::Result<bool> {
+    let held = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1)")
+        .bind(CHAOS_LOCK_KEY)
+        .fetch_one(conn)
+        .await?;
+    Ok(held)
 }
 
 /// Delete the epoch's pool through the saga and account for every
@@ -529,26 +580,32 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
 
-    #[test]
-    fn ordinal_resolution_prefers_explicit_then_pod_name_then_zero() {
-        // Explicit wins over everything.
-        assert_eq!(resolve_ordinal(Some(7), Some("bed-3".to_string())), 7);
-        // A StatefulSet pod name's trailing integer.
-        assert_eq!(
-            resolve_ordinal(None, Some("personhog-bed-3".to_string())),
-            3
-        );
-        assert_eq!(resolve_ordinal(None, Some("bed-0".to_string())), 0);
-        // A Deployment hash suffix is not an ordinal.
-        assert_eq!(
-            resolve_ordinal(
-                None,
-                Some("personhog-test-harness-65f9f84b5d-d5mkd".to_string())
-            ),
-            0
-        );
-        // No identity at all: single instance.
-        assert_eq!(resolve_ordinal(None, None), 0);
+    /// Needs the CI gate's Postgres; run explicitly with `--ignored`.
+    #[tokio::test]
+    #[ignore = "needs a local persons database"]
+    async fn chaos_lock_is_exclusive_per_session_and_freed_on_disconnect() {
+        use sqlx::Connection;
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://posthog:posthog@localhost:5432/posthog_persons".to_string()
+        });
+        let mut holder = sqlx::postgres::PgConnection::connect(&url).await.unwrap();
+        let mut contender = sqlx::postgres::PgConnection::connect(&url).await.unwrap();
+
+        assert!(try_acquire_chaos_lock(&mut holder).await.unwrap());
+        assert!(!try_acquire_chaos_lock(&mut contender).await.unwrap());
+
+        // Closing the holder's session releases the lock server-side.
+        holder.close().await.unwrap();
+        let freed = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if try_acquire_chaos_lock(&mut contender).await.unwrap() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await;
+        assert!(freed.is_ok(), "lock not released after holder disconnect");
     }
 
     #[test]
@@ -557,8 +614,6 @@ mod tests {
             chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
             identity_url: "http://localhost:2".to_string(),
-            instance_ordinal: None,
-            team_stride: 10,
             enabled: true,
             team_id: 900_101,
             hostile_team_id: 900_102,
