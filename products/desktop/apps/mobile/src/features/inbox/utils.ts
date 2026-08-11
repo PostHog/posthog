@@ -40,3 +40,34 @@ export function sourceLine(signal: Signal): string {
   const product = warehouseSource?.label ?? source_product.replace(/_/g, " ");
   return `${product} · ${source_type.replace(/_/g, " ")}`;
 }
+
+/** Roughly four lines of prose at the card's font size. */
+const MAX_SUMMARY_EXCERPT_LENGTH = 320;
+
+/**
+ * Flattens a report summary's Markdown into the few lines of prose a swipe
+ * card can show.
+ *
+ * The card is a triage surface, not a reader — the full rendered summary is
+ * one tap away in the expanded view — so block syntax that only means
+ * something with real layout (headings, bullets, fences) is dropped rather
+ * than rendered, and the result is capped so a long summary can't cost a
+ * large text layout on every card in the stack. Underscores survive: they
+ * show up in identifiers far more often than as emphasis.
+ */
+export function summaryExcerpt(summary: string | null | undefined): string {
+  if (typeof summary !== "string") return "";
+  const flattened = summary
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/[*`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return flattened.length > MAX_SUMMARY_EXCERPT_LENGTH
+    ? `${flattened.slice(0, MAX_SUMMARY_EXCERPT_LENGTH).trimEnd()}…`
+    : flattened;
+}

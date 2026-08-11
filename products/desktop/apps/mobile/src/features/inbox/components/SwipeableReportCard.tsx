@@ -1,43 +1,17 @@
 import { Text } from "@components/text";
-import { inboxStatusLabel } from "@posthog/core/inbox/reportPresentation";
-import type {
-  SignalReport,
-  SignalReportPriority,
-  SignalReportStatus,
-} from "@posthog/shared/domain-types";
+import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { GithubLogo, Lightning } from "phosphor-react-native";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { Animated, PanResponder, Pressable, View } from "react-native";
-import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { formatRelativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme";
+import { SWIPE_COMMIT_THRESHOLD, stampOpacityRange } from "../swipeIntent";
+import { summaryExcerpt } from "../utils";
+import { ActionabilityBadge, PriorityBadge, StatusBadge } from "./ReportBadges";
 
-const SWIPE_THRESHOLD = 120;
 const TAP_THRESHOLD = 10;
-
-const statusColorMap: Record<string, { bg: string; text: string }> = {
-  ready: { bg: "bg-status-success/20", text: "text-status-success" },
-  pending_input: { bg: "bg-accent-3", text: "text-accent-11" },
-  in_progress: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  candidate: { bg: "bg-status-info/20", text: "text-status-info" },
-  potential: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  failed: { bg: "bg-status-error/20", text: "text-status-error" },
-  suppressed: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  deleted: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-const priorityColorMap: Record<
-  SignalReportPriority,
-  { bg: string; text: string }
-> = {
-  P0: { bg: "bg-status-error/20", text: "text-status-error" },
-  P1: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  P2: { bg: "bg-status-info/20", text: "text-status-info" },
-  P3: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  P4: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
 
 interface SwipeableReportCardProps {
   report: SignalReport;
@@ -49,28 +23,6 @@ interface SwipeableReportCardProps {
   stackOffset?: number;
   /** Repository slug to show at the bottom of the card. */
   repo?: string | null;
-}
-
-function StatusBadge({ status }: { status: SignalReportStatus }) {
-  const colors = statusColorMap[status] ?? statusColorMap.potential;
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${colors.bg}`}>
-      <Text className={`font-medium text-[11px] ${colors.text}`}>
-        {inboxStatusLabel(status)}
-      </Text>
-    </View>
-  );
-}
-
-function PriorityBadge({ priority }: { priority: SignalReportPriority }) {
-  const colors = priorityColorMap[priority] ?? priorityColorMap.P4;
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${colors.bg}`}>
-      <Text className={`font-medium text-[11px] ${colors.text}`}>
-        {priority}
-      </Text>
-    </View>
-  );
 }
 
 export function SwipeableReportCard({
@@ -112,7 +64,7 @@ export function SwipeableReportCard({
           return;
         }
 
-        if (gesture.dx > SWIPE_THRESHOLD) {
+        if (gesture.dx > SWIPE_COMMIT_THRESHOLD) {
           // Swipe right → accept
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           Animated.timing(translateX, {
@@ -122,7 +74,7 @@ export function SwipeableReportCard({
           }).start(() => {
             p.onAccept(p.report);
           });
-        } else if (gesture.dx < -SWIPE_THRESHOLD) {
+        } else if (gesture.dx < -SWIPE_COMMIT_THRESHOLD) {
           // Swipe left → dismiss
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           Animated.timing(translateX, {
@@ -157,17 +109,10 @@ export function SwipeableReportCard({
     extrapolate: "clamp",
   });
 
-  const acceptOpacity = translateX.interpolate({
-    inputRange: [0, 120],
-    outputRange: [0, 1],
-    extrapolate: "clamp",
-  });
-
-  const dismissOpacity = translateX.interpolate({
-    inputRange: [-120, 0],
-    outputRange: [1, 0],
-    extrapolate: "clamp",
-  });
+  // Same drag value drives both stamps, so they fade in exactly where
+  // `stampOpacity` says they should and hit full opacity at the commit point.
+  const acceptOpacity = translateX.interpolate(stampOpacityRange("accept"));
+  const dismissOpacity = translateX.interpolate(stampOpacityRange("dismiss"));
 
   const updatedAt = formatRelativeTime(Date.parse(report.updated_at));
 
@@ -201,22 +146,30 @@ export function SwipeableReportCard({
       }}
       {...panResponder.panHandlers}
     >
-      {/* Accept overlay — LEFT side (visible when tilting right) */}
+      {/* Intent stamps — corner-mounted and tilted, so the card says what
+          letting go will do before it happens. Accept sits on the left, the
+          edge that leads a rightward swipe; dismiss mirrors it. */}
       <Animated.View
-        className="absolute top-0 bottom-0 left-0 z-10 w-16 items-center justify-center rounded-l-2xl bg-status-success/30"
-        style={{ opacity: acceptOpacity }}
+        className="absolute top-5 left-4 z-10 rounded-lg border-2 border-status-success bg-status-success/15 px-3 py-1.5"
+        style={{ opacity: acceptOpacity, transform: [{ rotate: "-12deg" }] }}
         pointerEvents="none"
       >
-        <Text className="font-bold text-[28px] text-status-success">✓</Text>
+        <Text className="font-bold text-[20px] text-status-success uppercase">
+          Start task
+        </Text>
+        <Text className="text-[10px] text-status-success">
+          creates a PR if actionable
+        </Text>
       </Animated.View>
 
-      {/* Dismiss overlay — RIGHT side (visible when tilting left) */}
       <Animated.View
-        className="absolute top-0 right-0 bottom-0 z-10 w-16 items-center justify-center rounded-r-2xl bg-status-error/30"
-        style={{ opacity: dismissOpacity }}
+        className="absolute top-5 right-4 z-10 rounded-lg border-2 border-status-error bg-status-error/15 px-3 py-1.5"
+        style={{ opacity: dismissOpacity, transform: [{ rotate: "12deg" }] }}
         pointerEvents="none"
       >
-        <Text className="font-bold text-[28px] text-status-error">✗</Text>
+        <Text className="font-bold text-[20px] text-status-error uppercase">
+          Dismiss
+        </Text>
       </Animated.View>
 
       <Pressable
@@ -247,6 +200,11 @@ function CardContent({
   themeColors,
   repo,
 }: CardContentProps) {
+  const excerpt = useMemo(
+    () => summaryExcerpt(report.summary),
+    [report.summary],
+  );
+
   return (
     <View className="flex-1 p-4">
       {/* Title */}
@@ -257,19 +215,31 @@ function CardContent({
         {report.title ?? "Untitled report"}
       </Text>
 
-      {/* Badges row */}
+      {/* Badges row — the three facts that decide the swipe */}
       <View className="mt-2 flex-row flex-wrap items-center gap-1.5">
-        <StatusBadge status={report.status} />
         {report.priority && <PriorityBadge priority={report.priority} />}
+        <StatusBadge status={report.status} />
+        {report.actionability && (
+          <ActionabilityBadge value={report.actionability} />
+        )}
       </View>
 
-      {/* Summary — fills remaining space so footer sticks to the bottom */}
+      {/* Summary excerpt — plain text, clamped, so every card in the stack is
+          the same height and the footer stays put. The full rendered summary
+          is a tap away in the expanded view. */}
       <View className="mt-3 flex-1 overflow-hidden">
-        {report.summary && <MarkdownText content={report.summary} />}
+        {excerpt ? (
+          <Text
+            className="text-[13px] text-gray-11 leading-[19px]"
+            numberOfLines={4}
+          >
+            {excerpt}
+          </Text>
+        ) : null}
       </View>
 
       {/* Footer: signal count + time + repo */}
-      <View className="mt-3 flex-row items-center gap-3">
+      <View className="mt-3 flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
         <View className="flex-row items-center gap-1">
           <Lightning size={13} color={themeColors.gray[9]} weight="fill" />
           <Text className="text-[12px] text-gray-9">
@@ -281,7 +251,7 @@ function CardContent({
         {repo && (
           <>
             <Text className="text-[12px] text-gray-9">·</Text>
-            <View className="flex-row items-center gap-1 rounded-full border border-gray-6 bg-gray-2 px-2 py-0.5">
+            <View className="min-w-0 flex-row items-center gap-1 rounded-full border border-gray-6 bg-gray-2 px-2 py-0.5">
               <GithubLogo size={10} color={themeColors.gray[9]} weight="fill" />
               <Text className="text-[11px] text-gray-9" numberOfLines={1}>
                 {repo}

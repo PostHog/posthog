@@ -1,17 +1,17 @@
 import { Text } from "@components/text";
-import {
-  formatSignalReportSummaryMarkdown,
-  inboxStatusLabel,
-} from "@posthog/core/inbox/reportPresentation";
+import { formatSignalReportSummaryMarkdown } from "@posthog/core/inbox/reportPresentation";
 import { getModelConfigOption } from "@posthog/core/task-detail/composerControls";
-import type {
-  SignalReport,
-  SignalReportPriority,
-  SignalReportStatus,
-} from "@posthog/shared/domain-types";
+import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { Check, GithubLogo, Lightning, X } from "phosphor-react-native";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  GithubLogo,
+  Lightning,
+  X,
+} from "phosphor-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -44,55 +44,10 @@ import { getReportRepository } from "../api";
 import { useDismissReport } from "../hooks/useInboxReports";
 import { useDismissedReportsStore } from "../stores/dismissedReportsStore";
 import { useInboxStore } from "../stores/inboxStore";
+import { ActionabilityBadge, PriorityBadge, StatusBadge } from "./ReportBadges";
 import { SwipeableReportCard } from "./SwipeableReportCard";
 
 const log = logger.scope("tinder-view");
-
-// ─── Badge helpers (duplicated from SwipeableReportCard to avoid barrel exports) ───
-
-const statusColorMap: Record<string, { bg: string; text: string }> = {
-  ready: { bg: "bg-status-success/20", text: "text-status-success" },
-  pending_input: { bg: "bg-accent-3", text: "text-accent-11" },
-  in_progress: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  candidate: { bg: "bg-status-info/20", text: "text-status-info" },
-  potential: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  failed: { bg: "bg-status-error/20", text: "text-status-error" },
-  suppressed: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  deleted: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-const priorityColorMap: Record<
-  SignalReportPriority,
-  { bg: string; text: string }
-> = {
-  P0: { bg: "bg-status-error/20", text: "text-status-error" },
-  P1: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  P2: { bg: "bg-status-info/20", text: "text-status-info" },
-  P3: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  P4: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-function StatusBadge({ status }: { status: SignalReportStatus }) {
-  const colors = statusColorMap[status] ?? statusColorMap.potential;
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${colors.bg}`}>
-      <Text className={`font-medium text-[11px] ${colors.text}`}>
-        {inboxStatusLabel(status)}
-      </Text>
-    </View>
-  );
-}
-
-function PriorityBadge({ priority }: { priority: SignalReportPriority }) {
-  const colors = priorityColorMap[priority] ?? priorityColorMap.P4;
-  return (
-    <View className={`rounded-full px-2 py-0.5 ${colors.bg}`}>
-      <Text className={`font-medium text-[11px] ${colors.text}`}>
-        {priority}
-      </Text>
-    </View>
-  );
-}
 
 // ─── Empty state ───
 
@@ -374,6 +329,18 @@ export function TinderView({
                 );
               })}
           </View>
+
+          {/* Which way is which, before the first drag teaches it. */}
+          <View className="mt-3 flex-row items-center justify-between px-1">
+            <View className="flex-row items-center gap-1.5">
+              <ArrowLeft size={13} color={themeColors.gray[9]} weight="bold" />
+              <Text className="text-[12px] text-gray-9">Dismiss</Text>
+            </View>
+            <View className="flex-row items-center gap-1.5">
+              <Text className="text-[12px] text-gray-9">Start task</Text>
+              <ArrowRight size={13} color={themeColors.gray[9]} weight="bold" />
+            </View>
+          </View>
         </View>
       )}
 
@@ -451,9 +418,12 @@ export function TinderView({
               >
                 {/* Badges */}
                 <View className="mb-3 flex-row flex-wrap items-center gap-1.5">
-                  <StatusBadge status={expandedReport.status} />
                   {expandedReport.priority && (
                     <PriorityBadge priority={expandedReport.priority} />
+                  )}
+                  <StatusBadge status={expandedReport.status} />
+                  {expandedReport.actionability && (
+                    <ActionabilityBadge value={expandedReport.actionability} />
                   )}
                 </View>
 

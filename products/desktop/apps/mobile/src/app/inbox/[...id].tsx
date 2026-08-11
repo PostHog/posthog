@@ -4,10 +4,7 @@ import {
   isReportAwaitingInput,
 } from "@posthog/core/inbox/reportActionRules";
 import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
-import {
-  formatSignalReportSummaryMarkdown,
-  inboxStatusLabel,
-} from "@posthog/core/inbox/reportPresentation";
+import { formatSignalReportSummaryMarkdown } from "@posthog/core/inbox/reportPresentation";
 import { partitionSessionProblemSignals } from "@posthog/core/inbox/reportSignals";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { DISMISSAL_REASON_OPTIONS } from "@posthog/shared";
@@ -15,8 +12,6 @@ import type { InboxReportActionType } from "@posthog/shared/analytics-events";
 import type {
   ActionabilityJudgmentContent,
   SignalFindingContent,
-  SignalReportPriority,
-  SignalReportStatus,
   SuggestedReviewersArtefact,
 } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
@@ -53,6 +48,11 @@ import {
   DismissReportSheet,
 } from "@/features/inbox/components/DismissReportSheet";
 import { ReportActivity } from "@/features/inbox/components/ReportActivity";
+import {
+  ActionabilityBadge,
+  PriorityBadge,
+  StatusBadge,
+} from "@/features/inbox/components/ReportBadges";
 import { ReportFeedbackFooter } from "@/features/inbox/components/ReportFeedbackFooter";
 import { SignalCard } from "@/features/inbox/components/SignalCard";
 import {
@@ -71,77 +71,6 @@ import { computeReportAgeHours, useAnalytics } from "@/lib/analytics";
 import { formatRelativeTime } from "@/lib/format";
 import { modalTopOffset } from "@/lib/navigation";
 import { useThemeColors } from "@/lib/theme";
-
-const statusColorMap: Record<string, { bg: string; text: string }> = {
-  ready: { bg: "bg-status-success/20", text: "text-status-success" },
-  pending_input: { bg: "bg-accent-3", text: "text-accent-11" },
-  in_progress: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  candidate: { bg: "bg-status-info/20", text: "text-status-info" },
-  potential: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  failed: { bg: "bg-status-error/20", text: "text-status-error" },
-  resolved: { bg: "bg-status-success/20", text: "text-status-success" },
-  suppressed: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  deleted: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-const priorityColorMap: Record<string, { bg: string; text: string }> = {
-  P0: { bg: "bg-status-error/20", text: "text-status-error" },
-  P1: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  P2: { bg: "bg-status-warning/20", text: "text-status-warning" },
-  P3: { bg: "bg-gray-5/20", text: "text-gray-9" },
-  P4: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-const actionabilityColorMap: Record<string, { bg: string; text: string }> = {
-  immediately_actionable: {
-    bg: "bg-status-success/20",
-    text: "text-status-success",
-  },
-  requires_human_input: {
-    bg: "bg-status-warning/20",
-    text: "text-status-warning",
-  },
-  not_actionable: { bg: "bg-gray-5/20", text: "text-gray-9" },
-};
-
-const actionabilityLabel: Record<string, string> = {
-  immediately_actionable: "Actionable",
-  requires_human_input: "Needs input",
-  not_actionable: "Not actionable",
-};
-
-function StatusBadge({ status }: { status: SignalReportStatus }) {
-  const colors = statusColorMap[status] ?? statusColorMap.potential;
-  return (
-    <View className={`rounded px-2 py-1 ${colors.bg}`}>
-      <Text className={`font-medium text-[12px] ${colors.text}`}>
-        {inboxStatusLabel(status)}
-      </Text>
-    </View>
-  );
-}
-
-function PriorityBadge({ priority }: { priority: SignalReportPriority }) {
-  const colors = priorityColorMap[priority] ?? priorityColorMap.P3;
-  return (
-    <View className={`rounded px-2 py-1 ${colors.bg}`}>
-      <Text className={`font-medium text-[12px] ${colors.text}`}>
-        {priority}
-      </Text>
-    </View>
-  );
-}
-
-function ActionabilityBadge({ value }: { value: string }) {
-  const colors =
-    actionabilityColorMap[value] ?? actionabilityColorMap.not_actionable;
-  const label = actionabilityLabel[value] ?? value;
-  return (
-    <View className={`rounded px-2 py-1 ${colors.bg}`}>
-      <Text className={`font-medium text-[12px] ${colors.text}`}>{label}</Text>
-    </View>
-  );
-}
 
 export default function ReportDetailScreen() {
   // Catch-all route: `id` arrives as string[] for `/inbox/<uuid>/<slug>` and
@@ -451,10 +380,12 @@ export default function ReportDetailScreen() {
       >
         {/* Badges row */}
         <View className="mb-3 flex-row flex-wrap items-center gap-1.5">
-          <StatusBadge status={report.status} />
-          {report.priority && <PriorityBadge priority={report.priority} />}
+          <StatusBadge status={report.status} size="md" />
+          {report.priority && (
+            <PriorityBadge priority={report.priority} size="md" />
+          )}
           {report.actionability && (
-            <ActionabilityBadge value={report.actionability} />
+            <ActionabilityBadge value={report.actionability} size="md" />
           )}
           {report.is_suggested_reviewer && (
             <View className="rounded bg-status-warning/20 px-2 py-1">
