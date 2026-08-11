@@ -50,6 +50,9 @@ jobs:
             - name: Test-timings reporter tests (Python)
               run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
 
+            - name: Snapshot-deletion guard tests (Python)
+              run: python -m pytest .github/scripts/test_restore_unexercised_snapshots.py -v -c /dev/null -p no:cacheprovider --noconftest
+
             # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
             - name: Schema-impact tests (Node)
               run: node --test .github/scripts/schema-impact.test.js

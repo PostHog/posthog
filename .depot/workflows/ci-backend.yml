@@ -16,7 +16,10 @@
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
 #   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
-#   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
+#   auto-commit (handle-snapshots, plus the per-shard steps feeding it: snapshot patch
+#   generation and the restore-unexercised-snapshots guard that keeps deletions out of
+#   those patches; the shadow commits nothing, so there is no patch to sanitize),
+#   posthog-github-action telemetry (including the
 #   capture-test-selection job — select-tests still emits its telemetry outputs to
 #   stay apples-to-apples, they just have no consumer here),
 #   --store-durations write, test-selection verdict, Trunk flaky-test quarantine

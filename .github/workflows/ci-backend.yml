@@ -1128,6 +1128,17 @@ jobs:
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
+            - name: Restore snapshots this shard never exercised
+              # A shard that selects everything it collects lets syrupy delete snapshots owned
+              # by legs it never ran, so strip deletions before the patch is cut.
+              if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              shell: bash
+              run: |
+                  # An unrebased branch can run against a stale merge ref that lacks this script.
+                  if [ -f .github/scripts/restore_unexercised_snapshots.py ]; then
+                      python .github/scripts/restore_unexercised_snapshots.py
+                  fi
+
             - name: Generate snapshot patch
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
@@ -3216,6 +3227,17 @@ jobs:
               shell: bash
               run: |
                   .github/scripts/verify-new-snapshots.sh
+
+            - name: Restore snapshots this shard never exercised
+              # A shard that selects everything it collects lets syrupy delete snapshots owned
+              # by legs it never ran, so strip deletions before the patch is cut.
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              shell: bash
+              run: |
+                  # An unrebased branch can run against a stale merge ref that lacks this script.
+                  if [ -f .github/scripts/restore_unexercised_snapshots.py ]; then
+                      python .github/scripts/restore_unexercised_snapshots.py
+                  fi
 
             - name: Generate snapshot patch
               # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
