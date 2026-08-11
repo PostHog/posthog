@@ -163,7 +163,7 @@ describe('AIObservabilitySelfDriving', () => {
         expect(screen.getByText('4')).toBeInTheDocument()
         expect(screen.getAllByText('Never')).toHaveLength(1)
 
-        const evalReportsDocsLink = screen.getByRole('link', { name: /Learn more/ })
+        const evalReportsDocsLink = screen.getByText('Learn more').closest('a')
         expect(evalReportsDocsLink).toHaveAttribute(
             'href',
             'https://posthog.com/docs/ai-observability/self-driving#eval-reports'
