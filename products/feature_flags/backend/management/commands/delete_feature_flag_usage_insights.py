@@ -99,7 +99,7 @@ class _SweepOptions:
     keep_list_ids: frozenset[int]
 
 
-@dataclass
+@dataclass(frozen=False)
 class _SweepStats:
     deleted: int = 0
     kept: int = 0
