@@ -18,6 +18,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
 import { EVENT_LABEL_BAR_GAP, EVENT_LABEL_HEIGHT, EventMarkers } from './EventMarkers'
+import { SpikeStripes } from './SpikeStripes'
 import type {
     SparklineData,
     SparklineDatum,
@@ -95,8 +96,11 @@ export function VolumeSparkline({
                 // palette and brand variables these use hold the same value in light and dark.
                 color: resolveVariableColor(BAR_COLOR),
                 data: data.map((datum) => datum.value),
+                // Spikes are painted solid here and get their stripes from `SpikeStripes` rather than
+                // quill's `hatch`, whose bare-stripes-on-background fill is a de-emphasis treatment
+                // (for buckets still ingesting) and reads as unfinished rather than flagged.
                 bars: data.map((datum) =>
-                    datum.isSpike && datum.color ? { color: resolveVariableColor(datum.color), hatch: true } : {}
+                    datum.isSpike && datum.color ? { color: resolveVariableColor(datum.color) } : {}
                 ),
             },
         ],
@@ -188,6 +192,13 @@ export function VolumeSparkline({
                 dataAttr="error-tracking-volume-sparkline"
             >
                 <HoverReporter data={data} paused={eventHovered} onHoverBin={setHoveredBin} />
+                {hasSpikes && (
+                    <SpikeStripes
+                        data={data}
+                        minBarSize={LAYOUTS[layout].minBarSize}
+                        cornerRadius={LAYOUTS[layout].barCornerRadius}
+                    />
+                )}
                 {events.length > 0 && <EventMarkers events={events} dates={dates} onHover={onEventHover} />}
             </TimeSeriesBarChart>
         </div>

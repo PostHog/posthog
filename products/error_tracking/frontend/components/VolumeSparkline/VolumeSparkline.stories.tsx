@@ -76,6 +76,15 @@ export const EventsBeforeDataRange: Story = {
     },
 }
 
+export const DetailedWithSpikes: Story = {
+    args: {
+        data: withSpikes(buildData(), [20, 45]),
+        layout: 'detailed',
+        xAxis: 'full',
+        className: 'w-[800px] h-[200px]',
+    },
+}
+
 export const CompactIssuesList: Story = {
     args: {
         data: buildData(),
@@ -101,6 +110,13 @@ function buildData(
             date: dayJsStart.add(index * binSize, 'seconds').toDate(),
         }
     })
+}
+
+function withSpikes(data: SparklineData, indexes: number[]): SparklineData {
+    const spikes = new Set(indexes)
+    return data.map((datum, index) =>
+        spikes.has(index) ? { ...datum, isSpike: true, color: 'var(--brand-yellow)' } : datum
+    )
 }
 
 function buildEvents(firstDate: string, lastDate: string): SparklineEvent<string>[] {
