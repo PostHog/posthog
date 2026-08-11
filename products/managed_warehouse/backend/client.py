@@ -57,6 +57,13 @@ def make_duckgres_conninfo(
                 "service_credential carries no password: the CP reused a live grant. "
                 "Mint with force_rotate=True when you have no cached credential."
             )
+        expected_username = f"posthog_team_{team_id}_rw"
+        if service_credential.username != expected_username:
+            raise RuntimeError(
+                f"service_credential username {service_credential.username!r} does not match the "
+                f"canonical login {expected_username!r} for team {team_id}: the credential belongs "
+                "to a different team/org than the connection being built"
+            )
         config = get_duckgres_config_for_org(organization_id or _get_org_id_for_team(team_id))
         return make_conninfo(
             host=config["DUCKGRES_HOST"],

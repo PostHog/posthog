@@ -12,7 +12,7 @@ behavior change, not a contract improvement.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
@@ -55,7 +55,9 @@ class ServiceCredential:
     """
 
     username: str
-    password: str
+    # repr=False: a dataclass repr lands credentials into any traceback,
+    # pytest assertion diff, or log line that stringifies the object.
+    password: str = field(repr=False)
     expires_at: datetime
     rotated: bool
 
