@@ -290,8 +290,8 @@ export interface inboxOnboardingLogicMeta {
             verdictWaitExpired: boolean
         ) => boolean
         isRefetching: (
-            sourceConfigsLoading: any,
-            scoutConfigsLoading: any,
+            sourceConfigsLoading: boolean,
+            scoutConfigsLoading: boolean,
             pullsCountLoading: boolean,
             reportsCountLoading: boolean
         ) => boolean
@@ -303,7 +303,7 @@ export interface inboxOnboardingLogicMeta {
             bannerDismissed: boolean,
             isWizardRunning: boolean,
             isWizardStateResolved: boolean,
-            isRefetching: any
+            isRefetching: boolean
         ) => InboxOnboardingDecision
         resolvedOnboardingMode: (onboardingDecision: InboxOnboardingDecision) => InboxOnboardingMode
         lastSettledUiState: (
