@@ -4,6 +4,8 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Prefetch
 
+from posthog.hogql.database.s3_table import encode_s3_uri_path
+
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
@@ -70,10 +72,9 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             raise ValueError("Job does not have a schema")
 
     def url_pattern_by_schema(self, schema: str) -> str:
-        if settings.USE_LOCAL_SETUP:
-            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
-
-        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
+        scheme = "http" if settings.USE_LOCAL_SETUP else "https"
+        url = f"{scheme}://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
+        return encode_s3_uri_path(url)
 
 
 @database_sync_to_async

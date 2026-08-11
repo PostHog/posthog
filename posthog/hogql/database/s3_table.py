@@ -1,7 +1,7 @@
 import re
 from pathlib import PurePosixPath
 from typing import Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlsplit, urlunparse, urlunsplit
 
 from django.conf import settings
 
@@ -11,6 +11,21 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.clickhouse.client.escape import substitute_params
+
+
+def encode_s3_uri_path(url: str) -> str:
+    """Percent-encode the path of an S3 URL so ClickHouse's Poco::URI parser accepts it.
+
+    Imported table names can hold non-ASCII characters, and those characters reach the S3
+    object keys as raw UTF-8. A raw UTF-8 path makes Poco::URI reject the URI. This encoding
+    only changes how the path is written on the wire; ClickHouse decodes it back to the raw
+    key, so the objects do not move.
+
+    The `/` separators and the `**.parquet` glob stay literal. The function is idempotent
+    because `%` stays literal, so an already-encoded path is not encoded twice.
+    """
+    parts = urlsplit(url)
+    return urlunsplit(parts._replace(path=quote(parts.path, safe="/%*")))
 
 
 def build_function_call(
@@ -27,6 +42,8 @@ def build_function_call(
         access_key = settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
         access_secret = settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
 
+    url = encode_s3_uri_path(url)
+
     use_s3_cluster = False
     if table_size_mib is not None and table_size_mib >= 1024:  # 1 GiB
         use_s3_cluster = True
@@ -39,7 +56,7 @@ def build_function_call(
         parsed = urlparse(url)
         new_path = str(PurePosixPath(parsed.path).parent) + "/"
         new_url = urlunparse(parsed._replace(path=new_path))
-        url = new_url + queryable_folder + "/**.parquet"
+        url = new_url + quote(queryable_folder, safe="") + "/**.parquet"
         format = "Parquet"
 
     raw_params: dict[str, str] = {}

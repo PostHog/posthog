@@ -444,6 +444,36 @@ class TestS3Table(BaseTest):
             == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'key', 'secret', 'Parquet', 'some structure')"
         )
 
+    def test_s3_build_function_call_percent_encodes_non_ascii_path(self):
+        # A non-ASCII folder name reaches the S3 key as raw UTF-8, which Poco::URI rejects.
+        # The path must arrive percent-encoded so ClickHouse accepts the URI.
+        res = build_function_call(
+            "http://url.com/team_1/Ürün_Bilgileri_日本/schema/",
+            DataWarehouseTable.TableFormat.Parquet,
+            None,
+            "key",
+            "secret",
+            None,
+            None,
+        )
+        assert res == (
+            "s3('http://url.com/team_1/%C3%9Cr%C3%BCn_Bilgileri_%E6%97%A5%E6%9C%AC/schema/', 'key', 'secret', 'Parquet')"
+        )
+
+    def test_s3_build_function_call_percent_encodes_non_ascii_queryable_folder(self):
+        res = build_function_call(
+            "http://url.com/path/to/Ürün",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "Ürün__query_12345",
+            "key",
+            "secret",
+            None,
+            None,
+        )
+        assert res == (
+            "s3('http://url.com/path/to/%C3%9Cr%C3%BCn__query_12345/**.parquet', 'key', 'secret', 'Parquet')"
+        )
+
     def test_s3_build_function_call_with_debug_disabled(self):
         with (
             override_settings(DEBUG=False, TEST=False, USE_LOCAL_SETUP=False),
