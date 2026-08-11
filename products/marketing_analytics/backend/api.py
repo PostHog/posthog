@@ -4,6 +4,7 @@ from functools import reduce
 from operator import or_
 from typing import Any, Optional, cast
 
+from django.core.cache import cache
 from django.db import transaction
 
 import structlog
@@ -35,9 +36,10 @@ from posthog.api.mixins import validated_request
 from posthog.api.project import capture_team_config_diff
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.organization import OrganizationMembership
-from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.team.team import DEFAULT_CURRENCY, Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
@@ -52,11 +54,32 @@ from products.marketing_analytics.backend.services.data_source_health import get
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
+from products.marketing_analytics.backend.services.setup_plan import get_setup_plan
 from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UTM_ISSUE_KIND_CHOICES
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
+
+
+def _setup_enabled(team: Team) -> bool:
+    """Evaluate the Setup flag once per team instance.
+
+    Grouped on organization, matching how every other marketing-analytics flag is
+    evaluated, so a team can't disagree with its org. Cached on the instance because a
+    second call in the same request would fire a redundant `$feature_flag_called`.
+    """
+    cached = getattr(team, "_ma_setup_flag", None)
+    if cached is not None:
+        return cached
+    enabled = feature_enabled_or_false(
+        "marketing-analytics-setup",
+        str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        group_properties={"organization": {"id": str(team.organization.id)}},
+    )
+    team._ma_setup_flag = enabled  # type: ignore[attr-defined]
+    return enabled
 
 
 @extend_schema_field(
@@ -672,6 +695,115 @@ class MarketingDiagnosticResponseSerializer(serializers.Serializer):
     )
 
 
+class SetupPlanQuerySerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        required=False,
+        default="-30d",
+        help_text="Window for campaign spend and the UTM catalogue, as a relative range (e.g. '-30d'); defaults to -30d",
+    )
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Re-run every check instead of serving a recent result. Use right after changing something.",
+    )
+
+
+# The plan is roughly six ClickHouse queries deep, one of which unions every ad
+# adapter, so moving between Setup sections must not re-run it. Short enough that an
+# explicit rescan a minute later is genuinely fresh, and `refresh=true` skips it
+# outright for the "I just changed something" case.
+_SETUP_PLAN_CACHE_SECONDS = 60
+
+
+def _setup_plan_cache_key(team_id: int, user_id: int, date_from: str) -> str:
+    # Keyed on the window because the same team asking about a different range is a
+    # different question, and on the user because the plan is built from HogQL queries
+    # run as them — `execute_hogql_query(..., user=user)` applies warehouse access
+    # control, so two users can legitimately see different campaigns and spend. A
+    # team-wide entry would serve the first caller's view to everyone.
+    return f"marketing_analytics:setup_plan:{team_id}:{user_id}:{date_from}"
+
+
+class SuggestionSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        help_text="Stable identifier for this finding. Deterministic across scans, so clients can dedupe and remember dismissals by it."
+    )
+    kind = serializers.CharField(help_text="Suggestion kind, e.g. connect_source / add_source_mapping")
+    # Shadows `Field.source`, DRF's attribute-mapping name. Declaring it is fine — the
+    # field is read out of the dict by its own name — but mypy sees the base annotation.
+    source = serializers.CharField(  # type: ignore[assignment]
+        help_text="'deterministic' or 'ai' — how this suggestion was produced"
+    )
+    severity = serializers.CharField(help_text="error/warning/info")
+    confidence = serializers.FloatField(help_text="0-1. Never 1.0: these are inferences, not proofs.")
+    title = serializers.CharField(help_text="Short imperative title, e.g. 'Connect Meta Ads'")
+    evidence = serializers.CharField(
+        help_text="The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith"
+    )
+    unlocks = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Capabilities this unblocks: cost, attribution, roas, cac, retention_by_channel, ltv_by_channel",
+    )
+    # DRF has no discriminated-union field and fighting drf-spectacular for one isn't
+    # worth it. The shape is the `ApplyOp` union in `services/setup_types.py`, which is
+    # where the apply endpoint validates it with a Pydantic TypeAdapter.
+    apply = serializers.JSONField(
+        allow_null=True,
+        help_text=(
+            "The operation that applies this suggestion, or null when there's nothing to automate. "
+            "An object with an 'op' discriminator — see the ApplyOp union in setup_types. "
+            "Pass it verbatim to apply_setup_ops; never hand-craft one."
+        ),
+    )
+    also_recommended = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text=(
+            "Advice shown alongside the action. Mapping suggestions always carry a 'fix_platform_urls' entry, "
+            "because a mapping is a workaround and correcting the ad platform's tracking template is the real fix."
+        ),
+    )
+    safe_to_batch = serializers.BooleanField(
+        help_text="True only for high-confidence, reversible operations — what an 'apply all safe' button may include"
+    )
+    rank_score = serializers.FloatField(help_text="Ranking score; higher first. Unblocking actions dominate.")
+    integration = serializers.CharField(allow_null=True, help_text="Integration this concerns, if any")
+    deep_link = serializers.CharField(allow_null=True, help_text="In-app URL to resolve this manually, if any")
+    docs_url = serializers.CharField(allow_null=True, help_text="Documentation link, if any")
+    spend_at_risk = serializers.FloatField(help_text="Ad spend currently mis- or un-attributed because of this")
+    event_volume = serializers.IntegerField(help_text="Events affected in the window")
+
+
+class CapabilityReadinessSerializer(serializers.Serializer):
+    capability = serializers.CharField(help_text="cost/attribution/roas/cac/retention_by_channel/ltv_by_channel")
+    status = serializers.CharField(help_text="unlocked/partial/blocked")
+    explanation = serializers.CharField(help_text="Why it's in that state, in plain English")
+    blocked_by = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Suggestion ids that unblock this capability — the link from a blocked metric to its fixes",
+    )
+
+
+class SetupPlanResponseSerializer(serializers.Serializer):
+    suggestions = SuggestionSerializer(many=True, help_text="Ranked suggestions, most important first")
+    readiness = CapabilityReadinessSerializer(
+        many=True, help_text="Per-capability readiness, with the suggestions blocking each"
+    )
+    degraded = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Sub-services that failed. Their suggestions are missing, so do NOT present the plan as a "
+            "complete clean bill of health when this is non-empty."
+        ),
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "True when the campaign or UTM queries hit their row caps. Rates and totals are then top-N "
+            "subtotals — present them as approximate rather than exact."
+        )
+    )
+    summary = serializers.CharField(help_text="One-line summary of the plan")
+
+
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     # `marketing_analytics` is gated by the API scope of the same name and inherits
     # RBAC from `web_analytics` (see RESOURCE_INHERITANCE_MAP). Custom @action methods
@@ -1052,6 +1184,62 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             logger.exception("marketing_diagnose_failed", team_id=self.team.pk, source_type=source_type)
             return Response(
                 {"detail": "Failed to run marketing diagnostic. Check server logs for details."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @validated_request(
+        query_serializer=SetupPlanQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SetupPlanResponseSerializer,
+                description="Ranked, machine-applicable setup suggestions plus per-capability readiness",
+            ),
+            404: OpenApiResponse(description="The marketing-analytics-setup feature flag is off for this team"),
+        },
+        summary="Get the marketing analytics setup plan",
+        description=(
+            "Rank everything wrong with a team's marketing analytics setup into concrete suggestions, each "
+            "carrying the evidence behind it and — where one exists — an `apply` operation to pass straight "
+            "to apply_setup_ops, plus a `readiness` block saying which capabilities (cost, ROAS, cost per "
+            "customer, retention by channel) are unlocked and which suggestion is blocking each. Prefer this "
+            "over `diagnose` when the question is 'what should I fix next': diagnose explains what is wrong, "
+            "setup_plan says what to do about it in a form you can act on. Read-only."
+        ),
+    )
+    @action(methods=["GET"], detail=False, url_path="setup_plan", required_scopes=["marketing_analytics:read"])
+    def setup_plan(self, request: Request, *args, **kwargs) -> Response:
+        # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
+        if not _setup_enabled(self.team):
+            raise NotFound("Marketing analytics setup is not enabled for this project.")
+
+        date_from = request.validated_query_data["date_from"]
+        # `IsAuthenticated` on the viewset rules out AnonymousUser, which is the only
+        # reason `.pk` is optional here.
+        user = cast(User, request.user)
+        cache_key = _setup_plan_cache_key(self.team.pk, user.pk, date_from)
+        if not request.validated_query_data["refresh"]:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(SetupPlanResponseSerializer(cached).data)
+        try:
+            plan = async_to_sync(get_setup_plan)(
+                self.team,
+                date_from=date_from,
+                user=user,
+            )
+            # `model_dump(mode="json")` so the Pydantic op models inside each suggestion
+            # come out as plain JSON — the serializer exposes them as JSONField.
+            payload = plan.model_dump(mode="json")
+            # Only a complete plan is worth reusing. A degraded one is missing whole
+            # checks, and caching it would keep serving those gaps for a minute after
+            # whatever caused them has recovered.
+            if not plan.degraded:
+                cache.set(cache_key, payload, _SETUP_PLAN_CACHE_SECONDS)
+            return Response(SetupPlanResponseSerializer(payload).data)
+        except Exception:
+            logger.exception("marketing_setup_plan_failed", team_id=self.team.pk)
+            return Response(
+                {"detail": "Failed to build the setup plan. Check server logs for details."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
