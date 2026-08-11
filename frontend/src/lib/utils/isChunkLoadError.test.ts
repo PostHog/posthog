@@ -1,4 +1,4 @@
-import { isChunkLoadError } from './isChunkLoadError'
+import { isChunkLoadError, isModuleParseError } from './isChunkLoadError'
 
 describe('isChunkLoadError', () => {
     it.each([
@@ -43,5 +43,21 @@ describe('isChunkLoadError', () => {
         ['number', 42],
     ])('returns false for non-object %s', (_label, value) => {
         expect(isChunkLoadError(value)).toBe(false)
+    })
+
+    describe('isModuleParseError', () => {
+        it.each([
+            ['Chrome parse failure', { name: 'SyntaxError', message: 'Invalid or unexpected token' }, true],
+            ['Firefox parse failure', { name: 'SyntaxError', message: "expected expression, got '<'" }, true],
+            ['Safari parse failure', { name: 'SyntaxError', message: "Unexpected token '<'" }, true],
+            ['SyntaxError from our own code', { name: 'SyntaxError', message: 'Unexpected end of JSON input' }, false],
+            [
+                'non-SyntaxError with the same message',
+                { name: 'TypeError', message: 'Invalid or unexpected token' },
+                false,
+            ],
+        ])('classifies %s', (_label, error, expected) => {
+            expect(isModuleParseError(error)).toBe(expected)
+        })
     })
 })

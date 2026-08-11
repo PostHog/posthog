@@ -62,4 +62,24 @@ describe('retryImport', () => {
         await expect(retryImport(factory)).rejects.toThrow('undefined is not a function')
         expect(factory).toHaveBeenCalledTimes(1)
     })
+
+    it('retries a chunk that parsed as HTML and marks it for the boundary', async () => {
+        const parseError = new SyntaxError('Invalid or unexpected token')
+        const factory = jest.fn().mockRejectedValueOnce(parseError).mockResolvedValue('module')
+
+        const promise = retryImport(factory)
+        await jest.runAllTimersAsync()
+
+        await expect(promise).resolves.toBe('module')
+        expect(factory).toHaveBeenCalledTimes(2)
+        // The boundary reloads once on the same error object if the retry never succeeds.
+        expect(isChunkLoadError(parseError)).toBe(true)
+    })
+
+    it('rethrows a genuine SyntaxError without retrying', async () => {
+        const factory = jest.fn().mockRejectedValue(new SyntaxError('Unexpected end of JSON input'))
+
+        await expect(retryImport(factory)).rejects.toThrow('Unexpected end of JSON input')
+        expect(factory).toHaveBeenCalledTimes(1)
+    })
 })

@@ -6,6 +6,11 @@
  *   - Firefox: native `TypeError: NetworkError when attempting to fetch resource.`
  *   - Firefox: native `TypeError: error loading dynamically imported module: <url>` (deferred import of a now-deleted chunk after a deploy)
  *   - WebKit/Safari: `Importing a module script failed.` (module script fails to load, e.g. transient network failure)
+ *
+ * One more shape is not matched below, because it only makes sense once you know the error came from
+ * an `import()`: a `SyntaxError` from a chunk that downloaded but failed to parse. `retryImport`
+ * recognizes that shape with `isModuleParseError` and marks it, because there the error is known to
+ * come from a lazy import. Matching the message here would swallow a genuine parse bug in our own code.
  */
 const markedChunkLoadErrors = new WeakSet<object>()
 
@@ -31,5 +36,33 @@ export function isChunkLoadError(error: unknown): boolean {
         (isTypeError && message.includes('Load failed')) ||
         (isTypeError && message.includes('NetworkError when attempting to fetch resource')) ||
         (isTypeError && message.includes('error loading dynamically imported module'))
+    )
+}
+
+/**
+ * Recognizes a `SyntaxError` from a dynamic `import()` whose chunk downloaded but failed to parse.
+ * A deploy deletes the content-hashed chunk, so a proxy answers with an HTML error page, and the
+ * browser parses that HTML as JavaScript and rejects it. Each engine reports the parse failure with
+ * its own wording:
+ *   - Chrome/V8: `Invalid or unexpected token`
+ *   - Firefox/SpiderMonkey: `expected expression, got '<'`
+ *   - Safari/JavaScriptCore: `Unexpected token '<'`
+ *
+ * Only `retryImport` calls this, where the error is known to come from an import factory. A real
+ * `SyntaxError` in our own code never reaches it, so it is not mistaken for a chunk-load failure.
+ */
+export function isModuleParseError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false
+    }
+    const err = error as { name?: string; message?: string }
+    if (err.name !== 'SyntaxError') {
+        return false
+    }
+    const message = typeof err.message === 'string' ? err.message : ''
+    return (
+        message.includes('Invalid or unexpected token') ||
+        message.includes('expected expression, got') ||
+        message.includes("Unexpected token '<'")
     )
 }
