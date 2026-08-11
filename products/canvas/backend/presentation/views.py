@@ -888,10 +888,19 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @staticmethod
     def _is_sandbox_authenticated(request: Request) -> bool:
-        """True when the request bears an OAuth token minted under a sandbox app —
-        the credential a task sandbox (via the MCP server) calls this API with."""
+        """True when the request bears an OAuth token minted for a task sandbox —
+        the credential a task sandbox (via the MCP server) calls this API with.
+
+        The token's bound ``sandbox_task_id`` is the discriminator, not the application:
+        the sandbox apps also issue the desktop app's interactive grants, so matching on
+        client id alone treats every desktop user as a sandbox with no task to scope to.
+        Only the server sets ``sandbox_task_id``, so a consent-flow grant never carries it.
+        """
         authenticator = request.successful_authenticator
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             return False
-        application = authenticator.access_token.application
+        access_token = authenticator.access_token
+        if access_token.sandbox_task_id is None:
+            return False
+        application = access_token.application
         return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
