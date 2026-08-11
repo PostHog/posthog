@@ -266,6 +266,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 tooltip="Switch organization"
                                 tooltipPlacement="right"
                                 aria-label="Switch organization"
+                                data-attr="top-menu-other-organizations"
                             >
                                 <IconBlank />
                                 Other organizations
