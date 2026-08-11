@@ -1,13 +1,22 @@
 import { NEW_SURVEY } from 'scenes/surveys/constants'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, SurveyEventProperties, SurveyQuestionType } from '~/types'
+import {
+    EventPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+    SurveyEventName,
+    SurveyEventProperties,
+    SurveyQuestionType,
+} from '~/types'
 
 import {
     buildLastSurveyResponseQuery,
     getDefaultSurveyMessage,
+    mergeResponseFiltersIntoExistingFilters,
     remapSurveyResponseProperties,
 } from './surveyNotificationModalLogic'
+import { getSurveyNotificationFilters } from './utils'
 
 describe('surveyNotificationModalLogic', () => {
     it('includes survey status text in the default notification message', () => {
@@ -120,5 +129,29 @@ describe('surveyNotificationModalLogic', () => {
                 },
             },
         })
+    })
+
+    it('keeps a restriction added outside the modal when rebuilding the sent branches', () => {
+        const customRestriction: EventPropertyFilter = {
+            key: '$browser',
+            type: PropertyFilterType.Event,
+            value: 'Chrome',
+            operator: PropertyOperator.Exact,
+        }
+        const saved = getSurveyNotificationFilters('survey-abc', false)
+        saved.events![0].properties = [...(saved.events![0].properties ?? []), customRestriction]
+
+        const merged = mergeResponseFiltersIntoExistingFilters(
+            saved,
+            getSurveyNotificationFilters('survey-abc', false),
+            []
+        )
+
+        const sentBranches = merged?.events?.filter((event) => event.id === SurveyEventName.SENT)
+        expect(sentBranches).toHaveLength(2)
+        // Properties are AND'd, so losing this on one branch would widen delivery.
+        for (const branch of sentBranches ?? []) {
+            expect(branch.properties).toContainEqual(customRestriction)
+        }
     })
 })

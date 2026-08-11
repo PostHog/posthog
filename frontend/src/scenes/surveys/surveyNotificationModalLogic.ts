@@ -18,6 +18,7 @@ import { NEW_SURVEY } from 'scenes/surveys/constants'
 import {
     SurveyResponseFilter,
     buildResponseFilterProperties,
+    isSurveyResponsePropertyKey,
     parseResponseFiltersFromProperties,
 } from 'scenes/surveys/responseFilters'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -31,6 +32,7 @@ import { urls } from 'scenes/urls'
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
+    CyclotronJobFilterEvents,
     CyclotronJobInvocationGlobals,
     CyclotronJobTestInvocationResult,
     EventPropertyFilter,
@@ -696,7 +698,25 @@ function createSurveyNotificationPayload({
     }
 }
 
-function mergeResponseFiltersIntoExistingFilters(
+// Everything this modal writes onto a sent branch. Anything else was added elsewhere, so it has
+// to survive a rebuild: per-event properties are AND'd, and dropping a restriction widens which
+// responses reach the destination.
+const MODAL_MANAGED_SENT_PROPERTY_KEYS = new Set<string>([
+    SurveyEventProperties.SURVEY_ID,
+    SurveyEventProperties.SURVEY_COMPLETED,
+])
+
+function getCustomSentProperties(
+    filters: HogFunctionType['filters']
+): NonNullable<CyclotronJobFilterEvents['properties']> {
+    const savedSentEvent = (filters?.events ?? []).find((event) => event.id === SurveyEventName.SENT)
+    return (savedSentEvent?.properties ?? []).filter((property) => {
+        const key = 'key' in property && typeof property.key === 'string' ? property.key : null
+        return key === null || (!MODAL_MANAGED_SENT_PROPERTY_KEYS.has(key) && !isSurveyResponsePropertyKey(key))
+    })
+}
+
+export function mergeResponseFiltersIntoExistingFilters(
     existingFilters: HogFunctionType['filters'],
     fallbackFilters: HogFunctionType['filters'],
     responseFilters: SurveyResponseFilter[]
@@ -706,16 +726,17 @@ function mergeResponseFiltersIntoExistingFilters(
         return fallbackFilters
     }
     const responseProperties = buildResponseFilterProperties(responseFilters)
-    // Sent branches come from the freshly built filters rather than the saved ones, so re-saving
-    // repairs a notification stored before the completion branches were corrected. Hand-edited
-    // properties on a sent branch don't survive that, which is the cost of making an unfireable
-    // notification fixable from this modal.
+    // Sent branches are rebuilt from the freshly built filters rather than preserved, so re-saving
+    // repairs a notification stored before the completion branches were corrected.
+    const customProperties = getCustomSentProperties(base)
     const rebuiltSentEvents = (fallbackFilters?.events ?? [])
         .filter((event) => event.id === SurveyEventName.SENT)
-        .map((event) => ({
-            ...event,
-            properties: [...(event.properties ?? []), ...responseProperties],
-        }))
+        .map(
+            (event): CyclotronJobFilterEvents => ({
+                ...event,
+                properties: [...(event.properties ?? []), ...customProperties, ...responseProperties],
+            })
+        )
     const preservedEvents = (base.events ?? []).filter((event) => event.id !== SurveyEventName.SENT)
     return { ...base, events: [...rebuiltSentEvents, ...preservedEvents] }
 }
