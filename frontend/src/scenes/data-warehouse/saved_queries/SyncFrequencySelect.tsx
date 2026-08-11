@@ -69,7 +69,10 @@ export function SyncFrequencySelect({
 }: SyncFrequencySelectProps): JSX.Element {
     const options = buildOptions(bounds)
     const explanation = buildExplanation(bounds)
-    const reason = disabledReason ?? (bounds ? MODE_DISABLED_REASONS[bounds.frequency_mode] : undefined)
+    const reason =
+        disabledReason ??
+        unsatisfiableReason(bounds) ??
+        (bounds ? MODE_DISABLED_REASONS[bounds.frequency_mode] : undefined)
 
     return (
         <div className="flex flex-col gap-1">
@@ -114,12 +117,46 @@ function blockedReason(option: SyncFrequencyBoundsApi['options'][number], bounds
 }
 
 /**
+ * Why no cadence at all can be picked, when a view's lineage leaves an empty range.
+ *
+ * Not the same as having no bounds: an empty `options` list means unbounded, while options that are
+ * all blocked mean a floor above the ceiling, which the backend refuses whatever gets submitted.
+ * Callers offering a Materialize action must gate it on this, since there is nothing to fall back to.
+ */
+export function unsatisfiableReason(bounds?: SyncFrequencyBoundsApi | null): string | null {
+    if (!bounds?.options.length || bounds.options.some((option) => option.allowed)) {
+        return null
+    }
+
+    const source = bounds.floor?.blocker?.name ?? 'the sources this query reads'
+    const consumer = bounds.ceiling?.blocker?.name ?? 'a view or endpoint built on this one'
+    if (bounds.floor && bounds.ceiling) {
+        return (
+            `No cadence works here: ${source} only delivers new data every ${bounds.floor.label}, ` +
+            `but ${consumer} needs data no older than ${bounds.ceiling.label}. ` +
+            `Slow down ${consumer} or speed up ${source}.`
+        )
+    }
+    if (bounds.floor) {
+        return (
+            `No cadence works here: ${source} only delivers new data every ${bounds.floor.label}, ` +
+            `slower than any cadence this can be set to. Speed up ${source} first.`
+        )
+    }
+    if (bounds.ceiling) {
+        return `No cadence works here: ${consumer} needs data no older than ${bounds.ceiling.label}.`
+    }
+    return 'No cadence works here.'
+}
+
+/**
  * A cadence to start a never-materialized view on, given what its lineage allows.
  *
  * `preferred` is a fixed default, so on a view with a sub-daily consumer it names a cadence the
  * backend refuses — the picker would open on a greyed-out row and Materialize would 400. Falls back
  * to the coarsest allowed cadence no coarser than `preferred`, so a first run stays as cheap as the
- * lineage permits.
+ * lineage permits. When nothing is allowed there is no such fallback, so it returns `preferred`
+ * unchanged and `unsatisfiableReason` is what keeps the action out of reach.
  */
 export function defaultCadenceWithin(
     bounds: SyncFrequencyBoundsApi | null | undefined,

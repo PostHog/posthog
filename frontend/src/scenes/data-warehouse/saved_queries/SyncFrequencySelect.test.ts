@@ -1,6 +1,6 @@
 import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import { buildExplanation, buildOptions, defaultCadenceWithin } from './SyncFrequencySelect'
+import { buildExplanation, buildOptions, defaultCadenceWithin, unsatisfiableReason } from './SyncFrequencySelect'
 
 describe('SyncFrequencySelect', () => {
     const blocker = (name: string): { id: string; name: string } => ({ id: `id-${name}`, name })
@@ -72,6 +72,40 @@ describe('SyncFrequencySelect', () => {
 
         it('leaves the preferred cadence alone when there are no bounds to honor', () => {
             expect(defaultCadenceWithin(null, '24hour')).toBe('24hour')
+        })
+    })
+
+    describe('unsatisfiableReason', () => {
+        const nothingAllowed = (overrides: Partial<SyncFrequencyBoundsApi> = {}): SyncFrequencyBoundsApi =>
+            bounds({
+                options: ['15min', '6hour', '24hour'].map((cadence) => ({
+                    cadence,
+                    allowed: false,
+                    blocked_by: null,
+                    blocker: null,
+                })),
+                ...overrides,
+            } as Partial<SyncFrequencyBoundsApi>)
+
+        it('names both ends and what to change when the bounds cross', () => {
+            // Every cadence blocked means Materialize would 400 whatever the picker had selected.
+            expect(unsatisfiableReason(nothingAllowed())).toBe(
+                'No cadence works here: stripe_invoices only delivers new data every 6 hours, ' +
+                    'but daily_revenue needs data no older than 12 hours. ' +
+                    'Slow down daily_revenue or speed up stripe_invoices.'
+            )
+        })
+
+        it('asks for the source to speed up when only a floor blocks every cadence', () => {
+            expect(unsatisfiableReason(nothingAllowed({ ceiling: null }))).toBe(
+                'No cadence works here: stripe_invoices only delivers new data every 6 hours, ' +
+                    'slower than any cadence this can be set to. Speed up stripe_invoices first.'
+            )
+        })
+
+        it('stays silent while any cadence is still allowed', () => {
+            expect(unsatisfiableReason(bounds())).toBeNull()
+            expect(unsatisfiableReason(null)).toBeNull()
         })
     })
 

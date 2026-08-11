@@ -27,7 +27,12 @@ import {
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
-import { SyncFrequencySelect, SyncFrequencyValue, defaultCadenceWithin } from './SyncFrequencySelect'
+import {
+    SyncFrequencySelect,
+    SyncFrequencyValue,
+    defaultCadenceWithin,
+    unsatisfiableReason,
+} from './SyncFrequencySelect'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
@@ -143,6 +148,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
     const startingFrequency = defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency)
+    const noCadenceReason = unsatisfiableReason(savedQuery.sync_frequency_bounds)
 
     // Prefer the serving engine's entry when several engines are suspended.
     const suspension = savedQuery.suspended
@@ -289,7 +295,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         onClick={() => materializeDataWarehouseSavedQuery(viewId, startingFrequency)}
                                         type="primary"
                                         loading={updatingDataWarehouseSavedQuery}
-                                        disabledReason={materializationAccessReason}
+                                        disabledReason={materializationAccessReason || noCadenceReason}
                                     >
                                         Materialize
                                     </LemonButton>
