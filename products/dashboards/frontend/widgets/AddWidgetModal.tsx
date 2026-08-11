@@ -9,6 +9,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -29,6 +30,7 @@ import {
     getAddWidgetDisabledReason,
     submitAddWidgetPayloads,
 } from './addWidgetModalUtils'
+import { isDashboardWidgetTypeCreatable } from './live/liveWidgetTypes'
 import { WidgetTypePickerCard } from './WidgetTypePickerCard'
 
 export type { AddWidgetPayload }
@@ -76,8 +78,13 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
     const { addWidgetSelectedTypes, addWidgetCollapsedGroups } = useValues(dashboardLogic)
     const { toggleAddWidgetSelectedType, toggleAddWidgetCollapsedGroup } = useActions(dashboardLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const selectedTypes = new Set(addWidgetSelectedTypes)
     const collapsedGroups = new Set(addWidgetCollapsedGroups)
+    const availableGroups = DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => ({
+        ...group,
+        widgets: group.widgets.filter(({ widgetType }) => isDashboardWidgetTypeCreatable(widgetType, featureFlags)),
+    })).filter((group) => group.widgets.length > 0)
 
     const selectedCount = selectedTypes.size
 
@@ -86,7 +93,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
     }
 
     function handleAddWidgets(): void {
-        void submitAddWidgetPayloads(selectedTypes, onAdd, onClose)
+        void submitAddWidgetPayloads(selectedTypes, featureFlags, onAdd, onClose)
     }
 
     function handleFeedbackClicked(): void {
@@ -136,7 +143,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                     className="grid grid-cols-1 @min-[56rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
                     aria-label="Widget types"
                 >
-                    {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => {
+                    {availableGroups.map((group, groupIndex) => {
                         const productIntro = getDashboardWidgetGroupProductIntro(group.groupId)
                         // Nudge only when the product's setup requirement (a project setting) is unmet.
                         const showProductIntro =
