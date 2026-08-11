@@ -118,6 +118,14 @@ describe('the authorized urls list logic', () => {
                 proposedUrlValidationErrors: { url: 'Please enter a valid URL' },
             })
         })
+
+        it('strips surrounding whitespace from a URL before saving it', async () => {
+            jest.spyOn(api, 'update').mockResolvedValue({})
+            logic.actions.setProposedUrlValue('url', 'https://fresh.example.com ')
+            await expectLogic(logic, () => {
+                logic.actions.submitProposedUrl()
+            }).toDispatchActions([logic.actionCreators.addUrl('https://fresh.example.com')])
+        })
     })
 
     describe('checkUrlIsAuthorized', () => {
