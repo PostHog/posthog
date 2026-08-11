@@ -23,10 +23,10 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<SurveyNotebookWidgetAttributes>): JSX.Element => {
+function SurveyNotebookToolbar({ attributes }: NotebookNodeProps<SurveyNotebookWidgetAttributes>): null {
     const { id } = attributes
-    const { survey, surveyLoading, targetingFlagFilters, surveyMissing } = useValues(surveyLogic({ id }))
-    const { expanded, nextNode } = useValues(notebookNodeLogic)
+    const { survey } = useValues(surveyLogic({ id }))
+    const { nextNode } = useValues(notebookNodeLogic)
     const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
@@ -46,9 +46,17 @@ const Component = ({ attributes }: NotebookNodeProps<SurveyNotebookWidgetAttribu
     }, [survey])
 
     useEffect(() => {
-        setTitlePlaceholder(survey.name ? `Survey: ${survey.name}` : 'Survey')
+        setTitlePlaceholder(survey.name || 'Survey')
         // oxlint-disable-next-line exhaustive-deps
     }, [survey.name])
+
+    return null
+}
+
+const Component = ({ attributes }: NotebookNodeProps<SurveyNotebookWidgetAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { survey, surveyLoading, targetingFlagFilters, surveyMissing } = useValues(surveyLogic({ id }))
+    const { expanded } = useValues(notebookNodeLogic)
 
     if (surveyMissing) {
         return <NotFound object="survey" />
@@ -112,7 +120,9 @@ const Component = ({ attributes }: NotebookNodeProps<SurveyNotebookWidgetAttribu
 export const NotebookNodeSurvey = createPostHogWidgetNode<SurveyNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.Survey,
     titlePlaceholder: 'Survey',
+    editableTitle: false,
     Component,
+    ToolbarComponent: SurveyNotebookToolbar,
     heightEstimate: '3rem',
     href: (attrs) => urls.survey(attrs.id),
     resizeable: false,

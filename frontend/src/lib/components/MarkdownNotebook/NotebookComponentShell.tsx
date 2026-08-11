@@ -157,8 +157,27 @@ export function NotebookComponentShell({
         }),
         [componentPanels, showEditPanel, showViewPanel]
     )
-    const toolbarMenuItems = toolbarExtras?.menuItems?.some(Boolean) ? toolbarExtras.menuItems : null
-    const toolbarActions = mode === 'edit' && toolbarExtras?.actions.length ? toolbarExtras.actions : null
+    const toolbarMenuItems = [
+        showResourceLink
+            ? {
+                  label: `Open ${titleDisplay.label.charAt(0).toLocaleLowerCase()}${titleDisplay.label.slice(1)} in new tab`,
+                  icon: <IconExternal />,
+                  to: href ?? '',
+                  targetBlank: true,
+              }
+            : null,
+        ...(mode === 'edit'
+            ? (toolbarExtras?.actions.map((action) => ({
+                  label: action.text,
+                  icon: action.icon,
+                  disabledReason: action.disabledReason,
+                  onClick: action.onClick,
+              })) ?? [])
+            : []),
+        ...(toolbarExtras?.menuItems ?? []),
+        ...(mode === 'edit' ? (toolbarExtras?.editMenuItems ?? []) : []),
+    ]
+    const hasToolbarMenu = toolbarMenuItems.some(Boolean)
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
     const [isEditingTitle, setIsEditingTitle] = useState(false)
     // A browser fires two `click`s before `dblclick`. Defer the title's collapse so a rename
@@ -468,7 +487,7 @@ export function NotebookComponentShell({
                         {titleStatusTag}
                     </div>
                 ) : null}
-                {showResourceLink || mode === 'edit' || toolbarMenuItems || showCollapseToggle ? (
+                {hasToolbarMenu || mode === 'edit' || showCollapseToggle ? (
                     <div className="MarkdownNotebook__component-actions">
                         {showCollapseToggle ? (
                             <LemonButton
@@ -479,7 +498,7 @@ export function NotebookComponentShell({
                                 onClick={toggleAllComponentPanels}
                             />
                         ) : null}
-                        {toolbarMenuItems ? (
+                        {hasToolbarMenu ? (
                             <LemonMenu items={toolbarMenuItems} placement="bottom-end">
                                 <LemonButton
                                     aria-label="More actions"
@@ -488,16 +507,6 @@ export function NotebookComponentShell({
                                     tooltip="More actions"
                                 />
                             </LemonMenu>
-                        ) : null}
-                        {showResourceLink ? (
-                            <LemonButton
-                                aria-label="Open in new tab"
-                                size="xsmall"
-                                icon={<IconExternal />}
-                                tooltip="Open in new tab"
-                                to={href ?? undefined}
-                                targetBlank
-                            />
                         ) : null}
                         {mode === 'edit' ? (
                             <LemonButton
@@ -552,21 +561,6 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                 </ComponentPanelContext.Provider>
-                {toolbarActions ? (
-                    <div className="MarkdownNotebook__component-custom-actions">
-                        {toolbarActions.map((action, index) => (
-                            <LemonButton
-                                key={index}
-                                size="xsmall"
-                                type="secondary"
-                                icon={action.icon}
-                                onClick={action.onClick}
-                            >
-                                {action.text}
-                            </LemonButton>
-                        ))}
-                    </div>
-                ) : null}
             </NotebookComponentToolbarExtrasContext.Provider>
         </div>
     )

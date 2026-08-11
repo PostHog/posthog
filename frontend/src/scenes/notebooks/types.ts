@@ -115,6 +115,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     'updateAttributes'
 > & {
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
+    ToolbarComponent?: (props: NotebookNodeProps<T>) => JSX.Element | null
     attributes: Record<keyof T, NotebookNodeAttributeConfig>
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
     defaultView?: PostHogWidgetDefaultView
@@ -136,6 +137,8 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         /** Expand the node if the component is clicked */
         expandOnClick?: boolean
         settingsPlacement?: NotebookNodeSettingsPlacement
+        defaultView?: PostHogWidgetDefaultView
+        views?: PostHogWidgetViews<T>
     }
 
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
@@ -164,7 +167,7 @@ export type NotebookNodeSettings =
     // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
     (({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element) | null
 
-export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
+export type NotebookNodeAction = Pick<LemonButtonProps, 'disabledReason' | 'icon'> & {
     text: string
     onClick: () => void
 }

@@ -25,18 +25,19 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 
-const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element => {
+function FeatureFlagNotebookActions({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): null {
     const { id } = attributes
     const {
         featureFlag,
         recordingFilterForFlag,
-        featureFlagMissing,
         hasEarlyAccessFeatures,
         canCreateEarlyAccessFeature,
         hasSurveys,
+        newEarlyAccessFeatureLoading,
+        newSurveyLoading,
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
-    const { expanded, nextNode } = useValues(notebookNodeLogic)
+    const { nextNode } = useValues(notebookNodeLogic)
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
     const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
@@ -48,6 +49,7 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
             {
                 icon: <IconSurveys />,
                 text: `${hasSurveys ? 'View' : 'Create'} survey`,
+                disabledReason: !hasSurveys && newSurveyLoading ? 'Creating survey' : undefined,
                 onClick: () => {
                     if (!hasSurveys) {
                         return createSurvey()
@@ -71,7 +73,7 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
             },
             {
                 icon: <IconRecording />,
-                text: 'View Replays',
+                text: 'View replays',
                 onClick: () => {
                     if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
                         insertAfter(buildPlaylistContent(recordingFilterForFlag))
@@ -82,6 +84,10 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
                 ? {
                       text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
                       icon: <IconRocket />,
+                      disabledReason:
+                          !hasEarlyAccessFeatures && newEarlyAccessFeatureLoading
+                              ? 'Creating early access feature'
+                              : undefined,
                       onClick: () => {
                           if (!hasEarlyAccessFeatures) {
                               createEarlyAccessFeature()
@@ -98,7 +104,15 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
                 : undefined,
         ])
         // oxlint-disable-next-line exhaustive-deps
-    }, [featureFlag])
+    }, [featureFlag, newEarlyAccessFeatureLoading, newSurveyLoading])
+
+    return null
+}
+
+const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { featureFlag, featureFlagMissing } = useValues(featureFlagLogic({ id }))
+    const { expanded } = useValues(notebookNodeLogic)
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
@@ -122,6 +136,7 @@ export const NotebookNodeFlag = createPostHogWidgetNode<FeatureFlagNotebookWidge
     titlePlaceholder: 'Feature flag',
     editableTitle: false,
     Component: withFeatureFlagNotebookMetadata(Component),
+    ToolbarComponent: FeatureFlagNotebookActions,
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),
     resizeable: false,

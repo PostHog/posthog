@@ -27,12 +27,11 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<EarlyAccessFeatureNotebookWidgetAttributes>): JSX.Element => {
+function EarlyAccessFeatureNotebookToolbar({
+    attributes,
+}: NotebookNodeProps<EarlyAccessFeatureNotebookWidgetAttributes>): null {
     const { id } = attributes
-    const { earlyAccessFeature, earlyAccessFeatureLoading, earlyAccessFeatureMissing } = useValues(
-        earlyAccessFeatureLogic({ id })
-    )
-    const { expanded } = useValues(notebookNodeLogic)
+    const { earlyAccessFeature } = useValues(earlyAccessFeatureLogic({ id }))
     const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
@@ -53,11 +52,19 @@ const Component = ({ attributes }: NotebookNodeProps<EarlyAccessFeatureNotebookW
     }, [earlyAccessFeature])
 
     useEffect(() => {
-        setTitlePlaceholder(
-            earlyAccessFeature.name ? `Early Access Management: ${earlyAccessFeature.name}` : 'Early Access Management'
-        )
+        setTitlePlaceholder(earlyAccessFeature.name || 'Early access feature')
         // oxlint-disable-next-line exhaustive-deps
     }, [earlyAccessFeature?.name])
+
+    return null
+}
+
+const Component = ({ attributes }: NotebookNodeProps<EarlyAccessFeatureNotebookWidgetAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { earlyAccessFeature, earlyAccessFeatureLoading, earlyAccessFeatureMissing } = useValues(
+        earlyAccessFeatureLogic({ id })
+    )
+    const { expanded } = useValues(notebookNodeLogic)
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -129,8 +136,10 @@ const Component = ({ attributes }: NotebookNodeProps<EarlyAccessFeatureNotebookW
 
 export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<EarlyAccessFeatureNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.EarlyAccessFeature,
-    titlePlaceholder: 'Early Access Management',
+    titlePlaceholder: 'Early access feature',
+    editableTitle: false,
     Component,
+    ToolbarComponent: EarlyAccessFeatureNotebookToolbar,
     heightEstimate: '3rem',
     href: (attrs) => urls.earlyAccessFeature(attrs.id),
     resizeable: false,

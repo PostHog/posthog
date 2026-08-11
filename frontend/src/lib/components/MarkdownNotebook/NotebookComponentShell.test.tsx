@@ -157,6 +157,7 @@ describe('NotebookComponentShell', () => {
                 setToolbarExtras?.({
                     actions: [{ text: 'Add metric', onClick: onAction }],
                     menuItems: [{ label: 'Refresh', onClick: onMenuItem }],
+                    editMenuItems: [{ label: 'Change view', items: [{ label: 'Summary', onClick: jest.fn() }] }],
                 })
             }, [setToolbarExtras])
             return <div>Results</div>
@@ -199,20 +200,66 @@ describe('NotebookComponentShell', () => {
 
         const editRender = renderShell('edit')
 
-        const actionButton = screen.getByText('Add metric')
-        fireEvent.click(actionButton)
+        await userEvent.click(screen.getByLabelText('More actions'))
+        await userEvent.click(await screen.findByText('Add metric'))
         expect(onAction).toHaveBeenCalled()
 
         await userEvent.click(screen.getByLabelText('More actions'))
         await userEvent.click(await screen.findByText('Refresh'))
         expect(onMenuItem).toHaveBeenCalled()
 
+        await userEvent.click(screen.getByLabelText('More actions'))
+        expect(await screen.findByText('Change view')).toBeTruthy()
+
         editRender.unmount()
 
-        // The menu still renders in view mode (e.g. profile canvases), the actions row does not.
-        renderShell('view')
+        // The menu still renders in view mode (e.g. profile canvases), but editing actions do not.
+        const viewRender = renderShell('view')
         expect(screen.queryByText('Add metric')).toBeNull()
         expect(screen.getByLabelText('More actions')).toBeTruthy()
+        await userEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByText('Change view')).toBeNull()
+        expect(screen.getByText('Refresh')).toBeTruthy()
+        viewRender.unmount()
+    })
+
+    it('puts the resource link first in the overflow menu', async () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Feature flag',
+                category: 'Test',
+                ViewComponent: () => <div>Results</div>,
+                getHref: () => '/project/1/feature_flags/123',
+            },
+        ])
+
+        render(
+            <NotebookComponentShell
+                node={{ id: 'probe-node', type: 'component', tagName: 'Probe', props: {} }}
+                mode="edit"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        expect(screen.queryByLabelText('Open in new tab')).toBeNull()
+        await userEvent.click(screen.getByLabelText('More actions'))
+
+        const menuItems = screen.getAllByRole('menuitem')
+        expect(menuItems[0].textContent).toContain('Open feature flag in new tab')
+        expect(menuItems[0].closest('a')?.getAttribute('target')).toBe('_blank')
     })
 
     it('renders a published fixed title and status without offering title editing', () => {

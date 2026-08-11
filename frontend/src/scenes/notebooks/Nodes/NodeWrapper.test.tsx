@@ -11,6 +11,7 @@ describe('createPostHogWidgetNode', () => {
             nodeType,
             titlePlaceholder: 'Test widget',
             Component: () => <div>Default view</div>,
+            ToolbarComponent: () => <div>Toolbar metadata</div>,
             attributes: { view: {} },
             views: {
                 compact: {
@@ -28,6 +29,7 @@ describe('createPostHogWidgetNode', () => {
                 />
             )
             expect(compact.getByText('Compact view')).toBeTruthy()
+            expect(compact.getByText('Toolbar metadata')).toBeTruthy()
             compact.unmount()
 
             const unknown = render(
@@ -37,6 +39,7 @@ describe('createPostHogWidgetNode', () => {
                 />
             )
             expect(unknown.getByText('Default view')).toBeTruthy()
+            expect(unknown.getByText('Toolbar metadata')).toBeTruthy()
         } finally {
             delete KNOWN_NODES[nodeType]
         }

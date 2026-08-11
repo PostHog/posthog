@@ -20,31 +20,13 @@ import { PropertyFilterType } from '~/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): JSX.Element => {
+function CohortNotebookToolbar({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): null {
     const { id } = attributes
-
-    const { expanded } = useValues(notebookNodeLogic)
+    const { cohort, cohortMissing } = useValues(cohortEditLogic({ id }))
     const { setExpanded, setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
-    const { cohort, cohortLoading, cohortMissing, query } = useValues(cohortEditLogic({ id }))
-    const { setQuery } = useActions(cohortEditLogic({ id }))
-
-    const modifiedQuery = useMemo<DataTableNode>(() => {
-        return {
-            ...query,
-            embedded: true,
-            // TODO: Add back in controls in a way that actually works - maybe sync with NotebookNodeQuery
-            full: false,
-            showElapsedTime: false,
-            showTimings: false,
-            showOpenEditorButton: false,
-        }
-    }, [query])
-
     useEffect(() => {
-        const title = cohort ? `Cohort: ${cohort.name}` : 'Cohort'
-
-        setTitlePlaceholder(title)
+        setTitlePlaceholder(cohort?.name || 'Cohort')
         setActions(
             !cohortMissing
                 ? [
@@ -74,7 +56,6 @@ const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttribu
                               })
                           },
                       },
-
                       {
                           text: 'Cohort trends',
                           icon: <IconTrends color="currentColor" />,
@@ -124,8 +105,29 @@ const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttribu
                   ]
                 : []
         )
-        // oxlint-disable-next-line exhaustive-deps
-    }, [cohort, cohortMissing])
+    }, [cohort, cohortMissing, id, insertAfter, setActions, setExpanded, setTitlePlaceholder])
+
+    return null
+}
+
+const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): JSX.Element => {
+    const { id } = attributes
+
+    const { expanded } = useValues(notebookNodeLogic)
+    const { cohort, cohortLoading, cohortMissing, query } = useValues(cohortEditLogic({ id }))
+    const { setQuery } = useActions(cohortEditLogic({ id }))
+
+    const modifiedQuery = useMemo<DataTableNode>(() => {
+        return {
+            ...query,
+            embedded: true,
+            // TODO: Add back in controls in a way that actually works - maybe sync with NotebookNodeQuery
+            full: false,
+            showElapsedTime: false,
+            showTimings: false,
+            showOpenEditorButton: false,
+        }
+    }, [query])
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -158,7 +160,9 @@ const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttribu
 export const NotebookNodeCohort = createPostHogWidgetNode<CohortNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.Cohort,
     titlePlaceholder: 'Cohort',
+    editableTitle: false,
     Component,
+    ToolbarComponent: CohortNotebookToolbar,
     heightEstimate: 300,
     minHeight: 100,
     href: (attrs) => urls.cohort(attrs.id),

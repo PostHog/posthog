@@ -74,6 +74,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
+import { getNotebookWidgetViewMenuItem } from '../notebookWidgetMenu'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
@@ -657,6 +658,10 @@ export function MountedRealNotebookNodeComponent({
         titleStatus: nodeTitleStatus,
     } = useValues(nodeLogic)
     const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+    const viewMenuItem = useMemo(
+        () => getNotebookWidgetViewMenuItem(options, attributes, updateAttributes),
+        [attributes, options, updateAttributes]
+    )
 
     // The settings-panel instance (editOnly) shares the shell with the content instance;
     // only the latter publishes, so a hidden panel doesn't clear the other's extras.
@@ -669,11 +674,21 @@ export function MountedRealNotebookNodeComponent({
         setToolbarExtras({
             actions: nodeActions,
             menuItems: nodeMenuItems,
+            editMenuItems: viewMenuItem ? [viewMenuItem] : null,
             filtersDisabledReason: nodeSettingsDisabledReason,
             title: nodeTitle,
             titleStatus: nodeTitleStatus,
         })
-    }, [editOnly, nodeActions, nodeMenuItems, nodeSettingsDisabledReason, nodeTitle, nodeTitleStatus, setToolbarExtras])
+    }, [
+        editOnly,
+        nodeActions,
+        nodeMenuItems,
+        nodeSettingsDisabledReason,
+        nodeTitle,
+        nodeTitleStatus,
+        setToolbarExtras,
+        viewMenuItem,
+    ])
 
     const Component = options.Component
     const Settings = options.Settings

@@ -2,7 +2,7 @@ import { createContext } from 'react'
 
 import type { LemonButtonProps, LemonMenuItems, LemonTagType } from '@posthog/lemon-ui'
 
-export type NotebookComponentToolbarAction = Pick<LemonButtonProps, 'icon'> & {
+export type NotebookComponentToolbarAction = Pick<LemonButtonProps, 'disabledReason' | 'icon'> & {
     text: string
     onClick: () => void
 }
@@ -18,6 +18,7 @@ export type NotebookComponentToolbarTitleStatus = {
 export type NotebookComponentToolbarExtras = {
     actions: NotebookComponentToolbarAction[]
     menuItems: LemonMenuItems | null
+    editMenuItems?: LemonMenuItems | null
     title?: string | null
     titleStatus?: NotebookComponentToolbarTitleStatus | null
     /** Disables the shell's filters toggle with this tooltip (e.g. nothing to configure yet). */

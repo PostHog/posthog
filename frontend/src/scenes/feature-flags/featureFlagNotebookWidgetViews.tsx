@@ -37,16 +37,29 @@ function FeatureFlagNotebookMetadata({ attributes }: NotebookNodeProps<FeatureFl
     const logic = featureFlagLogic({ id })
     const { featureFlag, featureFlagActiveUpdateLoading } = useValues(logic)
     const { toggleFeatureFlagActive } = useActions(logic)
-    const { setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
+    const { isEditable } = useValues(notebookNodeLogic)
+    const { setMenuItems, setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         if (!featureFlag.key) {
+            setMenuItems(null)
             setTitlePlaceholder('Feature flag')
             setTitleStatus(null)
             return
         }
 
         const canToggle = view === 'editor' && featureFlag.can_edit
+        setMenuItems(
+            isEditable && featureFlag.can_edit
+                ? [
+                      {
+                          label: featureFlag.active ? 'Disable feature flag' : 'Enable feature flag',
+                          disabledReason: featureFlagActiveUpdateLoading ? 'Updating feature flag' : undefined,
+                          onClick: () => toggleFeatureFlagActive(!featureFlag.active),
+                      },
+                  ]
+                : null
+        )
         setTitlePlaceholder(featureFlag.key)
         setTitleStatus({
             label: featureFlag.active ? 'Enabled' : 'Disabled',
@@ -60,6 +73,8 @@ function FeatureFlagNotebookMetadata({ attributes }: NotebookNodeProps<FeatureFl
         featureFlag.can_edit,
         featureFlag.key,
         featureFlagActiveUpdateLoading,
+        isEditable,
+        setMenuItems,
         setTitlePlaceholder,
         setTitleStatus,
         toggleFeatureFlagActive,
