@@ -77,6 +77,9 @@ def test_alert_evaluation_failure_email_includes_the_reason_and_next_check_timin
     assert "This alert could not be evaluated." in html
     assert "Insight" in html
     assert "Error" in html
-    assert "normal schedule" in html
+    assert "Review the insight and alert settings" in html
+    assert "next scheduled check" in html
+    assert "contact support" in html
+    assert "Review alert" in html
     assert "alert_id=1" in html
     assert "Example insight" in html

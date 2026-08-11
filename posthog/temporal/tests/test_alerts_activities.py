@@ -591,9 +591,10 @@ class TestNotifyAlert:
             notification.source_url
             == f"/project/{alert_with_user.team_id}/insights/{alert_with_user.insight.short_id}?alert_id={alert_with_user.id}"
         )
-        assert "boom. PostHog" in notification.body
+        assert "boom. Review" in notification.body
         assert "boom.." not in notification.body
-        assert "normal schedule" in notification.body
+        assert "Review the insight and alert settings" in notification.body
+        assert "contact support" in notification.body
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}

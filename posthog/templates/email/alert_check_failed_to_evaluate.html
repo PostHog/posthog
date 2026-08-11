@@ -10,8 +10,11 @@
         <strong>Error</strong><br />
         <i>{{ alert_error }}</i>
     </p>
-    <p>PostHog will check this alert again on its normal schedule.</p>
+    <p>
+        Review the insight and alert settings. If they look correct, wait for the next scheduled check. If the alert
+        fails again, contact support.
+    </p>
     <div class="mb mt text-center">
-        <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
+        <a class="button" href="{% absolute_uri alert_url %}">Review alert</a>
     </div>
 {% endblock %}{% load posthog_filters %}

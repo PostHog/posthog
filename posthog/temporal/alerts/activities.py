@@ -404,7 +404,8 @@ def dispatch_alert_error_realtime_notifications(alert: AlertConfiguration, alert
                     title=f"{alert_name[:75]} could not be evaluated",
                     body=(
                         f"This alert could not be evaluated: {error_message}. "
-                        "PostHog will check it again on its normal schedule."
+                        "Review the insight and alert settings. If they look correct, wait for the next scheduled "
+                        "check. If the alert fails again, contact support."
                     ),
                     target_type=TargetType.USER,
                     target_id=str(user_id),
