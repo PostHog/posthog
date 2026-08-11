@@ -161,13 +161,13 @@ export interface inboxOnboardingLogicValues {
     enabledScoutsCount: number // scoutFleetLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
     enabledSourcesCount: number // signalSourcesLogic
+    hasEmittingScanner: boolean | null // signalSourcesLogic
     sourceConfigs: SignalSourceConfig[] | null // signalSourcesLogic
     activeWorkflowId: string | null // wizardActiveSessionDetectorLogic
     hasResolvedSessionState: boolean // wizardActiveSessionDetectorLogic
     watchedWorkflows: string[] // wizardActiveSessionDetectorLogic
     areCountsResolved: boolean
     bannerDismissed: boolean
-    hasEmittingScanner: boolean | null // signalSourcesLogic
     hasExistingWork: boolean
     isSelfDrivingSetUp: boolean
     isSetupLoaded: boolean

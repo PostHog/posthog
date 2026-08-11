@@ -34,6 +34,7 @@ import { visionScannersList, visionScannersPartialUpdate } from 'products/replay
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 
+import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
@@ -220,15 +221,15 @@ export interface signalSourcesLogicValues {
     enabledSourcesCount: number
     enablingTool: SourceToolEnablement | null
     errorTrackingIsFullyEnabled: boolean
+    errorTrackingTypeStates: {
+        enabled: boolean
+        sourceType: SignalSourceType
+    }[]
     evalReportsConfig: SignalSourceConfig | null
-    githubIssuesConfig: SignalSourceConfig | null
-    hasEmittingScanner: boolean | null
-    visionScanners: ReplayScannerApi[] | null
-    visionScannersLoading: boolean
     evaluations: EvaluationApi[] | null
     evaluationsLoading: boolean
-    signalEmittingEvaluationIds: string[]
-    errorTrackingTypeStates: { sourceType: SignalSourceType; enabled: boolean }[]
+    githubIssuesConfig: SignalSourceConfig | null
+    hasEmittingScanner: boolean | null
     hasNoSources: boolean
     healthChecksConfig: SignalSourceConfig | null
     isAnomalyInvestigationToggling: boolean
@@ -247,6 +248,7 @@ export interface signalSourcesLogicValues {
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
     sessionAnalysisConfig: SignalSourceConfig | null
     sessionAnalysisSetupOpen: boolean
+    signalEmittingEvaluationIds: string[]
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
@@ -255,6 +257,8 @@ export interface signalSourcesLogicValues {
     toolDataEventsFailed: boolean
     toolDataEventsLoading: boolean
     toolStatusBySource: Partial<Record<AgentRosterSource, SourceToolStatus>>
+    visionScanners: ReplayScannerApi[] | null
+    visionScannersLoading: boolean
     zendeskTicketsConfig: SignalSourceConfig | null
 }
 
@@ -302,22 +306,6 @@ export interface signalSourcesLogicActions {
         ciSignalsConfig: CISignalsConfigApi
         payload?: any
     }
-    loadVisionScanners: () => any
-    loadVisionScannersFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadVisionScannersSuccess: (
-        visionScanners: ReplayScannerApi[],
-        payload?: any
-    ) => {
-        visionScanners: ReplayScannerApi[]
-        payload?: any
-    }
-    toggleScannerSignals: (scannerId: string) => { scannerId: string }
     loadEvaluations: () => any
     loadEvaluationsFailure: (
         error: string,
@@ -333,10 +321,6 @@ export interface signalSourcesLogicActions {
         evaluations: EvaluationApi[]
         payload?: any
     }
-    toggleEvaluationSignals: (evaluationId: string) => { evaluationId: string }
-    setEvaluationSignals: (evaluationIds: string[]) => { evaluationIds: string[] }
-    setAllScannerSignals: (enabled: boolean) => { enabled: boolean }
-    toggleErrorTrackingType: (sourceType: SignalSourceType) => { sourceType: SignalSourceType }
     loadSourceConfigs: () => any
     loadSourceConfigsFailure: (
         error: string,
@@ -367,6 +351,21 @@ export interface signalSourcesLogicActions {
         toolDataEvents: Set<string>
         payload?: any
     }
+    loadVisionScanners: () => any
+    loadVisionScannersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadVisionScannersSuccess: (
+        visionScanners: ReplayScannerApi[],
+        payload?: any
+    ) => {
+        visionScanners: ReplayScannerApi[]
+        payload?: any
+    }
     onDataSourceSetupComplete: () => {
         value: true
     }
@@ -382,12 +381,36 @@ export interface signalSourcesLogicActions {
     saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => {
         filters: RecordingUniversalFilters
     }
+    setAllScannerSignals: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setAllScannerSignalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setAllScannerSignalsSuccess: (
+        visionScanners: ReplayScannerApi[],
+        payload?: {
+            enabled: boolean
+        }
+    ) => {
+        visionScanners: ReplayScannerApi[]
+        payload?: {
+            enabled: boolean
+        }
+    }
     setDataWarehouseSourceEnabled: (
         source: WarehouseBackedSource,
         enabled: boolean
     ) => {
         enabled: boolean
         source: WarehouseBackedSource
+    }
+    setEvaluationSignals: (evaluationIds: string[]) => {
+        evaluationIds: string[]
     }
     startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
@@ -410,11 +433,32 @@ export interface signalSourcesLogicActions {
     toggleErrorTrackingComplete: () => {
         value: true
     }
+    toggleErrorTrackingType: (sourceType: SignalSourceType) => {
+        sourceType: SignalSourceTypeApi
+    }
     toggleEvalReports: () => {
         value: true
     }
+    toggleEvaluationSignals: (evaluationId: string) => {
+        evaluationId: string
+    }
     toggleHealthChecks: () => {
         value: true
+    }
+    toggleScannerSignals: ({ scannerId }: any) => any
+    toggleScannerSignalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    toggleScannerSignalsSuccess: (
+        visionScanners: ReplayScannerApi[],
+        payload?: any
+    ) => {
+        visionScanners: ReplayScannerApi[]
+        payload?: any
     }
     toggleSessionAnalysis: () => {
         value: true
@@ -466,12 +510,13 @@ export interface signalSourcesLogicMeta {
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
         isSessionAnalysisRunning: (sessionAnalysisConfig: SignalSourceConfig | null) => boolean
-        enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null) => number
         hasEmittingScanner: (visionScanners: ReplayScannerApi[] | null) => boolean | null
+        errorTrackingTypeStates: (sourceConfigs: SignalSourceConfig[] | null) => {
+            enabled: boolean
+            sourceType: SignalSourceType
+        }[]
         signalEmittingEvaluationIds: (sourceConfigs: SignalSourceConfig[] | null) => string[]
-        errorTrackingTypeStates: (
-            sourceConfigs: SignalSourceConfig[] | null
-        ) => { sourceType: SignalSourceType; enabled: boolean }[]
+        enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null) => number
         hasNoSources: (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number) => boolean
     }
 }
