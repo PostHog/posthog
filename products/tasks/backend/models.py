@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -135,6 +135,19 @@ class Channel(TeamScopedRootMixin):
 
     def __str__(self):
         return f"#{self.name}"
+
+
+@receiver(pre_delete, sender=Integration)
+def clear_channel_repositories_on_github_integration_delete(
+    sender: type[Integration], instance: Integration, **kwargs: Any
+) -> None:
+    if instance.kind != Integration.IntegrationKind.GITHUB:
+        return
+
+    Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
+        github_integration=None,
+        repositories=[],
+    )
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
