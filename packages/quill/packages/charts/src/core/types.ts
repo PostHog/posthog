@@ -388,6 +388,18 @@ export type ValueDomain =
      *  `d3.nice()`. */
     | { include: readonly number[] }
 
+/** A partial user clamp on the value axis, applied *after* the data-derived domain, `{ include }`
+ *  folding, the zero-baseline clamp and `d3.nice()`. Either end may be omitted to keep the automatic
+ *  bound, so unlike the fixed {@link ValueDomain} form this composes with auto-scaling — it backs a
+ *  user-facing "y-axis min/max" control. Ignored under a percent layout and when a fixed
+ *  `ValueDomain` is set (both already pin the domain), and on a log scale any non-positive bound is
+ *  dropped. The clamped bound is used verbatim rather than re-`nice()`d, since rounding it would
+ *  defeat the point of typing it. */
+export interface ValueBounds {
+    min?: number
+    max?: number
+}
+
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
 export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
@@ -434,6 +446,8 @@ export interface BarsConfig {
     fitToHeight?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Partial clamp on the value axis, composed with auto-scaling. See {@link ValueBounds}. */
+    valueBounds?: ValueBounds
     /** Px of headroom reserved past the bars at the value-axis data end(s), so overlays have room
      *  beyond the bar tip — e.g. a `ValueLabels` overlay can float beside/above each bar instead of
      *  being flipped onto it (an on-bar label looks like the bar grows when it lifts on hover). The
@@ -466,6 +480,8 @@ export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Partial clamp on the value axis, composed with auto-scaling. See {@link ValueBounds}. */
+    valueBounds?: ValueBounds
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
      *  at zero = off"). Applied to the primary axis only; ignored on a log scale. Defaults to false. */
     floatBaseline?: boolean
@@ -490,6 +506,8 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
      *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Partial clamp on the primary value axis, composed with auto-scaling. See {@link ValueBounds}. */
+    valueBounds?: ValueBounds
 }
 
 /** Arguments passed to a chart type's canvas draw function. */

@@ -128,6 +128,7 @@ export type {
     SeriesType,
     TooltipConfig,
     TooltipContext,
+    ValueBounds,
     ValueDomain,
     YAxis,
     YAxisScale,

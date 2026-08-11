@@ -14,14 +14,8 @@ import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import {
-    BAR_DISPLAYS,
-    displayMatches,
-    DisplayOptions,
-    isDefaultTrendsLineDisplay,
-    LINE_DISPLAYS,
-    SectionHeader,
-} from './DisplayOptions'
+import { DisplayOptions, SectionHeader } from './DisplayOptions'
+import { BAR_DISPLAYS, displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
 
 // The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
 // active options, badged on the Options button.
@@ -98,6 +92,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
+    const showYAxisRangeConfig = showYAxisScale && (isLineDisplay || isBarDisplay)
     // Only the quill line charts (trends/stickiness line and area, retention and funnel-trends
     // graphs) draw curves, so they're the only ones with curvature to straighten. Retention and
     // funnel trends default to their line graph when display is unset.
@@ -209,6 +204,12 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
     }
 
+    // Sits right under the scale section: a logarithmic scale disables the range, and the cause is
+    // then one row above.
+    if (showYAxisRangeConfig) {
+        items.push({ title: 'Y-axis range', items: [DisplayOptions.YAxisRange] })
+    }
+
     if (showLineStyleConfig) {
         items.push({ title: 'Line style', items: [DisplayOptions.LineStyle] })
     }
@@ -258,6 +259,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             : 0) +
         ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
+        (showYAxisRangeConfig && trendsFilter?.yAxisStartAtZero === false ? 1 : 0) +
+        (showYAxisRangeConfig && typeof trendsFilter?.yAxisMin === 'number' ? 1 : 0) +
+        (showYAxisRangeConfig && typeof trendsFilter?.yAxisMax === 'number' ? 1 : 0) +
         (showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear' ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +

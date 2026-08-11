@@ -1563,6 +1563,17 @@ export type TrendsFilter = {
      * @default false */
     stackBreakdownValues?: boolean
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero,
+     *  trimming the empty space below the lowest value. Ignored on bar displays (bars always draw
+     *  from zero), on a logarithmic scale, and while showing percentages.
+     * @default true */
+    yAxisStartAtZero?: boolean
+    /** Pins the bottom of the y-axis. Leave unset for an automatic bound. Ignored on a logarithmic
+     *  scale, while showing percentages, and when it is not below `yAxisMax`. */
+    yAxisMin?: number
+    /** Pins the top of the y-axis. Leave unset for an automatic bound. Ignored in the same cases as
+     *  `yAxisMin`. */
+    yAxisMax?: number
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1641,6 +1652,9 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'stackBreakdownValues',
     'yAxisScaleType',
+    'yAxisStartAtZero',
+    'yAxisMin',
+    'yAxisMax',
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',

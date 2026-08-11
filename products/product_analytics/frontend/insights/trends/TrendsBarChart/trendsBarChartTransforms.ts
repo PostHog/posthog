@@ -88,6 +88,10 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     isPercentStackView: boolean
     isGrouped: boolean
     yAxisScaleType?: string | null
+    /** Y-axis range controls. See `buildTrendsYAxisConfig` for when each is honored. */
+    yAxisStartAtZero?: boolean | null
+    yAxisMin?: number | null
+    yAxisMax?: number | null
     interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
@@ -107,6 +111,9 @@ export function buildTrendsBarTimeSeriesConfig(
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
+        startAtZero: opts.yAxisStartAtZero,
+        min: opts.yAxisMin,
+        max: opts.yAxisMax,
     })
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     return {

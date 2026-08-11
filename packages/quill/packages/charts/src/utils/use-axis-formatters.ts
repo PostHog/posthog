@@ -37,6 +37,12 @@ export interface YAxisConfig extends YFormatterConfig {
      *  on a log scale; honored per axis in the array (multi-axis) form, except axes carrying bar
      *  series, which always draw from 0. */
     startAtZero?: boolean
+    /** Pins the low end of the axis, overriding both the data-derived bound and `startAtZero`. Omit
+     *  for an automatic bound. Primary axis only, like `valueDomain`; ignored under a percent layout,
+     *  and dropped when non-positive on a log scale. See `ValueBounds`. */
+    min?: number
+    /** Pins the high end of the axis. Omit for an automatic bound. See {@link YAxisConfig.min}. */
+    max?: number
 }
 
 export function useXTickFormatter(

@@ -186,6 +186,33 @@ describe('TimeSeriesLineChart', () => {
             // A log axis can't include 0 regardless; this just guards against a crash / NaN domain.
             expect(lowestTick(chart)).toBeGreaterThan(0)
         })
+
+        // The clamp itself is unit-tested on the scale; what only a render catches is
+        // `config.yAxis.min/max` never reaching the scale builder.
+        it.each([
+            ['floors the axis at yAxis.min', { min: 40 }, 40, Math.min],
+            ['caps the axis at yAxis.max', { max: 80 }, 80, Math.max],
+        ])('%s', (_name, bounds, expected, pick) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={OFFSET_SERIES} labels={LABELS} theme={THEME} config={{ yAxis: bounds }} />
+            )
+            const ticks = chart.yTicks().map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, '')))
+            expect(pick(...ticks)).toBe(expected)
+        })
+
+        // A goal line pushed outside a bounded window must drop out, not paint over the axis gutter.
+        it('hides a goal line that falls outside the bounded window', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={OFFSET_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { max: 80 }, goalLines: [{ value: 500, label: 'Target' }] }}
+                />
+            )
+            expect(chart.referenceLines()).toHaveLength(0)
+            expect(chart.yTicks().length).toBeGreaterThan(0)
+        })
     })
 
     describe('config.yAxis array (dual y-axis)', () => {

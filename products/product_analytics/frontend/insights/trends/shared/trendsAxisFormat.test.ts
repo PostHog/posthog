@@ -110,4 +110,23 @@ describe('buildTrendsYAxisConfig', () => {
         const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency', aggregationAxisPrefix: '$' }
         expect(buildTrendsYAxisConfig(trendsFilter, true, 'USD' as CurrencyCode).format).toBe('percentage_scaled')
     })
+
+    // This is the only place the y-axis range suppression rules live, so these cases are their
+    // specification: a percent-stacked or log chart must ignore a range left over from another
+    // display, and a chart built outside the UI never passes through the greyed-out controls.
+    const RANGE = { startAtZero: false, min: 40, max: 80 }
+
+    it('forwards the y-axis range', () => {
+        expect(buildTrendsYAxisConfig(null, false, undefined, RANGE)).toMatchObject(RANGE)
+    })
+
+    it.each([
+        ['isPercentStackView', true, undefined],
+        ['a logarithmic scale', false, 'log10'],
+    ])('drops the y-axis range under %s', (_name, isPercentStackView, yAxisScaleType) => {
+        const cfg = buildTrendsYAxisConfig(null, isPercentStackView, undefined, { ...RANGE, yAxisScaleType })
+        expect(cfg.startAtZero).toBeUndefined()
+        expect(cfg.min).toBeUndefined()
+        expect(cfg.max).toBeUndefined()
+    })
 })

@@ -87,6 +87,7 @@ function LineChartInner<Meta = unknown>({
         showGrid = false,
         showAxisLines = false,
         valueDomain,
+        valueBounds,
         floatBaseline = false,
         yAxes,
         curve,
@@ -142,6 +143,7 @@ function LineChartInner<Meta = unknown>({
                 scaleType: yScaleType,
                 percentStack: percentStackView,
                 valueDomain,
+                valueBounds,
                 floatBaseline,
                 axes: yAxes,
             })
@@ -166,7 +168,7 @@ function LineChartInner<Meta = unknown>({
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes]
+        [yScaleType, percentStackView, stackedData, valueDomain, valueBounds, floatBaseline, yAxes]
     )
 
     const drawStatic = useCallback(

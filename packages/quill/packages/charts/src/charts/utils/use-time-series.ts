@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
 import { useChartLegend, type ChartLegendRenderProps } from '../../components/Legend/useChartLegend'
-import type { ChartLegendConfig, ChartTheme, Series, ValueDomain, YAxis } from '../../core/types'
+import type { ChartLegendConfig, ChartTheme, Series, ValueBounds, ValueDomain, YAxis } from '../../core/types'
 import type { ReferenceLineProps } from '../../overlays/ReferenceLine'
 import type { ValueLabelFormatter } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
@@ -81,6 +81,14 @@ export function useTimeSeries<Meta>(
         primaryYAxis,
         yAxes,
     }
+}
+
+/** The primary axis's `min`/`max` as a {@link ValueBounds}, or `undefined` when neither is usable —
+ *  so a chart with no bounds set passes the same value every render and doesn't churn its scales. */
+export function useValueBounds(axis: YAxisConfig | undefined): ValueBounds | undefined {
+    const min = typeof axis?.min === 'number' && isFinite(axis.min) ? axis.min : undefined
+    const max = typeof axis?.max === 'number' && isFinite(axis.max) ? axis.max : undefined
+    return useMemo(() => (min === undefined && max === undefined ? undefined : { min, max }), [min, max])
 }
 
 /** Goal lines resolved against the series they should scale with — the drawn (post-derived)

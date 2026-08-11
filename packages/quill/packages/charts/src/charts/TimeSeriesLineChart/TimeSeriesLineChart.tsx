@@ -23,7 +23,7 @@ import {
     type MovingAverageConfig,
     type TrendLineConfig,
 } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import { useGoalLines, useTimeSeries, useValueBounds } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
@@ -127,6 +127,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.
     const { referenceLines, valueDomain } = useGoalLines(goalLines, finalSeries)
+    const valueBounds = useValueBounds(primaryYAxis)
 
     // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)
     // keeps the baseline clamped to 0. A log scale has no zero baseline to clamp, so it's a no-op there.
@@ -150,6 +151,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showCrosshair,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,
+        valueBounds,
         floatBaseline,
         yAxes,
     }
