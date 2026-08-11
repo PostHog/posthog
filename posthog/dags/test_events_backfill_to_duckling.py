@@ -63,11 +63,11 @@ from posthog.dags.events_backfill_to_duckling import (
 
 from products.data_warehouse.backend.facade.backfill_status import BackfillOutcome, get_months_in_range
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
+from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
-from products.managed_warehouse.backend.service_credentials import ServiceCredential, ServiceCredentialUnavailable
 
 
 @pytest.fixture(autouse=True)
@@ -1581,9 +1581,7 @@ class TestDuckgresSessionServiceCredential:
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
 
         session = _DuckgresSession(MagicMock(), target)
-        mock_mint.assert_called_once_with(
-            "org-1", 2, principal="dagster:events-backfill", force_rotate=True
-        )
+        mock_mint.assert_called_once_with("org-1", 2, principal="dagster:events-backfill", force_rotate=True)
         # initial connect presented the minted credential
         assert mock_connect.call_args_list[0].kwargs["service_credential"] is credential
 
@@ -1601,7 +1599,7 @@ class TestDuckgresSessionServiceCredential:
         mock_connect.return_value = MagicMock()
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
 
-        session = _DuckgresSession(MagicMock(), target)
+        _DuckgresSession(MagicMock(), target)
         # The CP being down must not fail the run while root still works —
         # transitional path until DuckgresServer dies entirely.
         assert mock_connect.call_args_list[0].kwargs["service_credential"] is None

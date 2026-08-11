@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
-from unittest import mock
 
 import pytest
+from unittest import mock
 
 from products.managed_warehouse.backend.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.service_credentials import ServiceCredential

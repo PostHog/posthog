@@ -92,13 +92,13 @@ from products.managed_warehouse.backend.facade.api import (
     get_stored_bucket_config,
     resolve_team_earliest_event_date,
 )
-from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
-from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
-from products.managed_warehouse.backend.service_credentials import (
+from products.managed_warehouse.backend.facade.client import (
     ServiceCredential,
     ServiceCredentialUnavailable,
+    make_duckgres_conninfo,
     mint_service_credential,
 )
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
 from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
 from products.managed_warehouse.backend.facade.team_state import (
     list_enabled_backfill_team_memberships,
@@ -355,7 +355,9 @@ def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredenti
     retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
     reraise=True,
 )
-def _connect_duckgres(target: DucklingTarget, service_credential: ServiceCredential | None = None) -> psycopg.Connection[Any]:
+def _connect_duckgres(
+    target: DucklingTarget, service_credential: ServiceCredential | None = None
+) -> psycopg.Connection[Any]:
     """Open a psycopg connection to the org's duckgres server.
 
     Each org runs its own duckgres process on the duckling side; it auto-attaches

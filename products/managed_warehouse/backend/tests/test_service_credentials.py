@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
-from unittest import mock
 
 import pytest
+from unittest import mock
+
 from rest_framework import status
 
 from products.managed_warehouse.backend.service_credentials import (
@@ -22,9 +23,7 @@ def _ok_response(data: dict) -> mock.MagicMock:
 
 class TestMintServiceCredential:
     def test_threads_request_fields_to_cp(self):
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request"
-        ) as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(
                 {
                     "username": "posthog_team_7_rw",
@@ -56,9 +55,7 @@ class TestMintServiceCredential:
         )
 
     def test_ttl_is_clamped_to_cp_policy(self):
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request"
-        ) as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(
                 {
                     "username": "posthog_team_7_rw",
@@ -79,9 +76,7 @@ class TestMintServiceCredential:
         # When the CP reuses a live grant it omits the password — the caller
         # sees credential.password == "" and rotated == False and must mint
         # with force_rotate if it has nothing cached.
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request"
-        ) as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(
                 {
                     "username": "posthog_team_7_rw",
@@ -95,9 +90,7 @@ class TestMintServiceCredential:
         assert credential.rotated is False
 
     def test_cp_error_raises_unavailable(self):
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request"
-        ) as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             resp = mock.MagicMock()
             resp.status_code = status.HTTP_409_CONFLICT
             resp.data = {"error": "project login requires an enabled org team"}
@@ -108,17 +101,13 @@ class TestMintServiceCredential:
             assert "409" in str(exc_info.value)
 
     def test_missing_username_raises_unavailable(self):
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request"
-        ) as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response({"expires_at": "2026-08-11T13:00:00Z"})
             with pytest.raises(ServiceCredentialUnavailable):
                 mint_service_credential("org-1", 7, principal="d", force_rotate=True)
 
     def test_bad_expires_at_raises_unavailable(self):
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request"
-        ) as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(
                 {"username": "u", "password": "p", "expires_at": "not-a-timestamp"}
             )

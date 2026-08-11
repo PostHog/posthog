@@ -27,7 +27,7 @@ def make_duckgres_conninfo(
     team_id: int,
     *,
     organization_id: str | None = None,
-    service_credential: "ServiceCredential | None" = None,
+    service_credential: ServiceCredential | None = None,
 ) -> str:
     """Build a psycopg conninfo for a team's duckgres server.
 

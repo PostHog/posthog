@@ -27,13 +27,22 @@ Keep this module's request/response shapes byte-compatible with
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 import structlog
-from django.conf import settings
 from rest_framework import status
+
+from products.managed_warehouse.backend.facade.contracts import ServiceCredential, ServiceCredentialUnavailable
+
+__all__ = [
+    "DEFAULT_CREDENTIAL_TTL_SECONDS",
+    "MAX_CREDENTIAL_TTL_SECONDS",
+    "MIN_CREDENTIAL_TTL_SECONDS",
+    "ServiceCredential",
+    "ServiceCredentialUnavailable",
+    "mint_service_credential",
+]
 
 logger = structlog.get_logger(__name__)
 
@@ -42,27 +51,6 @@ logger = structlog.get_logger(__name__)
 MIN_CREDENTIAL_TTL_SECONDS = 60
 MAX_CREDENTIAL_TTL_SECONDS = 3600
 DEFAULT_CREDENTIAL_TTL_SECONDS = 900  # 15 min — the RDS-IAM precedent
-
-
-@dataclass(frozen=True)
-class ServiceCredential:
-    """A team-scoped credential for one run's new duckgres connections.
-
-    ``password`` is empty when the CP REUSED a still-valid grant (``rotated
-    is False``): callers that already hold the credential keep using it;
-    callers that don't must re-mint with ``force_rotate=True``.
-    """
-
-    username: str
-    password: str
-    expires_at: datetime
-    rotated: bool
-
-
-class ServiceCredentialUnavailable(RuntimeError):
-    """The control plane couldn't issue a service credential (unreachable,
-    org/team not provisioned, or a 5xx). Callers decide whether to fall back
-    to stored org-root credentials (transitional) or fail the run."""
 
 
 def mint_service_credential(
@@ -82,9 +70,7 @@ def mint_service_credential(
     # Imported here to avoid an import cycle: presentation.views imports the
     # facade, the facade (via client.py → service-credential-aware conninfo)
     # imports this module.
-    from products.managed_warehouse.backend.presentation.views import (
-        _request,  # noqa: PLC0415
-    )
+    from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
 
     ttl_seconds = max(MIN_CREDENTIAL_TTL_SECONDS, min(ttl_seconds, MAX_CREDENTIAL_TTL_SECONDS))
 

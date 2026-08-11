@@ -34,11 +34,36 @@ __all__ = [
     "ManagedWarehouseSourceJobWorkflow",
     "ManagedWarehouseTableNames",
     "ManagedWarehouseTeamMembership",
+    "ServiceCredential",
+    "ServiceCredentialUnavailable",
 ]
 
 
 class CPUnavailableError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class ServiceCredential:
+    """A team-scoped credential minted by the duckgres control plane, for one
+    run's new duckgres connections (RDS-IAM pattern: short-lived, scoped,
+    disposable — see duckgres/CLAUDE.md "Service Credentials").
+
+    ``password`` is empty when the CP REUSED a still-valid grant (`rotated`
+    is False): callers that already hold the credential keep using it;
+    callers that don't must re-mint with ``force_rotate=True``.
+    """
+
+    username: str
+    password: str
+    expires_at: datetime
+    rotated: bool
+
+
+class ServiceCredentialUnavailable(RuntimeError):
+    """The control plane couldn't issue a service credential (unreachable,
+    org/team not provisioned, or a 5xx). Callers decide whether to fall back
+    to stored org-root credentials (transitional) or fail the run."""
 
 
 @dataclass(frozen=True, kw_only=True)
