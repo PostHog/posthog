@@ -113,9 +113,23 @@ const NavDrawerContent = memo(function NavDrawerContent({
       className="flex-1"
       style={{ paddingTop, paddingBottom: insets.bottom }}
     >
-      <Pressable onPress={handleHome} className="px-4 pb-3 active:opacity-60">
-        <Text className="font-bold text-[20px] text-gray-12">PostHog</Text>
-      </Pressable>
+      {/* Mirrors the floating header's hamburger position exactly, so the
+          same screen coordinates toggle the drawer whether it is open or
+          closed — when open, this button on the solid panel is what you hit. */}
+      <View className="flex-row items-center px-3 pb-3">
+        <Pressable
+          onPress={close}
+          hitSlop={12}
+          accessibilityLabel="Close navigation menu"
+          accessibilityRole="button"
+          className="h-10 w-10 items-center justify-center rounded-lg active:bg-gray-3"
+        >
+          <List size={24} color={themeColors.gray[12]} />
+        </Pressable>
+        <Pressable onPress={handleHome} className="px-2 active:opacity-60">
+          <Text className="font-bold text-[20px] text-gray-12">PostHog</Text>
+        </Pressable>
+      </View>
 
       <View className="gap-0.5 px-2 pb-2">
         <DrawerItem
@@ -239,7 +253,9 @@ export function NavDrawer() {
   // the top of the screen — push the panel down by that amount and drop the
   // inner safe-area padding to compensate.
   const drawerTop = isConnected ? 0 : insets.top + OFFLINE_BANNER_HEIGHT;
-  const drawerPaddingTop = isConnected ? insets.top + 12 : 12;
+  // Matches the floating headers' row padding so the drawer's hamburger
+  // lands on the same screen coordinates as the one that opened it.
+  const drawerPaddingTop = isConnected ? insets.top + 6 : 6;
 
   // No animation at all — deliberately. Two animation systems in a row
   // (Reanimated worklets, then core Animated) have produced an invisible

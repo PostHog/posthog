@@ -54,12 +54,12 @@ export default function AutomationsScreen() {
         contentInsetTop={headerHeight}
       />
 
-      <NavDrawer />
       <FloatingAutomationsHeader />
 
       {hasAutomations ? (
         <FloatingNewAutomationButton onPress={handleCreateAutomation} />
       ) : null}
+      <NavDrawer />
     </View>
   );
 }

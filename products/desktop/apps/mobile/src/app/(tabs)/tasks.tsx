@@ -67,7 +67,6 @@ export default function TasksScreen() {
         listHeader={<PinnedTasksRail onTaskPress={handleTaskPress} />}
       />
 
-      <NavDrawer />
       <FloatingTasksHeader
         onFilterPress={filterMenu.show}
         showFilter={hasActiveTasks}
@@ -78,6 +77,7 @@ export default function TasksScreen() {
       ) : null}
 
       <TaskFilterMenu open={filterMenu.open} onClose={filterMenu.hide} />
+      <NavDrawer />
     </View>
   );
 }
