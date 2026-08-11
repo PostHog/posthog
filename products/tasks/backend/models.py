@@ -514,6 +514,14 @@ class Task(DeletedMetaFields, models.Model):
             capture_fn=capture_fn,
         )
 
+    def soft_delete_if_unclaimed_prewarm(self, task_run: "TaskRun") -> bool:
+        if not (task_run.state or {}).get("prewarmed") or not (task_run.state or {}).get("await_user_message"):
+            return False
+        if self.deleted or self.title.strip() or self.description.strip():
+            return False
+        self.soft_delete()
+        return True
+
     def delete(self, *args, **kwargs):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
 

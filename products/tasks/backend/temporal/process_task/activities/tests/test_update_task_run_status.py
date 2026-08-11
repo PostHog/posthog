@@ -87,6 +87,26 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.state.get("existing_key") == "kept"
 
     @pytest.mark.django_db(transaction=True)
+    def test_timed_out_unclaimed_prewarm_soft_deletes_task(self, activity_environment, test_task_run):
+        test_task_run.task.title = ""
+        test_task_run.task.description = ""
+        test_task_run.task.save(update_fields=["title", "description", "updated_at"])
+        test_task_run.state = {"prewarmed": True, "await_user_message": True}
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        async_to_sync(activity_environment.run)(
+            update_task_run_status,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=TaskRun.Status.COMPLETED,
+                timed_out_inactivity=True,
+            ),
+        )
+
+        test_task_run.task.refresh_from_db()
+        assert test_task_run.task.deleted is True
+
+    @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
         "marker",
         [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
