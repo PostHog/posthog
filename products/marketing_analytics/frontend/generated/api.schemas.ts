@@ -1465,6 +1465,76 @@ export interface GoalExplanationApi {
     notes: string[]
 }
 
+export interface SuggestionApi {
+    /** Stable identifier for this finding. Deterministic across scans, so clients can dedupe and remember dismissals by it. */
+    id: string
+    /** Suggestion kind, e.g. connect_source / add_source_mapping */
+    kind: string
+    /** 'deterministic' or 'ai' — how this suggestion was produced */
+    source: string
+    /** error/warning/info */
+    severity: string
+    /** 0-1. Never 1.0: these are inferences, not proofs. */
+    confidence: number
+    /** Short imperative title, e.g. 'Connect Meta Ads' */
+    title: string
+    /** The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith */
+    evidence: string
+    /** Capabilities this unblocks: cost, attribution, roas, cac, retention_by_channel, ltv_by_channel */
+    unlocks: string[]
+    /** The operation that applies this suggestion, or null when there's nothing to automate. An object with an 'op' discriminator — see the ApplyOp union in setup_types. Pass it verbatim to apply_setup_ops; never hand-craft one. */
+    apply: unknown
+    /** Advice shown alongside the action. Mapping suggestions always carry a 'fix_platform_urls' entry, because a mapping is a workaround and correcting the ad platform's tracking template is the real fix. */
+    also_recommended: unknown[]
+    /** True only for high-confidence, reversible operations — what an 'apply all safe' button may include */
+    safe_to_batch: boolean
+    /** Ranking score; higher first. Unblocking actions dominate. */
+    rank_score: number
+    /**
+     * Integration this concerns, if any
+     * @nullable
+     */
+    integration: string | null
+    /**
+     * In-app URL to resolve this manually, if any
+     * @nullable
+     */
+    deep_link: string | null
+    /**
+     * Documentation link, if any
+     * @nullable
+     */
+    docs_url: string | null
+    /** Ad spend currently mis- or un-attributed because of this */
+    spend_at_risk: number
+    /** Events affected in the window */
+    event_volume: number
+}
+
+export interface CapabilityReadinessApi {
+    /** cost/attribution/roas/cac/retention_by_channel/ltv_by_channel */
+    capability: string
+    /** unlocked/partial/blocked */
+    status: string
+    /** Why it's in that state, in plain English */
+    explanation: string
+    /** Suggestion ids that unblock this capability — the link from a blocked metric to its fixes */
+    blocked_by: string[]
+}
+
+export interface SetupPlanResponseApi {
+    /** Ranked suggestions, most important first */
+    suggestions: SuggestionApi[]
+    /** Per-capability readiness, with the suggestions blocking each */
+    readiness: CapabilityReadinessApi[]
+    /** Sub-services that failed. Their suggestions are missing, so do NOT present the plan as a complete clean bill of health when this is non-empty. */
+    degraded: string[]
+    /** True when the campaign or UTM queries hit their row caps. Rates and totals are then top-N subtotals — present them as approximate rather than exact. */
+    truncated: boolean
+    /** One-line summary of the plan */
+    summary: string
+}
+
 export interface CandidateEventApi {
     /** Name of the candidate event */
     event_name: string
@@ -1794,6 +1864,18 @@ export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
      * @minLength 1
      */
     goal_id: string
+}
+
+export type MarketingAnalyticsSetupPlanRetrieveParams = {
+    /**
+     * Window for campaign spend and the UTM catalogue, as a relative range (e.g. '-30d'); defaults to -30d
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Re-run every check instead of serving a recent result. Use right after changing something.
+     */
+    refresh?: boolean
 }
 
 export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
