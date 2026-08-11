@@ -37,6 +37,7 @@ export function WidgetAvailabilitySetupPrompt({
                 stacked
                 hogClassName={availability.compactSetupPrompt ? 'w-16 sm:w-16 lg:w-16 mb-0' : undefined}
                 introductionClassName={availability.compactSetupPrompt ? 'border-none mb-0 mt-0 p-2' : undefined}
+                contentClassName={availability.compactSetupPrompt ? 'max-w-2xl' : undefined}
                 className="border-none mb-0 mt-0 p-4"
                 productName={presentation.productName}
                 productKey={presentation.productKey}

@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
@@ -80,17 +80,19 @@ describe('AddWidgetModal', () => {
         expect(screen.getByText(/Ranked list of the most impactful error tracking issues/i)).toBeInTheDocument()
     })
 
-    it('shows a badge for each widget product section', () => {
+    it('shows alphabetized badges for each widget product section', () => {
         renderAddWidgetModal()
 
-        const badges = within(screen.getByTestId('dashboard-widget-product-badges'))
-        expect(badges.getByText('Session replay')).toBeInTheDocument()
-        expect(badges.getByText('Error tracking')).toBeInTheDocument()
-        expect(badges.getByText('Activity')).toBeInTheDocument()
-        expect(badges.getByText('Logs')).toBeInTheDocument()
-        expect(badges.getByText('Experiments')).toBeInTheDocument()
-        expect(badges.getByText('Surveys')).toBeInTheDocument()
-        expect(badges.getByText('Support')).toBeInTheDocument()
+        const badges = screen.getByTestId('dashboard-widget-product-badges')
+        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual([
+            'Activity',
+            'Error tracking',
+            'Experiments',
+            'Logs',
+            'Session replay',
+            'Support',
+            'Surveys',
+        ])
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {

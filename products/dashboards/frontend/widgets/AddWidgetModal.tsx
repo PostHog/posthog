@@ -107,19 +107,21 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
             description={
                 <>
                     <span>Bring context from your different PostHog products into one dashboard.</span>
-                    <span className="mt-2 flex flex-wrap gap-1.5" data-attr="dashboard-widget-product-badges">
-                        {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => {
-                            const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
+                    <span className="mt-2 flex flex-wrap gap-2" data-attr="dashboard-widget-product-badges">
+                        {[...DASHBOARD_WIDGET_CATALOG_GROUPS]
+                            .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
+                            .map((group) => {
+                                const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
 
-                            return (
-                                <LemonTag key={group.groupId} type="muted" size="small">
-                                    <span className="flex items-center gap-1">
-                                        {GroupIcon ? <GroupIcon className="size-3" /> : null}
-                                        {group.groupLabel}
-                                    </span>
-                                </LemonTag>
-                            )
-                        })}
+                                return (
+                                    <LemonTag key={group.groupId} type="muted">
+                                        <span className="flex items-center gap-1.5">
+                                            {GroupIcon ? <GroupIcon className="size-4" /> : null}
+                                            {group.groupLabel}
+                                        </span>
+                                    </LemonTag>
+                                )
+                            })}
                     </span>
                 </>
             }
