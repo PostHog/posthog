@@ -128,18 +128,20 @@ export function LogsAlertFilters(): JSX.Element {
     return (
         <div className="space-y-5">
             <h4 className="m-0">Filters</h4>
-            <LemonField name="severityLevels" label="Severity">
-                <SeverityLevelsFilter
-                    value={alertForm.severityLevels}
-                    onChange={(levels) => setAlertFormValue('severityLevels', levels)}
-                />
-            </LemonField>
-            <LemonField.Pure label="Service">
-                <ServiceFilter
-                    value={alertForm.serviceNames}
-                    onChange={(names) => setAlertFormValue('serviceNames', names)}
-                />
-            </LemonField.Pure>
+            <div className="max-w-md space-y-5">
+                <LemonField name="severityLevels" label="Severity">
+                    <SeverityLevelsFilter
+                        value={alertForm.severityLevels}
+                        onChange={(levels) => setAlertFormValue('severityLevels', levels)}
+                    />
+                </LemonField>
+                <LemonField.Pure label="Service">
+                    <ServiceFilter
+                        value={alertForm.serviceNames}
+                        onChange={(names) => setAlertFormValue('serviceNames', names)}
+                    />
+                </LemonField.Pure>
+            </div>
             <LemonField name="filterGroup" label="Attributes">
                 <AlertFilterGroup filterGroup={alertForm.filterGroup} onChange={handleFilterGroupChange} />
             </LemonField>
