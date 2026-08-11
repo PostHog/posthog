@@ -20,13 +20,13 @@ pool as the default user, which is what has always served these frames. ClickHou
 `priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
 so a nonzero value here would participate in a scheduling class of one.
 
-For a run whose user has the `notebooks-frame-store-ch-writes` flag (phase 2 of the design
-doc, off by default), ClickHouse writes the object itself via `INSERT INTO FUNCTION s3(...)` issued through
-the pooled native clients (sync_execute): zero result bytes transit the worker, errors
-arrive in-band and typed, and the streaming path's EOS-marker check and query_log
-recovery are unnecessary. The worker-relay path below stays the default until the
-CH-side prerequisites (node → object-store reachability, the writer-identity grants in
-the doc's phase-2 security notes) are provisioned per environment.
+That same flag also hands the object write to ClickHouse (phase 2 of the design doc): it
+issues `INSERT INTO FUNCTION s3(...)` through the pooled native clients (sync_execute), so
+zero result bytes transit the worker, errors arrive in-band and typed, and the streaming
+path's EOS-marker check and query_log recovery are unnecessary. One flag carries both
+halves, so a run is either entirely the old path or entirely the new one. The worker-relay
+path below still runs whenever the flag is off, and as the fail-closed fallback when the
+confined writer identity is missing.
 """
 
 import time
@@ -646,9 +646,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     # answer that differently: sync_execute keys on the offline host being set at all, while
     # the HTTP client's URL collapses to the online one under TEST/DEBUG as well.
     pool_offline = (
-        settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None
-        if ch_writes
-        else ch_url != settings.CLICKHOUSE_HTTP_URL
+        settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None if ch_writes else ch_url != settings.CLICKHOUSE_HTTP_URL
     )
     FRAME_MATERIALIZATIONS_STARTED_COUNTER.labels(
         ch_user="notebooks" if not resolved_default_user else "default",
@@ -708,14 +706,17 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         database=settings.CLICKHOUSE_DATABASE,
                         output_format_arrow_string_as_string="true",
                         cancel_http_readonly_queries_on_client_close=1,
-                        # sync_execute's offline hygiene, and only meaningful off the
-                        # interactive pool: without it, distributed subqueries of a saturated
-                        # offline query hedge onto online replicas, bleeding the whale back
-                        # into the pool this move protects.
-                        **({"use_hedged_requests": "0"} if offline else {}),
                         max_result_bytes=_MAX_RESULT_BYTES,
                         result_overflow_mode="throw",
                     )
+                    if offline:
+                        # sync_execute's offline hygiene, and only meaningful off the
+                        # interactive pool: without it, distributed subqueries of a saturated
+                        # offline query hedge onto online replicas, bleeding the whale back
+                        # into the pool this move protects. Set after construction rather than
+                        # as a kwarg so the online path sends no such setting at all, exactly
+                        # as it did before this flag existed.
+                        client.params["use_hedged_requests"] = "0"
                     printed_sql, context_values = _print_clickhouse_sql(
                         lambda sql, sql_values: _describe_columns(client, sql, sql_values, ch_query_id),
                         team,
