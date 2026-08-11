@@ -1,12 +1,12 @@
 from dataclasses import asdict
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from products.tasks.backend.logic.services.sandbox_pricing import get_compute_rate_card_catalog
+from products.tasks.backend.facade.pricing import get_compute_rate_card_catalog
 
 
 class ComputeRateCardSerializer(serializers.Serializer):
@@ -22,6 +22,7 @@ class ComputeRateCardSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(many=False)
 class SandboxComputePricingSerializer(serializers.Serializer):
     current = ComputeRateCardSerializer(
         allow_null=True,
@@ -38,6 +39,7 @@ class SandboxComputePricingViewSet(viewsets.ViewSet):
     authentication_classes: list[type] = []
     permission_classes = [AllowAny]
     throttle_classes: list[type] = []
+    scope_object = None
     http_method_names = ["get", "head", "options"]
 
     @extend_schema(
