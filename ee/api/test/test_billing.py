@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_even
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.utils.timezone import now
 
 import jwt
@@ -809,7 +810,10 @@ class TestBillingAPI(APILicensedTest):
         res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
-        assert self.organization.usage == create_usage_summary()
+        expected = create_usage_summary()
+        # Orgs without an active subscription get the free-tier api queries limit materialized at sync.
+        expected["api_queries_read_bytes"]["limit"] = settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT
+        assert self.organization.usage == expected
 
     @patch("ee.api.billing.requests.get")
     def test_org_trust_score_updated(self, mock_request):

@@ -1,0 +1,157 @@
+from datetime import UTC, datetime
+
+import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.test import override_settings
+
+from posthog.schema import HogQLQuery
+
+from posthog.exceptions import APIQueriesQuotaExceeded
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import (
+    API_QUERIES_QUOTA_LIMITED_COUNTER,
+    _api_queries_enforcement_enabled,
+    _api_queries_quota_detail,
+    get_api_queries_quota_limited_until,
+)
+
+FUTURE_TS = int(datetime(2026, 9, 1, tzinfo=UTC).timestamp())
+
+
+@override_settings(API_QUERIES_ENABLED=True)
+class TestGetApiQueriesQuotaLimitedUntil(BaseTest):
+    def test_no_verdict_returns_none(self):
+        with patch("ee.billing.quota_limiting.team_quota_limited_until", return_value=None) as direct:
+            assert get_api_queries_quota_limited_until(self.team) is None
+            direct.assert_called_once()
+
+    def test_limited_returns_datetime(self):
+        with patch("ee.billing.quota_limiting.team_quota_limited_until", return_value=FUTURE_TS):
+            result = get_api_queries_quota_limited_until(self.team)
+            assert result == datetime.fromtimestamp(FUTURE_TS, tz=UTC)
+
+    def test_fails_open_on_error(self):
+        with patch("ee.billing.quota_limiting.team_quota_limited_until", side_effect=Exception("redis down")):
+            assert get_api_queries_quota_limited_until(self.team) is None
+
+    @override_settings(API_QUERIES_ENABLED=False)
+    def test_disabled_setting_returns_none(self):
+        assert get_api_queries_quota_limited_until(self.team) is None
+
+
+class TestApiQueriesQuotaDetail(BaseTest):
+    def test_detail_includes_usage_limit_and_reset(self):
+        self.organization.usage = {
+            "api_queries_read_bytes": {
+                "usage": 350_000_000_000_000,
+                "limit": 400_000_000_000_000,
+                "todays_usage": 1_000_000,
+            },
+        }
+        self.organization.save()
+        limited_until = datetime(2026, 9, 1, tzinfo=UTC)
+        detail = _api_queries_quota_detail(self.team, limited_until)
+        assert "350,000,001,000,000" in detail
+        assert "400,000,000,000,000" in detail
+        assert "2026-09-01" in detail
+        assert "Billing settings" in detail
+
+
+class TestApiQueriesEnforcementEnabled(BaseTest):
+    def test_flag_on_returns_true(self):
+        with patch("posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled", return_value=True):
+            assert _api_queries_enforcement_enabled(self.team) is True
+
+    def test_flag_service_error_fails_open_to_false(self):
+        with patch(
+            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+            side_effect=Exception("flag service down"),
+        ):
+            assert _api_queries_enforcement_enabled(self.team) is False
+
+
+@override_settings(API_QUERIES_ENABLED=True)
+class TestApiQueriesQuotaEnforcement(BaseTest):
+    def _runner(self):
+        runner = HogQLQueryRunner(query=HogQLQuery(query="select 1"), team=self.team)
+        runner.is_query_service = True
+        return runner
+
+    def test_not_limited_is_noop(self):
+        with patch("posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until", return_value=None):
+            self._runner()._enforce_api_queries_quota()  # must not raise
+
+    def test_limited_flag_off_observes_and_runs(self):
+        before = API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome="observed")._value.get()
+        with (
+            patch(
+                "posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until",
+                return_value=datetime(2026, 9, 1, tzinfo=UTC),
+            ),
+            patch("posthog.hogql_queries.query_runner._api_queries_enforcement_enabled", return_value=False),
+        ):
+            self._runner()._enforce_api_queries_quota()  # must not raise
+        after = API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome="observed")._value.get()
+        assert after == before + 1
+
+    def test_limited_flag_on_raises_402(self):
+        with (
+            patch(
+                "posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until",
+                return_value=datetime(2026, 9, 1, tzinfo=UTC),
+            ),
+            patch("posthog.hogql_queries.query_runner._api_queries_enforcement_enabled", return_value=True),
+        ):
+            with pytest.raises(APIQueriesQuotaExceeded) as exc_info:
+                self._runner()._enforce_api_queries_quota()
+        assert exc_info.value.status_code == 402
+
+    def test_flag_service_error_fails_open_to_observe(self):
+        with (
+            patch(
+                "posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until",
+                return_value=datetime(2026, 9, 1, tzinfo=UTC),
+            ),
+            patch(
+                "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+                side_effect=Exception("flag service down"),
+            ),
+        ):
+            self._runner()._enforce_api_queries_quota()  # must not raise
+
+    def test_call_with_rate_limits_enforces_quota_for_query_service(self):
+        runner = self._runner()
+        with (
+            patch.object(runner, "calculate", return_value="stub result"),
+            patch(
+                "posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until",
+                return_value=datetime(2026, 9, 1, tzinfo=UTC),
+            ),
+            patch("posthog.hogql_queries.query_runner._api_queries_enforcement_enabled", return_value=True),
+        ):
+            with pytest.raises(APIQueriesQuotaExceeded):
+                runner._call_with_rate_limits(dashboard_id=None)
+
+    def test_call_with_rate_limits_skips_enforcement_for_non_query_service(self):
+        runner = HogQLQueryRunner(query=HogQLQuery(query="select 1"), team=self.team)
+        runner.is_query_service = False
+        with (
+            patch.object(runner, "calculate", return_value="stub result"),
+            patch("posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until") as check,
+        ):
+            result, _duration_ms = runner._call_with_rate_limits(dashboard_id=None)
+        assert result == "stub result"
+        check.assert_not_called()
+
+    def test_concurrency_limit_no_longer_returns_zero_for_limited_teams(self):
+        # get_api_queries_concurrency_limit reads the plain `posthog.settings` module
+        # (not django.conf.settings), so @override_settings on the class doesn't reach it.
+        runner = self._runner()
+        with (
+            patch("posthog.hogql_queries.query_runner.settings.API_QUERIES_ENABLED", True),
+            patch("ee.billing.quota_limiting.list_limited_team_attributes", return_value=[self.team.api_token]),
+        ):
+            # Quota state (list_limited_team_attributes) must not affect the concurrency limit.
+            assert runner.get_api_queries_concurrency_limit() != 0

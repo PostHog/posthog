@@ -1046,6 +1046,12 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
+# Default monthly api_queries_read_bytes allowance injected for orgs with no active
+# subscription and no billing-provided limit. 0 disables the default entirely.
+API_QUERIES_FREE_TIER_READ_BYTES_LIMIT: int = get_from_env(
+    "API_QUERIES_FREE_TIER_READ_BYTES_LIMIT", 50_000_000_000_000, type_cast=int
+)
+
 ####
 # /api/environments deprecation
 

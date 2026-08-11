@@ -29,6 +29,15 @@ class QuotaLimitExceeded(APIException):
     default_detail = "Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so."
 
 
+class APIQueriesQuotaExceeded(QuotaLimitExceeded):
+    default_code = "api_queries_quota_exceeded"
+    default_detail = (
+        "Your organization has read more query data over the API than its plan includes for this billing period. "
+        "API queries will be available again when the period resets. "
+        "Upgrade your plan in Billing settings to restore access sooner, or ask an org admin to do so."
+    )
+
+
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"

@@ -20,7 +20,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
-from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo, OrganizationUsageResource
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -28,7 +28,7 @@ from posthog.models.team.event_retention import (
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
-from ee.billing.billing_types import BillingProvider, BillingStatus
+from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -48,6 +48,25 @@ class BillingServiceOpenInvoicesError(Exception):
     def __init__(self, message: str):
         self.message = message
         super().__init__(message)
+
+
+def _materialize_free_tier_api_queries_limit(usage_info: OrganizationUsageInfo, customer: "CustomerInfo") -> None:
+    """Write the free-tier api_queries_read_bytes default limit into the usage summary.
+
+    Billing's free plan defines no query-bytes allowance, so free orgs would otherwise carry
+    no limit for the quota sweep to enforce. Applies only when billing sent no limit and the
+    customer explicitly has no active subscription; an org that upgrades stops matching, and
+    the next sync mirrors billing's limits as-is. A billing-provided limit always wins.
+    """
+    if not settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
+        return
+    if customer.get("has_active_subscription") is not False:
+        return
+    summary: dict[str, Any] = dict(usage_info.get("api_queries_read_bytes") or {})
+    if summary.get("limit") is not None:
+        return
+    summary["limit"] = settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT
+    usage_info["api_queries_read_bytes"] = cast(OrganizationUsageResource, summary)
 
 
 def _has_quota_limiting_markers(usage: dict | None) -> bool:
@@ -504,6 +523,7 @@ class BillingManager:
                     data["billing_period"]["current_period_end"],
                 ],
             )
+            _materialize_free_tier_api_queries_limit(usage_info, data)
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
