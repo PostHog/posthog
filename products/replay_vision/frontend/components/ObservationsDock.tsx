@@ -100,7 +100,9 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
     }
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
 
-    const hasContent = observations.length > 0 || observationsLoading
+    // Scanner observations live in the sidebar's Observations tab; the dock only surfaces summaries
+    const summaries = observations.filter((o) => o.scanner_snapshot?.scanner_type === 'summarizer')
+    const hasContent = summaries.length > 0 || observationsLoading
     const expandedHeight = Math.max(
         MIN_EXPANDED_HEIGHT,
         Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
@@ -118,11 +120,6 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             {dockOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <SummarizeButton sessionId={sessionId} />
-                {observations.length > 0 && (
-                    <span className="text-muted text-sm min-w-0 truncate">
-                        {observations.length} observation{observations.length === 1 ? '' : 's'}
-                    </span>
-                )}
                 {hasContent && (
                     <LemonButton
                         className="ml-auto"
@@ -130,23 +127,23 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         icon={<IconChevronDown className={dockOpen ? 'rotate-180' : ''} />}
                         onClick={() => setDockOpen(!dockOpen)}
                         tooltip={dockOpen ? 'Collapse' : 'Expand'}
-                        aria-label={dockOpen ? 'Collapse observations' : 'Expand observations'}
+                        aria-label={dockOpen ? 'Collapse summary' : 'Expand summary'}
                         data-attr="vision-dock-toggle"
                     />
                 )}
             </div>
             {dockOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
-                    {observationsLoading && observations.length === 0 ? (
+                    {observationsLoading && summaries.length === 0 ? (
                         <div className="flex items-center gap-2 text-muted py-4">
-                            <Spinner /> Loading observations…
+                            <Spinner /> Loading summaries…
                         </div>
-                    ) : observations.length === 0 ? (
+                    ) : summaries.length === 0 ? (
                         <div className="text-muted text-sm py-4">
-                            No observations yet. Summarize this recording, or run a scanner from the Observations tab.
+                            No summary yet. Summarize this recording to generate one.
                         </div>
                     ) : (
-                        observations.map((observation) => (
+                        summaries.map((observation) => (
                             <ObservationDockCard
                                 key={observation.id}
                                 observation={observation}
