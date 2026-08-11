@@ -454,11 +454,11 @@ export interface replayScannerLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
-    setObservationBackfillFilter: (value: string | null) => {
-        value: string | null
-    }
     setExperimentContext: (context: ExperimentScannerContext | null) => {
         context: ExperimentScannerContext | null
+    }
+    setObservationBackfillFilter: (value: string | null) => {
+        value: string | null
     }
     setObservationDateRange: (
         dateFrom: string | null,
