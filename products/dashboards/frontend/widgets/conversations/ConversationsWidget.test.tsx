@@ -33,7 +33,12 @@ describe('ConversationsWidget', () => {
                             channel_source: 'email',
                             status: 'open',
                             priority: 'high',
-                            assignee: null,
+                            assignee: {
+                                id: 1,
+                                uuid: 'user-1',
+                                email: 'assignee@example.com',
+                                hedgehog_config: null,
+                            },
                             updated_at: '2026-08-11T12:00:00Z',
                             last_message_text: 'I need help with my dashboard.',
                             unread_team_count: 0,
@@ -65,7 +70,12 @@ describe('ConversationsWidget', () => {
                 short_id: 'needs-reply',
                 name: 'Needs a reply',
                 created_at: '2026-08-11T12:00:00Z',
-                created_by: null,
+                created_by: {
+                    id: 1,
+                    uuid: 'user-1',
+                    email: 'creator@example.com',
+                    hedgehog_config: null,
+                },
             },
         ])
 

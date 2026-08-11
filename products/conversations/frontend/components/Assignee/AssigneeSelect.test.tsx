@@ -60,7 +60,7 @@ describe('AssigneeSelect', () => {
         renderAssigneeSelect(true)
 
         expect(ensureAssigneeTypesLoaded).not.toHaveBeenCalled()
-        fireEvent.click(screen.getByRole('button', { name: 'Open assignee dropdown' }))
+        fireEvent.click(screen.getByText('Open assignee dropdown'))
         expect(ensureAssigneeTypesLoaded).toHaveBeenCalledTimes(1)
     })
 })
