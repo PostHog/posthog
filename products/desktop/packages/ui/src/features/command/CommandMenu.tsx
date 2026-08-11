@@ -45,7 +45,14 @@ import {
   formatHotkeyParts,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { taskSearchDelay } from "@posthog/ui/features/command/taskSearchQuery";
 import { useFileSearchContext } from "@posthog/ui/features/command/useFileSearchContext";
+import {
+  type Command,
+  type CommandSection,
+  useSearchSections,
+} from "@posthog/ui/features/command/useSearchSections";
+import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
@@ -92,23 +99,6 @@ interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-type Command = {
-  id: string;
-  label: string;
-  /** Muted trailing detail shown after a middot, e.g. a task's channel. */
-  detail?: string;
-  keywords?: string;
-  icon: React.ReactNode;
-  action: CommandMenuAction;
-  /** Channel in scope for the bluebird open-channel / open-task actions. */
-  channelId?: string;
-  /** Hotkey string (e.g. "mod+b") shown right-aligned when present. */
-  shortcut?: string;
-  onRun: () => void;
-};
-
-type CommandSection = { label: string; items: Command[] };
 
 /**
  * Task icon for the command palette. Renders the same shared `TaskIcon` as
@@ -170,12 +160,26 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     (state) => state.activeTasks,
   );
   const [query, setQuery] = useState("");
+  const [remoteQuery, setRemoteQuery] = useState("");
   const { repoPath } = useFileSearchContext();
   const canSearchFiles = !!repoPath;
   const openFilePicker = useFileSearchStore((state) => state.openPicker);
   const [systemPrefersDark, setSystemPrefersDark] = useState(
     () => window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    const delay = taskSearchDelay(trimmed);
+    if (!open || delay === null) {
+      setRemoteQuery("");
+      return;
+    }
+    const timer = window.setTimeout(() => setRemoteQuery(trimmed), delay);
+    return () => window.clearTimeout(timer);
+  }, [open, query]);
+
+  const { data: searchResults = [] } = useTaskSearch(remoteQuery, open);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -560,10 +564,25 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     ];
   }, [channels, closeSettingsDialog, spacesLayout]);
 
+  const searchSections = useSearchSections({
+    remoteQuery,
+    searchResults,
+    tasks,
+    taskSections,
+    channels,
+    bluebirdEnabled,
+    spacesLayout,
+  });
+
   // Commands, channels, and tasks share a single filterable list.
   const sections = useMemo(
-    () => [...commandSections, ...channelSections, ...taskSections],
-    [commandSections, channelSections, taskSections],
+    () => [
+      ...searchSections,
+      ...commandSections,
+      ...channelSections,
+      ...taskSections,
+    ],
+    [searchSections, commandSections, channelSections, taskSections],
   );
 
   const allCommands = useMemo(
@@ -649,7 +668,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                       </span>
                       {cmd.detail && (
                         <span className="shrink-0 text-gray-9">
-                          · #{cmd.detail}
+                          · {cmd.detailPrefix ?? "#"}
+                          {cmd.detail}
                         </span>
                       )}
                       {cmd.shortcut && (
