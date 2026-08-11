@@ -944,6 +944,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 "This is usually temporary - try again, or narrow the URL pattern if the dataset is very large."
             )
 
+        # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
+        # blips as delta-rs (see TRANSIENT_OBJECT_STORE_ERRORS), just wrapped in a ClickHouse
+        # exception instead of an OSError/DeltaError. Recognize it here too, before the generic
+        # bucket-misconfiguration fallback below, so it's classified as retryable instead of
+        # blamed on the customer's credentials or URL pattern.
+        # Deferred: pipelines.core.delta.errors pulls in posthog.temporal.common.errors ->
+        # temporalio, which must stay off django.setup(), where this model loads in every process.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415
+            TRANSIENT_OBJECT_STORE_ERRORS,
+            TransientObjectStoreError,
+        )
+
+        if any(needle in raw_message for needle in TRANSIENT_OBJECT_STORE_ERRORS):
+            raise TransientObjectStoreError(raw_message)
+
         for key, value in ExtractErrors.items():
             if key in raw_message:
                 raise Exception(value)
