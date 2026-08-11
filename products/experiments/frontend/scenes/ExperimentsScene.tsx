@@ -25,6 +25,27 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
+import { CopyExperimentToProjectModal } from 'scenes/experiments/CopyExperimentToProjectModal'
+import { DuplicateExperimentModal } from 'scenes/experiments/DuplicateExperimentModal'
+import {
+    canArchiveExperiment,
+    confirmArchiveExperiment,
+    confirmDeleteExperiment,
+} from 'scenes/experiments/experimentActions'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getExperimentStatus,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from 'scenes/experiments/experimentsLogic'
+import { ExperimentsSettings } from 'scenes/experiments/ExperimentsSettings'
+import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
+import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
+import { Holdouts } from 'scenes/experiments/Holdouts'
+import { SharedMetrics } from 'scenes/experiments/SharedMetrics/SharedMetrics'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -48,26 +69,8 @@ import {
 
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 
-import { CONCLUSION_DISPLAY_CONFIG } from './constants'
-import { CopyExperimentToProjectModal } from './CopyExperimentToProjectModal'
-import { DuplicateExperimentModal } from './DuplicateExperimentModal'
-import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
-import {
-    EXPERIMENTS_PER_PAGE,
-    ExperimentsFilters,
-    experimentsLogic,
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from './experimentsLogic'
-import { ExperimentsSettings } from './ExperimentsSettings'
-import { ExperimentVelocityStats } from './ExperimentVelocityStats'
-import { StatusTag } from './ExperimentView/StatusTag'
-import { Holdouts } from './Holdouts'
-import { SharedMetrics } from './SharedMetrics/SharedMetrics'
-
 export const scene: SceneExport = {
-    component: Experiments,
+    component: ExperimentsScene,
     logic: experimentsLogic,
     productKey: ProductKey.EXPERIMENTS,
     emptyState: experimentsEmptyState,
@@ -537,7 +540,7 @@ const ExperimentsTable = ({
     )
 }
 
-export function Experiments(): JSX.Element {
+export function ExperimentsScene(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
@@ -680,3 +683,5 @@ export function Experiments(): JSX.Element {
         </SceneContent>
     )
 }
+
+export default ExperimentsScene

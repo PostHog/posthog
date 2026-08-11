@@ -3292,6 +3292,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      ts-pattern:
+        specifier: 'catalog:'
+        version: 4.3.0
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
