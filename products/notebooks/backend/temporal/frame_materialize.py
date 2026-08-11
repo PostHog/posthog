@@ -11,10 +11,12 @@ turns it into a 302 to a presigned GET.
 Load protection mirrors the Celery async path (`process_query_task`): a Redis Lua
 concurrency limiter gates activity starts (global + per-team), slot exhaustion and
 ClickHouse overload raise retryable errors, and Temporal's retry policy provides the
-exponential backoff with a hard schedule-to-close deadline. Queries run on the OFFLINE
-pool (batch exports' home) as the dedicated `notebooks` ClickHouse user, so a whale
-materialization contends with batch work rather than interactive queries, and the user's
-server-side profile/quota is a ceiling no application bug can exceed. ClickHouse
+exponential backoff with a hard schedule-to-close deadline. For a run whose user has the
+`notebooks-frame-store-ch-writes` flag, the query goes to the OFFLINE pool (batch exports'
+home) as the dedicated `notebooks` ClickHouse user, so a whale materialization contends
+with batch work rather than interactive queries, and the user's server-side profile/quota
+is a ceiling no application bug can exceed. Without the flag it stays on the interactive
+pool as the default user, which is what has always served these frames. ClickHouse
 `priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
 so a nonzero value here would participate in a scheduling class of one.
 
@@ -222,7 +224,8 @@ class FrameMaterializeInputs:
     cache_key: str
     # Resolved from the per-user flag in the web process, because the worker has no request
     # user to evaluate it against. Defaulted so a history recorded before this field existed
-    # decodes to the streaming path, which keeps in-flight runs replayable across the deploy.
+    # decodes to the streaming path on the interactive pool, which keeps in-flight runs
+    # replayable across the deploy.
     ch_writes: bool = False
 
 
@@ -614,11 +617,15 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     Raises on failure so Temporal retries per policy; user-safe HogQL errors are written
     to the query status here (terminal — retrying can't fix a bad query) before raising.
     """
+    # The new flow rides one flag, resolved per user in the web process and carried on the
+    # job. Off, this run is the path that has been serving frames all along: interactive
+    # pool, default credentials, hedging left alone.
+    offline = inputs.ch_writes
     # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
     # bug can exceed); falls back to the default credentials where not provisioned.
     # sync_execute on the CH-writes path resolves the same creds via the same enum.
-    creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
-    resolved_default_user = creds.user == settings.CLICKHOUSE_USER
+    creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS) if offline else None
+    resolved_default_user = creds is None or creds.user == settings.CLICKHOUSE_USER
     ch_writes = inputs.ch_writes
     if ch_writes and resolved_default_user and not settings.DEBUG and not settings.TEST:
         # Fail closed in a real deployment: the CH-writes statement is write-capable
@@ -634,17 +641,18 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         )
         ch_writes = False
     mode = "ch_writes" if ch_writes else "streaming"
-    # The two paths route offline on different predicates: sync_execute keys on the
-    # offline host being set at all; the HTTP client's URL collapses to online under
-    # TEST/DEBUG too. The label must report the path actually taken.
-    offline = (
+    ch_url = settings.CLICKHOUSE_OFFLINE_HTTP_URL if offline else settings.CLICKHOUSE_HTTP_URL
+    # Reports where the query actually went, not what the flag asked for, and the two paths
+    # answer that differently: sync_execute keys on the offline host being set at all, while
+    # the HTTP client's URL collapses to the online one under TEST/DEBUG as well.
+    pool_offline = (
         settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None
         if ch_writes
-        else settings.CLICKHOUSE_OFFLINE_HTTP_URL != settings.CLICKHOUSE_HTTP_URL
+        else ch_url != settings.CLICKHOUSE_HTTP_URL
     )
     FRAME_MATERIALIZATIONS_STARTED_COUNTER.labels(
         ch_user="notebooks" if not resolved_default_user else "default",
-        pool="offline" if offline else "online",
+        pool="offline" if pool_offline else "online",
         mode=mode,
     ).inc()
     manager = QueryStatusManager(inputs.query_id, inputs.team_id)
@@ -690,19 +698,21 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     upload_seconds = None  # CH performs the upload; the relay split doesn't exist
                 else:
                     client = ClickHouseClient(
-                        # The offline pool (batch exports' home): a whale materialization must
-                        # not contend with interactive queries. Falls back to the online URL
-                        # where no offline cluster exists (EU, self-hosted, dev/test).
-                        url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
-                        user=creds.user,
-                        password=creds.password,
+                        # With the flag on this is the offline pool (batch exports' home), so a
+                        # whale materialization does not contend with interactive queries. It
+                        # falls back to the online URL where no offline cluster exists (EU,
+                        # self-hosted, dev/test), and stays online entirely without the flag.
+                        url=ch_url,
+                        user=creds.user if creds is not None else settings.CLICKHOUSE_USER,
+                        password=creds.password if creds is not None else settings.CLICKHOUSE_PASSWORD,
                         database=settings.CLICKHOUSE_DATABASE,
                         output_format_arrow_string_as_string="true",
                         cancel_http_readonly_queries_on_client_close=1,
-                        # sync_execute's offline hygiene: without this, distributed subqueries
-                        # of a saturated offline query hedge onto online replicas — bleeding
-                        # the whale back into the interactive pool this move exists to protect.
-                        use_hedged_requests="0",
+                        # sync_execute's offline hygiene, and only meaningful off the
+                        # interactive pool: without it, distributed subqueries of a saturated
+                        # offline query hedge onto online replicas, bleeding the whale back
+                        # into the pool this move protects.
+                        **({"use_hedged_requests": "0"} if offline else {}),
                         max_result_bytes=_MAX_RESULT_BYTES,
                         result_overflow_mode="throw",
                     )

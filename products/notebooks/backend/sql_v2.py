@@ -110,11 +110,14 @@ def is_frame_store_enabled(user: User | None) -> bool:
 
 
 def is_frame_store_ch_writes_enabled(user: User | None) -> bool:
-    """Whether this user's materializations let ClickHouse write the object itself.
+    """Whether this user's materializations take the ClickHouse-side write path.
 
-    Sits inside `is_frame_store_enabled`: the frame store has to be on for this to matter at
-    all. Resolved in the web process and passed along with the job, because the Temporal
-    activity that acts on it has no request user to evaluate a flag against.
+    One switch for the whole new flow: it moves the query onto the offline pool as the
+    dedicated `notebooks` user, and hands the object write to ClickHouse. Sits inside
+    `is_frame_store_enabled`, which has to be on before any of this is reached.
+
+    Resolved in the web process and carried on the job, because the Temporal activity that
+    acts on it has no request user to evaluate a flag against.
     """
     return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG, user)
 
