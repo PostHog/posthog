@@ -20,9 +20,12 @@ from products.data_modeling.backend.logic.node_frequency import (
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
+    DagScheduleTeardown,
+    TeamScheduleTeardownError,
     apply_saved_query_frequency_anchor,
     convert_dag_to_tiers,
     delete_dag_schedules,
+    delete_team_data_modeling_schedules,
     maybe_reconcile_dag,
     reconcile_dag_schedules,
 )
@@ -574,3 +577,15 @@ class TestDeleteDagSchedules(SimpleTestCase):
         assert not teardown.ok
         assert teardown.deleted == ("dag-1:86400",)
         assert deleter.await_count == 2
+
+
+class TestDeleteTeamDataModelingSchedules(BaseTest):
+    def test_raises_when_a_dag_teardown_fails_so_the_activity_retries(self):
+        DAG.objects.create(team=self.team, name="Default")
+
+        with mock.patch(
+            "products.data_modeling.backend.logic.schedule_reconcile.delete_dag_schedules",
+            return_value=DagScheduleTeardown(ok=False, deleted=()),
+        ):
+            with pytest.raises(TeamScheduleTeardownError):
+                delete_team_data_modeling_schedules(self.team.id)

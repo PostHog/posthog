@@ -270,9 +270,10 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
                 response = self.client.delete(f"/api/environments/{team.id}")
             assert response.status_code == 204
 
-    @patch("posthog.temporal.common.schedule.delete_schedule")
     @patch("posthog.models.team.util.sync_connect")
-    def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.delete_schedule")
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.sync_connect")
+    def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule, _batch_export_connect):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
@@ -293,9 +294,61 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
 
         mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
 
-    @patch("posthog.temporal.common.schedule.delete_schedule")
     @patch("posthog.models.team.util.sync_connect")
-    def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.delete_dag_schedules")
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.delete_schedule")
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.sync_connect")
+    def test_delete_data_modeling_schedules_covers_a_team_converted_to_dag_schedules(
+        self, mock_sync_connect, mock_delete_schedule, mock_delete_dag_schedules, _batch_export_connect
+    ):
+        from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery
+        from products.data_modeling.backend.logic.schedule_reconcile import DagScheduleTeardown
+
+        team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+        # Conversion to DAG schedules nulls sync_frequency_interval and moves the schedule onto the DAG.
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=team,
+            name="converted_query",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            sync_frequency_interval=None,
+        )
+        dag = DAG.objects.create(team=team, name="Default")
+
+        mock_sync_connect.return_value = MagicMock()
+        mock_delete_dag_schedules.return_value = DagScheduleTeardown(ok=True, deleted=(str(dag.id),))
+
+        with execute_deletion_workflows_inline():
+            response = self.client.delete(f"/api/environments/{team.id}")
+        assert response.status_code == 204
+
+        mock_delete_dag_schedules.assert_called_once_with(str(dag.id))
+        mock_delete_schedule.assert_called_once_with(ANY, schedule_id=str(saved_query.id))
+
+    @patch("posthog.models.team.util.sync_connect")
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.delete_dag_schedules")
+    def test_team_is_still_deleted_when_the_schedule_teardown_fails(
+        self, mock_delete_dag_schedules, _batch_export_connect
+    ):
+        from products.data_modeling.backend.facade.models import DAG
+        from products.data_modeling.backend.logic.schedule_reconcile import DagScheduleTeardown
+
+        team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        DAG.objects.create(team=team, name="Default")
+        mock_delete_dag_schedules.return_value = DagScheduleTeardown(ok=False, deleted=())
+
+        with execute_deletion_workflows_inline():
+            response = self.client.delete(f"/api/environments/{team.id}")
+
+        assert response.status_code == 204
+        assert not Team.objects.filter(id=team.id).exists()
+
+    @patch("posthog.models.team.util.sync_connect")
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.delete_schedule")
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.sync_connect")
+    def test_delete_data_modeling_schedules_handles_not_found(
+        self, mock_sync_connect, mock_delete_schedule, _batch_export_connect
+    ):
         import temporalio.service
 
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
