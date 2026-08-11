@@ -217,7 +217,7 @@ function SuggestionEvaluationPanel({
                         {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
                     </>
                 )}
-                <Tooltip title="Only results that ran successfully count against the monthly Replay Vision quota">
+                <Tooltip title="Only results that ran successfully count against the monthly Replay vision quota">
                     <span className="text-muted text-xs">
                         {chargedCount} observation{chargedCount === 1 ? '' : 's'} charged to your quota
                     </span>
@@ -408,7 +408,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                     (ratedCount === 0
                                         ? 'Rate at least one result first'
                                         : quota?.exhausted && quota.credit_limit !== null
-                                          ? `Monthly Replay Vision budget of ${formatCreditCount(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
+                                          ? `Monthly Replay vision budget of ${formatCreditCount(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
                                           : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
                                             ? `Only ${formatCreditCount(quota.remaining)} of budget left this period. Lower the number of results to test.`
                                             : undefined)

@@ -274,7 +274,7 @@ export function ReplayScannersScene(): JSX.Element {
 
             {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
                 <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
-                    Replay Vision is out of beta and scans now use billed credits. Your scanners were turned off for the
+                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
                     launch, so re-enable the ones you want to keep running. See{' '}
                     <Link to="https://posthog.com/docs/replay-vision/quota-and-limits" target="_blank">
                         how credits are priced
@@ -284,10 +284,10 @@ export function ReplayScannersScene(): JSX.Element {
             )}
 
             <ProductIntroduction
-                productName="Replay Vision"
+                productName="Replay vision"
                 productKey={ProductKey.REPLAY_VISION}
                 thingName="scanner"
-                description="Replay Vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it: categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
+                description="Replay vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it: categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
                 secondaryDescription="Start from a template or build a fully custom scanner."
                 customHog={HedgehogXRay}
                 action={() => push(urls.replayVisionTemplates())}

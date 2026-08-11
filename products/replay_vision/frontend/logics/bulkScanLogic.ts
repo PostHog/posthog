@@ -118,7 +118,7 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
                 )
             }
             if (quotaError) {
-                const detail = quotaError.detail ?? 'Monthly Replay Vision quota reached.'
+                const detail = quotaError.detail ?? 'Monthly Replay vision quota reached.'
                 lemonToast.error(skipped > 0 ? `${detail} Skipped ${skipped} remaining recordings.` : detail)
             } else if (failed > 0) {
                 lemonToast.error(

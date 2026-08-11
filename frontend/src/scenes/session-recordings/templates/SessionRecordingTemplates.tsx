@@ -184,7 +184,7 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
 const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
-            <p>To get the most out of Session Replay, you just need to know where to start. </p>
+            <p>To get the most out of Session replay, you just need to know where to start. </p>
             <h2 className="mt-4">Filter templates</h2>
             <p>
                 Use our templates to find a focus area, then watch the filtered replays to see where users struggle,

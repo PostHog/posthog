@@ -121,7 +121,7 @@ function TTLWarning(): JSX.Element | null {
                                 <br />
                                 Go to{' '}
                                 <Link to={urls.settings('project-replay', 'replay-retention')}>
-                                    Session Replay settings
+                                    Session replay settings
                                 </Link>{' '}
                                 to increase your retention period to keep future recordings around for longer.
                                 <br />
@@ -135,7 +135,7 @@ function TTLWarning(): JSX.Element | null {
                                 >
                                     this page
                                 </Link>{' '}
-                                for more information about data retention in Session Replay.
+                                for more information about data retention in Session replay.
                             </span>
                         ),
                     })

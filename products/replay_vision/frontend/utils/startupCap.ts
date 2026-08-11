@@ -8,7 +8,7 @@ import { CREDITS_PER_DOLLAR } from './credits'
 /** Billing enforces this same ceiling server-side, in dollars. */
 export const STARTUP_CAP_CREDITS: number = STARTUP_PROGRAM_BILLING_LIMIT_MAX * CREDITS_PER_DOLLAR
 
-export const STARTUP_CAP_EXPLANATION = `Startup credits are shared across all PostHog products, so the startup program caps Replay Vision spend at $${STARTUP_PROGRAM_BILLING_LIMIT_MAX.toLocaleString()} per month.`
+export const STARTUP_CAP_EXPLANATION = `Startup credits are shared across all PostHog products, so the startup program caps Replay vision spend at $${STARTUP_PROGRAM_BILLING_LIMIT_MAX.toLocaleString()} per month.`
 
 export function startupCapCredits(billing: BillingType | null): number | null {
     return billing?.startup_program_label ? STARTUP_CAP_CREDITS : null

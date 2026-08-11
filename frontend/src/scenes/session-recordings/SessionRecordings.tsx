@@ -146,7 +146,7 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
                     'data-attr': 'replay-vision-launch-banner-cta',
                 }}
             >
-                Replay Vision is here. Scanners watch your recordings for you and surface what matters.
+                Replay vision is here. Scanners watch your recordings for you and surface what matters.
             </LemonBanner>
         </PostHogCaptureOnViewed>
     )

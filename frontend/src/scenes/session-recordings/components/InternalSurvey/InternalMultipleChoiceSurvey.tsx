@@ -61,7 +61,7 @@ function PerformanceHelpMessage(): JSX.Element {
     return (
         <>
             <p>
-                Session Replay allows you to capture network requests and responses, providing insights into network
+                Session replay allows you to capture network requests and responses, providing insights into network
                 performance and potential issues. This feature can be particularly useful for debugging and optimizing
                 your application's network interactions.
             </p>

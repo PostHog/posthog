@@ -27,7 +27,7 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
                     (item.errorCount || 0) > 0 ? 'text-danger' : 'text-success'
                 )}
             >
-                <Tooltip title="A count of $exception events in this recording. Captured by PostHog's Error Tracking.">
+                <Tooltip title="A count of $exception events in this recording. Captured by PostHog's Error tracking.">
                     <IconWarning className="mr-1" />
                     <span>{pluralize(item.errorCount || 0, 'error')}</span>
                 </Tooltip>

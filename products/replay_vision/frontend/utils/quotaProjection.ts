@@ -148,8 +148,8 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
     if (state.kind === 'exhausted') {
         return {
             disabledReason: isFreeAllocationOnly(quota)
-                ? `You've used all your free Replay Vision credits. Resets ${state.resetsOn}.`
-                : `Monthly Replay Vision spend limit reached. Resets ${state.resetsOn}.`,
+                ? `You've used all your free Replay vision credits. Resets ${state.resetsOn}.`
+                : `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.`,
         }
     }
     return {
