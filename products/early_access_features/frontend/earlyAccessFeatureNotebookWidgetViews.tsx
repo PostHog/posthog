@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconRocket } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -15,6 +15,20 @@ import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAc
 export type EarlyAccessFeatureNotebookWidgetAttributes = {
     id: EarlyAccessFeatureLogicProps['id']
     view?: string
+}
+
+export function getEarlyAccessFeatureStageTagType(stage: EarlyAccessFeatureStage): LemonTagType {
+    if (stage === EarlyAccessFeatureStage.Beta) {
+        return 'warning'
+    }
+    if (stage === EarlyAccessFeatureStage.GeneralAvailability) {
+        return 'success'
+    }
+    return 'default'
+}
+
+export function getEarlyAccessFeatureStageLabel(stage: EarlyAccessFeatureStage): string {
+    return stage === EarlyAccessFeatureStage.GeneralAvailability ? 'General availability' : stage
 }
 
 function EarlyAccessFeatureSummary({
@@ -38,29 +52,7 @@ function EarlyAccessFeatureSummary({
         )
     }
 
-    return (
-        <div className="flex flex-wrap items-center gap-2 p-3">
-            <IconRocket className="text-lg shrink-0" />
-            <div className="flex min-w-48 flex-1 flex-col">
-                <span className="truncate font-semibold">{earlyAccessFeature.name}</span>
-                {earlyAccessFeature.description ? (
-                    <span className="truncate text-xs text-secondary">{earlyAccessFeature.description}</span>
-                ) : null}
-            </div>
-            <LemonTag
-                type={
-                    earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
-                        ? 'warning'
-                        : earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
-                          ? 'success'
-                          : 'default'
-                }
-                className="uppercase"
-            >
-                {earlyAccessFeature.stage}
-            </LemonTag>
-        </div>
-    )
+    return <div className="p-3 text-xs text-secondary">{earlyAccessFeature.description || 'No description'}</div>
 }
 
 export const EARLY_ACCESS_FEATURE_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<

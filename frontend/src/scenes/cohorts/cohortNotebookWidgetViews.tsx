@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -33,13 +32,8 @@ function CohortSummary({ attributes }: NotebookNodeProps<CohortNotebookWidgetAtt
     }
 
     return (
-        <div className="flex flex-wrap items-center gap-2 p-3">
-            <IconPeople className="text-lg shrink-0" />
-            <span className="min-w-48 flex-1 truncate font-semibold">{cohort.name}</span>
-            <span className="text-xs text-secondary">
-                {cohort.count} {cohort.count === 1 ? 'person' : 'persons'}
-            </span>
-            <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>
+        <div className="p-3 text-xs text-secondary">
+            {cohort.count} {cohort.count === 1 ? 'person' : 'persons'}
         </div>
     )
 }

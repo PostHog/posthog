@@ -160,7 +160,13 @@ export function NotebookComponentShell({
     const toolbarMenuItems = [
         showResourceLink
             ? {
-                  label: `Open ${titleDisplay.label.charAt(0).toLocaleLowerCase()}${titleDisplay.label.slice(1)} in new tab`,
+                  label: `Open ${titleDisplay.label.charAt(0).toLocaleLowerCase()}${titleDisplay.label.slice(1)}`,
+                  to: href ?? '',
+              }
+            : null,
+        showResourceLink
+            ? {
+                  label: 'Open in new tab',
                   icon: <IconExternal />,
                   to: href ?? '',
                   targetBlank: true,

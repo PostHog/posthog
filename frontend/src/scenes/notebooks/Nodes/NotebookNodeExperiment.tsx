@@ -4,6 +4,11 @@ import { useEffect } from 'react'
 import { IconFlag } from '@posthog/icons'
 
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import {
+    getExperimentStatus,
+    getExperimentStatusColor,
+    getExperimentStatusLabel,
+} from '~/scenes/experiments/experimentsLogic'
 import { NotebookExperimentComponent } from '~/scenes/experiments/notebook'
 import {
     EXPERIMENT_NOTEBOOK_WIDGET_VIEWS,
@@ -20,11 +25,20 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 function ExperimentNotebookToolbar({ attributes }: NotebookNodeProps<ExperimentNotebookWidgetAttributes>): null {
     const { experiment } = useValues(experimentLogic({ experimentId: attributes.id }))
     const { nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions, setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
     const featureFlagId = experiment?.feature_flag?.id
 
     useEffect(() => {
         setTitlePlaceholder(experiment?.name || 'Experiment')
+        const status = experiment ? getExperimentStatus(experiment) : null
+        setTitleStatus(
+            status
+                ? {
+                      label: getExperimentStatusLabel(status),
+                      type: getExperimentStatusColor(status),
+                  }
+                : null
+        )
         setActions(
             featureFlagId
                 ? [
@@ -40,7 +54,7 @@ function ExperimentNotebookToolbar({ attributes }: NotebookNodeProps<ExperimentN
                   ]
                 : []
         )
-    }, [featureFlagId, experiment?.name, insertAfter, nextNode?.type.name, setActions, setTitlePlaceholder])
+    }, [experiment, featureFlagId, insertAfter, nextNode?.type.name, setActions, setTitlePlaceholder, setTitleStatus])
 
     return null
 }

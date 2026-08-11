@@ -3,7 +3,7 @@ import type { MouseEvent } from 'react'
 import { getNotebookWidgetViewMenuItem } from './notebookWidgetMenu'
 
 describe('getNotebookWidgetViewMenuItem', () => {
-    it('lists every exported view and stores the default view without an attribute', () => {
+    it('lists every exported view, marks the active view, and stores the canonical default view', () => {
         const updateAttributes = jest.fn()
         const menuItem = getNotebookWidgetViewMenuItem(
             {
@@ -17,7 +17,11 @@ describe('getNotebookWidgetViewMenuItem', () => {
             updateAttributes
         )
 
-        expect(menuItem).toMatchObject({ label: 'Change view' })
+        expect(menuItem).toMatchObject({
+            label: 'Change view',
+            closeOnClickInside: false,
+            closeParentPopoverOnClickInside: false,
+        })
         if (!menuItem || !('items' in menuItem) || !Array.isArray(menuItem.items)) {
             throw new Error('Expected a nested view menu')
         }
@@ -33,6 +37,6 @@ describe('getNotebookWidgetViewMenuItem', () => {
             throw new Error('Expected the detail view action')
         }
         detailItem.onClick({} as MouseEvent)
-        expect(updateAttributes).toHaveBeenCalledWith({ view: undefined })
+        expect(updateAttributes).toHaveBeenCalledWith({ view: 'detail' })
     })
 })

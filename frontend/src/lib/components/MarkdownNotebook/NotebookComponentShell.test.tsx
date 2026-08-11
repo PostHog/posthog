@@ -223,7 +223,7 @@ describe('NotebookComponentShell', () => {
         viewRender.unmount()
     })
 
-    it('puts the resource link first in the overflow menu', async () => {
+    it('puts current-tab and new-tab resource links first in the overflow menu', async () => {
         const registry = createMarkdownNotebookRegistry([
             {
                 tagName: 'Probe',
@@ -258,8 +258,10 @@ describe('NotebookComponentShell', () => {
         await userEvent.click(screen.getByLabelText('More actions'))
 
         const menuItems = screen.getAllByRole('menuitem')
-        expect(menuItems[0].textContent).toContain('Open feature flag in new tab')
-        expect(menuItems[0].closest('a')?.getAttribute('target')).toBe('_blank')
+        expect(menuItems[0].textContent).toContain('Open feature flag')
+        expect(menuItems[0].closest('a')?.getAttribute('target')).toBeNull()
+        expect(menuItems[1].textContent).toContain('Open in new tab')
+        expect(menuItems[1].closest('a')?.getAttribute('target')).toBe('_blank')
     })
 
     it('renders a published fixed title and status without offering title editing', () => {

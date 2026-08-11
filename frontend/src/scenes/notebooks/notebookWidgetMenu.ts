@@ -1,3 +1,6 @@
+import { createElement } from 'react'
+
+import { IconCheck } from '@posthog/icons'
 import type { LemonMenuItem } from '@posthog/lemon-ui'
 
 import { CreatePostHogWidgetNodeOptions, CustomNotebookNodeAttributes, NotebookNodeAttributes } from './types'
@@ -11,29 +14,32 @@ export function getNotebookWidgetViewMenuItem<T extends CustomNotebookNodeAttrib
         return null
     }
 
+    const defaultView = options.defaultView
     const selectedView =
-        typeof attributes.view === 'string' && options.views[attributes.view]
-            ? attributes.view
-            : options.defaultView.key
-    const setView = (view: string | undefined): void => {
+        typeof attributes.view === 'string' && options.views[attributes.view] ? attributes.view : defaultView.key
+    const setView = (view: string): void => {
         updateAttributes({ view } as unknown as Partial<NotebookNodeAttributes<T>>)
     }
 
     return {
         label: 'Change view',
+        closeOnClickInside: false,
+        closeParentPopoverOnClickInside: false,
         items: [
             {
-                key: options.defaultView.key,
-                label: options.defaultView.label,
-                tooltip: options.defaultView.description,
-                active: selectedView === options.defaultView.key,
-                onClick: () => setView(undefined),
+                key: defaultView.key,
+                label: defaultView.label,
+                tooltip: defaultView.description,
+                active: selectedView === defaultView.key,
+                sideIcon: selectedView === defaultView.key ? createElement(IconCheck) : undefined,
+                onClick: () => setView(defaultView.key),
             },
             ...Object.entries(options.views).map(([viewKey, view]) => ({
                 key: viewKey,
                 label: view.label,
                 tooltip: view.description,
                 active: selectedView === viewKey,
+                sideIcon: selectedView === viewKey ? createElement(IconCheck) : undefined,
                 onClick: () => setView(viewKey),
             })),
         ],

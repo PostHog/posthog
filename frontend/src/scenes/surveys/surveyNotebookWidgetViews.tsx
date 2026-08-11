@@ -8,7 +8,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { defineNotebookWidgetViews } from 'scenes/notebooks/notebookWidgetCatalog'
 import { NotebookNodeProps } from 'scenes/notebooks/types'
 
-import { SurveyStatusTag } from './components/SurveyStatusTag'
 import { NEW_SURVEY, SURVEY_TYPE_LABEL_MAP } from './constants'
 import { SurveyDisplaySummary } from './Survey'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
@@ -45,14 +44,11 @@ function SurveyCompactSummary({ attributes }: NotebookNodeProps<SurveyNotebookWi
     return (
         <BindLogic logic={surveyLogic} props={{ id }}>
             <div className="flex flex-wrap items-center gap-2 p-3">
-                <IconSurveys className="text-lg shrink-0" />
-                <div className="flex min-w-48 flex-1 flex-col">
-                    <span className="truncate font-semibold">{survey.name}</span>
-                    {survey.description ? (
-                        <span className="truncate text-xs text-secondary">{survey.description}</span>
-                    ) : null}
-                </div>
-                <SurveyStatusTag survey={survey} />
+                {survey.description ? (
+                    <span className="min-w-48 flex-1 truncate text-xs text-secondary">{survey.description}</span>
+                ) : (
+                    <span className="min-w-48 flex-1 text-xs text-secondary">No description</span>
+                )}
                 <LemonTag type="muted">{SURVEY_TYPE_LABEL_MAP[survey.type]}</LemonTag>
                 <span className="text-xs text-secondary">
                     {questionCount} {questionCount === 1 ? 'question' : 'questions'}

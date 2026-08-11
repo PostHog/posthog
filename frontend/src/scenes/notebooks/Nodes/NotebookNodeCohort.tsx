@@ -2,8 +2,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { IconPerson, IconTrends } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -23,10 +23,18 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 function CohortNotebookToolbar({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): null {
     const { id } = attributes
     const { cohort, cohortMissing } = useValues(cohortEditLogic({ id }))
-    const { setExpanded, setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { setExpanded, setActions, insertAfter, setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         setTitlePlaceholder(cohort?.name || 'Cohort')
+        setTitleStatus(
+            cohort
+                ? {
+                      label: cohort.is_static ? 'Static' : 'Dynamic',
+                      type: 'default',
+                  }
+                : null
+        )
         setActions(
             !cohortMissing
                 ? [
@@ -105,7 +113,7 @@ function CohortNotebookToolbar({ attributes }: NotebookNodeProps<CohortNotebookW
                   ]
                 : []
         )
-    }, [cohort, cohortMissing, id, insertAfter, setActions, setExpanded, setTitlePlaceholder])
+    }, [cohort, cohortMissing, id, insertAfter, setActions, setExpanded, setTitlePlaceholder, setTitleStatus])
 
     return null
 }
@@ -138,12 +146,9 @@ const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttribu
                 {cohortLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
-                    <div className="flex items-center gap-2">
-                        <IconPeople className="text-secondary text-lg" />
-                        <span className="flex-1 font-semibold truncate">{cohort.name}</span>
-                        <span className="italic text-secondary">({cohort.count} persons)</span>
-                        <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>
-                    </div>
+                    <span className="text-secondary">
+                        {cohort.count} {cohort.count === 1 ? 'person' : 'persons'}
+                    </span>
                 )}
             </div>
 

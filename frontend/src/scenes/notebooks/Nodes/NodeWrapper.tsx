@@ -274,7 +274,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const menuItems: LemonMenuItems = [
         parsedHref && !isShared
             ? {
-                  label: `Open ${resourceLabel} in new tab`,
+                  label: `Open ${resourceLabel}`,
+                  to: parsedHref,
+              }
+            : null,
+        parsedHref && !isShared
+            ? {
+                  label: 'Open in new tab',
                   icon: <IconExternal />,
                   to: parsedHref,
                   targetBlank: true,
