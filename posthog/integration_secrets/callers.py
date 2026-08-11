@@ -13,11 +13,10 @@ class IntegrationCaller(StrEnum):
     one signing key and hosts every product below, so a compromised Django pod could name
     any of them. What bounds a request is the deployment's signing key, which decides
     whether the token verifies at all, and the `keys` claim inside it, which is the whole
-    of the request scope. There is no per-deployment provider allowlist.
+    of the request scope. There is no per-deployment allowlist.
 
-    Keep in step with KNOWN_PRODUCTS in
-    services/integration-service/src/products.ts — a name the service does not
-    recognise still works, it just records as "unknown".
+    The service keeps no list of these names. It writes the claim to its audit log and
+    nowhere else, so adding a member here needs no change on the service side.
     """
 
     WAREHOUSE_SOURCES = "warehouse-sources"

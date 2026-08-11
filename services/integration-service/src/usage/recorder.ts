@@ -1,12 +1,8 @@
-// Per-key, per-deployment usage counters, held in Postgres. They answer "who actually
-// reads this credential, and have they picked up the new value", the two questions a
-// rotation turns on.
+// Per-key, per-deployment usage counters in Postgres: who actually reads this credential,
+// and have they picked up the new value. Writes are batched and flushed on a timer, so an
+// upsert never lands on the hot path and a crash loses at most one interval of counts.
 //
-// Writes are batched in memory and flushed on a timer, since an upsert per read would put
-// a write on the hot path. A crash loses at most one flush interval of counts.
-//
-// No credential value ever reaches this module. It stores key NAMES, deployment names,
-// counts and timestamps.
+// No credential value reaches this module — key names, deployment names, counts, timestamps.
 
 import type { Pool } from 'pg'
 
@@ -112,11 +108,8 @@ export class UsageRecorder {
     }
 
     /**
-     * Reads inside the window, and last-seen across all time. The two come from different
-     * tables on purpose: window-filtering last-seen would drop a deployment that reads a
-     * key less often than the window out of the retirement verdict entirely. See the note
-     * on integration_secret_last_seen.
-     *
+     * Reads inside the window, and last-seen across all time. Separate tables on purpose:
+     * window-filtering last-seen would drop a rare reader out of the retirement verdict.
      * Map keys are `key|deployment`, the shape buildUsageMap consumes.
      */
     async summarize(hours: number): Promise<{
@@ -151,10 +144,8 @@ export class UsageRecorder {
     }
 
     /**
-     * Drop buckets past the retention window, so the counts table stays small.
-     *
-     * Deliberately does not touch integration_secret_last_seen: a dormant deployment has to
-     * keep holding the retirement verdict back however long it has been quiet.
+     * Drop buckets past the retention window. Never touches integration_secret_last_seen: a
+     * dormant deployment holds the retirement verdict back however long it has been quiet.
      */
     async prune(retentionDays: number): Promise<void> {
         if (!this.pool) {

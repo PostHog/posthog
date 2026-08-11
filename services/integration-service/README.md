@@ -12,7 +12,7 @@ nothing here touches them.
 ## What it does and does not buy
 
 An attacker who has compromised a pod still holds that pod's JWT signing key, and can ask for any
-credential in the manifest. Per-request key scoping contains a _leaked token_, not a _compromised
+credential on the mount. Per-request key scoping contains a _leaked token_, not a _compromised
 pod_. The wins are:
 
 1. Environment dumps stop containing credentials — `/proc/self/environ`, crash reports, a stray
@@ -30,7 +30,7 @@ maintained pretending otherwise.
 
 ```text
 GET  /_liveness          200 always
-GET  /_readiness         200 once the pod holds a credential snapshot
+GET  /_readiness         200 once the pod holds credentials
 GET  /metrics            prometheus text (bearer-gated when a token is configured)
 POST /v1/secrets/resolve
 ```
@@ -42,7 +42,7 @@ one call needed:
 ```jsonc
 // Authorization: Bearer <token>
 {
-  "caller": "warehouse-sources", // the product that asked; recorded, not trusted
+  "caller": "warehouse-sources", // the product that asked; logged, not trusted
   "keys": ["GOOGLE_ADS_APP_CLIENT_ID", "GOOGLE_ADS_APP_CLIENT_SECRET"],
   "aud": "posthog:integration_service",
   "exp": 1786035932,
@@ -60,7 +60,7 @@ one call needed:
       "fetched_at": "…",
     },
   },
-  "missing": [], // unknown key, or no value in this environment
+  "missing": [], // name not on the mount, or reserved
 }
 ```
 
@@ -80,33 +80,24 @@ Two identities, deliberately not conflated:
 |                | What it is                                                                                               | Trusted?                                                                                                              |
 | -------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | **Deployment** | The pod set that signed the token (`posthog-django`, a temporal worker)                                  | Yes. It is derived from _which key verified the token_, never from a claim, so there is nothing in the token to forge |
-| **Product**    | The code path that wanted the credential (`warehouse-sources`, `cdp`), from a code enum at the call site | No. Django holds one key and hosts many products, so a compromised Django pod could name any of them                  |
+| **Caller**     | The code path that wanted the credential (`warehouse-sources`, `cdp`), from a code enum at the call site | No. Django holds one key and hosts many products, so a compromised Django pod could name any of them                  |
 
-Authorization hangs off the deployment. The product exists so an incident can ask "which product
-read this", and is collapsed to a constant when unrecognised, so it can never become an unbounded
-metric label.
+Authorization hangs off the deployment. The caller claim reaches the audit log so an incident can
+ask "which product read this", and reaches nothing else — in particular it is never a metric
+label, because prom-client keeps every series in process memory for the pod's lifetime.
 
-**There is no per-deployment provider allowlist.** Every authenticated deployment may read any
-credential in the manifest: a list bounds nothing the signing key does not already bound, and a
-compromised deployment is contained by revoking its key. What a deployment actually read is in
-the audit log and the usage rollup.
+**There is no per-deployment allowlist.** Every authenticated deployment may read any credential
+on the mount: a list bounds nothing the signing key does not already bound, and a compromised
+deployment is contained by revoking its key. What a deployment actually read is in the audit log
+and the usage rollup.
 
 So one thing bounds a request: the `keys` claim, which _is_ the request, for as long as the token
 has left to run — the verifier requires an `exp`.
 
-The corollary is a rule on the manifest: **only outbound credentials belong in it.** Anything in
-`providers.ts` is readable by every deployment holding a signing key. For an OAuth app secret we
-present to a third party that is no expansion — the pod already had its own copy in its
-environment. For an inbound-request authenticator such as a webhook signing secret it would be
-one, so those stay as plain env vars on the deployment that checks them.
-
 Signing keys live in the same secret as the credentials, one flat entry per deployment
-(`CALLER_KEY_<DEPLOYMENT>`). Deployment names are derived from the entries present, not declared
+(`__CALLER_KEY_<DEPLOYMENT>`). Deployment names are derived from the entries present, not declared
 in code, so onboarding a caller or revoking a compromised one is a secrets edit with no deploy.
 The same value goes into that deployment's own secret as `INTEGRATION_SERVICE_JWT_SECRET`.
-
-`Verifier` is an interface so a Kubernetes projected-ServiceAccount-token verifier (TokenReview)
-can drop in later without touching the routes or the policy layer.
 
 ## Storage and rotation
 
@@ -117,20 +108,20 @@ plain string values.
 External Secrets Operator syncs that secret into a Kubernetes Secret, and kubelet mounts it as a
 directory of one file per key. Kubelet rewrites the mount in place and swaps the `..data` symlink
 atomically, so a rotation reaches the pod without a restart and a read never sees a half-written
-set. The service re-reads on a jittered timer (`src/snapshot.ts`) and holds the parsed snapshot
-in memory; each replica's period is drawn fresh per tick from [0.5×, 1×] of
-`INTEGRATION_SERVICE_RELOAD_SECONDS`, so it never stretches past the configured value.
+set. The service re-reads on a timer (`src/mount.ts`) and holds the parsed set in memory; each
+replica's first read lands at a random point inside `INTEGRATION_SERVICE_RELOAD_SECONDS` so
+replicas do not reload in lockstep, and the period never exceeds it after that.
 
-A pod with no snapshot fails its readiness probe rather than exiting, so an empty mount recovers
-on its own once ESO syncs instead of crash-looping. A mount that stops being readable keeps the
-previous snapshot, with `integration_secret_serving_stale_seconds` as the only sign.
+A pod holding no credentials fails its readiness probe rather than exiting, so an empty mount
+recovers on its own once ESO syncs instead of crash-looping. A mount that stops being readable
+keeps what is already held, with `integration_secret_serving_stale_seconds` as the only sign.
 
 ```text
 integration-service-secrets
   STRIPE_APP_SECRET_KEY                 = "<credential>"
   STRIPE_APP_SECRET_KEY_FALLBACKS       = "<outgoing value, only while rotating>"
   INTEGRATION_RECOVERY_KEYS             = "<comma-separated key names>"
-  CALLER_KEY_POSTHOG_DJANGO             = "<new>,<old>"
+  __CALLER_KEY_POSTHOG_DJANGO           = "<new>,<old>"
 ```
 
 **Rotation rides an explicit `<KEY>_FALLBACKS` sibling, not AWS staging labels.** `AWSPREVIOUS`
@@ -156,9 +147,21 @@ integration is down for everyone until an engineer re-provisions the app. The st
 an immediate, distinct error, so the outage is attributable instead of looking like a third-party
 problem.
 
-Only fields named in `src/providers.ts` are ever served. A field present in the secret but absent
-from that manifest is ignored, so adding a credential is a reviewed code change and never just a
-secrets edit.
+### What gets served
+
+**Whatever is on the mount, except entries whose name starts with `__`.** There is no manifest in
+code, so adding a credential is a secrets edit and needs no deploy.
+
+The corollary is a rule on the secret: **only outbound credentials belong on it.** Every entry is
+readable by every deployment holding a signing key. For an OAuth app secret we present to a third
+party that is no expansion — the pod already had its own copy in its environment. For an
+inbound-request authenticator such as a webhook signing secret it would be one, so those stay as
+plain env vars on the deployment that checks them. `STRIPE_SIGNING_SECRET`, which authenticates
+requests arriving at `ee/partners/stripe/api/provisioning/`, is the worked example: keep it off
+this secret.
+
+`__` is the one thing the mount will not serve, whatever a token asks for. The caller signing keys
+carry that prefix, which is why they can share a secret with the credentials they protect.
 
 ### Knowing when the old value is safe to delete
 
@@ -217,26 +220,26 @@ session-scoped settings, no server-side named prepared statements.
 
 ## Metrics
 
-Every label value comes from fixed configuration, never from a request: a key the manifest does
-not define and a product the service does not recognise both collapse to a constant.
+No label value comes from a request. A key name becomes a label only once the mount is known to
+carry it; anything else collapses to a constant, and the `caller` claim is not a label at all.
 
-| Metric                                                                     | What it answers                                                     |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `integration_secret_resolve_total{deployment,product,provider,key,result}` | who read what, and whether it resolved                              |
-| `integration_secret_last_resolved_timestamp{provider,key}`                 | which credentials nothing reads any more                            |
-| `integration_secret_previous_version_served_total{provider,key}`           | how much traffic is reading a key mid-rotation                      |
-| `integration_secret_age_seconds`                                           | time since the secret last changed — drives "not rotated in N days" |
-| `integration_secret_serving_stale_seconds`                                 | how long this pod has served a snapshot it could not refresh        |
-| `integration_secret_store_errors_total`                                    | mount reads that returned nothing                                   |
-| `integration_service_signing_keys_last_loaded_timestamp`                   | staleness means a revocation has not landed on this pod             |
-| `integration_service_signing_key_reload_failures_total`                    | reloads that kept the previous key set                              |
-| `integration_service_auth_failures_total{reason}`                          | rejected tokens, by why                                             |
-| `integration_service_http_requests_total{method,route,status}`             | request volume, with an unmatched path collapsed to `other`         |
-| `integration_service_http_request_duration_seconds{method,route,status}`   | request latency                                                     |
-| `integration_service_shutting_down`                                        | 1 while draining                                                    |
+| Metric                                                                   | What it answers                                                     |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `integration_secret_resolve_total{deployment,key,result}`                | who read what, and whether it resolved                              |
+| `integration_secret_last_resolved_timestamp{key}`                        | which credentials nothing reads any more                            |
+| `integration_secret_previous_version_served_total{key}`                  | how much traffic is reading a key mid-rotation                      |
+| `integration_secret_age_seconds`                                         | time since the secret last changed — drives "not rotated in N days" |
+| `integration_secret_serving_stale_seconds`                               | how long this pod has served credentials it could not refresh       |
+| `integration_secret_store_errors_total`                                  | mount reads that returned nothing                                   |
+| `integration_service_signing_keys_last_loaded_timestamp`                 | staleness means a revocation has not landed on this pod             |
+| `integration_service_signing_key_reload_failures_total`                  | reloads that kept the previous key set                              |
+| `integration_service_auth_failures_total{reason}`                        | rejected tokens, by why                                             |
+| `integration_service_http_requests_total{method,route,status}`           | request volume, with an unmatched path collapsed to `other`         |
+| `integration_service_http_request_duration_seconds{method,route,status}` | request latency                                                     |
+| `integration_service_shutting_down`                                      | 1 while draining                                                    |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
-previous keys when an edit is malformed, and an unreadable mount keeps the last snapshot. Alert
+previous keys when an edit is malformed, and an unreadable mount keeps what is already held. Alert
 on the two staleness signals, or neither degradation is observable.
 
 `/metrics` is bearer-gated and the token is production-required: the resolve counter is a precise
@@ -284,7 +287,6 @@ which costs the rollup and nothing else.
 | `INTEGRATION_SERVICE_LOG_LEVEL`      | by `NODE_ENV`              | `debug`, `info`, `warn` or `error`                       |
 | `PORT`                               | `8004`                     |                                                          |
 | `HOST`                               | `0.0.0.0`                  |                                                          |
-| `SHUTDOWN_GRACE_MS`                  | `15000`                    | Drain budget before exit                                 |
 | `SHUTDOWN_PRESTOP_DELAY_MS`          | `5000`                     | Wait before draining, for the Kubernetes prestop window  |
 
 The service exits at boot rather than starting degraded: a missing production variable, or a

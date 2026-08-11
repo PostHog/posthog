@@ -1,19 +1,10 @@
-// The service's signing keys, one per calling deployment.
+// The service's signing keys, one flat `__CALLER_KEY_<DEPLOYMENT>` entry per caller in the
+// same mounted secret as the credentials. The same value goes into that deployment's own
+// secret as INTEGRATION_SERVICE_JWT_SECRET.
 //
-// They sit in the same mounted secret as the credentials, as flat uppercase keys, which is
-// what the PostHog/secrets CLI and UI can manage:
-//
-//   integration-service-secrets
-//     STRIPE_APP_SECRET_KEY                        = "<credential>"
-//     __CALLER_KEY_POSTHOG_DJANGO                  = "<new>,<old>"
-//     __CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE  = "<new>,<old>"
-//
-// The same value goes into that deployment's own secret as INTEGRATION_SERVICE_JWT_SECRET.
-//
-// Deployment names are DERIVED from the entries present, not declared in code, so
-// onboarding a caller or revoking a compromised one is a secrets edit with no deploy.
-// Revoking one deployment's key leaves every other deployment working, which is the
-// containment this design relies on.
+// Deployment names are DERIVED from the entries present, not declared in code, so revoking
+// a compromised caller is a secrets edit with no deploy, and it leaves every other caller
+// working. That containment is what this design relies on instead of an allowlist.
 
 import { logger } from '../lib/logging'
 import { signingKeyReloadFailuresTotal, signingKeysLastLoadedTimestamp } from '../metrics'
@@ -24,12 +15,9 @@ import type { SigningKeys } from './types'
 export const CALLER_KEY_PREFIX = `${RESERVED_PREFIX}CALLER_KEY_`
 
 /**
- * Reject a key value listed under more than one deployment.
- *
- * Two deployments sharing a value collapse into one identity, because the verifier stops at
- * the first entry that verifies. Revoking one would then not cut it off, and the audit log,
- * the usage rollup and safeToRetirePrevious would all name the wrong caller. A paste error
- * is the likely cause and is invisible in an opaque value, so fail at load instead.
+ * Reject a value listed under two deployments: the verifier stops at the first entry that
+ * verifies, so they collapse into one identity, revoking either fails to cut it off, and
+ * every attribution names the wrong caller. Invisible in an opaque value, so fail at load.
  */
 export function assertNoSharedKeys(keys: SigningKeys): void {
     const owner = new Map<string, string>()
@@ -84,8 +72,8 @@ export class SigningKeyLoader {
 
     /**
      * Reload, keeping the previous keys if the mount is unreadable or invalid, so a
-     * malformed edit cannot lock every caller out of a running fleet. The two metrics are
-     * what make that fail-open visible when a revocation does not land.
+     * malformed edit cannot lock a running fleet out. The metrics make that fail-open
+     * visible when a revocation does not land.
      */
     async reload(): Promise<void> {
         try {

@@ -1,9 +1,7 @@
-// Prometheus metrics.
-//
-// No label value ever comes from a request. A key name only becomes a label once the mount
-// is known to carry it; anything else collapses to a constant, and the untrusted `caller`
-// claim is not a label at all. prom-client keeps every series in process memory for the
-// pod's lifetime, so an unbounded label set is a memory leak a caller could drive.
+// No label value ever comes from a request: a key name becomes a label only once the mount
+// is known to carry it, anything else collapses to a constant, and the untrusted `caller`
+// claim is not a label at all. prom-client holds every series for the pod's lifetime, so an
+// unbounded label set is a memory leak a caller could drive.
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client'
 

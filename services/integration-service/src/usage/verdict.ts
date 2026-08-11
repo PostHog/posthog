@@ -24,19 +24,12 @@ export interface UsageKeyEntry {
     callers: UsageCallerEntry[]
     /**
      * True when every deployment known to read this key has read it since the secret last
-     * changed, and at least one such deployment exists.
+     * changed, and at least one such deployment exists. "Known to read" spans every caller
+     * with a last-seen record, so one that reads rarely delays the verdict rather than
+     * rushing it.
      *
-     * "Known to read" spans every caller with a last-seen record, not only those active
-     * inside the rolling window, so a deployment that reads the key rarely still holds
-     * the verdict back until it has moved on.
-     *
-     * This is sound only because callers do not cache: a read after activation
-     * necessarily returned the new value, so "has read since" means "is now using the
-     * new value". If a client-side cache is ever reintroduced, this verdict stops
-     * holding and has to be rethought.
-     *
-     * A deployment that reads the key rarely delays the verdict. That is the correct
-     * direction to be wrong in.
+     * Sound only because callers do not cache: a read after activation necessarily returned
+     * the new value. Reintroducing a client-side cache breaks this verdict.
      */
     safeToRetirePrevious: boolean
 }
@@ -83,16 +76,13 @@ export function buildUsageMap(opts: {
             const activatedAt = mounted.changedAt ? Date.parse(mounted.changedAt) : null
             for (const [field, at] of opts.lastSeen) {
                 const [fieldKey, caller] = field.split('|')
-                // Deliberately not gated on a read inside the rolling window: last-seen is
-                // kept indefinitely, so a deployment that reads this key less often than
-                // `quietWindowHours` still has to appear here. Dropping it would let a
-                // single read from any one caller declare the previous value retirable
+                // Not gated on the rolling window: dropping a deployment that reads
+                // rarely would let one active caller declare the previous value retirable
                 // while a dormant consumer is still on it.
                 if (fieldKey === key && caller) {
                     const entry = ensure(caller)
                     entry.lastSeen = new Date(at).toISOString()
-                    // A read after activation necessarily returned the new value, because
-                    // callers do not cache. So this is "has moved onto the new value".
+                    // No caching anywhere, so a read after activation means "has moved on".
                     entry.onCurrentValue = activatedAt !== null && at >= activatedAt
                 }
             }

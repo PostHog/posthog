@@ -1,10 +1,9 @@
 // Postgres holds the usage counters and the version-observation log, never a credential.
-// Durability matters: losing a stale reader's row flips the retirement verdict to "safe"
-// while that reader is still on the old value.
+// Losing a stale reader's row flips the retirement verdict to "safe" while that reader is
+// still on the old value, so durability is the point.
 //
-// The DSN goes through PgBouncer in transaction mode, so nothing here may rely on session
-// state: no LISTEN/NOTIFY, no session-scoped settings, no server-side named prepared
-// statements.
+// The DSN goes through PgBouncer in transaction mode: no LISTEN/NOTIFY, no session-scoped
+// settings, no server-side named prepared statements.
 
 import { Pool } from 'pg'
 

@@ -1,12 +1,11 @@
-// Turns a verified token plus what the mount currently holds into a response.
+// Turns a verified token plus what the mount holds into a response.
 //
-// What a request may read is bounded by the `keys` claim alone: the token IS the request,
-// so a leaked one unlocks the fields of one call rather than everything. There is no
-// per-deployment allowlist, because a list bounds nothing the per-deployment signing key
-// does not already bound — a compromised deployment is contained by revoking its key.
+// The `keys` claim alone bounds what a request may read. There is no per-deployment
+// allowlist, because a list bounds nothing the deployment's signing key does not already
+// bound: a compromised deployment is contained by revoking that key.
 //
-// `missing` covers a name the mount does not carry and a reserved entry the mount refuses
-// to serve. Both are reported per key rather than failing the batch.
+// `missing` covers both a name the mount does not carry and a reserved entry it refuses to
+// serve, reported per key rather than failing the batch.
 
 import { logger } from './lib/logging'
 import { observeResolve, previousVersionServedTotal } from './metrics'

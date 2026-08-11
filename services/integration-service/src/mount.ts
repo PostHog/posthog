@@ -1,11 +1,9 @@
-// The mounted Kubernetes Secret: reads it, holds the credentials it currently carries, and
-// drives readiness from whether this pod holds any.
+// The mounted Kubernetes Secret: reads it, holds the credentials it carries, and drives
+// readiness from whether this pod holds any.
 //
-// External Secrets Operator syncs the AWS secret into a Kubernetes Secret, and kubelet
-// mounts it as a directory: one file per key, the file contents being the value. Kubelet
-// rewrites the mount in place when the content changes, so a rotation reaches the pod
-// without a restart, and it swaps the `..data` symlink atomically, so a read never sees a
-// half-written set.
+// Kubelet projects the secret as a directory, one file per key, and rewrites it in place
+// when the content changes, swapping the `..data` symlink atomically. So a rotation reaches
+// the pod without a restart and a read never sees a half-written set.
 
 import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
@@ -16,28 +14,21 @@ import { secretAgeSeconds, mountErrorsTotal, servingStaleSeconds } from './metri
 import type { Credential, Lifecycle, MountedCredentials } from './types'
 
 /**
- * Marks an entry that is never served as a credential, whatever a token asks for. The
- * signing keys share this mount, and a double underscore cannot collide with a credential
- * name, which are the third party's own environment-variable names.
+ * Marks an entry that is never served as a credential, whatever a token asks for. Credential
+ * names are the third party's own environment-variable names, so a double underscore cannot
+ * collide with one.
  */
 export const RESERVED_PREFIX = '__'
 
-/**
- * Reserved key naming the credentials that are in recovery, comma-separated.
- *
- * Uppercase and flat because PostHog/secrets only manages `[A-Z0-9_]+` keys with plain
- * string values.
- */
+/** Comma-separated names of the credentials that are in recovery. */
 export const RECOVERY_KEYS = 'INTEGRATION_RECOVERY_KEYS'
 
 /**
- * Suffix marking the outgoing value during a rotation: `STRIPE_APP_SECRET_KEY` alongside
- * `STRIPE_APP_SECRET_KEY_FALLBACKS`, comma-separated, newest first.
+ * Suffix holding the outgoing value during a rotation, comma-separated, newest first.
  *
- * A sibling key rather than an AWS staging label, because `AWSPREVIOUS` applies to a whole
- * secret version: with every credential in one secret, rotating Google or simply adding an
- * unrelated key would consume the slot Stripe's in-flight rotation was using and end its
- * overlap silently. A mount cannot see staging labels at all.
+ * A sibling key rather than an AWS staging label: `AWSPREVIOUS` applies to a whole secret
+ * version, so with everything in one secret an unrelated edit would silently end an
+ * in-flight rotation's overlap.
  */
 export const FALLBACK_SUFFIX = '_FALLBACKS'
 
@@ -98,11 +89,10 @@ export interface SecretMountOptions {
 }
 
 /**
- * Readiness tracks whether this pod actually holds credentials, not merely that a read ran:
- * a pod with none would answer every resolve all-missing, which callers treat as terminal,
- * so it must fail its probe instead. A read that returns nothing keeps what is already held,
- * so a transient mount blip does not take a warm fleet out of rotation, and an empty mount
- * at boot recovers on its own once ESO syncs, without a crash loop.
+ * Readiness tracks whether this pod holds credentials, not merely that a read ran: a pod
+ * with none would answer every resolve all-missing, which callers treat as terminal. A read
+ * that returns nothing keeps what is held, so a mount blip does not take a warm fleet out
+ * of rotation and an empty mount at boot recovers once ESO syncs, without a crash loop.
  */
 export class SecretMount {
     private held: MountedCredentials | null = null
@@ -159,8 +149,7 @@ export class SecretMount {
         const credentials: Record<string, Credential> = {}
 
         for (const [key, value] of Object.entries(values)) {
-            // THE rule that keeps the caller signing keys sharing this mount from ever being
-            // served as credentials.
+            // The one rule keeping the signing keys on this mount out of a response.
             if (key.startsWith(RESERVED_PREFIX)) {
                 continue
             }

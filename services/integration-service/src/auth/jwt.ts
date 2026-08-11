@@ -1,10 +1,8 @@
 // HS256 JWT verification, following the recording-api scheme (PostHog/posthog#67476).
 //
-// The deployment is established by WHICH KEY VERIFIES the token, never by a claim, so there
-// is nothing in the token an attacker could edit to become a different deployment.
-//
-// The requested key set travels in the `keys` claim and there is no request body, so a
-// token lifted from a log unlocks the fields of one call rather than every credential.
+// The deployment is WHICH KEY VERIFIES the token, never a claim, so there is nothing in the
+// token an attacker could edit to become a different deployment. The `keys` claim is the
+// whole request scope, so a token lifted from a log unlocks one call's fields.
 
 import { jwtVerify } from 'jose'
 
@@ -13,10 +11,8 @@ import type { SigningKeyLoader } from './registry'
 import { AUDIENCE, AuthError, type AuthFailureReason } from './types'
 
 /**
- * Map a jose failure to a rejection reason, or null when it only means "not this key".
- *
- * Only the key that verifies the signature gets as far as the claim checks, so at most one
- * candidate ever produces a non-null reason.
+ * Map a jose failure to a rejection reason, or null when it only means "not this key". Only
+ * the key that verifies the signature reaches the claim checks, so at most one is non-null.
  */
 function rejectionReason(err: unknown): AuthFailureReason | null {
     const code = (err as { code?: string }).code
@@ -79,8 +75,7 @@ export class JwtVerifier {
         return {
             deployment,
             caller: typeof payload['caller'] === 'string' ? payload['caller'] : '',
-            // A repeated key would otherwise be resolved, counted and logged once per
-            // occurrence.
+            // A repeat would otherwise be resolved, counted and logged once per occurrence.
             requestedKeys: [...new Set(requested)],
         }
     }

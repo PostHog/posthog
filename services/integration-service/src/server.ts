@@ -1,10 +1,9 @@
 // Wires the service together and owns its lifecycle.
 //
-// Shutdown ordering is fixed: mark draining, wait out the prestop delay, drain the HTTP
-// server, flush the usage recorder, end the pool. The flush sits after the drain so
-// in-flight requests still record, and before the pool closes so it has somewhere to
-// write. unhandledRejection and uncaughtException route through the same path, so a crash
-// still flushes the reads that prove a caller has moved onto a new value.
+// Shutdown order is fixed: mark draining, wait out the prestop delay, drain the HTTP server,
+// flush the usage recorder, end the pool. The flush sits after the drain so in-flight
+// requests still record, and before the pool closes so it has somewhere to write. A crash
+// takes the same path, so it still flushes the reads that prove a caller has moved on.
 
 import { serve } from '@hono/node-server'
 import type { Hono } from 'hono'
@@ -44,10 +43,9 @@ export interface IntegrationServerOverrides {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
- * Run `task` every `intervalMs`, starting after a delay drawn from [0, intervalMs) so
- * replicas do not reload in lockstep. The steady period is exactly `intervalMs` and the
- * first run lands inside it, because the reload is how a signing-key revocation reaches
- * this pod. Timers are unref'd so a pending one never holds the process open.
+ * Run `task` every `intervalMs`, after an initial delay drawn from [0, intervalMs) so
+ * replicas do not reload in lockstep. The period never exceeds `intervalMs`, because the
+ * reload is how a signing-key revocation reaches this pod. Timers are unref'd.
  */
 export function everyJittered(intervalMs: number, task: () => Promise<void>): () => void {
     let repeat: NodeJS.Timeout | undefined
