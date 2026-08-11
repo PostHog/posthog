@@ -2,11 +2,13 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
@@ -350,12 +352,14 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     throw error
                 }
 
+                let notificationsConfigured = true
                 try {
                     if (values.pendingNotifications.length > 0) {
                         const notifLogic = logsAlertNotificationLogic({ alertId: props.alert?.id })
-                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
+                        notificationsConfigured = await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
                     }
                 } catch {
+                    notificationsConfigured = false
                     if (props.alert) {
                         lemonToast.error('Alert updated, but notifications could not be configured.')
                     } else {
@@ -366,6 +370,9 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 actions.loadAlerts()
                 if (!props.alert) {
                     props.onCreateSuccess?.()
+                    if (!notificationsConfigured) {
+                        router.actions.push(urls.logsAlertDetail(savedAlertId, 'notifications'))
+                    }
                 }
                 return form
             },

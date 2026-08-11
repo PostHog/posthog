@@ -421,7 +421,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         createPendingHogFunctions: async ({ alertId }) => {
             const pending = values.pendingNotifications
             if (pending.length === 0) {
-                return
+                return true
             }
 
             const projectId = String(values.currentProjectId)
@@ -459,6 +459,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
 
             actions.loadExistingHogFunctions(alertId)
             actions.destinationsChanged()
+            return failedNotifications.length === 0
         },
     })),
 
