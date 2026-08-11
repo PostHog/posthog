@@ -10,6 +10,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { AppState } from "react-native";
 import { create } from "zustand";
+import { useAuthStore } from "@/features/auth";
 import { presentLocalNotification } from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { logger } from "@/lib/logger";
@@ -116,7 +117,11 @@ function maybePresentLocalNotification(args: {
   presentLocalNotification({
     title: "PostHog",
     body,
-    data: { taskId: session.taskId, taskRunId: session.taskRunId },
+    data: {
+      taskId: session.taskId,
+      taskRunId: session.taskRunId,
+      teamId: useAuthStore.getState().projectId ?? undefined,
+    },
   }).catch(() => {});
 }
 

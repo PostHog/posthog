@@ -135,7 +135,12 @@ def _send_push(loop: Loop, event: str, title: str, payload: dict[str, Any], chan
     if not _channel_enabled(channel_config, event) or loop.created_by_id is None:
         return
     try:
-        data: dict[str, Any] = {"loopId": str(loop.id), "event": event}
+        data: dict[str, Any] = {
+            "loopId": str(loop.id),
+            "event": event,
+            # Lets the mobile tap handler switch to the loop's project first.
+            "teamId": str(loop.team_id),
+        }
         if payload.get("task_id"):
             data["taskId"] = str(payload["task_id"])
         if payload.get("task_run_id"):

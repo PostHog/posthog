@@ -7,7 +7,7 @@ import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "nativewind";
 import { PostHogProvider } from "posthog-react-native";
 import { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Alert, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
@@ -47,7 +47,26 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
   }, [initializeAuth]);
 
   useEffect(() => {
-    return setupNotificationResponseListener(({ path }) => {
+    return setupNotificationResponseListener(({ path, teamId }) => {
+      // Pushes are per-user, not per-project, so a tap can target a task in
+      // a project other than the active one. Switch first (informing the
+      // user), or explain why the task can't be opened at all.
+      if (teamId != null) {
+        const { projectId, setProjectId } = useAuthStore.getState();
+        if (teamId !== projectId) {
+          if (!setProjectId(teamId)) {
+            Alert.alert(
+              "Can't open task",
+              "This task belongs to a project your login isn't authorized for. Log out and back in to grant access to it.",
+            );
+            return;
+          }
+          Alert.alert(
+            "Switched project",
+            "This task lives in a different project, so the app switched to it.",
+          );
+        }
+      }
       router.push(path);
     });
   }, []);
