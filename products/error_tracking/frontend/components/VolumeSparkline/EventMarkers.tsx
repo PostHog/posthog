@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useChartLayout } from '@posthog/quill-charts'
 
+import { buildTimePositioner } from './buildTimePositioner'
 import { spreadLabels } from './spreadLabels'
 import type { SparklineEvent } from './types'
 
@@ -31,27 +32,7 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
 
-    // Continuous time → x, so an event between two bucket starts lands between their bars. Bars are
-    // band-scaled, so the step comes from two adjacent band centers and x is measured from the
-    // first bucket's left edge (where its own timestamp sits).
-    const positionAt = useMemo((): ((time: number) => number) | null => {
-        if (dates.length < 2 || labels.length < 2) {
-            return null
-        }
-        const firstCenter = scales.x(labels[0])
-        const secondCenter = scales.x(labels[1])
-        if (firstCenter == null || secondCenter == null || !isFinite(firstCenter) || !isFinite(secondCenter)) {
-            return null
-        }
-        const step = secondCenter - firstCenter
-        const bucketMs = dates[1].getTime() - dates[0].getTime()
-        if (step === 0 || bucketMs === 0) {
-            return null
-        }
-        const originX = firstCenter - step / 2
-        const originTime = dates[0].getTime()
-        return (time: number) => originX + ((time - originTime) / bucketMs) * step
-    }, [dates, labels, scales])
+    const positionAt = useMemo(() => buildTimePositioner(dates, labels, scales.x), [dates, labels, scales])
 
     const anchors = useMemo(
         () => (positionAt ? events.map((event) => positionAt(event.date.getTime())) : []),
