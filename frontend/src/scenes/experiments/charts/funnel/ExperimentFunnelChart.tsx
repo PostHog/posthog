@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import {
     FunnelChart,
@@ -217,9 +217,23 @@ export function ExperimentFunnelChart({
         })
     }, [variants, experiment, numMetricSteps])
 
+    // The chart owns an interactive legend that hides toggled-off variants from the bars, axes, and
+    // tooltip. Control that state here so the per-step footer totals below only sum the variants
+    // currently drawn, instead of drifting to a stale all-variants aggregate.
+    const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
+    const onToggleSeries = useCallback((key: string, hidden: boolean): void => {
+        setHiddenKeys((prev) => (hidden ? [...prev, key] : prev.filter((k) => k !== key)))
+    }, [])
+
     const stepTotals = useMemo(
-        () => steps.map((_, stepIndex) => series.reduce((sum, s) => sum + (s.meta?.counts[stepIndex] ?? 0), 0)),
-        [steps, series]
+        () =>
+            steps.map((_, stepIndex) =>
+                series.reduce(
+                    (sum, s) => sum + (hiddenKeys.includes(s.key) ? 0 : (s.meta?.counts[stepIndex] ?? 0)),
+                    0
+                )
+            ),
+        [steps, series, hiddenKeys]
     )
 
     const renderTooltip = useCallback(
@@ -268,7 +282,10 @@ export function ExperimentFunnelChart({
         [steps, experimentQuery]
     )
 
-    const config = useMemo(() => ({ legend: { show: series.length > 1 } }), [series.length])
+    const config = useMemo(
+        () => ({ legend: { show: series.length > 1, hiddenKeys, onToggleSeries } }),
+        [series.length, hiddenKeys, onToggleSeries]
+    )
 
     const renderStepFooter = useCallback(
         (stepIndex: number): React.ReactNode => (
