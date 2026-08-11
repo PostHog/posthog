@@ -141,6 +141,9 @@ export interface timeSensitiveAuthenticationLogicActions {
     setDismissedReauthentication: (value: boolean) => {
         value: boolean
     }
+    setPrecheckTimedOut: (value: boolean) => {
+        value: boolean
+    }
     setReauthenticationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -155,9 +158,6 @@ export interface timeSensitiveAuthenticationLogicActions {
         values: DeepPartial<ReauthenticationForm>
     }
     setRequiresTwoFactor: (value: boolean) => {
-        value: boolean
-    }
-    setPrecheckTimedOut: (value: boolean) => {
         value: boolean
     }
     setTotpAvailable: (available: boolean) => {

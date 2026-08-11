@@ -191,22 +191,10 @@ export interface proxyLogicActions {
         errorObject?: any
     }
     deleteRecordSuccess: (
-        proxyRecords: {
-            domain: string
-            id: string
-            message?: string | undefined
-            status: 'deleting' | 'erroring' | 'issuing' | 'timed_out' | 'valid' | 'waiting' | 'warning'
-            target_cname: string
-        }[],
+        proxyRecords: ProxyRecord[],
         payload?: ProxyRecord[]
     ) => {
-        proxyRecords: {
-            domain: string
-            id: string
-            message?: string | undefined
-            status: 'deleting' | 'erroring' | 'issuing' | 'timed_out' | 'valid' | 'waiting' | 'warning'
-            target_cname: string
-        }[]
+        proxyRecords: ProxyRecord[]
         payload?: ProxyRecord[]
     }
     diagnose: (id: ProxyRecord['id']) => {
