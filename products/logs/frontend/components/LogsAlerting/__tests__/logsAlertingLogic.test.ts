@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { logsAlertsList, logsAlertsResetCreate } from 'products/logs/frontend/generated/api'
+import { logsAlertsCreate, logsAlertsList, logsAlertsResetCreate } from 'products/logs/frontend/generated/api'
 
 import { logsAlertingLogic } from '../logsAlertingLogic'
 
@@ -31,6 +31,7 @@ jest.mock('@posthog/lemon-ui', () => ({
 
 const mockReset = logsAlertsResetCreate as jest.MockedFunction<typeof logsAlertsResetCreate>
 const mockList = logsAlertsList as jest.MockedFunction<typeof logsAlertsList>
+const mockCreate = logsAlertsCreate as jest.MockedFunction<typeof logsAlertsCreate>
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     let resolve!: (value: T) => void
@@ -161,41 +162,18 @@ describe('logsAlertingLogic', () => {
         })
     })
 
-    describe('createAlertAndOpen', () => {
-        it('posts an empty draft and routes to detail', async () => {
-            const mockCreate = require('products/logs/frontend/generated/api').logsAlertsCreate as jest.Mock
-            mockCreate.mockResolvedValueOnce({ id: 'new-alert-id', name: 'Untitled alert' })
-            const { router } = require('kea-router')
-            const pushSpy = jest.spyOn(router.actions, 'push')
-
+    describe('create alert modal', () => {
+        it('opens without creating an empty draft', async () => {
             const logic = logsAlertingLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.createAlertAndOpen()
-            }).toFinishAllListeners()
+                logic.actions.openCreateAlertModal()
+            }).toMatchValues({ isCreateAlertModalOpen: true })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.any(String), { enabled: false })
-            expect(pushSpy).toHaveBeenCalledWith('/logs/alerts/new-alert-id')
+            expect(mockCreate).not.toHaveBeenCalled()
 
-            pushSpy.mockRestore()
-            logic.unmount()
-        })
-
-        it('shows an error toast on create failure', async () => {
-            const mockCreate = require('products/logs/frontend/generated/api').logsAlertsCreate as jest.Mock
-            mockCreate.mockRejectedValueOnce({ detail: 'Maximum number of alerts reached' })
-
-            const logic = logsAlertingLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            await expectLogic(logic, () => {
-                logic.actions.createAlertAndOpen()
-            }).toFinishAllListeners()
-
-            expect(lemonToast.error).toHaveBeenCalledWith('Maximum number of alerts reached')
             logic.unmount()
         })
     })

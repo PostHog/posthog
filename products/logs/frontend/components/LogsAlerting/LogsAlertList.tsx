@@ -72,7 +72,7 @@ export function LogsAlertDestinationTags({
 }
 
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds, creatingAlert, createdByFilter } = useValues(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds, createdByFilter } = useValues(logsAlertingLogic)
     const {
         setCreatedByFilter,
         deleteAlert,
@@ -80,7 +80,7 @@ export function LogsAlertList(): JSX.Element {
         resetAlert,
         snoozeAlert,
         unsnoozeAlert,
-        createAlertAndOpen,
+        openCreateAlertModal,
     } = useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
@@ -276,8 +276,7 @@ export function LogsAlertList(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        onClick={() => createAlertAndOpen()}
-                        loading={creatingAlert}
+                        onClick={openCreateAlertModal}
                         data-attr="logs-alerts-new"
                     >
                         Create alert
@@ -295,13 +294,7 @@ export function LogsAlertList(): JSX.Element {
                     <span>Created by:</span>
                     <MemberSelect value={createdByFilter} onChange={(user) => setCreatedByFilter(user?.uuid ?? null)} />
                 </div>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={() => createAlertAndOpen()}
-                    loading={creatingAlert}
-                    data-attr="logs-alerts-new"
-                >
+                <LemonButton type="primary" size="small" onClick={openCreateAlertModal} data-attr="logs-alerts-new">
                     New alert
                 </LemonButton>
             </div>

@@ -230,10 +230,12 @@ describe('logsAlertFormLogic', () => {
 
     describe('create path (props.alert is null)', () => {
         let logic: ReturnType<typeof logsAlertFormLogic.build>
+        let onCreateSuccess: jest.Mock
 
         beforeEach(() => {
             mockLogsAlertsCreate.mockResolvedValue(MOCK_CREATED_ALERT)
-            logic = logsAlertFormLogic({ alert: null })
+            onCreateSuccess = jest.fn()
+            logic = logsAlertFormLogic({ alert: null, onCreateSuccess })
             logic.mount()
         })
 
@@ -279,6 +281,7 @@ describe('logsAlertFormLogic', () => {
             }).toFinishAllListeners()
 
             expect(lemonToast.success).toHaveBeenCalledWith('Alert created')
+            expect(onCreateSuccess).toHaveBeenCalledTimes(1)
         })
 
         it('trims whitespace from name in create payload', async () => {

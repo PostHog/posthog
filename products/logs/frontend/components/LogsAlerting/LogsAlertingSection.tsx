@@ -1,13 +1,25 @@
-import { BindLogic } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
+import { LogsAlertCreateModal } from './LogsAlertCreateModal'
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertList } from './LogsAlertList'
 
 export function LogsAlertingSection(): JSX.Element {
     return (
         <BindLogic logic={logsAlertingLogic} props={{}}>
+            <LogsAlertingSectionContent />
+        </BindLogic>
+    )
+}
+
+function LogsAlertingSectionContent(): JSX.Element {
+    const { isCreateAlertModalOpen } = useValues(logsAlertingLogic)
+    const { closeCreateAlertModal } = useActions(logsAlertingLogic)
+
+    return (
+        <>
             <LemonBanner
                 type="info"
                 dismissKey="logs-alerts-beta-banner"
@@ -21,6 +33,7 @@ export function LogsAlertingSection(): JSX.Element {
                 or share feedback with what you'd like to see.
             </LemonBanner>
             <LogsAlertList />
-        </BindLogic>
+            <LogsAlertCreateModal isOpen={isCreateAlertModalOpen} onClose={closeCreateAlertModal} />
+        </>
     )
 }
