@@ -147,6 +147,16 @@ pub trait HandoffHandler: Send + Sync {
         Ok(false)
     }
 
+    /// The handoff names this pod as the incoming owner, but acquisition
+    /// is not yet permitted (the old owner is still freezing or
+    /// draining). A hint, not a phase: implementations may use the
+    /// window to prepare state whose setup touches nothing shared — the
+    /// leader pre-connects its changelog producer here so the fence
+    /// acquisition inside the warm pays only the init round trip. Called
+    /// on every convergence observing that window, so implementations
+    /// must be idempotent and must not block: spawn and return.
+    async fn prepare_acquire(&self, _partition: u32) {}
+
     /// Old owner: release the partition from this pod's local state (drop cache,
     /// close consumers, etc.).
     ///
@@ -1055,6 +1065,21 @@ impl PodHandle {
         let pod = &self.config.pod_name;
         let desired = desired_state(pod, assignment, handoff);
         let mut did_work = false;
+
+        // The pending-ownership window: this pod will be told to warm
+        // once the drain completes, and everything the warm needs that
+        // touches no shared state can get ready now. Deliberately not a
+        // DesiredState — the derivation stays a pure ownership answer —
+        // and deliberately not `did_work`: preparation is a hint, and
+        // counting it as progress would let a pod that only ever
+        // prepares look healthy to the budgets.
+        if let Some(h) = handoff {
+            if h.new_owner == *pod
+                && matches!(h.phase, HandoffPhase::Freezing | HandoffPhase::Draining)
+            {
+                self.handler.prepare_acquire(partition).await;
+            }
+        }
 
         match desired {
             DesiredState::Serving => {
