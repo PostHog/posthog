@@ -38,8 +38,8 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
     const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
     const nameError = alertForm.name.trim() ? undefined : 'Enter an alert name.'
-    const monitorCannotAdvanceReason = nameError ?? (!hasLogFilter ? 'Add at least one log filter.' : undefined)
-    const steps = buildLogsAlertWizardSteps({ alertForm, pendingNotifications, monitorCannotAdvanceReason })
+    const configurationCannotAdvanceReason = nameError ?? (!hasLogFilter ? 'Add at least one log filter.' : undefined)
+    const steps = buildLogsAlertWizardSteps({ alertForm, pendingNotifications, configurationCannotAdvanceReason })
 
     return (
         <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
@@ -88,32 +88,23 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
 function buildLogsAlertWizardSteps({
     alertForm,
     pendingNotifications,
-    monitorCannotAdvanceReason,
+    configurationCannotAdvanceReason,
 }: {
     alertForm: LogsAlertFormType
     pendingNotifications: PendingLogsAlertNotification[]
-    monitorCannotAdvanceReason: string | undefined
+    configurationCannotAdvanceReason: string | undefined
 }): AlertWizardStep[] {
     return [
         {
-            key: 'monitor',
-            title: 'Monitor logs',
-            description: 'Select the logs that this alert monitors.',
-            canAdvance: !monitorCannotAdvanceReason,
-            cannotAdvanceReason: monitorCannotAdvanceReason,
+            key: 'configure',
+            title: 'Configure alert',
+            description: 'Select matching logs and set when this alert fires.',
+            canAdvance: !configurationCannotAdvanceReason,
+            cannotAdvanceReason: configurationCannotAdvanceReason,
             content: (
                 <div className="max-w-2xl space-y-6">
-                    <AlertEditorFormDetails nameError={monitorCannotAdvanceReason} />
+                    <AlertEditorFormDetails nameError={configurationCannotAdvanceReason} />
                     <LogsAlertFilters />
-                </div>
-            ),
-        },
-        {
-            key: 'trigger',
-            title: 'Set trigger',
-            description: 'Set the log count that fires the alert and reduce notification noise if needed.',
-            content: (
-                <div className="max-w-2xl">
                     <LogsAlertTrigger />
                 </div>
             ),
