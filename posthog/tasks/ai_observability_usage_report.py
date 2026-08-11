@@ -690,12 +690,22 @@ def get_llm_feedback_survey_metrics(
     )
 
 
+# Every report is stamped this far after the start of the period it covers, whenever it is emitted.
+# A backfill of an old period therefore lands next to that period rather than at the operator's wall
+# clock, which is what lets the already-reported lookup bound its scan without missing a report.
+REPORT_STAMP_OFFSET = timedelta(days=1)
+
 # Bounds the scan for the already-reported lookup, which has to see every stamp a report for the
-# period could carry. Every report emitted so far sits one or two days after the period it covers, so
-# this is far wider than the observed spread rather than a tight fit. The width costs little, because
-# team_id, the timestamp range and the event name are all a prefix of the events table sort key.
-# A report stamped more than this long after its period is invisible here and would be emitted again.
-REPORTED_LOOKUP_WINDOW = timedelta(days=90)
+# period could carry. Derived from the stamp offset rather than set independently, so moving where
+# reports are stamped cannot leave the lookup scanning a window that no longer contains them.
+#
+# The slack over the offset is deliberately far larger than the offset itself, because the two
+# directions are not symmetric. A window that is too wide reads more rows, and reads them cheaply,
+# since team_id, the timestamp range and the event name are all a prefix of the events table sort key.
+# A window that is too narrow reads a report that exists as never emitted and emits a duplicate, which
+# no consumer of these events can remove. The slack also covers reports emitted before stamping became
+# deterministic, which carry their arrival time rather than a fixed offset.
+REPORTED_LOOKUP_WINDOW = REPORT_STAMP_OFFSET + timedelta(days=89)
 
 # A claim has to outlive the run that took it, otherwise it lapses while the first dispatch is still
 # emitting and a second dispatch is admitted whose lookup cannot see the first one's events yet.
@@ -1232,7 +1242,7 @@ def send_ai_observability_usage_reports(
     # Deterministic nominal stamp (midnight after the covered day): keeps daily bucketing stable
     # in UTC and project timezones, and stops retry stragglers landing on the wrong chart day.
     # Actual arrival time remains queryable via events.created_at.
-    report_timestamp = (period.start + timedelta(days=1)).isoformat()
+    report_timestamp = (period.start + REPORT_STAMP_OFFSET).isoformat()
     triggered_by = "manual" if is_manual_run else "scheduled"
 
     for org_id, report in org_reports.items():
