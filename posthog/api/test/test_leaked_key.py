@@ -30,6 +30,11 @@ from posthog.test.api_keys import create_project_secret_api_key
 
 
 class TestPublicLeakedKeyReport(APIBaseTest):
+    # Every case must exercise the anonymous path this endpoint exists to serve. With the
+    # default force-login, dropping `authentication_classes`/`permission_classes` from the
+    # view would fall back to DRF's authenticated-only defaults and no test would notice.
+    CONFIG_AUTO_LOGIN = False
+
     def _create_oauth_app(self) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name="Test OAuth App",
