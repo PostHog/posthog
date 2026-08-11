@@ -77,7 +77,7 @@ export function createApp(opts: AppOptions): Hono {
     app.get('/metrics', async (c) => {
         if (opts.metricsToken) {
             const provided = bearerOrEmpty(c.req.header('Authorization'))
-            if (!provided || provided !== opts.metricsToken) {
+            if (!provided || !tokensMatch(provided, opts.metricsToken)) {
                 return c.json({ error: 'Unauthorized' }, 401)
             }
         }
