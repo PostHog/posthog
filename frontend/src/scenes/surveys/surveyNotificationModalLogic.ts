@@ -19,7 +19,6 @@ import {
     SurveyResponseFilter,
     buildResponseFilterProperties,
     parseResponseFiltersFromProperties,
-    stripResponseFiltersFromProperties,
 } from 'scenes/surveys/responseFilters'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
@@ -367,6 +366,7 @@ async function buildSurveyNotificationPayload({
             template,
             destination: form.destination,
             surveyId: survey.id,
+            enablePartialResponses: survey.enable_partial_responses ?? false,
             form,
         })
     }
@@ -386,6 +386,7 @@ async function buildSurveyNotificationPayload({
         destination: form.destination,
         surveyName: survey.name,
         surveyId: survey.id,
+        enablePartialResponses: survey.enable_partial_responses ?? false,
         form,
     })
 }
@@ -619,12 +620,14 @@ function createSurveyNotificationPayload({
     destination,
     surveyName,
     surveyId,
+    enablePartialResponses,
     form,
 }: {
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyName?: string | null
     surveyId: string
+    enablePartialResponses: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
@@ -682,7 +685,11 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(surveyId, buildResponseFilterProperties(form.responseFilters)),
+        filters: getSurveyNotificationFilters(
+            surveyId,
+            enablePartialResponses,
+            buildResponseFilterProperties(form.responseFilters)
+        ),
         hog: template.code,
         icon_url: template.icon_url,
         enabled: true,
@@ -699,25 +706,18 @@ function mergeResponseFiltersIntoExistingFilters(
         return fallbackFilters
     }
     const responseProperties = buildResponseFilterProperties(responseFilters)
-    const events = (base.events ?? []).map((event) => {
-        if (event.id !== SurveyEventName.SENT) {
-            return event
-        }
-        const preservedProperties = stripResponseFiltersFromProperties(
-            (event.properties ?? []).filter(
-                (property): property is EventPropertyFilter =>
-                    typeof property === 'object' &&
-                    property !== null &&
-                    'type' in property &&
-                    (property as { type?: unknown }).type === PropertyFilterType.Event
-            )
-        )
-        return {
+    // Sent branches come from the freshly built filters rather than the saved ones, so re-saving
+    // repairs a notification stored before the completion branches were corrected. Hand-edited
+    // properties on a sent branch don't survive that, which is the cost of making an unfireable
+    // notification fixable from this modal.
+    const rebuiltSentEvents = (fallbackFilters?.events ?? [])
+        .filter((event) => event.id === SurveyEventName.SENT)
+        .map((event) => ({
             ...event,
-            properties: [...preservedProperties, ...responseProperties],
-        }
-    })
-    return { ...base, events }
+            properties: [...(event.properties ?? []), ...responseProperties],
+        }))
+    const preservedEvents = (base.events ?? []).filter((event) => event.id !== SurveyEventName.SENT)
+    return { ...base, events: [...rebuiltSentEvents, ...preservedEvents] }
 }
 
 function updateSurveyNotificationPayload({
@@ -725,12 +725,14 @@ function updateSurveyNotificationPayload({
     template,
     destination,
     surveyId,
+    enablePartialResponses,
     form,
 }: {
     notification: HogFunctionType
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyId: string
+    enablePartialResponses: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const payload = createSurveyNotificationPayload({
@@ -738,6 +740,7 @@ function updateSurveyNotificationPayload({
         destination,
         surveyName: null,
         surveyId,
+        enablePartialResponses,
         form,
     })
 
@@ -783,6 +786,7 @@ function createCopiedSurveyNotificationPayload({
         destination,
         surveyName: survey.name,
         surveyId: survey.id,
+        enablePartialResponses: survey.enable_partial_responses ?? false,
         form,
     })
 
@@ -803,7 +807,11 @@ function createCopiedSurveyNotificationPayload({
         },
         mappings: remapSurveyResponseProperties(notification.mappings, survey),
         masking: notification.masking,
-        filters: getSurveyNotificationFilters(survey.id, buildResponseFilterProperties(form.responseFilters)),
+        filters: getSurveyNotificationFilters(
+            survey.id,
+            survey.enable_partial_responses ?? false,
+            buildResponseFilterProperties(form.responseFilters)
+        ),
         hog: remapSurveyResponseProperties(notification.hog, survey) ?? template.code,
         icon_url: notification.icon_url ?? template.icon_url,
         enabled: true,
