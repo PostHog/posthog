@@ -49,7 +49,7 @@ Everything downstream keys off the effective tool name, which needs the coalesce
 
 ### 2. Build the corpus
 
-Sessions that called the target tool, with their opening calls concatenated in order — and **the caller selected alongside them**:
+Sessions that called the target tool, with their opening calls concatenated in order, and **the caller and org selected alongside them**:
 
 ```sql
 WITH target AS (
@@ -66,7 +66,11 @@ sess AS (
         max(if(toString(person.properties.email) ILIKE '%@posthog.com', 1, 0)) AS is_staff,
         coalesce(nullIf(any(toString(properties.$mcp_consumer)), ''), '') AS consumer,
         coalesce(nullIf(any(toString(properties.$mcp_client_name)), ''), '') AS client,
-        coalesce(nullIf(any(toString(properties.mcp_vendor_client)), ''), '') AS vendor
+        coalesce(nullIf(any(toString(properties.mcp_vendor_client)), ''), '') AS vendor,
+        coalesce(
+            nullIf(any(toString(properties.$mcp_organization_id)), ''),
+            nullIf(any(toString(properties.organization_id)), ''),
+            '') AS org
     FROM events
     WHERE event = '$mcp_tool_call'
       AND timestamp > now() - INTERVAL 90 DAY
@@ -74,7 +78,7 @@ sess AS (
     GROUP BY sid
 ),
 organic AS (
-    SELECT sid, consumer, client, vendor FROM sess WHERE is_wizard = 0 AND is_staff = 0
+    SELECT sid, consumer, client, vendor, org FROM sess WHERE is_wizard = 0 AND is_staff = 0
 ),
 steps AS (
     SELECT
@@ -98,17 +102,24 @@ SELECT
         o.client != '', o.client,
         o.vendor != '', o.vendor,
         'unattributed') AS caller,
+    o.org AS org,
     arrayStringConcat(arraySlice(arrayMap(x -> x.2, arraySort(groupArray((s.ts, s.step)))), 1, 4), ' >> ') AS opening
 FROM steps AS s
 INNER JOIN organic AS o ON s.sid = o.sid
-GROUP BY s.sid, caller
+GROUP BY s.sid, caller, org
 ORDER BY sid
 LIMIT 400
 ```
 
 Four or five calls is the working default. The opening carries the starting point; later calls describe the tool's own work and pull goals toward the action.
 
-**Select the caller here, not later.** `extract_facets.py` accepts `sid|caller|opening` and carries the caller straight through to its output. Fetching callers as a separate query means hand-transcribing a few hundred `sid caller` lines with nothing checking them — a step that has already gone wrong once.
+**Select the caller and the org here, not later.** `extract_facets.py` reads the header row and carries any column between `sid` and `opening` through to its output. Fetching either as a separate query means hand-transcribing a few hundred lines with nothing checking them — a step that has already gone wrong once.
+
+The two columns answer different questions and neither substitutes for the other. The caller is the software making the call. The org is the customer it makes the call for.
+
+`$mcp_organization_id` is the reliable one. On a 90-day `workflows-create` corpus it was set on every session, against roughly two thirds for the caller properties. Coalesce it onto the legacy unprefixed `organization_id`, the same way the tool name coalesces onto `tool_name`.
+
+**Keep the org as an id, never a name.** The id is opaque and the analysis only needs identity, not labels. A column of customer names turns a shareable notebook into a customer-identifying document, and nothing downstream needs it.
 
 **Take every corpus count from this query, never from an earlier sizing query.** Sizing runs get done on a different window while you are deciding how much to bite off, and those numbers then look authoritative when you write the notebook intro. A run stated 520 sessions and 507 organic in its header when the actual window held 237 and 233, because the sizing query had used 30 days and the corpus used 14. Nothing catches this: both numbers are real, they just describe different things. Read the totals off the corpus and the caller-share query, and reconcile them against each other before writing any prose.
 
@@ -238,27 +249,63 @@ This is also the only embedding step in the skill, and it is deliberately not do
 
 ### 5. Publish the notebook
 
-Full cell-by-cell recipe, including the clustering code and the sandbox gotchas: [`references/notebook-assembly.md`](references/notebook-assembly.md).
+Full cell-by-cell recipe, including the facets cell and the sandbox gotchas: [`references/notebook-assembly.md`](references/notebook-assembly.md).
 
 Shape:
 
 1. `notebooks-create-markdown` — title and a short method paragraph
 2. `notebooks-configure-compute` — 4 cores / 8 GB, **before** the first Python cell
-3. `notebooks-add-cell` (sql) — caller share for the tool, over `$mcp_tool_call`, so the automated traffic you filtered out is still visible
-4. `notebooks-add-cell` (python) — the facets inlined once, as a long frame of `(intention, theme, caller, data_touched, sessions)`
-5. `notebooks-add-cell` (sql) — starting intentions, as a `GROUP BY` over that frame
-6. `notebooks-add-cell` (sql) — caller share per intention, and per theme
-7. `notebooks-add-cell` (markdown, optional) — example sessions resolved to trace URLs, per "Linking an intention to real sessions"
-8. `notebooks-add-cell` (markdown) — findings, and the skew correction from step 3
+3. `notebooks-add-cell` (sql) — the corpus, one row per session with its caller and org
+4. `notebooks-add-cell` (sql) — caller share for the tool, over `$mcp_tool_call`, so the automated traffic you filtered out stays visible
+5. `notebooks-add-cell` (python) — the facets inlined once, keyed on `sid`, as `(sid, starting_intention, theme, data_touched, <third facet>)`
+6. `notebooks-add-cell` (sql) — starting intentions, a `GROUP BY` over that frame
+7. `notebooks-add-cell` (sql) — themes, the same frame one level up, listing the intentions each theme holds
+8. `notebooks-add-cell` (sql) — intentions per org, joined to the corpus on `sid`, carrying the theme
+9. `notebooks-add-cell` (sql) — the concentration checks from step 6
+10. `notebooks-add-cell` (markdown, optional) — example sessions resolved to trace URLs, per "Linking an intention to real sessions"
+11. `notebooks-add-cell` (markdown) — findings, and the skew correction from step 3
+
+**Cells 6 and 7 carry no caller and no org.** The taxonomy states what people came to do. Mixing a population column into it answers two questions in one table and answers both worse. Cell 8 is where the two dimensions meet, and it is the only place they should.
+
+**Key the Python frame on `sid`. Do not pre-aggregate it.** One row per distinct facet combination is smaller, and it is a dead end. With a few hundred orgs mostly holding one session each, adding the org to the combination key inflates it to roughly the session count anyway. Keyed on `sid`, every later cut becomes a join to the corpus frame, the caller stops being duplicated into the literal, and the transcription no longer involves counting.
 
 Pick the `dataframe_name` when you add the cell. `notebooks-update-cell` takes only `code`, so renaming a published frame later means deleting the cell and adding it again.
 
-### 6. Read the result honestly
+### 6. Check concentration before writing findings
+
+Run this over the corpus frame, on both dimensions, and let the answer decide whether a deeper analysis exists to do:
+
+```sql
+WITH per_org AS (SELECT org, count(*) AS n FROM corpus GROUP BY org),
+ranked AS (SELECT org, n, row_number() OVER (ORDER BY n DESC) AS rk FROM per_org)
+SELECT
+    (SELECT count(*) FROM corpus) AS sessions,
+    count(*) AS orgs,
+    round(100.0 * sum(case when rk <= 1 then n else 0 end) / (SELECT count(*) FROM corpus), 1) AS top1_pct,
+    round(100.0 * sum(case when rk <= 10 then n else 0 end) / (SELECT count(*) FROM corpus), 1) AS top10_pct,
+    sum(case when n = 1 then 1 else 0 end) AS orgs_with_one_session
+FROM ranked
+```
+
+**The check has to be allowed to say no.** On a 90-day `workflows-create` corpus the top org held 5.6% of sessions, the top ten held 21.2%, and roughly three fifths of orgs appeared exactly once. That is a long tail. No dominant-customer story exists, the split below does not run, and the honest move is to report the shape and continue.
+
+**When one caller or a few orgs do dominate, split the taxonomy rather than describing it.** A large share is not a finding by itself. What changes a product decision is whether that population wants different things from everyone else. Recompute the intentions table for the segment and for the remainder, put them side by side, and read the differences.
+
+Rough triggers, as a starting point rather than a rule:
+
+- one caller above 40% of organic sessions
+- the top ten orgs above half of them
+- any single org above 10%
+
+One case deserves the split even when every share looks unremarkable: a theme whose org list is one org repeating. That is one customer's workflow rather than a pattern, and the session count hides it completely.
+
+### 7. Read the result honestly
 
 - The **starting intentions** are the finding. Themes are a hand-assigned rollup over them; say so, and keep the intentions table available for a reader who disagrees with a grouping.
-- **Read the caller tables for whether one population exists or several.** A theme dominated by one surface is a different product than a theme spread across all of them.
-- An intention or cluster under 5 sessions is not a finding. The code suppresses them and reports the count.
-- Report shares against the corpus you actually clustered, not the raw session count.
+- **Read the per-org table for whether a theme is a pattern or one customer.** Twenty sessions from twenty orgs and twenty from one org are different findings, and the theme table alone cannot tell them apart.
+- **Read the caller table for whether one population exists or several.** A theme dominated by one surface is a different product than a theme spread across all of them.
+- An intention or theme under 5 sessions is not a finding. The code suppresses them and reports the count.
+- Report shares against the corpus you actually labelled, not the raw session count.
 - Distinct-intention count against session count is a useful shape signal on its own: near 1:1 means every session is a one-off, which is a different product problem from a few intentions repeating.
 - If the largest intentions are all one automated program, the honest headline is "this tool is mostly automation", not a user taxonomy.
 

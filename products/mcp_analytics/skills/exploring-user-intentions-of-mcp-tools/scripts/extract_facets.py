@@ -61,31 +61,40 @@ def build_model(facet: str, values: list[str]) -> type[BaseModel]:
     )
 
 
-def load_corpus(path: Path) -> list[tuple[str, str, str]]:
-    """Accepts `sid|opening` or `sid|caller|opening`.
+def load_corpus(path: Path) -> list[tuple[str, dict[str, str], str]]:
+    """Reads a pipe-delimited dump whose header row names the columns.
 
-    Select the caller in the corpus query and it rides through to the output,
-    which saves joining it back on by hand later — that join is otherwise a few
+    The header must start with `sid` and end with `opening`. Every column
+    between them (caller, org) rides through to the output untouched, which
+    saves joining them back on by hand later — that join is otherwise a few
     hundred lines of transcription with nothing checking it.
+
+    `opening` stays last so the split can cap its field count and leave any
+    pipe inside the intent text alone.
     """
-    rows: list[tuple[str, str, str]] = []
-    for line in path.read_text().splitlines()[1:]:  # skip header
-        parts = line.split("|", 2)
-        if len(parts) == 3:
-            sid, caller, opening = parts
-        elif len(parts) == 2:
-            sid, opening, caller = *parts, ""
-        else:
+    lines = path.read_text().splitlines()
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split("|")]
+    if header[0] != "sid" or header[-1] != "opening":
+        raise SystemExit(f"corpus header must be sid|…|opening, got: {'|'.join(header)}")
+
+    rows: list[tuple[str, dict[str, str], str]] = []
+    for line in lines[1:]:
+        parts = line.split("|", len(header) - 1)
+        if len(parts) != len(header):
             continue
+        sid, *meta, opening = parts
         if opening.strip():
-            rows.append((sid.strip(), caller.strip(), opening))
+            named = {k: v.strip() for k, v in zip(header[1:-1], meta) if v.strip()}
+            rows.append((sid.strip(), named, opening))
     return rows
 
 
 def extract(
-    client: OpenAI, schema: type[BaseModel], system: str, row: tuple[str, str, str]
+    client: OpenAI, schema: type[BaseModel], system: str, row: tuple[str, dict[str, str], str]
 ) -> dict[str, Any] | None:
-    sid, caller, opening = row
+    sid, meta, opening = row
     try:
         response = client.beta.chat.completions.parse(
             model=MODEL,
@@ -104,12 +113,12 @@ def extract(
         print(f"  ! {sid}: model returned no parsed output", file=sys.stderr)
         return None
     facets = {k: (v.value if isinstance(v, Enum) else v) for k, v in parsed.model_dump().items()}
-    return {"sid": sid, **({"caller": caller} if caller else {}), **facets}
+    return {"sid": sid, **meta, **facets}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("corpus", type=Path, help="pipe-delimited sid|opening dump")
+    parser.add_argument("corpus", type=Path, help="pipe-delimited dump, header sid|…|opening")
     parser.add_argument("out", type=Path, help="JSONL destination")
     parser.add_argument("--tool", default="the tool", help="MCP tool name the corpus is about")
     parser.add_argument("--facet", required=True, help="name of the third, tool-specific facet")
