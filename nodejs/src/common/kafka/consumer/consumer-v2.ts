@@ -450,6 +450,10 @@ export class KafkaConsumerV2 {
         }
 
         if (event.type === 'REVOKE') {
+            // Ticks as the rebalance starts so both log lines below carry the same number. This
+            // counter is only ever read by those two lines — the fence is the partitionEpochs bump
+            // after the drain, and it deliberately does not happen this early.
+            this.generation++
             logger.info('🔁', 'kafka_consumer_v2_revoke_starting', {
                 inFlight: this.inFlight.length,
                 generation: this.generation,
@@ -468,7 +472,6 @@ export class KafkaConsumerV2 {
             // Whatever is still unsettled missed the budget: fence the partitions we are giving up
             // so a late settle can't store offsets for them. Partitions we keep are untouched, so
             // a laggard task can still commit the progress it made on those.
-            this.generation++
             for (const tp of event.partitions) {
                 this.partitionEpochs.set(partitionKey(tp), this.epochOf(tp) + 1)
             }
