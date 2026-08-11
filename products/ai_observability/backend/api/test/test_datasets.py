@@ -101,6 +101,37 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
         self.assertFalse(restore_response.data["archived"])
 
+    def test_dataset_lifecycle_captures_one_event_per_state_change(self) -> None:
+        dataset = self._create_dataset()
+        dataset_url = f"{self.datasets_url}{dataset['id']}/"
+
+        with patch("products.ai_observability.backend.api.datasets.report_user_action") as mock_report:
+            renamed = self.client.patch(
+                dataset_url,
+                {"name": "Renamed dataset", "metadata": {"owner": "support"}},
+                format="json",
+            )
+            unchanged = self.client.patch(dataset_url, {"name": "Renamed dataset"}, format="json")
+            archived = self.client.post(f"{dataset_url}archive/")
+            archived_again = self.client.post(f"{dataset_url}archive/")
+            blocked = self.client.patch(dataset_url, {"name": "Blocked rename"}, format="json")
+            restored = self.client.post(f"{dataset_url}restore/")
+
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK)
+        self.assertEqual(unchanged.status_code, status.HTTP_200_OK)
+        self.assertEqual(archived.status_code, status.HTTP_200_OK)
+        self.assertEqual(archived_again.status_code, status.HTTP_200_OK)
+        self.assertEqual(blocked.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(restored.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(call.args[1], call.args[2]) for call in mock_report.call_args_list],
+            [
+                ("llma dataset updated", {"dataset_id": str(dataset["id"]), "changed_fields": ["name"]}),
+                ("llma dataset archived", {"dataset_id": str(dataset["id"])}),
+                ("llma dataset restored", {"dataset_id": str(dataset["id"])}),
+            ],
+        )
+
     def test_dataset_list_filters_by_comma_separated_ids(self) -> None:
         first_dataset = self._create_dataset("First dataset")
         second_dataset = self._create_dataset("Second dataset")

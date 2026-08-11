@@ -784,6 +784,20 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         except DatasetMutationConflict as error:
             return _conflict_response(error)
 
+        changed_fields = [
+            field for field in ("name", "description", "metadata") if getattr(current, field) != getattr(dataset, field)
+        ]
+        if changed_fields:
+            report_user_action(
+                request.user,
+                "llma dataset updated",
+                {
+                    "dataset_id": str(dataset.id),
+                    "changed_fields": changed_fields,
+                },
+                team=self.team,
+                request=request,
+            )
         return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
@@ -797,6 +811,15 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     def archive(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
         dataset = archive_dataset(team_id=self.team.id, dataset_id=current.id)
+        # Archiving is idempotent, so only the call that flipped the state is worth counting.
+        if not current.archived and dataset.archived:
+            report_user_action(
+                request.user,
+                "llma dataset archived",
+                {"dataset_id": str(dataset.id)},
+                team=self.team,
+                request=request,
+            )
         return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
@@ -810,6 +833,14 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     def restore(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
         dataset = restore_dataset(team_id=self.team.id, dataset_id=current.id)
+        if current.archived and not dataset.archived:
+            report_user_action(
+                request.user,
+                "llma dataset restored",
+                {"dataset_id": str(dataset.id)},
+                team=self.team,
+                request=request,
+            )
         return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
