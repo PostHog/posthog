@@ -104,7 +104,7 @@ export function GeneralSettings() {
   });
   const { data: missionControlEnabled } = useQuery({
     queryKey: ["missionControlOverlay", "enabled"],
-    queryFn: () => missionControl?.getEnabled() ?? true,
+    queryFn: () => missionControl?.getEnabled() ?? false,
     enabled: missionControl != null && missionControlSupported === true,
   });
   const missionControlMutation = useMutation({
@@ -333,7 +333,7 @@ export function GeneralSettings() {
           description="Show the PostHog logo over the window while macOS Mission Control is open, so it's easy to spot among your other windows"
         >
           <Switch
-            checked={missionControlEnabled ?? true}
+            checked={missionControlEnabled ?? false}
             onCheckedChange={handleMissionControlOverlayChange}
             size="1"
           />
