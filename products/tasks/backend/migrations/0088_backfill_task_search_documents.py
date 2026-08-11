@@ -3,10 +3,16 @@ import hashlib
 
 from django.db import migrations
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 PR_URL_RE = re.compile(r"^https?://github\.com/(?P<repo>[^/]+/[^/]+)/pull/(?P<number>\d+)(?:/.*)?$", re.IGNORECASE)
 MAX_INDEXED_PR_URLS = 50
 MAX_INDEXED_ARTIFACTS = 100
 MAX_IDENTIFIER_LENGTH = 512
+BATCH_SIZE = 1_000
+LOG_EVERY_BATCHES = 25
 
 
 def _normalized(values):
@@ -55,15 +61,34 @@ def backfill_task_search_documents(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
     parent_team_ids = dict(Team.objects.exclude(parent_team_id=None).values_list("id", "parent_team_id"))
     documents = []
+    documents_processed = 0
+    batches_committed = 0
+
+    logger.info("task_search_backfill_started", batch_size=BATCH_SIZE)
 
     def canonical_team_id(team_id):
         return parent_team_ids.get(team_id) or team_id
 
+    def flush():
+        nonlocal documents_processed, batches_committed
+        if not documents:
+            return
+        batch_count = len(documents)
+        SearchDocument.objects.bulk_create(documents, batch_size=BATCH_SIZE, ignore_conflicts=True)
+        documents.clear()
+        documents_processed += batch_count
+        batches_committed += 1
+        if batches_committed % LOG_EVERY_BATCHES == 0:
+            logger.info(
+                "task_search_backfill_progress",
+                batches_committed=batches_committed,
+                documents_processed=documents_processed,
+            )
+
     def add(document):
         documents.append(document)
-        if len(documents) >= 1_000:
-            SearchDocument.objects.bulk_create(documents, batch_size=1_000, ignore_conflicts=True)
-            documents.clear()
+        if len(documents) >= BATCH_SIZE:
+            flush()
 
     for channel in (
         Channel.objects.filter(deleted=False).only("id", "team_id", "name", "channel_type").iterator(chunk_size=1_000)
@@ -200,7 +225,12 @@ def backfill_task_search_documents(apps, schema_editor):
             )
         )
 
-    SearchDocument.objects.bulk_create(documents, batch_size=1_000, ignore_conflicts=True)
+    flush()
+    logger.info(
+        "task_search_backfill_completed",
+        batches_committed=batches_committed,
+        documents_processed=documents_processed,
+    )
 
 
 class Migration(migrations.Migration):
