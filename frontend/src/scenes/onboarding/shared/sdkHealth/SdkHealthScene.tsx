@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { IconBell, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -32,7 +33,7 @@ export function SdkHealthScene(): JSX.Element {
     } = useValues(sdkHealthLogic)
     const { isDev } = useValues(preflightLogic)
 
-    const { loadReport, snoozeSdkHealth } = useActions(sdkHealthLogic)
+    const { loadReport, snoozeSdkHealth, unsnooze } = useActions(sdkHealthLogic)
 
     useOnMountEffect(() => {
         posthog.capture('sdk doctor loaded', { needsUpdatingCount })
@@ -118,6 +119,24 @@ export function SdkHealthScene(): JSX.Element {
                             <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
                         </LemonBanner>
                     </section>
+                ) : snoozedUntil ? (
+                    <section className="mb-2">
+                        <h3>Update reminder snoozed</h3>
+                        <LemonBanner
+                            type="info"
+                            hideIcon={false}
+                            action={{
+                                children: 'Unsnooze',
+                                onClick: unsnooze,
+                            }}
+                        >
+                            <p className="font-semibold">
+                                Your SDKs still need an update. We'll remind you again on{' '}
+                                {dayjs(snoozedUntil).format('MMM D, YYYY')}.
+                            </p>
+                            <p className="text-sm mt-1">Unsnooze to see the update details now.</p>
+                        </LemonBanner>
+                    </section>
                 ) : (
                     <section className="mb-2">
                         <h3>Time for an update!</h3>
@@ -126,7 +145,6 @@ export function SdkHealthScene(): JSX.Element {
                             hideIcon={false}
                             action={{
                                 children: 'Snooze warning for 30 days',
-                                disabledReason: snoozedUntil ? 'Already snoozed' : undefined,
                                 onClick: snoozeWarning,
                             }}
                         >

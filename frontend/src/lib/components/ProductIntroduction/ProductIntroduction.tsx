@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
 import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
@@ -101,12 +102,14 @@ export const ProductIntroduction = ({
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const { user } = useValues(userLogic)
+    // Hide the welcome card the moment the user dismisses it, without waiting for the server round trip.
+    const [dismissed, setDismissed] = useState(false)
 
     if (!user) {
         return null
     }
 
-    if (!isEmpty && (!productKey || user.has_seen_product_intro_for?.[productKey])) {
+    if (!isEmpty && (dismissed || !productKey || user.has_seen_product_intro_for?.[productKey])) {
         // Hide if its not an empty list but the user has seen it before
         return null
     }
@@ -133,6 +136,7 @@ export const ProductIntroduction = ({
                             icon={<IconX />}
                             size="small"
                             onClick={() => {
+                                setDismissed(true)
                                 productKey && updateHasSeenProductIntroFor(productKey)
                             }}
                         />

@@ -757,16 +757,19 @@ export const userLogic = kea<userLogicType>([
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
             await breakpoint(10)
-            await api
-                .update('api/users/@me/', {
+            try {
+                await api.update('api/users/@me/', {
                     has_seen_product_intro_for: {
                         ...values.user?.has_seen_product_intro_for,
                         [productKey]: value,
                     },
                 })
-                .then(() => {
-                    actions.loadUser()
-                })
+                actions.loadUser()
+            } catch {
+                // Reload so the UI reflects the true server state after a failed save.
+                lemonToast.error("Couldn't save your preferences. Please try again.")
+                actions.loadUser()
+            }
         },
         switchTeam: ({ teamId, destination }) => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
