@@ -1,4 +1,4 @@
-import { experimentActorsFunnelStep } from './ExperimentFunnelChart'
+import { experimentActorsFunnelStep } from './experimentPersonsModal'
 
 describe('experimentActorsFunnelStep', () => {
     it.each([
