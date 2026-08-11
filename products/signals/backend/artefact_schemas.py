@@ -97,6 +97,16 @@ class SignalFinding(BaseModel):
             "in code or data. False if the claim couldn't be verified either way."
         ),
     )
+    hypotheses: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Claims this finding treats as likely but could not confirm with a tool output. "
+            "List a cause, a chain of effects, or an external behavior you inferred but did not "
+            "show. Include claims about behavior no tool here can check, such as how a search "
+            "engine, a browser, or a compiler handles an input. State each as a hypothesis here "
+            "rather than as fact in `data_queried`. Leave empty when every claim is verified."
+        ),
+    )
 
 
 class ActionabilityAssessment(BaseModel):
