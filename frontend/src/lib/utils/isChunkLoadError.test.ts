@@ -1,4 +1,4 @@
-import { isChunkLoadError, isModuleParseError } from './isChunkLoadError'
+import { isBareFetchError, isChunkLoadError, isModuleParseError } from './isChunkLoadError'
 
 describe('isChunkLoadError', () => {
     it.each([
@@ -30,6 +30,9 @@ describe('isChunkLoadError', () => {
             true,
         ],
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
+        // A bare "Failed to fetch" is also what Chromium says for a routine API call, so it must not
+        // match globally — only retryImport marks it, where it is known to come from an import.
+        ['bare Failed to fetch (routine API failure)', { name: 'TypeError', message: 'Failed to fetch' }, false],
         ['unrelated Error', { name: 'Error', message: 'something else' }, false],
         ['error with no name or message', {}, false],
     ])('classifies %s', (_label, error, expected) => {
@@ -58,6 +61,16 @@ describe('isChunkLoadError', () => {
             ],
         ])('classifies %s', (_label, error, expected) => {
             expect(isModuleParseError(error)).toBe(expected)
+        })
+    })
+
+    describe('isBareFetchError', () => {
+        it.each([
+            ['Chromium bare fetch failure', { name: 'TypeError', message: 'Failed to fetch' }, true],
+            ['non-TypeError with the same message', { name: 'Error', message: 'Failed to fetch' }, false],
+            ['unrelated TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
+        ])('classifies %s', (_label, error, expected) => {
+            expect(isBareFetchError(error)).toBe(expected)
         })
     })
 })

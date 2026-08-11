@@ -82,4 +82,17 @@ describe('retryImport', () => {
         await expect(retryImport(factory)).rejects.toThrow('Unexpected end of JSON input')
         expect(factory).toHaveBeenCalledTimes(1)
     })
+
+    it('retries Chromium\'s bare "Failed to fetch" and marks it for the boundary', async () => {
+        const fetchError = new TypeError('Failed to fetch')
+        const factory = jest.fn().mockRejectedValueOnce(fetchError).mockResolvedValue('module')
+
+        const promise = retryImport(factory)
+        await jest.runAllTimersAsync()
+
+        await expect(promise).resolves.toBe('module')
+        expect(factory).toHaveBeenCalledTimes(2)
+        // The boundary reloads once on the same error object if the retry never succeeds.
+        expect(isChunkLoadError(fetchError)).toBe(true)
+    })
 })

@@ -1,6 +1,11 @@
 import { ComponentType, LazyExoticComponent, lazy } from 'react'
 
-import { isChunkLoadError, isModuleParseError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
+import {
+    isBareFetchError,
+    isChunkLoadError,
+    isModuleParseError,
+    markAsChunkLoadError,
+} from 'lib/utils/isChunkLoadError'
 
 function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
@@ -27,10 +32,11 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
-        // A parse failure here means the fetched chunk was not JavaScript. A deploy deleted it and a
-        // proxy served HTML. Mark it so the retry below and the ChunkLoadErrorBoundary both treat it as
-        // a chunk-load failure. This is safe only because this catch is known to wrap a lazy import().
-        if (isModuleParseError(error)) {
+        // A parse failure means the fetched chunk was not JavaScript: a deploy deleted it and a proxy
+        // served HTML. A bare "Failed to fetch" means Chromium could not fetch the chunk at all. Mark
+        // both so the retry below and the ChunkLoadErrorBoundary treat them as chunk-load failures. This
+        // is safe only because this catch is known to wrap a lazy import().
+        if (isModuleParseError(error) || isBareFetchError(error)) {
             markAsChunkLoadError(error)
         }
         if (retries <= 0 || !isChunkLoadError(error)) {

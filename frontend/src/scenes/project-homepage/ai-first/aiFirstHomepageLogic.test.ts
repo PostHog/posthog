@@ -8,9 +8,10 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
+import { aiFirstHomepageLogic, resolveEntryHref } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
 
 describe('aiFirstHomepageLogic', () => {
@@ -74,5 +75,26 @@ describe('aiFirstHomepageLogic', () => {
         expect(logic.values.mode).toEqual(expectedMode)
         // The prompt rides along as `ask`, which the new surface's composer seeds and submits.
         expect(router.values.searchParams.ask).toEqual(sandboxFlagOn ? 'what is my dau' : undefined)
+    })
+
+    // A grid entry with no destination used to fall back to '#', rendering a link that navigates
+    // nowhere. resolveEntryHref must return the backend href, fall back to the type-and-ref lookup,
+    // and otherwise return undefined so the grid renders a static row.
+    describe('resolveEntryHref', () => {
+        const entry = (overrides: Partial<FileSystemEntry>): FileSystemEntry => ({
+            id: '1',
+            path: 'Some item',
+            ...overrides,
+        })
+
+        it.each([
+            ['prefers the backend href', entry({ href: '/insights/abc', type: 'insight', ref: '5' }), '/insights/abc'],
+            ['resolves from type and ref', entry({ type: 'feature_flag', ref: '5' }), urls.featureFlag('5')],
+            ['returns undefined for an unknown type', entry({ type: 'mystery', ref: '5' }), undefined],
+            ['returns undefined when ref is missing', entry({ type: 'feature_flag' }), undefined],
+            ['returns undefined with no href, type, or ref', entry({}), undefined],
+        ])('%s', (_case, input, expected) => {
+            expect(resolveEntryHref(input)).toEqual(expected)
+        })
     })
 })

@@ -22,11 +22,12 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
+import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
-import { DashboardBasicType, SidePanelTab } from '~/types'
+import { DashboardBasicType, FileSystemType, SidePanelTab } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
@@ -60,6 +61,20 @@ export interface HomepageGridItem {
 const GRID_LIMIT = 5
 
 const PREVIOUS_HOMEPAGE_KEY = 'ai-first-previous-homepage'
+
+// Resolve the destination for a recent or starred entry. Prefer the URL the backend stored, and fall
+// back to the same type-and-ref lookup the project tree uses. Returns undefined when neither resolves,
+// so the grid renders the item without a link instead of a link that navigates nowhere.
+export function resolveEntryHref(entry: FileSystemEntry): string | undefined {
+    if (entry.href) {
+        return entry.href
+    }
+    const typeDef = entry.type ? (fileSystemTypes as unknown as Record<string, FileSystemType>)[entry.type] : undefined
+    if (typeDef?.href && entry.ref) {
+        return typeDef.href(entry.ref)
+    }
+    return undefined
+}
 
 function getStorageKey(): string {
     const teamId = teamLogic.findMounted()?.values.currentTeamId ?? 'null'
@@ -382,7 +397,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                         entryId: entry.id,
                         entry,
                         label: name ? unescapePath(name) : entry.path,
-                        href: entry.href || '#',
+                        href: resolveEntryHref(entry),
                         kind,
                         itemType: entry.type ?? null,
                     }

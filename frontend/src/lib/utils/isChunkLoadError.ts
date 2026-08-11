@@ -7,10 +7,14 @@
  *   - Firefox: native `TypeError: error loading dynamically imported module: <url>` (deferred import of a now-deleted chunk after a deploy)
  *   - WebKit/Safari: `Importing a module script failed.` (module script fails to load, e.g. transient network failure)
  *
- * One more shape is not matched below, because it only makes sense once you know the error came from
- * an `import()`: a `SyntaxError` from a chunk that downloaded but failed to parse. `retryImport`
- * recognizes that shape with `isModuleParseError` and marks it, because there the error is known to
- * come from a lazy import. Matching the message here would swallow a genuine parse bug in our own code.
+ * Two more shapes are not matched below, because they only make sense once you know the error came
+ * from an `import()`:
+ *   - a `SyntaxError` from a chunk that downloaded but failed to parse — `retryImport` recognizes it
+ *     with `isModuleParseError`.
+ *   - Chromium's bare `TypeError: Failed to fetch`, with no "dynamically imported module" suffix —
+ *     `retryImport` recognizes it with `isBareFetchError`.
+ * `retryImport` marks both, because there the error is known to come from a lazy import. Matching
+ * either message here would swallow a genuine parse bug or a routine API failure in our own code.
  */
 const markedChunkLoadErrors = new WeakSet<object>()
 
@@ -65,4 +69,20 @@ export function isModuleParseError(error: unknown): boolean {
         message.includes('expected expression, got') ||
         message.includes("Unexpected token '<'")
     )
+}
+
+/**
+ * Recognizes Chromium's bare `TypeError: Failed to fetch` from a dynamic `import()` whose chunk could
+ * not be fetched. Chromium reports this same message for any failed `fetch()`, so `isChunkLoadError`
+ * must not match it globally — a routine API blip would turn into a full-page reload. Only `retryImport`
+ * calls this, where the error is known to come from an import factory, so the fetch that failed is the
+ * chunk fetch.
+ */
+export function isBareFetchError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false
+    }
+    const err = error as { name?: string; message?: string }
+    const message = typeof err.message === 'string' ? err.message : ''
+    return err.name === 'TypeError' && message.includes('Failed to fetch')
 }

@@ -326,12 +326,20 @@ function IdleGrid(): JSX.Element {
         setSkeletonCounts(counts)
     }, [dashboardsLoading, recentItemsLoading, starredItemsLoading, columns])
 
-    const handleItemClick = useCallback((item: HomepageGridItem) => {
-        if (item.href) {
-            posthog.capture('homepage grid item clicked', { kind: item.kind, href: item.href })
-            router.actions.push(item.href)
-        }
+    const captureItemClick = useCallback((item: HomepageGridItem) => {
+        posthog.capture('homepage grid item clicked', { kind: item.kind, href: item.href })
     }, [])
+
+    // Keyboard activation has no anchor to follow, so it also pushes the route.
+    const handleItemClick = useCallback(
+        (item: HomepageGridItem) => {
+            if (item.href) {
+                captureItemClick(item)
+                router.actions.push(item.href)
+            }
+        },
+        [captureItemClick]
+    )
 
     // Clear highlight when user starts typing
     useEffect(() => {
@@ -503,29 +511,53 @@ function IdleGrid(): JSX.Element {
                             </Tooltip>
                         </div>
                     ) : (
-                        col.items.map((item, rowIndex) => (
-                            <div key={item.id} role="row">
-                                <Link
-                                    to={item.href}
-                                    role="gridcell"
-                                    title={item.label}
-                                    buttonProps={{
-                                        menuItem: true,
-                                        fullWidth: true,
-                                        className: 'truncate -outline-offset-2',
-                                    }}
-                                    data-attr={`homepage-grid-${item.kind}`}
-                                    data-highlighted={
-                                        highlight?.[0] === colIndex && highlight?.[1] === rowIndex ? 'true' : undefined
-                                    }
-                                    onMouseEnter={() => setHighlight([colIndex, rowIndex])}
-                                    onMouseLeave={() => setHighlight(null)}
-                                >
+                        col.items.map((item, rowIndex) => {
+                            const isHighlighted =
+                                highlight?.[0] === colIndex && highlight?.[1] === rowIndex ? 'true' : undefined
+                            const content = (
+                                <>
                                     <GridItemIcon item={item} />
                                     <span className="truncate">{item.label}</span>
-                                </Link>
-                            </div>
-                        ))
+                                </>
+                            )
+                            return (
+                                <div key={item.id} role="row">
+                                    {item.href ? (
+                                        <Link
+                                            to={item.href}
+                                            role="gridcell"
+                                            title={item.label}
+                                            buttonProps={{
+                                                menuItem: true,
+                                                fullWidth: true,
+                                                className: 'truncate -outline-offset-2',
+                                            }}
+                                            data-attr={`homepage-grid-${item.kind}`}
+                                            data-highlighted={isHighlighted}
+                                            onClick={() => captureItemClick(item)}
+                                            onMouseEnter={() => setHighlight([colIndex, rowIndex])}
+                                            onMouseLeave={() => setHighlight(null)}
+                                        >
+                                            {content}
+                                        </Link>
+                                    ) : (
+                                        // No destination resolved, so render a static row instead of a link
+                                        // that would navigate nowhere.
+                                        <ButtonPrimitive
+                                            role="gridcell"
+                                            menuItem
+                                            fullWidth
+                                            disabled
+                                            title={item.label}
+                                            className="truncate -outline-offset-2"
+                                            data-attr={`homepage-grid-${item.kind}`}
+                                        >
+                                            {content}
+                                        </ButtonPrimitive>
+                                    )}
+                                </div>
+                            )
+                        })
                     )}
                 </div>
             ))}
