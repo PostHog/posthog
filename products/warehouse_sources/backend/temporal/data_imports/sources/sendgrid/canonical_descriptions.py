@@ -105,4 +105,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "versions": "List of versions belonging to the template.",
         },
     },
+    "message_activity": {
+        "description": "Per-message activity from the Email Activity feed: one row per sent message with its latest delivery status and engagement counts. Requires SendGrid's paid additional email activity history add-on.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/email-activity/filter-all-messages",
+        "columns": {
+            "msg_id": "Unique identifier for the message.",
+            "from_email": "Sender address of the message.",
+            "to_email": "Recipient address of the message.",
+            "subject": "Subject line of the message.",
+            "status": "Latest delivery status of the message: processed, delivered, or not_delivered.",
+            "opens_count": "Number of times the message was opened.",
+            "clicks_count": "Number of times links in the message were clicked.",
+            "last_event_time": "Time of the most recent event recorded for the message, in ISO 8601 format.",
+        },
+    },
 }

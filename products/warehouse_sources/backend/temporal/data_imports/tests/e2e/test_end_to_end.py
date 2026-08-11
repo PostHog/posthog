@@ -1722,6 +1722,11 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size"
         ) as mock_chunk_size,
+        # The pipeline batcher coalesces the source's 1-row Arrow tables back into one batch
+        # unless its own row cap is pinned to 1; this test needs two batches to reach the loader.
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1915,6 +1920,11 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size"
         ) as mock_chunk_size,
+        # The pipeline batcher coalesces the source's 1-row Arrow tables back into one batch
+        # unless its own row cap is pinned to 1; this test needs two batches to reach the loader.
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,

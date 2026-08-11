@@ -826,6 +826,222 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type AccountsTableAccountField = typeof AccountsTableAccountField[keyof typeof AccountsTableAccountField];
+
+
+    export const AccountsTableAccountField = {
+      Name: 'name',
+      ExternalId: 'external_id',
+      CreatedAt: 'created_at',
+      UpdatedAt: 'updated_at',
+      StripeCustomerId: 'stripe_customer_id',
+      HubspotDealId: 'hubspot_deal_id',
+      BillingId: 'billing_id',
+      SfdcId: 'sfdc_id',
+      ZendeskId: 'zendesk_id',
+    } as const;
+
+    export interface AccountsTableAccountFieldColumn {
+      field: AccountsTableAccountField;
+      kind?: 'account_field';
+    }
+
+    export interface AccountsTableAccountIdFilter {
+      accountId: string;
+      kind?: 'account_id';
+    }
+
+    export interface AccountsTableAssignedToFilter {
+      kind?: 'assigned_to';
+      /** Match accounts where any listed user actively holds any relationship. */
+      userIds: number[];
+    }
+
+    export interface AccountsTableCustomPropertyColumn {
+      /** Team-scoped custom property definition to return for each account. */
+      definitionId: string;
+      kind?: 'custom_property';
+    }
+
+    export type AccountsTableCustomPropertyOperator = typeof AccountsTableCustomPropertyOperator[keyof typeof AccountsTableCustomPropertyOperator];
+
+
+    export const AccountsTableCustomPropertyOperator = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+      IsDateExact: 'is_date_exact',
+      IsDateBefore: 'is_date_before',
+      IsDateAfter: 'is_date_after',
+    } as const;
+
+    export interface AccountsTableCustomPropertyFilter {
+      definitionId: string;
+      kind?: 'custom_property';
+      operator: AccountsTableCustomPropertyOperator;
+      /** Values interpreted according to the custom property definition's display type. */
+      values?: (string | number | boolean)[] | null;
+    }
+
+    export type WindowDays = typeof WindowDays[keyof typeof WindowDays];
+
+
+    export const WindowDays = {
+      Number7: 7,
+      Number14: 14,
+      Number30: 30,
+      Number90: 90,
+    } as const;
+
+    export interface AccountsTableCustomPropertyHistoryColumn {
+      /** Team-scoped numeric custom property definition whose write history should be returned. */
+      definitionId: string;
+      kind?: 'custom_property_history';
+      /** Number of days of history to return. The current value is included even when it is older. */
+      windowDays: WindowDays;
+    }
+
+    export interface AccountsTableCustomPropertyHistoryPoint {
+      timestamp: string;
+      value: number;
+    }
+
+    export const AccountsTableNoteCountColumnValue = {
+      kind: 'note_count',
+    } as const;
+    export type AccountsTableNoteCountColumn = typeof AccountsTableNoteCountColumnValue;
+
+    export const AccountsTableTagsColumnValue = {
+      kind: 'tags',
+    } as const;
+    export type AccountsTableTagsColumn = typeof AccountsTableTagsColumnValue;
+
+    export interface AccountsTableRelationshipColumn {
+      /** Team-scoped relationship definition to return for each account. */
+      definitionId: string;
+      kind?: 'relationship';
+    }
+
+    export interface AccountsTableSearchFilter {
+      kind?: 'search';
+      query: string;
+    }
+
+    export interface AccountsTableTagsFilter {
+      kind?: 'tags';
+      /** Match accounts carrying any of these tag names. */
+      tagNames: string[];
+    }
+
+    export const AccountsTableUnassignedFilterValue = {
+      kind: 'unassigned',
+    } as const;
+    export type AccountsTableUnassignedFilter = typeof AccountsTableUnassignedFilterValue;
+
+    /**
+     * Requested direct Account fields, keyed by their typed field reference.
+     */
+    export type AccountsTableRowAccountFields = {[key: string]: string | null};
+
+    /**
+     * Current values keyed by requested custom property definition ID.
+     */
+    export type AccountsTableRowCustomProperties = {[key: string]: string | number | boolean | null};
+
+    /**
+     * Numeric write history keyed by requested custom property definition ID.
+     */
+    export type AccountsTableRowCustomPropertyHistory = {[key: string]: AccountsTableCustomPropertyHistoryPoint[]};
+
+    /**
+     * Active assignee user IDs keyed by requested relationship definition ID.
+     */
+    export type AccountsTableRowRelationships = {[key: string]: number[]};
+
+    export interface AccountsTableRow {
+      /** Requested direct Account fields, keyed by their typed field reference. */
+      accountFields: AccountsTableRowAccountFields;
+      /** Current values keyed by requested custom property definition ID. */
+      customProperties: AccountsTableRowCustomProperties;
+      /** Numeric write history keyed by requested custom property definition ID. */
+      customPropertyHistory: AccountsTableRowCustomPropertyHistory;
+      externalId?: string | null;
+      id: string;
+      name: string;
+      /** Number of linked internal notes. Omitted when the request does not select the note count. */
+      noteCount?: number | null;
+      /** Active assignee user IDs keyed by requested relationship definition ID. */
+      relationships: AccountsTableRowRelationships;
+      /** Sorted tag names. Omitted when the request does not select tags. */
+      tags?: string[] | null;
+    }
+
+    export interface AccountsTableQueryResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore: boolean;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      kind?: 'AccountsTableQuery';
+      limit: number;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AccountsTableRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export type AccountsTableSortDirection = typeof AccountsTableSortDirection[keyof typeof AccountsTableSortDirection];
+
+
+    export const AccountsTableSortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
+
+    export interface AccountsTableSort {
+      /** A typed column that supports server-side sorting. */
+      column: AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn;
+      direction: AccountsTableSortDirection;
+    }
+
+    export interface AccountsTableQuery {
+      /** Columns to load for each account. Account identity fields are always returned. */
+      columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
+      /** Filters are combined with AND. Values within tag and assignment filters use OR. */
+      filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
+      kind?: 'AccountsTableQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      response?: AccountsTableQueryResponse | null;
+      sort?: AccountsTableSort | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     /**
      * * `user` - user
      * * `team` - team
@@ -1989,6 +2205,11 @@ export namespace Schemas {
       hideAggregation?: boolean | null;
     }
 
+    export interface ActivateRequest {
+      /** Prompt config id to activate for its label. */
+      config_id: string;
+    }
+
     export interface ActivateVersionRequest {
       /** Version number to activate. Must reference an existing version of this app. */
       version_number: number;
@@ -2908,6 +3129,7 @@ export namespace Schemas {
       /** Goal Lines */
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
+      /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query instead of only hiding their buckets. Still accepted so existing API clients keep working. */
       hideWeekends?: boolean | null;
       /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
       legendPosition?: LegendPosition | null;
@@ -4658,8 +4880,12 @@ export namespace Schemas {
     }
 
     export interface HogQLFilters {
+      /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
+      breakdownFilter?: BreakdownFilter | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
+      interval?: IntervalType | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
@@ -5787,6 +6013,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       MetaAds: 'meta-ads',
+      Instagram: 'instagram',
       Clickup: 'clickup',
       RedditAds: 'reddit-ads',
       Databricks: 'databricks',
@@ -6121,6 +6348,32 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface Response23 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore: boolean;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      kind?: 'AccountsTableQuery';
+      limit: number;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AccountsTableRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
@@ -7553,7 +7806,7 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response7 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response17 | Response18 | Response19 | Response21 | Response22 | null;
+    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response7 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response17 | Response18 | Response19 | Response21 | Response22 | Response23 | null;
 
     export interface DataTableNode {
       /** Can the user click on column headers to sort the table? (default: true) */
@@ -7627,7 +7880,7 @@ export namespace Schemas {
       /** Show a detailed query timing breakdown */
       showTimings?: boolean | null;
       /** Source of the events */
-      source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | GroupsQuery | HogQLQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | SessionAttributionExplorerQuery | SessionsQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | ErrorTrackingQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | TracesQuery | TraceQuery | SessionQuery | EndpointsUsageTableQuery | AccountsQuery;
+      source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | GroupsQuery | HogQLQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | SessionAttributionExplorerQuery | SessionsQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | ErrorTrackingQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | TracesQuery | TraceQuery | SessionQuery | EndpointsUsageTableQuery | AccountsQuery | AccountsTableQuery;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -14727,6 +14980,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
+      /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+      star?: boolean;
     }
 
     export interface CheckDatabaseNameResponse {
@@ -15773,6 +16028,145 @@ export namespace Schemas {
       readonly truncated: boolean;
     }
 
+    /**
+     * Arbitrary key-value metadata carried from the skill's frontmatter.
+     */
+    export type CommunitySkillMetadata = { [key: string]: unknown };
+
+    /**
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     */
+    export type TrustTierEnum = typeof TrustTierEnum[keyof typeof TrustTierEnum];
+
+
+    export const TrustTierEnum = {
+      Official: 'official',
+      Verified: 'verified',
+      Community: 'community',
+    } as const;
+
+    export interface CommunitySkillFileManifest {
+      /** @maxLength 500 */
+      path: string;
+      /** @maxLength 100 */
+      content_type?: string;
+    }
+
+    export interface CommunitySkill {
+      readonly id: string;
+      /** Stable identifier matching the skill's directory in the community-skills repo. */
+      readonly slug: string;
+      /** Display name of the skill. */
+      readonly name: string;
+      /** What the skill does and when to use it. */
+      readonly description: string;
+      /** The SKILL.md instruction content (markdown). */
+      readonly body: string;
+      /** License name or reference. */
+      readonly license: string;
+      /** Environment requirements declared by the skill. */
+      readonly compatibility: string;
+      /** Tools the skill declares it may use. Surface these to the user before install. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+      metadata?: CommunitySkillMetadata;
+      /** Free-form tags used for filtering and discovery. */
+      tags?: string[];
+      /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+       *
+       * * `official` - Official
+       * * `verified` - Verified
+       * * `community` - Community */
+      trust_tier: TrustTierEnum;
+      /** GitHub handle (or name) of the contributor who published the skill. */
+      readonly author_handle: string;
+      /** Link to the skill's source directory on GitHub. */
+      readonly github_url: string;
+      /** Bundled files manifest — path and content_type only. File contents are copied in on install. */
+      readonly files: readonly CommunitySkillFileManifest[];
+      /** Number of times this skill has been installed into a team. */
+      readonly install_count: number;
+      /** Total number of upvotes this skill has received. */
+      readonly vote_count: number;
+      /** Whether the requesting user has upvoted this skill. */
+      readonly has_voted: boolean;
+      /**
+         * When the skill was first published to the community repo.
+         * @nullable
+         */
+      readonly published_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface CommunitySkillInstall {
+      /**
+         * Name for the installed skill in your team. Defaults to the community skill's slug.
+         * @maxLength 64
+         */
+      new_name?: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata carried from the skill's frontmatter.
+     */
+    export type CommunitySkillListMetadata = { [key: string]: unknown };
+
+    /**
+     * List serializer that omits body and file manifest — progressive disclosure.
+     */
+    export interface CommunitySkillList {
+      readonly id: string;
+      /** Stable identifier matching the skill's directory in the community-skills repo. */
+      readonly slug: string;
+      /** Display name of the skill. */
+      readonly name: string;
+      /** What the skill does and when to use it. */
+      readonly description: string;
+      /** License name or reference. */
+      readonly license: string;
+      /** Environment requirements declared by the skill. */
+      readonly compatibility: string;
+      /** Tools the skill declares it may use. Surface these to the user before install. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+      metadata?: CommunitySkillListMetadata;
+      /** Free-form tags used for filtering and discovery. */
+      tags?: string[];
+      /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+       *
+       * * `official` - Official
+       * * `verified` - Verified
+       * * `community` - Community */
+      trust_tier: TrustTierEnum;
+      /** GitHub handle (or name) of the contributor who published the skill. */
+      readonly author_handle: string;
+      /** Link to the skill's source directory on GitHub. */
+      readonly github_url: string;
+      /** Number of times this skill has been installed into a team. */
+      readonly install_count: number;
+      /** Total number of upvotes this skill has received. */
+      readonly vote_count: number;
+      /** Whether the requesting user has upvoted this skill. */
+      readonly has_voted: boolean;
+      /**
+         * When the skill was first published to the community repo.
+         * @nullable
+         */
+      readonly published_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface CommunitySkillVoteResponse {
+      /** Total upvotes after applying the toggle. */
+      vote_count: number;
+      /** Whether the requesting user is now an upvoter. */
+      has_voted: boolean;
+    }
+
     export interface CompareItem {
       label: string;
       value: string;
@@ -15826,6 +16220,72 @@ export namespace Schemas {
       StoppedEarly: 'stopped_early',
       Invalid: 'invalid',
     } as const;
+
+    /**
+     * * `boolean` - boolean
+     * * `number` - number
+     * * `string` - string
+     */
+    export type OutputFieldTypeEnum = typeof OutputFieldTypeEnum[keyof typeof OutputFieldTypeEnum];
+
+
+    export const OutputFieldTypeEnum = {
+      Boolean: 'boolean',
+      Number: 'number',
+      String: 'string',
+    } as const;
+
+    export interface OutputField {
+      /**
+         * Output key, e.g. ai_pilled. Lowercase, starts with a letter, letters/digits/underscore only.
+         * @pattern ^[a-z][a-z0-9_]*$
+         */
+      key: string;
+      /** Value type the LLM must return for this key.
+       *
+       * * `boolean` - boolean
+       * * `number` - number
+       * * `string` - string */
+      type: OutputFieldTypeEnum;
+      /**
+         * Shown to the LLM to describe what this key means. At most 400 characters.
+         * @maxLength 400
+         */
+      description?: string;
+    }
+
+    export interface ConfigVersion {
+      /** Prompt config row id. */
+      id: string;
+      /** Label this config computes, e.g. ai_pilled. */
+      name: string;
+      /** Server-assigned version identity, e.g. v3. */
+      version: string;
+      /** System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters. */
+      prompt_text: string;
+      /** Gateway model id this version was authored against. */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
+      input_fields: string[];
+      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
+      output_fields: OutputField[];
+      /** Whether the batch runner currently computes this version. */
+      is_active: boolean;
+      /**
+         * Email of the staff user who created this version, or null for system-seeded rows.
+         * @nullable
+         */
+      readonly created_by_email: string | null;
+      /** When this version was created. */
+      created_at: string;
+      /** Whether any EnrichmentLabelResult rows reference this version. Informational only: the API never edits a version's content in place, it only creates a new one, so this doesn't gate anything. The label name is not part of a version's content and can always be renamed. */
+      readonly has_results: boolean;
+    }
+
+    export interface ConfigListResponse {
+      /** Versions for the requested label, newest first. */
+      results: ConfigVersion[];
+    }
 
     /**
      * * `posthog_code` - posthog_code
@@ -16146,6 +16606,11 @@ export namespace Schemas {
     }
 
     /**
+     * Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.
+     */
+    export type ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3;
+
+    /**
      * * `EventsNode` - EventsNode
      * * `ActionsNode` - ActionsNode
      * * `DataWarehouseNode` - DataWarehouseNode
@@ -16158,6 +16623,108 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
       DataWarehouseNode: 'DataWarehouseNode',
     } as const;
+
+    export type PartialConversionGoalFilter1Response = { [key: string]: unknown } | null;
+
+    export type PartialConversionGoalFilter1SchemaMap = {[key: string]: string | unknown} | null;
+
+    /**
+     * ConversionGoalFilter1 with every field optional - the fields you send are merged into the stored goal.
+     */
+    export interface PartialConversionGoalFilter1 {
+      conversion_goal_id?: string | null;
+      conversion_goal_name?: string | null;
+      counts_as_customer?: boolean | null;
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      event?: string | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      kind?: 'EventsNode' | null;
+      limit?: number | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      orderBy?: string[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: PartialConversionGoalFilter1Response;
+      schema_map?: PartialConversionGoalFilter1SchemaMap;
+      version?: number | null;
+    }
+
+    export type PartialConversionGoalFilter2Response = { [key: string]: unknown } | null;
+
+    export type PartialConversionGoalFilter2SchemaMap = {[key: string]: string | unknown} | null;
+
+    /**
+     * ConversionGoalFilter2 with every field optional - the fields you send are merged into the stored goal.
+     */
+    export interface PartialConversionGoalFilter2 {
+      conversion_goal_id?: string | null;
+      conversion_goal_name?: string | null;
+      counts_as_customer?: boolean | null;
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      id?: number | null;
+      kind?: 'ActionsNode' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: PartialConversionGoalFilter2Response;
+      schema_map?: PartialConversionGoalFilter2SchemaMap;
+      version?: number | null;
+    }
+
+    export type PartialConversionGoalFilter3Response = { [key: string]: unknown } | null;
+
+    export type PartialConversionGoalFilter3SchemaMap = {[key: string]: string | unknown} | null;
+
+    /**
+     * ConversionGoalFilter3 with every field optional - the fields you send are merged into the stored goal.
+     */
+    export interface PartialConversionGoalFilter3 {
+      conversion_goal_id?: string | null;
+      conversion_goal_name?: string | null;
+      counts_as_customer?: boolean | null;
+      counts_as_revenue?: boolean | null;
+      custom_name?: string | null;
+      distinct_id_field?: string | null;
+      dw_source_type?: string | null;
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      id?: string | null;
+      id_field?: string | null;
+      kind?: 'DataWarehouseNode' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: PartialConversionGoalFilter3Response;
+      schema_map?: PartialConversionGoalFilter3SchemaMap;
+      table_name?: string | null;
+      timestamp_field?: string | null;
+      version?: number | null;
+    }
+
+    export type ConversionGoalPatch = PartialConversionGoalFilter1 | PartialConversionGoalFilter2 | PartialConversionGoalFilter3;
 
     export interface ConversionGoalSummary {
       /** Unique id of the goal (event name, action id, or DW goal id) */
@@ -16213,6 +16780,23 @@ export namespace Schemas {
          * @nullable
          */
       approximation_reason: string | null;
+    }
+
+    export interface ConversionGoalWrite {
+      /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent is ignored. */
+      goal: ConversionGoal;
+    }
+
+    /**
+     * List wrapper for OpenAPI schema generation - the response carries every configured goal.
+     */
+    export type ConversionGoalWrittenList = (ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3)[];
+
+    export interface ConversionGoalWriteResponse {
+      /** The goal as stored after the write */
+      goal: ConversionGoal;
+      /** Every configured goal after the write, in display order */
+      conversion_goals: ConversionGoalWrittenList;
     }
 
     export interface ConversionGoalsListResponse {
@@ -19050,7 +19634,8 @@ export namespace Schemas {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -19178,6 +19763,7 @@ export namespace Schemas {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -20338,7 +20924,8 @@ export namespace Schemas {
       Pingdom: 'Pingdom',
       Cloudflare: 'Cloudflare',
       CosmosDB: 'CosmosDB',
-      PlanetScale: 'PlanetScale',
+      PlanetScaleMySQL: 'PlanetScaleMySQL',
+      PlanetScalePostgres: 'PlanetScalePostgres',
       SapHana: 'SapHana',
       Rippling: 'Rippling',
       HiBob: 'HiBob',
@@ -20466,6 +21053,7 @@ export namespace Schemas {
       FloatApp: 'FloatApp',
       Flowlu: 'Flowlu',
       Formbricks: 'Formbricks',
+      Framer: 'Framer',
       FreeAgent: 'FreeAgent',
       Freightview: 'Freightview',
       Freshcaller: 'Freshcaller',
@@ -21640,7 +22228,8 @@ export namespace Schemas {
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
        * * `CosmosDB` - CosmosDB
-       * * `PlanetScale` - PlanetScale
+       * * `PlanetScaleMySQL` - PlanetScaleMySQL
+       * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -21768,6 +22357,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -23630,7 +24220,8 @@ export namespace Schemas {
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
        * * `CosmosDB` - CosmosDB
-       * * `PlanetScale` - PlanetScale
+       * * `PlanetScaleMySQL` - PlanetScaleMySQL
+       * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -23758,6 +24349,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -31318,7 +31910,8 @@ export namespace Schemas {
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
        * * `CosmosDB` - CosmosDB
-       * * `PlanetScale` - PlanetScale
+       * * `PlanetScaleMySQL` - PlanetScaleMySQL
+       * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -31446,6 +32039,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -32638,7 +33232,8 @@ export namespace Schemas {
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
        * * `CosmosDB` - CosmosDB
-       * * `PlanetScale` - PlanetScale
+       * * `PlanetScaleMySQL` - PlanetScaleMySQL
+       * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -32766,6 +33361,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -34913,6 +35509,16 @@ export namespace Schemas {
       revoked_server_ids: string[];
     }
 
+    export interface GatewayModel {
+      /** Gateway model id, usable as `model` on save/run. */
+      id: string;
+    }
+
+    export interface GatewayModelListResponse {
+      /** Models the gateway currently lists (cached for 5 minutes), or empty if it is unreachable - there is no curated mirror, since one goes stale silently. */
+      results: GatewayModel[];
+    }
+
     /**
      * * `team` - Team default
      * * `member` - Member
@@ -35161,13 +35767,18 @@ export namespace Schemas {
          * @nullable
          */
       account_type: string | null;
-      /** A project in the organization that already has this installation linked. */
-      source_team_id: number;
+      /**
+         * A project in the organization that already has this installation linked. Null when the installation isn't linked to any project yet — it was found via the user's personal GitHub link and can be adopted by linking it here.
+         * @nullable
+         */
+      source_team_id: number | null;
     }
 
     export interface GitHubAvailableInstallationsResponse {
-      /** Distinct GitHub installations in the organization available to link to this project. */
+      /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
       installations: GitHubAvailableInstallation[];
+      /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
+      personal_github_connected: boolean;
     }
 
     export interface GitHubBranchesResponse {
@@ -39183,7 +39794,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -39209,7 +39820,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -39875,6 +40486,7 @@ export namespace Schemas {
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -39925,6 +40537,7 @@ export namespace Schemas {
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
+      Instagram: 'instagram',
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
@@ -39975,6 +40588,7 @@ export namespace Schemas {
        * * `google-search-console` - Google Search Console
        * * `google-sheets` - Google Sheets
        * * `hubspot` - Hubspot
+       * * `instagram` - Instagram
        * * `intercom` - Intercom
        * * `jira` - Jira
        * * `linear` - Linear
@@ -41006,6 +41620,23 @@ export namespace Schemas {
          * @nullable
          */
       max_tags?: number | null;
+    }
+
+    export interface LabelSummary {
+      /** Label name computed by one or more prompt config versions. */
+      label: string;
+      /** Number of prompt config versions saved for this label. */
+      version_count: number;
+      /**
+         * Version string the batch runner currently computes for this label, or null.
+         * @nullable
+         */
+      active_version: string | null;
+    }
+
+    export interface LabelListResponse {
+      /** Distinct labels, alphabetical. */
+      results: LabelSummary[];
     }
 
     /**
@@ -46324,6 +46955,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Comment[];
+    }
+
+    export interface PaginatedCommunitySkillListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CommunitySkillList[];
     }
 
     export interface PaginatedConversationMinimalList {
@@ -52722,6 +53362,14 @@ export namespace Schemas {
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
       readonly task?: ConversationTask | null;
+    }
+
+    /**
+     * Separate from create: the body is a patch, so the documented partial has to type-check.
+     */
+    export interface PatchedConversionGoalUpdate {
+      /** The fields to change, merged into the stored goal — anything you leave out is kept, and the goal keeps its position in the list. schema_map is merged key by key. The merged result must still match one of the ConversionGoalFilter shapes. Send `kind` only to change the goal's shape, in which case the goal is replaced rather than merged and the whole new shape is required. conversion_goal_id comes from the URL and any value sent is ignored. */
+      goal?: ConversionGoalPatch;
     }
 
     export interface PatchedCoreEvent {
@@ -60115,6 +60763,10 @@ export namespace Schemas {
       event_count: number;
       /** Total cost in USD on this day for the scoped product. */
       cost_usd: number;
+      /** Sum of `$ai_input_tokens` on this day for the scoped product. */
+      input_tokens: number;
+      /** Sum of `$ai_output_tokens` on this day for the scoped product. */
+      output_tokens: number;
     }
 
     export interface _DayBreakdown {
@@ -60122,6 +60774,24 @@ export namespace Schemas {
       items: _DayBreakdownRow[];
       /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
       truncated: boolean;
+    }
+
+    export interface _DayModelBreakdownRow {
+      /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+      day: string;
+      /**
+         * Model name for one of the highest-cost models in the selected window. Null is the aggregate of all remaining models, including events without a model.
+         * @nullable
+         */
+      model: string | null;
+      /** Total cost in USD for this model on this day. */
+      cost_usd: number;
+      /** Sum of `$ai_input_tokens` for this model on this day. */
+      input_tokens: number;
+      /** Sum of `$ai_output_tokens` for this model on this day. */
+      output_tokens: number;
+      /** Number of $ai_generation + $ai_embedding events for this model on this day. */
+      generation_count: number;
     }
 
     export interface _BucketBreakdownRow {
@@ -60196,6 +60866,8 @@ export namespace Schemas {
       by_model: _ModelBreakdown;
       /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
       by_day: _DayBreakdown;
+      /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus a null-model row for the remaining models. */
+      by_day_model: _DayModelBreakdownRow[];
       /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
       by_bucket?: _BucketBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
@@ -62827,7 +63499,7 @@ export namespace Schemas {
        * ```
        *
        * For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
        * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
        * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -64240,9 +64912,35 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative58ResultsItem = { [key: string]: unknown };
-
     export interface QueryResponseAlternative58 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore: boolean;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      kind?: 'AccountsTableQuery';
+      limit: number;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AccountsTableRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export type QueryResponseAlternative59ResultsItem = { [key: string]: unknown };
+
+    export interface QueryResponseAlternative59 {
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -64258,7 +64956,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative58ResultsItem[];
+      results: QueryResponseAlternative59ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -64267,7 +64965,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative59 {
+    export interface QueryResponseAlternative60 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64291,7 +64989,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative60 {
+    export interface QueryResponseAlternative61 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64313,7 +65011,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative61 {
+    export interface QueryResponseAlternative62 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64335,7 +65033,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative62 {
+    export interface QueryResponseAlternative63 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64357,9 +65055,9 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative63ResultsItem = { [key: string]: unknown };
+    export type QueryResponseAlternative64ResultsItem = { [key: string]: unknown };
 
-    export interface QueryResponseAlternative63 {
+    export interface QueryResponseAlternative64 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64372,7 +65070,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative63ResultsItem[];
+      results: QueryResponseAlternative64ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -64381,7 +65079,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative65 {
+    export interface QueryResponseAlternative66 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -64408,14 +65106,14 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative66Tables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
-
-    export interface QueryResponseAlternative66 {
-      joins: DataWarehouseViewLink[];
-      tables: QueryResponseAlternative66Tables;
-    }
+    export type QueryResponseAlternative67Tables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
 
     export interface QueryResponseAlternative67 {
+      joins: DataWarehouseViewLink[];
+      tables: QueryResponseAlternative67Tables;
+    }
+
+    export interface QueryResponseAlternative68 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       has_next: boolean;
@@ -64440,7 +65138,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative68 {
+    export interface QueryResponseAlternative69 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -64468,7 +65166,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative69 {
+    export interface QueryResponseAlternative70 {
       count: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -64491,7 +65189,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative70 {
+    export interface QueryResponseAlternative71 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64513,7 +65211,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative71 {
+    export interface QueryResponseAlternative72 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64535,7 +65233,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative72 {
+    export interface QueryResponseAlternative73 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -64562,7 +65260,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative73 {
+    export interface QueryResponseAlternative74 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AggregatedSpanRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -64586,7 +65284,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative74 {
+    export interface QueryResponseAlternative75 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: SpanTreeNode[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -64610,7 +65308,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative75 {
+    export interface QueryResponseAlternative76 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AttributeBreakdownRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -64634,13 +65332,13 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative76 {
+    export interface QueryResponseAlternative77 {
       questions: string[];
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative77 {
+    export interface QueryResponseAlternative78 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -64665,7 +65363,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative78 {
+    export interface QueryResponseAlternative79 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -64690,7 +65388,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative79 {
+    export interface QueryResponseAlternative80 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64712,7 +65410,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative80 {
+    export interface QueryResponseAlternative81 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -64738,7 +65436,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative83 {
+    export interface QueryResponseAlternative84 {
       /** Timestamp of the newer trace */
       newerTimestamp?: string | null;
       /** ID of the newer trace (chronologically after current) */
@@ -64753,7 +65451,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative84 {
+    export interface QueryResponseAlternative85 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64775,7 +65473,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative85 {
+    export interface QueryResponseAlternative86 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64797,7 +65495,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative86 {
+    export interface QueryResponseAlternative87 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -64827,7 +65525,33 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative87 {
+    export interface QueryResponseAlternative88 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore: boolean;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      kind?: 'AccountsTableQuery';
+      limit: number;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AccountsTableRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative89 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -64849,7 +65573,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative88 {
+    export interface QueryResponseAlternative90 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -64876,51 +65600,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative89ResultsItem = { [key: string]: unknown };
-
-    export interface QueryResponseAlternative89 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative89ResultsItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Connector-synced data warehouse sources referenced by this query, if any. */
-      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
-    }
-
-    export interface QueryResponseAlternative90 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolCallBreakdownItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Connector-synced data warehouse sources referenced by this query, if any. */
-      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
-    }
+    export type QueryResponseAlternative91ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative91 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -64935,7 +65615,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolCallsAndErrorsItem[];
+      results: QueryResponseAlternative91ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -64957,7 +65637,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPHarnessBreakdownItem[];
+      results: MCPToolCallBreakdownItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -64979,7 +65659,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolTopUserItem[];
+      results: MCPToolCallsAndErrorsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -65001,7 +65681,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolFailureItem[];
+      results: MCPHarnessBreakdownItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -65023,7 +65703,7 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolFailureOccurrenceItem[];
+      results: MCPToolTopUserItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
@@ -65033,6 +65713,50 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative96 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPToolFailureItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative97 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPToolFailureOccurrenceItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative98 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65055,7 +65779,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative97 {
+    export interface QueryResponseAlternative99 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65077,7 +65801,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative98 {
+    export interface QueryResponseAlternative100 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65099,7 +65823,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative99 {
+    export interface QueryResponseAlternative101 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65121,7 +65845,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative100 {
+    export interface QueryResponseAlternative102 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65143,7 +65867,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative101 {
+    export interface QueryResponseAlternative103 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65165,7 +65889,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative102 {
+    export interface QueryResponseAlternative104 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65187,7 +65911,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative103 {
+    export interface QueryResponseAlternative105 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65209,7 +65933,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative104 {
+    export interface QueryResponseAlternative106 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65231,7 +65955,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative105 {
+    export interface QueryResponseAlternative107 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -65253,18 +65977,18 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | unknown | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative56 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | unknown | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative56 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
     }
 
     export interface QuotaResourceLimit {
@@ -66692,6 +67416,34 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface RunRequest {
+      /**
+         * Label this draft config computes, e.g. ai_pilled. Need not already exist - run classifies against an in-memory config only and persists nothing.
+         * @maxLength 128
+         */
+      label: string;
+      /**
+         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * @maxLength 20000
+         */
+      prompt_text: string;
+      /**
+         * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
+         * @maxLength 128
+         */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
+      input_fields?: string[];
+      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
+      output_fields: OutputField[];
+      /**
+         * Number of the most recently archived, distinct orgs to classify (1-10). Each sampled org costs one LLM call, so keep this bounded during iteration.
+         * @minimum 1
+         * @maximum 10
+         */
+      sample?: number;
+    }
+
     export interface RunWidgetsResponse {
       /** Per-tile widget run results. */
       results: DashboardWidgetRunResult[];
@@ -66994,6 +67746,33 @@ export namespace Schemas {
       initial_permission_mode?: InitialPermissionModeEnum;
       /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
       task_id?: string;
+    }
+
+    export interface SaveRequest {
+      /**
+         * Label this config computes, e.g. ai_pilled.
+         * @maxLength 128
+         */
+      label: string;
+      /**
+         * Version identity for the new row, e.g. v3. Optional: omit (or send blank) to accept the server-suggested next version for this label. Versions are immutable once created - there is no update endpoint - and (label, version) must be unique.
+         * @maxLength 128
+         */
+      version?: string;
+      /**
+         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * @maxLength 20000
+         */
+      prompt_text: string;
+      /**
+         * Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves.
+         * @maxLength 128
+         */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
+      input_fields?: string[];
+      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
+      output_fields: OutputField[];
     }
 
     export interface SavedHeatmapListResponse {
@@ -68976,7 +69755,8 @@ export namespace Schemas {
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
        * * `CosmosDB` - CosmosDB
-       * * `PlanetScale` - PlanetScale
+       * * `PlanetScaleMySQL` - PlanetScaleMySQL
+       * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -69104,6 +69884,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -70306,7 +71087,8 @@ export namespace Schemas {
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
        * * `CosmosDB` - CosmosDB
-       * * `PlanetScale` - PlanetScale
+       * * `PlanetScaleMySQL` - PlanetScaleMySQL
+       * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -70434,6 +71216,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -71626,7 +72409,8 @@ export namespace Schemas {
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
        * * `CosmosDB` - CosmosDB
-       * * `PlanetScale` - PlanetScale
+       * * `PlanetScaleMySQL` - PlanetScaleMySQL
+       * * `PlanetScalePostgres` - PlanetScalePostgres
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -71754,6 +72538,7 @@ export namespace Schemas {
        * * `FloatApp` - FloatApp
        * * `Flowlu` - Flowlu
        * * `Formbricks` - Formbricks
+       * * `Framer` - Framer
        * * `FreeAgent` - FreeAgent
        * * `Freightview` - Freightview
        * * `Freshcaller` - Freshcaller
@@ -79082,6 +79867,26 @@ export namespace Schemas {
     search: string;
     };
 
+    export type GrowthAiEnrichmentConfigsRetrieveParams = {
+    /**
+     * Label name to list prompt config versions for.
+     * @minLength 1
+     */
+    label: string;
+    };
+
+    export type GrowthAiEnrichmentRunCreateParams = {
+    format?: GrowthAiEnrichmentRunCreateFormat;
+    };
+
+    export type GrowthAiEnrichmentRunCreateFormat = typeof GrowthAiEnrichmentRunCreateFormat[keyof typeof GrowthAiEnrichmentRunCreateFormat];
+
+
+    export const GrowthAiEnrichmentRunCreateFormat = {
+      Json: 'json',
+      Ndjson: 'ndjson',
+    } as const;
+
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
@@ -79295,7 +80100,7 @@ export namespace Schemas {
 
     export type OrgOrganizationsBatchExportsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -80360,7 +81165,7 @@ export namespace Schemas {
 
     export type BatchExportsRunsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -80392,7 +81197,7 @@ export namespace Schemas {
 
     export type BatchExportsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -80656,6 +81461,59 @@ export namespace Schemas {
       Any: 'any',
       Comment: 'comment',
       Task: 'task',
+    } as const;
+
+    export type CommunitySkillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort key. Defaults to most-installed first.
+     *
+     * * `-created_at` - -created_at
+     * * `-install_count` - -install_count
+     * * `-name` - -name
+     * * `-published_at` - -published_at
+     * * `-vote_count` - -vote_count
+     * * `created_at` - created_at
+     * * `install_count` - install_count
+     * * `name` - name
+     * * `published_at` - published_at
+     * * `vote_count` - vote_count
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Substring filter on skill names and descriptions; also matches a tag exactly (case-insensitive).
+     */
+    search?: string;
+    /**
+     * Return only skills carrying this exact tag (case-insensitive).
+     */
+    tag?: string;
+    /**
+     * Filter to a single moderation tier.
+     *
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     * @minLength 1
+     */
+    trust_tier?: CommunitySkillsListTrustTier;
+    };
+
+    export type CommunitySkillsListTrustTier = typeof CommunitySkillsListTrustTier[keyof typeof CommunitySkillsListTrustTier];
+
+
+    export const CommunitySkillsListTrustTier = {
+      Official: 'official',
+      Verified: 'verified',
+      Community: 'community',
     } as const;
 
     export type ConversationsListParams = {
@@ -81666,7 +82524,7 @@ export namespace Schemas {
 
     export type EndpointsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -82830,7 +83688,7 @@ export namespace Schemas {
 
     export type ExternalDataSchemasLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -83139,7 +83997,7 @@ export namespace Schemas {
 
     export type FileDownloadBatchExportsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -83509,7 +84367,7 @@ export namespace Schemas {
 
     export type HogFlowTemplatesLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -83667,7 +84525,7 @@ export namespace Schemas {
 
     export type HogFlowsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -83897,7 +84755,7 @@ export namespace Schemas {
 
     export type HogFunctionsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string;
     /**
@@ -84658,6 +85516,7 @@ export namespace Schemas {
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -84719,6 +85578,7 @@ export namespace Schemas {
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
+      Instagram: 'instagram',
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',

@@ -20,18 +20,20 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 
 import structlog
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+from products.slack_app.backend.services.integration_resolver import load_integrations
 from products.slack_app.backend.services.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
@@ -85,6 +87,28 @@ ACTION_TASKS_PAGE_PREV = "slack_app_home:tasks_page_prev"
 ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
+
+# Every control the Home tab renders, in one place. The interactivity endpoint reads
+# this to claim region ownership and to dispatch, so a control that isn't listed here
+# renders as a button that silently does nothing. Adding an action id above without
+# adding it here is the failure this set exists to prevent.
+HOME_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        ACTION_EDIT_PERSONAL,
+        ACTION_RESET_PERSONAL,
+        ACTION_UNLINK_ACCOUNT,
+        ACTION_SET_PROJECT_PERSONAL,
+        ACTION_SET_PROJECT_WORKSPACE,
+        ACTION_RESET_PROJECT_PERSONAL,
+        ACTION_TASKS_FILTER_REPO,
+        ACTION_TASKS_FILTER_STATUS,
+        ACTION_TASKS_REFRESH,
+        ACTION_TASKS_PAGE_PREV,
+        ACTION_TASKS_PAGE_NEXT,
+        ACTION_STATS_WINDOW,
+        ACTION_STATS_REFRESH,
+    }
+)
 
 # Single block_id for the whole controls row. Block Kit only persists
 # state in `view.state.values` under blocks that carry a `block_id`, so
@@ -250,6 +274,7 @@ class TaskItem:
     pr_url: str | None
     thread_url: str | None
     updated_at_label: str
+    desktop_url: str | None = None  # omitted for viewers without PostHog Code access
     error_message: str | None = None  # surfaced on row 2 in place of the normal meta line
 
 
@@ -333,6 +358,7 @@ def render_home_view(
     project_state: ProjectState | None = None,
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
+    has_project_access: bool = True,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -340,6 +366,14 @@ def render_home_view(
     blocks: list[dict] = []
 
     blocks.extend(_header_blocks())
+
+    # Nothing below the fold means anything to someone who can't reach a project: the
+    # cards are scoped to one, and mentioning @PostHog won't work either. Say so once
+    # and stop, rather than drawing empty cards that read as "you have no tasks yet".
+    if not has_project_access:
+        blocks.append({"type": "divider"})
+        blocks.extend(_no_project_access_blocks())
+        return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
 
     # Section 1 — workspace activity: aggregates across everyone's Slack-started work,
     # rather than the calling user's own. Admin-only, and first because it's the reason
@@ -445,6 +479,45 @@ def _header_blocks() -> list[dict]:
             "Tune how @PostHog mentions get routed and answered from this Slack workspace.",
         ),
     ]
+
+
+def _no_project_access_blocks() -> list[dict]:
+    """Shown when the viewer can't reach any PostHog project connected to this workspace.
+
+    Covers both halves of the same dead end — no project is connected yet, or one is but
+    the viewer isn't a member of its organization — because from Slack the two are
+    indistinguishable and the next step is the same page either way.
+    """
+    site_url = (settings.SITE_URL or "").rstrip("/")
+    blocks: list[dict] = [
+        _section_title(
+            "🔒 No project to show yet",
+            "This Slack workspace isn't connected to a PostHog project you can see, "
+            "so there's nothing to set up here and @PostHog mentions won't run.",
+        ),
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": ("Connect a project in PostHog, or ask an admin to add you to one that's already connected."),
+            },
+        },
+    ]
+    if site_url:
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "url": f"{site_url}/settings/project-integrations",
+                        "text": {"type": "plain_text", "text": "Connect PostHog to Slack", "emoji": True},
+                        "style": "primary",
+                    }
+                ],
+            }
+        )
+    return blocks
 
 
 def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
@@ -705,25 +778,32 @@ def _task_item_block(item: TaskItem) -> list[dict]:
     """One task row split across two Block Kit blocks for visual hierarchy.
 
     The title goes in a `section` (full-size mrkdwn); the optional error
-    message and the status · repo · thread · PR · updated meta go in a single
+    message and the status · repo · links · PR · updated meta go in a single
     `context` block underneath. Context renders text noticeably smaller and
     dimmer than section, so the supporting detail recedes while the title
     stays scannable.
+
+    The title opens the Slack thread, because that is where the conversation the
+    row summarises actually happened and it keeps the reader in Slack. The web
+    and desktop views are the alternatives, so they sit in the meta line.
 
     Failed tasks surface the error and the meta line — error context never
     replaces the surrounding state. Newlines in the upstream error message
     collapse to spaces so a traceback doesn't blow the row open vertically.
     """
     status_label = _TASK_STATUS_LABELS.get(item.status or "", "")
-    title_line = f"*<{item.posthog_url}|{item.title}>*" if item.posthog_url else f"*{item.title}*"
+    title_target = item.thread_url or item.posthog_url
+    title_line = f"*<{title_target}|{item.title}>*" if title_target else f"*{item.title}*"
 
     meta_parts: list[str] = []
     if status_label:
         meta_parts.append(status_label)
     if item.repository:
         meta_parts.append(f"`{item.repository}`")
-    if item.thread_url:
-        meta_parts.append(f"<{item.thread_url}|Thread>")
+    if item.posthog_url:
+        meta_parts.append(f"<{item.posthog_url}|View on web>")
+    if item.desktop_url:
+        meta_parts.append(f"<{item.desktop_url}|View on desktop>")
     if item.pr_url:
         meta_parts.append(f"<{item.pr_url}|PR>")
     if item.updated_at_label:
@@ -1291,6 +1371,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
+        has_project_access=bool(accessible),
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
@@ -1316,7 +1397,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     slack_user_id = (payload.get("user") or {}).get("id", "")
     trigger_id = payload.get("trigger_id")
 
-    integration = _get_slack_integration(slack_team_id)
+    integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return HttpResponse(status=200)
 
@@ -1399,7 +1480,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     if action_id in (MODAL_ACTION_RUNTIME_ADAPTER, MODAL_ACTION_MODEL):
         # Modal re-render: a runtime / model change updates which downstream
         # blocks (model list, effort options) are valid. Push an updated view.
-        return _update_modal_after_input_change(payload)
+        return _update_modal_after_input_change(payload, integration)
 
     return HttpResponse(status=200)
 
@@ -1414,7 +1495,7 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
     slack_team_id = (payload.get("team") or {}).get("id", "")
     slack_user_id = (payload.get("user") or {}).get("id", "")
 
-    integration = _get_slack_integration(slack_team_id)
+    integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return _modal_error_response("This Slack workspace is no longer connected to PostHog.")
 
@@ -1445,14 +1526,22 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 # ---------------------------------------------------------------------------
 
 
-def _get_slack_integration(slack_team_id: str) -> Integration | None:
+def _resolve_interaction_integration(slack_team_id: str, slack_user_id: str) -> Integration | None:
+    """The integration the viewer's Home tab is rendered against.
+
+    Same resolver the publish path runs, so a click is answered for the project the viewer
+    was looking at. Any row of the workspace would do for fetching a bot token, but the
+    rollout flag is scoped to an organization and the task list to a team, so answering
+    against an arbitrary one makes the tab disagree with itself.
+    """
     if not slack_team_id:
         return None
-    return (
-        Integration.objects.select_related("team", "team__organization")
-        .filter(kind="slack", integration_id=slack_team_id)
-        .first()
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=list(SLACK_INTEGRATION_KINDS),
+        slack_user_id=slack_user_id,
     )
+    return result.resolved_or_first()
 
 
 def _load_user_row(integration: Integration, slack_user_id: str) -> SlackSettings | None:
@@ -1521,7 +1610,7 @@ def _render_unavailable_modal() -> dict:
     }
 
 
-def _update_modal_after_input_change(payload: dict) -> HttpResponse:
+def _update_modal_after_input_change(payload: dict, integration: Integration) -> HttpResponse:
     """Re-render the modal in response to a runtime_adapter or model change.
 
     Reads the in-flight state from `payload["view"]`, drops whatever the change
@@ -1538,11 +1627,6 @@ def _update_modal_after_input_change(payload: dict) -> HttpResponse:
     supported = _supported_efforts(current.runtime_adapter, current.model)
 
     updated_view = render_edit_modal(current=current, supported_efforts=supported)
-
-    slack_team_id = (payload.get("team") or {}).get("id", "")
-    integration = _get_slack_integration(slack_team_id)
-    if integration is None:
-        return HttpResponse(status=200)
 
     slack = SlackIntegration(integration)
     try:
@@ -1662,11 +1746,26 @@ def _republish_home(
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
+        has_project_access=bool(accessible),
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
     except Exception:
         logger.exception("slack_app_home_republish_failed")
+        return
+    # Carries the controls the click resolved to, so a report of "the filter does
+    # nothing" can be told apart from a click that never reached us at all.
+    logger.info(
+        "slack_app_home_republished",
+        slack_user_id=slack_user_id,
+        slack_team_id=integration.integration_id,
+        slack_app_home_tasks_page=tasks_state.page,
+        slack_app_home_tasks_total_pages=tasks_state.total_pages,
+        slack_app_home_tasks_shown=len(tasks_state.items),
+        slack_app_home_selected_repo=view_state.selected_repo,
+        slack_app_home_selected_status=view_state.selected_status,
+        slack_app_home_stats_window_days=view_state.stats_window_days,
+    )
 
 
 _TASKS_PAGE_SIZE = 10
@@ -1694,10 +1793,10 @@ def _resolve_tasks_state(
     accessible-team scoping) does not generalise.
     """
 
-    from django.conf import settings
     from django.utils import timezone as django_timezone
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.services.slack_messages import DESKTOP_URL_SCHEME, viewer_has_code_access
     from products.tasks.backend.facade import api as tasks_facade
 
     slack_team_id = integration.integration_id
@@ -1731,6 +1830,9 @@ def _resolve_tasks_state(
     mapping_by_task = {str(m["task_id"]): m for m in mappings}
 
     site_url = (settings.SITE_URL or "").rstrip("/")
+    # The desktop link only resolves for someone who has the app, so it is offered
+    # alongside the web one rather than instead of it.
+    show_desktop = viewer_has_code_access(integration, slack_user_id)
     now = django_timezone.now()
     all_items: list[TaskItem] = []
     repos_seen: list[str] = []
@@ -1751,6 +1853,7 @@ def _resolve_tasks_state(
                 thread_url=_slack_thread_permalink(mapping.get("channel", ""), mapping.get("thread_ts", "")),
                 updated_at_label=_format_relative(mapping.get("updated_at"), now=now),
                 error_message=run.error_message if run else None,
+                desktop_url=f"{DESKTOP_URL_SCHEME}://task/{t.id}" if show_desktop else None,
             )
         )
         if t.repository and t.repository not in seen_repo_set:
