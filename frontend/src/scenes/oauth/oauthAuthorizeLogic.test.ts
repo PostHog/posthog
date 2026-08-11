@@ -35,6 +35,11 @@ describe('oauthAuthorizeLogic', () => {
             expected: ['openid', 'feature_flag:read', 'feature_flag:write', 'insight:read'],
         },
         {
+            name: 'keeps the write half alone when the read half was never requested',
+            scopes: ['openid', 'feature_flag:write', 'insight:read'],
+            expected: ['openid', 'feature_flag:write', 'insight:read'],
+        },
+        {
             name: 'downgrades every write scope to read with the bulk read-only action',
             scopes: ['openid', 'feature_flag:write', 'dashboard:write', 'query:read'],
             apply: () => logic.actions.setAllScopeAccess('read'),
@@ -59,7 +64,7 @@ describe('oauthAuthorizeLogic', () => {
                 logic.actions.setAllScopeAccess('none')
                 logic.actions.setAllScopeAccess('write')
             },
-            expected: ['openid', 'feature_flag:read', 'feature_flag:write', 'query:read'],
+            expected: ['openid', 'feature_flag:write', 'query:read'],
         },
         {
             name: 'clamps a per-object write pick to read when only read was requested',
@@ -74,7 +79,7 @@ describe('oauthAuthorizeLogic', () => {
                 logic.actions.setAllScopeAccess('read')
                 logic.actions.setScopeAccess('dashboard', 'write')
             },
-            expected: ['openid', 'dashboard:read', 'dashboard:write', 'feature_flag:read'],
+            expected: ['openid', 'dashboard:write', 'feature_flag:read'],
         },
         {
             name: 'grants the wildcard unchanged at write level',
@@ -126,12 +131,7 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopeAccess('feature_flag', 'none')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read'])
         logic.actions.setScopeAccess('feature_flag', 'write')
-        expect(logic.values.effectiveScopes).toEqual([
-            'openid',
-            'feature_flag:read',
-            'feature_flag:write',
-            'insight:read',
-        ])
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
     })
 
     const withRequiredScopes = (required_scopes: string[]): void => {
@@ -148,12 +148,7 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'insight:read'])
         withRequiredScopes(['feature_flag:write'])
         logic.actions.setScopeAccess('feature_flag', 'none')
-        expect(logic.values.effectiveScopes).toEqual([
-            'openid',
-            'feature_flag:read',
-            'feature_flag:write',
-            'insight:read',
-        ])
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
         expect(row).toMatchObject({ locked: true, value: 'write' })
     })
@@ -162,12 +157,7 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'dashboard:write'])
         withRequiredScopes(['feature_flag:write'])
         logic.actions.setAllScopeAccess('read')
-        expect(logic.values.effectiveScopes).toEqual([
-            'openid',
-            'dashboard:read',
-            'feature_flag:read',
-            'feature_flag:write',
-        ])
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'dashboard:read', 'feature_flag:write'])
     })
 
     it('downgrades to read under the bulk read-only action when only the read level is required', () => {
@@ -231,7 +221,7 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setAllScopeAccess('read')
         logic.actions.setScopeAccess('feature_flag', 'none')
         logic.actions.setScopes(['openid', 'insight:write'])
-        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read', 'insight:write'])
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
     })
 
     const HINT_TEAMS = [
