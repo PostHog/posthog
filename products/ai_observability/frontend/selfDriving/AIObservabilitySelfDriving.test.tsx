@@ -205,4 +205,29 @@ describe('AIObservabilitySelfDriving', () => {
         expect(screen.getByText(/Use the connected PostHog MCP server/)).toBeInTheDocument()
         expect(document.querySelector('[data-attr="ai-observability-evaluations-table"]')).not.toBeInTheDocument()
     })
+
+    it('shows a retry instead of the empty state when evals fail to load', async () => {
+        const consoleError = jest.spyOn(console, 'error').mockImplementation()
+        jest.mocked(aiObservabilityApi.evaluationsList).mockRejectedValueOnce(new Error('Request failed'))
+
+        render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        const errorMessage = await screen.findByText("We couldn't load your evals. Try again in a moment.")
+        expect(errorMessage).toBeInTheDocument()
+        expect(screen.queryByText("You don't have any evals yet")).not.toBeInTheDocument()
+
+        const errorBanner = errorMessage.closest('.LemonBanner')
+        expect(errorBanner).toBeInTheDocument()
+        const retryButton = errorBanner?.querySelector('button')
+        expect(retryButton).toBeInTheDocument()
+        await userEvent.click(retryButton as HTMLButtonElement)
+
+        expect(await screen.findByText('Correctness check')).toBeInTheDocument()
+        expect(aiObservabilityApi.evaluationsList).toHaveBeenCalledTimes(2)
+        consoleError.mockRestore()
+    })
 })

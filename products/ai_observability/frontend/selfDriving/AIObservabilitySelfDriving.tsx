@@ -72,7 +72,8 @@ export function AIObservabilitySelfDriving(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { scoutConfigs, scoutConfigsLoading, deletingScoutIds, updatingScoutIds } = useValues(scoutFleetLogic)
     const { deleteScout, loadScoutConfigs, updateScoutConfig } = useActions(scoutFleetLogic)
-    const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
+    const { evaluations, evaluationsLoadFailed, evaluationsLoading } = useValues(llmEvaluationsLogic)
+    const { loadEvaluations } = useActions(llmEvaluationsLogic)
     const { evaluationReportsByEvaluationId, evaluationReportsLoading } = useValues(aiObservabilitySelfDrivingLogic)
     const { loadSelfDrivingEvaluationReports } = useActions(aiObservabilitySelfDrivingLogic)
 
@@ -221,7 +222,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                 <div>
                     <div className="flex items-center gap-2">
                         <h2 className="m-0 text-base font-semibold">Your evals</h2>
-                        {!evaluationsLoading ? (
+                        {!evaluationsLoading && !evaluationsLoadFailed ? (
                             <LemonTag type="muted" size="small">
                                 {evaluations.length}
                             </LemonTag>
@@ -234,7 +235,8 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                         </Link>
                     </p>
                 </div>
-                {!evaluationsLoading &&
+                {!evaluationsLoadFailed &&
+                !evaluationsLoading &&
                 evaluations.length > 0 &&
                 evaluationReportsByEvaluationId === null &&
                 !evaluationReportsLoading ? (
@@ -246,7 +248,15 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                         We couldn't load evaluation report statuses. Try again in a moment.
                     </LemonBanner>
                 ) : null}
-                {evaluationsLoading ? (
+                {evaluationsLoadFailed ? (
+                    <LemonBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: loadEvaluations }}
+                        data-attr="ai-observability-evaluations-load-error"
+                    >
+                        We couldn't load your evals. Try again in a moment.
+                    </LemonBanner>
+                ) : evaluationsLoading ? (
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton className="h-10 w-full rounded" />
                         <LemonSkeleton className="h-10 w-full rounded" />
