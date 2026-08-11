@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SecretsSnapshot } from '@/types.js'
-import { buildUsageMap, type UsageMap } from '@/usage/publisher.js'
+import { buildUsageMap, type UsageMap } from '@/usage/verdict.js'
 
 const ACTIVATED_AT = '2026-08-01T00:00:00.000Z'
 const BEFORE = Date.parse('2026-07-30T00:00:00.000Z')
@@ -140,7 +140,7 @@ describe('usage map', () => {
         })
     })
 
-    // The artifact lands in an S3 bucket the secrets UI reads. It carries topology only.
+    // The rollup leaves the service as reporting data. It carries topology only.
     it('contains no credential values once serialized', () => {
         const serialized = JSON.stringify(
             build({ reads: { [`${KEY}|${WORKER}`]: 5 }, lastSeen: { [`${KEY}|${WORKER}`]: AFTER } })

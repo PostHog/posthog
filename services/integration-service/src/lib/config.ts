@@ -11,11 +11,8 @@ export interface Config {
     shutdownGraceMs: number
     shutdownPrestopDelayMs: number
 
-    /** Logical environment (dev | prod-us | prod-eu). Recorded on the usage artifact. */
+    /** Logical environment (dev | prod-us | prod-eu). Recorded on the usage rollup. */
     env: string
-    awsRegion: string
-    /** Set only in tests / local dev to point the AWS SDK at a mock. */
-    awsEndpoint: string | undefined
 
     /** Directory the Kubernetes Secret is mounted at. */
     secretsDir: string
@@ -27,10 +24,6 @@ export interface Config {
     usageFlushMs: number
     retentionDays: number
     retireQuietHours: number
-
-    usageBucket: string | undefined
-    usageKmsKeyId: string | undefined
-    usagePublishIntervalMs: number
 
     metricsToken: string
 }
@@ -60,8 +53,6 @@ export function loadConfig(): Config {
         shutdownPrestopDelayMs: intFromEnv('SHUTDOWN_PRESTOP_DELAY_MS', 5000),
 
         env: getEnv('INTEGRATION_SERVICE_ENV') ?? 'dev',
-        awsRegion: getEnv('AWS_REGION') ?? 'us-east-1',
-        awsEndpoint: getEnv('AWS_ENDPOINT_URL'),
 
         secretsDir: getEnv('INTEGRATION_SERVICE_SECRETS_DIR') ?? '/etc/integration-secrets',
         databaseUrl: getEnv('INTEGRATION_SERVICE_DATABASE_URL'),
@@ -72,10 +63,6 @@ export function loadConfig(): Config {
         usageFlushMs: intFromEnv('INTEGRATION_SERVICE_USAGE_FLUSH_MS', 10000),
         retentionDays: intFromEnv('INTEGRATION_SERVICE_RETENTION_DAYS', 9),
         retireQuietHours: intFromEnv('INTEGRATION_SERVICE_RETIRE_QUIET_HOURS', 24),
-
-        usageBucket: getEnv('INTEGRATION_SERVICE_USAGE_BUCKET'),
-        usageKmsKeyId: getEnv('INTEGRATION_SERVICE_USAGE_KMS_KEY_ID'),
-        usagePublishIntervalMs: intFromEnv('INTEGRATION_SERVICE_USAGE_PUBLISH_INTERVAL_MS', 300000),
 
         metricsToken: getEnv('INTEGRATION_SERVICE_METRICS_TOKEN') ?? '',
     }
@@ -99,16 +86,6 @@ export function loadConfig(): Config {
             logger.error('config:missing_required', { missing })
             process.exit(1)
         }
-        // A mock-only escape hatch: honoured in production it would skip IRSA and point
-        // the S3 client at whatever the URL serves. See aws/credentials.ts.
-        if (config.awsEndpoint) {
-            logger.error('config:aws_endpoint_override_in_production', { endpoint: config.awsEndpoint })
-            process.exit(1)
-        }
-    }
-
-    if (!config.usageBucket) {
-        logger.warn('config:usage_publishing_disabled', { reason: 'INTEGRATION_SERVICE_USAGE_BUCKET is unset' })
     }
 
     return config

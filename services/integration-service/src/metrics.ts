@@ -67,13 +67,6 @@ export const storeErrorsTotal = new Counter({
     registers: [register],
 })
 
-export const usagePublishTotal = new Counter({
-    name: 'integration_secret_usage_publish_total',
-    help: 'Attempts to publish the usage rollup to the secrets index bucket',
-    labelNames: ['result'],
-    registers: [register],
-})
-
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------

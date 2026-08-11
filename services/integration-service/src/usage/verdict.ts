@@ -1,27 +1,12 @@
-// Publishes the usage rollup to the secrets index bucket as
-// `integrations/usage/latest.json`.
+// The usage rollup: which caller actually read which key, and whether an in-flight
+// rotation's previous value is safe to retire. Computed here, service-side, because the
+// verdict must come from what this service measured — never from a client's claim.
 //
-// PostHog/secrets already reads two artifacts from that bucket through
-// packages/core/src/index-store.ts: `consumption/latest.json` (which app DECLARES it
-// consumes which key, rendered from charts' ExternalSecrets) and `secrets/latest.json`
-// (which keys exist where). This is the third: which caller ACTUALLY read which key.
-//
-// The declared-vs-observed difference is the useful part. It answers "charts grants
-// the worker this key but nothing has ever read it", which is how a duplicated env var
-// gets proven dead before anyone deletes it.
-//
-// The artifact carries no credential values — caller names, key names, counts,
-// timestamps and rotation state only.
+// The rollup carries no credential values — caller names, key names, counts, timestamps
+// and rotation state only.
 
-import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3'
-
-import { logger } from '../lib/logging.js'
-import { usagePublishTotal } from '../metrics.js'
 import { providerForKey } from '../providers.js'
 import type { SecretsSnapshot, SecretState } from '../types.js'
-import type { UsageRecorder } from './recorder.js'
-
-export const USAGE_OBJECT_KEY = 'integrations/usage/latest.json'
 
 export interface UsageCallerEntry {
     /** The calling deployment, as authenticated by its signing key. */
@@ -135,50 +120,5 @@ export function buildUsageMap(opts: {
         env: opts.env,
         quietWindowHours: opts.quietWindowHours,
         keys,
-    }
-}
-
-export interface UsagePublisherOptions {
-    s3: S3Client
-    bucket: string
-    kmsKeyId?: string | undefined
-    env: string
-    quietWindowHours: number
-    recorder: UsageRecorder
-    loadSnapshot: () => Promise<SecretsSnapshot | null>
-}
-
-export class UsagePublisher {
-    constructor(private readonly opts: UsagePublisherOptions) {}
-
-    async publish(): Promise<void> {
-        try {
-            const { reads, lastSeen } = await this.opts.recorder.summarize(this.opts.quietWindowHours)
-            const usage = buildUsageMap({
-                env: this.opts.env,
-                generatedAt: new Date().toISOString(),
-                quietWindowHours: this.opts.quietWindowHours,
-                snapshot: await this.opts.loadSnapshot(),
-                reads,
-                lastSeen,
-            })
-
-            await this.opts.s3.send(
-                new PutObjectCommand({
-                    Bucket: this.opts.bucket,
-                    Key: USAGE_OBJECT_KEY,
-                    Body: JSON.stringify(usage),
-                    ContentType: 'application/json',
-                    ...(this.opts.kmsKeyId
-                        ? { ServerSideEncryption: 'aws:kms' as const, SSEKMSKeyId: this.opts.kmsKeyId }
-                        : {}),
-                })
-            )
-            usagePublishTotal.labels({ result: 'ok' }).inc()
-            logger.info('usage:published', { keys: Object.keys(usage.keys).length })
-        } catch (err) {
-            usagePublishTotal.labels({ result: 'error' }).inc()
-            logger.error('usage:publish_failed', { error: err instanceof Error ? err.message : String(err) })
-        }
     }
 }

@@ -6,14 +6,12 @@
 // write. unhandledRejection and uncaughtException route through the same path, so a crash
 // still flushes the reads that prove a caller has moved onto a new value.
 
-import { S3Client } from '@aws-sdk/client-s3'
 import { serve } from '@hono/node-server'
 import type { Hono } from 'hono'
 import type { Pool } from 'pg'
 
 import { JwtVerifier } from './auth/jwt.js'
 import { SigningKeyLoader } from './auth/registry.js'
-import { credentialProvider } from './aws/credentials.js'
 import { createPool, observeVersion } from './db/client.js'
 import { createApp, type Lifecycle } from './http/app.js'
 import type { Config } from './lib/config.js'
@@ -21,7 +19,6 @@ import { logger } from './lib/logging.js'
 import { scheduleJittered } from './lib/schedule.js'
 import { SnapshotManager } from './snapshot.js'
 import { createFileStore } from './store/fileStore.js'
-import { UsagePublisher } from './usage/publisher.js'
 import { UsageRecorder } from './usage/recorder.js'
 
 interface DrainableServer {
@@ -128,24 +125,6 @@ export class IntegrationServer {
             scheduleJittered(config.usageFlushMs, () => recorder.flush()),
             scheduleJittered(24 * 60 * 60 * 1000, () => recorder.prune(config.retentionDays))
         )
-
-        if (config.usageBucket) {
-            const publisher = new UsagePublisher({
-                s3: new S3Client({
-                    region: config.awsRegion,
-                    // Explicit, so the SDK never consults its default chain (aws/credentials.ts).
-                    credentials: credentialProvider(),
-                    ...(config.awsEndpoint ? { endpoint: config.awsEndpoint, forcePathStyle: true } : {}),
-                }),
-                bucket: config.usageBucket,
-                kmsKeyId: config.usageKmsKeyId,
-                env: config.env,
-                quietWindowHours: config.retireQuietHours,
-                recorder,
-                loadSnapshot: () => Promise.resolve(snapshots.current()),
-            })
-            this.cancelTimers.push(scheduleJittered(config.usagePublishIntervalMs, () => publisher.publish()))
-        }
 
         this.setupProcessListeners()
     }

@@ -12,22 +12,6 @@ import { resolve } from 'path'
 export const integrationServiceOutfile = resolve(process.cwd(), 'dist/integration-service.mjs')
 export const integrationServiceMetafile = resolve(process.cwd(), 'dist/meta.json')
 
-// The AWS SDK's runtimeConfig statically imports the whole default credential chain, so
-// esbuild would bundle SSO, shared-INI, credential_process and IMDS even though the S3
-// client always gets an explicit provider (src/aws/credentials.ts) and can never reach
-// them. Alias them to a stub that throws if anything ever does.
-//
-// This is a security control, not only a size optimisation: the service must not be able to
-// authenticate silently as an EC2 instance role, or as whatever a developer last ran
-// `aws sso login` against.
-const UNREACHABLE_CREDENTIAL_PROVIDERS = [
-    '@aws-sdk/credential-provider-sso',
-    '@aws-sdk/credential-provider-ini',
-    '@aws-sdk/credential-provider-process',
-    '@aws-sdk/credential-provider-node',
-    '@aws-sdk/credential-provider-env',
-]
-
 export function integrationServiceEsbuildOptions(opts: { dev?: boolean; extraPlugins?: Plugin[] } = {}): BuildOptions {
     return {
         entryPoints: [resolve(process.cwd(), 'src/index.ts')],
@@ -39,12 +23,6 @@ export function integrationServiceEsbuildOptions(opts: { dev?: boolean; extraPlu
         sourcemap: true,
         external: [],
         metafile: true,
-        alias: Object.fromEntries(
-            UNREACHABLE_CREDENTIAL_PROVIDERS.map((name) => [
-                name,
-                resolve(process.cwd(), 'src/aws/unreachable-provider.ts'),
-            ])
-        ),
         loader: { '.json': 'json' },
         define: { 'process.env.NODE_ENV': opts.dev ? '"development"' : '"production"' },
         plugins: opts.extraPlugins ?? [],

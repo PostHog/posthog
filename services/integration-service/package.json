@@ -20,8 +20,6 @@
         "check:boundary": "tsx scripts/check-import-boundary.ts"
     },
     "dependencies": {
-        "@aws-sdk/client-s3": "3.975.0",
-        "@aws-sdk/credential-provider-web-identity": "3.972.70",
         "@hono/node-server": "^2.0.2",
         "esbuild": "^0.25.11",
         "hono": "^4.12.18",
@@ -31,7 +29,6 @@
         "prom-client": "^14.2.0"
     },
     "devDependencies": {
-        "@smithy/types": "^4.16.1",
         "@types/node": "^22.17.2",
         "@types/pg": "^8.11.10",
         "oxfmt": "catalog:",
@@ -41,6 +38,5 @@
         "typescript": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4"
-    },
-    "//aws-sdk-pin": "Exact pin, not a range. The AWS SDK ships its clients against a matching @smithy/* tree, and the repo pins @smithy/core fleet-wide; a floating range drifts past it and the bundle fails on missing exports."
+    }
 }

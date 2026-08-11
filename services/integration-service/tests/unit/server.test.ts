@@ -34,17 +34,12 @@ function config(secrets: string, prestopDelayMs: number): Config {
         shutdownGraceMs: 2000,
         shutdownPrestopDelayMs: prestopDelayMs,
         env: 'test',
-        awsRegion: 'us-east-1',
-        awsEndpoint: undefined,
         secretsDir: secrets,
         databaseUrl: undefined,
         reloadSeconds: 3600,
         usageFlushMs: 3_600_000,
         retentionDays: 9,
         retireQuietHours: 24,
-        usageBucket: undefined,
-        usageKmsKeyId: undefined,
-        usagePublishIntervalMs: 3_600_000,
         metricsToken: '',
     }
 }
