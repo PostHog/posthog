@@ -578,10 +578,11 @@ function OutputActions({
 interface OutputPaneProps {
     tabId: string
     showToolbar?: boolean
+    biMode?: boolean
     onShareTab?: () => void
 }
 
-export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
+export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
@@ -600,7 +601,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
-    const splitView = activeTab === OutputTab.Both
+    const splitView = !biMode && activeTab === OutputTab.Both
     const splitResizerProps = useMemo<ResizerLogicProps>(
         () => ({
             containerRef: splitPaneRef,
@@ -806,7 +807,23 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         onToggleChartSettingsPanel: toggleVisualizationSettingsPanel,
     }
 
-    const outputContent = splitView ? (
+    const outputContent = biMode ? (
+        <div className="relative flex flex-1 min-h-0 bg-dark">
+            {showToolbar ? (
+                <LemonButton
+                    className="absolute right-2 top-2 z-10"
+                    disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                    type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
+                    icon={<IconGear />}
+                    size="small"
+                    onClick={toggleVisualizationSettingsPanel}
+                    tooltip="Visualization settings"
+                    data-attr="sql-editor-visualization-settings-button"
+                />
+            ) : null}
+            <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
+        </div>
+    ) : splitView ? (
         <div className="flex flex-1 min-h-0 bg-dark">
             <div
                 ref={splitPaneRef}

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.db import OperationalError
 
 import pyarrow as pa
+import deltalake.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -78,7 +79,7 @@ async def _run_post_load(
             job=job,
             schema=schema,
             source=MagicMock(),
-            delta_table_helper=helper,
+            delta_table_ref=helper,
             row_count=10,
             table_schema_dict={},
             resource_name="orders",
@@ -147,6 +148,15 @@ class TestRunPostLoadDeltaMaintenance:
             # sync's maintenance retries the same idempotent cleanup) and must not be promoted
             # into a fresh error-tracking issue — the regression this guards.
             ("transient_s3_slowdown", OSError("Generic S3 error: Please reduce your request rate."), False),
+            # Likewise for a concurrent-maintenance race: a full_refresh `reset_table` purging
+            # `_delta_log` out from under this same compact/vacuum pass is self-healing, not a defect.
+            (
+                "transient_delta_maintenance_race",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Kernel error: File not found: table/_delta_log/00000000000000000001.json"
+                ),
+                False,
+            ),
         ]
     )
     @pytest.mark.asyncio

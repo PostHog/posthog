@@ -162,28 +162,28 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "ai_assistant",
         "AI Agent",
         "PostHog",
-        documentation_url="https://posthog.com/code",
+        documentation_url="https://posthog.com/desktop",
     ),
     r"mobile\.hog\.dev": BotDefinition(
         "PostHog Mobile",
         "ai_assistant",
         "AI Agent",
         "PostHog",
-        documentation_url="https://posthog.com/code",
+        documentation_url="https://posthog.com/desktop",
     ),
     r"agent\.hog\.dev": BotDefinition(
-        "PostHog Code Agent",
+        "PostHog Desktop Agent",
         "ai_assistant",
         "AI Agent",
         "PostHog",
-        documentation_url="https://posthog.com/code",
+        documentation_url="https://posthog.com/desktop",
     ),
     r"cloud\.hog\.dev": BotDefinition(
-        "PostHog Code Cloud",
+        "PostHog Desktop Cloud",
         "ai_assistant",
         "AI Agent",
         "PostHog",
-        documentation_url="https://posthog.com/code",
+        documentation_url="https://posthog.com/desktop",
     ),
     # Agent desktop app embedded browsers (Electron leaks the app name into the UA).
     # Anchored on the Electron token so the Claude/ChatGPT mobile in-app browsers stay Regular.
@@ -627,6 +627,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://github.com/internetarchive/heritrix3",
     ),
     "crawlcrawl-actors": BotDefinition("crawlcrawl", "search_crawler", "Bot", "Unknown"),
+    "crawler_eb_germany": BotDefinition("crawler_eb_germany", "search_crawler", "Bot", "Unknown"),
     # AI / agent crawlers
     "Inkeep-Crawler": BotDefinition(
         "Inkeep", "ai_crawler", "AI Agent", "Inkeep", documentation_url="https://inkeep.com/"

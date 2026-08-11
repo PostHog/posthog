@@ -82,6 +82,71 @@ async fn v1_validation_drop_emits_warning_envelope_to_kafka() -> Result<()> {
     Ok(())
 }
 
+/// The replay path's own leg. Beyond the emitter wiring the tests above cover,
+/// this is the only thing that exercises two replay-specific pieces end to end:
+/// `v0_endpoint::recording` handing the emitter to the pipeline, and
+/// `handle_recording_payload` projecting `$lib`/`$lib_version` out of the
+/// snapshot envelope. A regression in either leaves the warning correct in unit
+/// tests but absent, or attributed to `unknown`, in production.
+#[tokio::test]
+async fn replay_validation_abort_emits_warning_envelope_to_kafka() -> Result<()> {
+    setup_tracing();
+    let token = random_string("phc_replay_warn", 16);
+    let events_topic = EphemeralTopic::new().await;
+    let warnings_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_recordings_with_warnings(&events_topic, &warnings_topic).await;
+
+    // Two events so the batch count is distinguishable from a per-event charge,
+    // and a `$session_id` that trips the charset rule rather than the length one.
+    let properties = json!({
+        "$session_id": "not a valid session id",
+        "$snapshot_data": [{"type": 1}],
+        "$lib": "web",
+        "$lib_version": "1.200.0",
+    });
+    let payload = json!([
+        {"event": "$snapshot", "api_key": token, "distinct_id": "u1", "properties": properties},
+        {"event": "$snapshot", "api_key": token, "distinct_id": "u1", "properties": properties},
+    ]);
+    let res = server.capture_recording(payload.to_string(), None).await;
+    assert_eq!(
+        res.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "an invalid session id rejects the whole replay request"
+    );
+
+    let envelope: CapturedEvent = serde_json::from_value(warnings_topic.next_event()?)?;
+    assert_eq!(envelope.event, "$$client_ingestion_warning");
+    assert_eq!(envelope.token, token);
+    assert_eq!(
+        envelope.distinct_id, token,
+        "distinct_id must be the token, never a caller-supplied value"
+    );
+
+    let inner: Value = serde_json::from_str(&envelope.data)?;
+    assert_eq!(
+        inner["properties"],
+        json!({
+            "$$client_ingestion_warning_type": "invalid_session_id",
+            "$$client_ingestion_warning_source": "capture",
+            "$$client_ingestion_warning_details": {
+                "count": 2,
+                "eventCount": 2,
+                "reason": "invalid_charset",
+                "sessionIdLength": 22,
+                "lib": "web",
+                "libVersion": "1.200.0",
+                "path": "/s/",
+                "pipelineStep": "capture_validation",
+            },
+        })
+    );
+
+    events_topic.assert_empty();
+    warnings_topic.assert_empty();
+    Ok(())
+}
+
 #[tokio::test]
 async fn legacy_processing_abort_emits_warning_envelope_to_kafka() -> Result<()> {
     setup_tracing();

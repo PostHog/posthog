@@ -25,7 +25,9 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `parameters.feature_flag_variants[].rollout_percentage` — the variant split
 - `parameters.rollout_percentage` — the overall rollout (% of users entering the experiment)
 - `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
-- `exposure_criteria.exposure_event` — `null` means default `$feature_flag_called`
+- `exposure_criteria.exposure_config.event` — unset means the default exposure event; read which one
+  from `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved
+  server-side, same properties either way)
 - `exposure_criteria.filterTestAccounts` — defaults to `true`
 - `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
 - `feature_flag.filters.groups[]` — for each group read `variant`, `properties`, and
@@ -169,5 +171,12 @@ count as preemptive too — only the user explicitly naming the reversal action 
 reversal mechanics.
 
 Use consistent terminology: variant _split_ (between variants) is distinct from _rollout_ (overall %
-entering); the `$feature_flag_called` exposure event is distinct from a _custom exposure event_; the
+entering); the _default exposure event_ (`resolved_exposure_event`) is distinct from a _custom exposure event_; the
 _Exclude_ / _First seen_ options control multivariate handling, not exposure.
+
+## Related skills
+
+- **`configuring-experiment-analytics`** — fix the exposure or metric configuration the diagnosis points at
+- **`configuring-experiment-rollout`** — split-change anti-patterns and safe rollout adjustments
+- **`managing-experiment-lifecycle`** — reset, end, or restart when the experiment can't be salvaged in place
+- **`analyzing-experiment-session-replays`** — when the numbers are fine but you need to see the behavior behind them

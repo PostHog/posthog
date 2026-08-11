@@ -154,7 +154,7 @@ async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
 
 
 def _deprovision_managed_warehouse(organization_id: str) -> None:
-    from products.data_warehouse.backend.presentation.views.managed_warehouse import deprovision_for_org_deletion
+    from products.managed_warehouse.backend.facade.api import deprovision_for_org_deletion
 
     deprovision_for_org_deletion(organization_id)
 

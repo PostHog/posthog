@@ -178,14 +178,14 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "View finding in PostHog"},
+                    "text": {"type": "plain_text", "text": "View signal in PostHog"},
                     "url": finding_url,
                 }
             ],
         }
     )
 
-    first_line = emission.description.strip().splitlines()[0] if emission.description.strip() else "New finding"
+    first_line = emission.description.strip().splitlines()[0] if emission.description.strip() else "New signal"
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(first_line[:200])}"
     return blocks, fallback
 

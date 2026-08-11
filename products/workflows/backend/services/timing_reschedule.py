@@ -2,13 +2,8 @@ import re
 from typing import Any, Optional
 
 import structlog
-import posthoganalytics
-
-from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
-
-WORKFLOWS_TIMING_RESCHEDULE_FLAG = "workflows-timing-reschedule"
 
 # Steps whose parked runs a timing edit can strand: delays park up to 30 days out and time
 # windows up to a week. wait_until_condition currently re-parks on a 10-minute polling cap
@@ -29,35 +24,6 @@ _UNIT_SECONDS = {"d": 86400, "h": 3600, "m": 60, "s": 1}
 _UNIT_MAX = {"d": 30, "h": 24, "m": 60, "s": 60}
 
 _TIME_WINDOW_CONFIG_KEYS = ("day", "time", "timezone", "use_person_timezone", "fallback_timezone")
-
-
-def use_workflows_timing_reschedule(team: Team) -> bool:
-    """Gates the reschedule sweep for parked runs after a timing edit; off means today's
-    behavior (shortened delays only take effect at each run's old wake time).
-
-    A raised exception is treated as "flag off" - skipping the sweep is the safe fallback,
-    making the flag a kill switch for the whole feature.
-    """
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                WORKFLOWS_TIMING_RESCHEDULE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-            )
-        )
-    except Exception:
-        logger.warning(
-            "workflows.timing_reschedule.feature_flag_check_failed_defaulting_off",
-            team_id=team.id,
-            flag=WORKFLOWS_TIMING_RESCHEDULE_FLAG,
-            exc_info=True,
-        )
-        return False
 
 
 def parse_delay_duration_seconds(value: Any) -> Optional[float]:

@@ -75,6 +75,7 @@ class ClickHouseUser(StrEnum):
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
+    REPLAY_VISION = "replay_vision"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"

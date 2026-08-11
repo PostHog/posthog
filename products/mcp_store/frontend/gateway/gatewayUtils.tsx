@@ -10,8 +10,8 @@ export function toProfileUser(user: UserBasicApi): { first_name?: string; last_n
 }
 
 export const POLICY_LABELS: Record<MCPToolApprovalStateEnumApi, string> = {
-    approved: 'Always Allow',
-    needs_approval: 'Needs Approval',
+    approved: 'Always allow',
+    needs_approval: 'Needs approval',
     do_not_use: 'Blocked',
 }
 
@@ -22,8 +22,8 @@ export const POLICY_HINTS: Record<MCPToolApprovalStateEnumApi, string> = {
 }
 
 export const POLICY_OPTIONS: { value: MCPToolApprovalStateEnumApi; label: string; icon: JSX.Element }[] = [
-    { value: 'approved', label: 'Always Allow', icon: <IconCheck /> },
-    { value: 'needs_approval', label: 'Needs Approval', icon: <IconShieldLock /> },
+    { value: 'approved', label: 'Always allow', icon: <IconCheck /> },
+    { value: 'needs_approval', label: 'Needs approval', icon: <IconShieldLock /> },
     { value: 'do_not_use', label: 'Blocked', icon: <IconX /> },
 ]
 
@@ -33,11 +33,11 @@ export function PolicySummary({ counts }: { counts: Record<MCPToolApprovalStateE
         <div className="flex items-center gap-2 text-xs">
             <span className="flex items-center gap-1">
                 <LemonBadge.Number count={counts.approved} status="success" showZero />
-                <span className="text-secondary">Always Allow</span>
+                <span className="text-secondary">Always allow</span>
             </span>
             <span className="flex items-center gap-1">
                 <LemonBadge.Number count={counts.needs_approval} status="warning" showZero />
-                <span className="text-secondary">Needs Approval</span>
+                <span className="text-secondary">Needs approval</span>
             </span>
             <span className="flex items-center gap-1">
                 <LemonBadge.Number count={counts.do_not_use} status="danger" showZero />
