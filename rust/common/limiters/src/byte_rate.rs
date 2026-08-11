@@ -14,6 +14,8 @@ use std::sync::Arc;
 use governor::{
     clock, state::keyed::DefaultKeyedStateStore, NegativeMultiDecision, Quota, RateLimiter,
 };
+use metrics::gauge;
+use rand::Rng;
 
 type KeyedLimiter = RateLimiter<String, DefaultKeyedStateStore<String>, clock::DefaultClock>;
 
@@ -85,6 +87,45 @@ impl ByteRateLimiter {
             Ok(()) => ByteLimitDecision::Within,
             Err(NegativeMultiDecision::BatchNonConforming(_, _)) => ByteLimitDecision::Exceeded, // over rate/burst right now
             Err(NegativeMultiDecision::InsufficientCapacity(_)) => ByteLimitDecision::Exceeded, // weight > burst: never fits
+        }
+    }
+
+    fn all_limiters(&self) -> impl Iterator<Item = &Arc<KeyedLimiter>> {
+        std::iter::once(&self.default).chain(self.overrides.values())
+    }
+
+    /// Reports the total number of tracked keys (default + every override
+    /// limiter) to prometheus every 10 seconds, needs to be spawned in a
+    /// separate task. `lane` labels the series so deployments running several
+    /// limiter instances don't overwrite each other's gauge.
+    pub async fn report_metrics(&self, lane: &'static str) {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            let key_count: f64 = self.all_limiters().map(|l| l.len() as f64).sum();
+            gauge!("ai_byte_limiter_key_count", "lane" => lane).set(key_count);
+        }
+    }
+
+    /// Clean up the rate limiter state (default + every override limiter),
+    /// once per minute. Ensure we don't use more memory than necessary.
+    pub async fn clean_state(&self) {
+        // Give a small amount of randomness to the interval to ensure we don't have all replicas
+        // locking at the same time. The lock isn't going to be held for long, but this will reduce
+        // impact regardless.
+        let interval_secs = rand::thread_rng().gen_range(60..70);
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+        loop {
+            interval.tick().await;
+            self.clean_state_once();
+        }
+    }
+
+    fn clean_state_once(&self) {
+        for limiter in self.all_limiters() {
+            limiter.retain_recent();
+            limiter.shrink_to_fit();
         }
     }
 }
@@ -174,5 +215,46 @@ mod tests {
         let l = limiter(1_000, 10_000, Some("bad,x=notnum,ok=15:15, "));
         assert_eq!(l.check("ok:user", "ok", 10), ByteLimitDecision::Within);
         assert_eq!(l.check("ok:user", "ok", 10), ByteLimitDecision::Exceeded);
+    }
+
+    #[test]
+    fn clean_state_covers_default_and_overrides_without_dropping_recent_entries() {
+        // A slow per_second refill relative to the burst means a key charged
+        // close to its full burst stays well below "fresh" (fully recovered)
+        // for long enough that retain_recent must not evict it, regardless of
+        // scheduling jitter in this test.
+        let l = limiter(1, 10_000, Some("big=1:1000000"));
+        // Populate both the default limiter and the override limiter's dashmap.
+        assert_eq!(l.check("tok:user", "tok", 9_000), ByteLimitDecision::Within);
+        assert_eq!(
+            l.check("big:user", "big", 900_000),
+            ByteLimitDecision::Within
+        );
+
+        l.clean_state_once();
+
+        // Still-recent entries must survive retain_recent: the budget already
+        // spent should still be reflected, on both the default and override
+        // limiter.
+        assert_eq!(
+            l.check("tok:user", "tok", 9_000),
+            ByteLimitDecision::Exceeded
+        );
+        assert_eq!(
+            l.check("big:user", "big", 900_000),
+            ByteLimitDecision::Exceeded
+        );
+    }
+
+    #[tokio::test]
+    async fn report_metrics_and_clean_state_do_not_panic_when_polled_once() {
+        let l = limiter(1_000, 10_000, Some("big=1000000:1000000"));
+        assert_eq!(l.check("tok:user", "tok", 500), ByteLimitDecision::Within);
+        assert_eq!(l.check("big:user", "big", 500), ByteLimitDecision::Within);
+
+        let key_count: f64 = l.all_limiters().map(|lim| lim.len() as f64).sum();
+        assert_eq!(key_count, 2.0);
+
+        l.clean_state_once();
     }
 }

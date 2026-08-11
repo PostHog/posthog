@@ -377,12 +377,33 @@ pub async fn build_components(
     // pre-limiter behavior.
     let ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>> =
         std::num::NonZeroU32::new(config.ai_byte_limit_per_second).map(|per_second| {
+            if config.ai_byte_limit_burst < 8_388_608 {
+                warn!(
+                    ai_byte_limit_burst = config.ai_byte_limit_burst,
+                    "AI_BYTE_LIMIT_BURST is below the 8 MiB max AI event size; \
+                     large AI events will always be dropped by the byte-rate limiter"
+                );
+            }
             let burst = std::num::NonZeroU32::new(config.ai_byte_limit_burst).unwrap_or(per_second);
-            Arc::new(ByteRateLimiter::new(
-                per_second,
-                burst,
-                config.ai_byte_limit_overrides.clone(),
-            ))
+            let limiter =
+                ByteRateLimiter::new(per_second, burst, config.ai_byte_limit_overrides.clone());
+
+            if config.export_prometheus {
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.report_metrics("ai_byte").await;
+                });
+            }
+
+            {
+                // Keep the governor's per-key state (default + overrides) from growing unbounded.
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.clean_state().await;
+                });
+            }
+
+            Arc::new(limiter)
         });
 
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
