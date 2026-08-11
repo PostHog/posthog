@@ -63,6 +63,17 @@ class TestFrameStoreObjects(APIBaseTest):
         with urllib.request.urlopen(url) as response:  # deliberately credential-free
             self.assertEqual(response.read(), payload)
 
+    def test_presign_signs_against_the_dedicated_frame_bucket(self):
+        # Frames get their own bucket in cloud, and the app-side presign must sign against it —
+        # not the general OBJECT_STORAGE_BUCKET. If presign_get drops the bucket override, the
+        # kernel is 302'd to a URL signed for a bucket ClickHouse never wrote to → 404. The
+        # write→presign→fetch round-trip can't catch this (there both buckets are the default and
+        # coincide), so drive a distinct frame bucket and assert it lands in the signed URL.
+        # (presign is a client-side signing op, so the bucket need not exist.)
+        with self.settings(OBJECT_STORAGE_ENABLED=True, NOTEBOOKS_FRAME_STORE_S3_BUCKET="ph-notebook-frames"):
+            url = frame_store.presign_get(self.KEY, team_id=999999)
+        self.assertIn("ph-notebook-frames", url)
+
     def test_failed_upload_leaves_no_object(self):
         # A torn ClickHouse stream mid-upload must abort the multipart upload — a partial
         # frame served to the kernel would silently truncate a dataframe.
