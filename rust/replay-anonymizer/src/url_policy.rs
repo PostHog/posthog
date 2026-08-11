@@ -12,6 +12,7 @@
 //! itself against the same one, in the way `image-hash.json` already pins the image hash across
 //! both engines.
 
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr};
 
 use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
@@ -126,14 +127,16 @@ pub struct CanonicalUrl {
 
 /// Whether one parameter of this URL is volatile.
 ///
-/// `present` answers whether the URL carries a given parameter, which is what lets a scoped group
-/// require its marker. Comparison is case-insensitive and allocates nothing.
-fn is_volatile(name: &str, host: &str, present: &dyn Fn(&str) -> bool) -> bool {
+/// `present` holds every parameter name on this URL, already lowercased, which is what lets a
+/// scoped group require its marker. It is built once per URL: asking the question by scanning the
+/// parameter list made the check quadratic in the parameter count, and a page controls both the
+/// number of parameters and the number of URLs.
+fn is_volatile(name: &str, host: &str, present: &HashSet<String>) -> bool {
     if VOLATILE_PARAMS.iter().any(|p| p.eq_ignore_ascii_case(name)) {
         return true;
     }
     for (marker, names) in SCOPED_VOLATILE_PARAMS {
-        if names.iter().any(|p| p.eq_ignore_ascii_case(name)) && present(marker) {
+        if names.iter().any(|p| p.eq_ignore_ascii_case(name)) && present.contains(*marker) {
             return true;
         }
     }
@@ -288,7 +291,7 @@ pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
         .query_pairs()
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect();
-    let present = |name: &str| pairs.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));
+    let present: HashSet<String> = pairs.iter().map(|(k, _)| k.to_ascii_lowercase()).collect();
     let kept: Vec<&(String, String)> = pairs
         .iter()
         .filter(|(k, _)| !is_volatile(k, &host, &present))
@@ -325,7 +328,7 @@ mod tests {
     use super::*;
 
     fn volatile(name: &str, host: &str, others: &[&str]) -> bool {
-        let present = |n: &str| others.iter().any(|o| o.eq_ignore_ascii_case(n));
+        let present: HashSet<String> = others.iter().map(|o| o.to_ascii_lowercase()).collect();
         is_volatile(name, host, &present)
     }
     #[test]

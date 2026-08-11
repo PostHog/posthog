@@ -113,6 +113,12 @@ impl UrlCollector {
         if let Some(hit) = self.memo.get(raw) {
             return hit.clone();
         }
+        // Past the cap a new spelling cannot be collected. The only thing canonicalizing it could
+        // still do is match the hash of one already held, and that is not worth a parse and an
+        // HMAC for every distinct value on a payload built to carry many of them.
+        if self.urls.len() >= MAX_URLS_PER_MESSAGE {
+            return None;
+        }
         let result = self.collect_uncached(raw);
         // A value past the length cap is rejected by an O(1) check, so caching it buys nothing and
         // would store the longest strings on offer. The entry cap bounds the rest.
@@ -237,11 +243,32 @@ mod tests {
     }
 
     #[test]
+    fn past_the_cap_a_new_url_costs_no_parse() {
+        // A payload can carry far more distinct URLs than the cap. Each one used to pay a full
+        // canonicalization and an HMAC before the cap rejected it.
+        let mut c = collector();
+        for i in 0..MAX_URLS_PER_MESSAGE {
+            assert!(c.collect(&format!("https://example.com/{i}.png")).is_some());
+        }
+        // Declined without being canonicalized, so it never reaches the memo either.
+        let before = c.memo.len();
+        assert!(c.collect("https://example.com/past-the-cap.png").is_none());
+        assert_eq!(
+            c.memo.len(),
+            before,
+            "a declined URL past the cap is not memoized"
+        );
+        // A URL already held still resolves, because its raw value is in the memo.
+        assert!(c.collect("https://example.com/0.png").is_some());
+    }
+
+    #[test]
     fn the_memo_is_bounded_against_attacker_controlled_values() {
-        // Every other structure here is capped, and the memo keys come from page content.
+        // Declined values are the vector: they never reach the URL cap, so only the memo's own cap
+        // bounds them. A page can carry as many distinct unfetchable `src` values as it likes.
         let mut c = collector();
         for i in 0..(MAX_MEMO_ENTRIES + 500) {
-            c.collect(&format!("https://example.com/{i}.png"));
+            assert!(c.collect(&format!("http://10.0.0.5/{i}.png")).is_none());
         }
         assert_eq!(c.memo.len(), MAX_MEMO_ENTRIES);
 
