@@ -18,8 +18,6 @@ export type SuggestionSeverity = 'error' | 'warning' | 'info'
 export type SuggestionSource = 'deterministic' | 'ai'
 export type ReadinessStatus = 'unlocked' | 'partial' | 'blocked'
 
-/** Retention and LTV by channel are deliberately absent: both need Customer analytics'
- * `activity_event` and friends, so their setup belongs with that product. */
 export type Capability = 'cost' | 'attribution' | 'roas' | 'cac'
 
 /** Recorded server-side against the change, so it must describe the real origin. */
