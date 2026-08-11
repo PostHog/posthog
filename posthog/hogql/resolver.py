@@ -95,6 +95,21 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+class _ShardedTableFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_table_type(self, node: ast.TableType) -> None:
+        if isinstance(node.table, EventsTable):
+            self.found = True
+
+
+def _select_reads_sharded_table(node: ast.Expr) -> bool:
+    finder = _ShardedTableFinder()
+    finder.visit(node)
+    return finder.found
+
+
 EMPTY_SCOPE = ast.SelectQueryType()
 
 type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
@@ -2536,6 +2551,19 @@ class Resolver(CloningVisitor):
             (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
             and isinstance(node.right, ast.SelectQuery)
             and (self._is_sessions_table(node.left) or self._select_reads_sessions(node.right))
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
+        # An IN-subquery reading a sharded table re-executes on every shard of a distributed
+        # outer scan, multiplying its cost by the shard count. GLOBAL IN builds the set once
+        # on the initiator and ships it to the shards, returning the same rows.
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and isinstance(node.right, (ast.SelectQuery, ast.SelectSetQuery))
+            and _select_reads_sharded_table(node.right)
         ):
             if node.op == ast.CompareOperationOp.In:
                 node.op = ast.CompareOperationOp.GlobalIn

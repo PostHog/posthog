@@ -17743,6 +17743,16 @@ export namespace Schemas {
       readonly next_sync_at: string | null;
       /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
       readonly latest_run: CustomPropertySyncRun | null;
+      /**
+         * Person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources or when unavailable.
+         * @nullable
+         */
+      readonly external_data_source: string | null;
+      /**
+         * Person and group sources only: the bound warehouse table as it is named in HogQL. Null for account sources or when unavailable.
+         * @nullable
+         */
+      readonly table_name: string | null;
     }
 
     /**
@@ -27650,12 +27660,24 @@ export namespace Schemas {
       includeSparkline?: boolean;
     }
 
+    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
+
+
+    export const ErrorTrackingIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
     export interface ErrorTrackingIssueRead {
       id: string;
       status: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity: ErrorTrackingIssueSeverity | null;
       /** @nullable */
       name: string | null;
       /** @nullable */
@@ -27729,6 +27751,8 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
       status?: ErrorTrackingIssueWriteStatusEnum;
+      /** Issue severity to set, or null to remove the assigned severity. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * Optional issue display name.
          * @nullable
@@ -34590,7 +34614,11 @@ export namespace Schemas {
       readonly can_edit: boolean;
       tags?: unknown[];
       evaluation_contexts?: unknown[];
-      readonly usage_dashboard: number;
+      /**
+         * Dashboard of saved usage insights for this flag, or null if it has none. Flags do not get one on creation; create it with POST /api/projects/{project_id}/feature_flags/{id}/dashboard/.
+         * @nullable
+         */
+      readonly usage_dashboard: number | null;
       analytics_dashboards?: number[];
       /** @nullable */
       has_enriched_analytics?: boolean | null;
@@ -34630,7 +34658,6 @@ export namespace Schemas {
          */
       last_called_at?: string | null;
       _create_in_folder?: string;
-      _should_create_usage_dashboard?: boolean;
       /** Check if this feature flag is used in any team's session recording linked flag setting. */
       readonly is_used_in_replay_settings: boolean;
       /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
@@ -54303,6 +54330,8 @@ export namespace Schemas {
     export interface PatchedErrorTrackingIssueRead {
       id?: string;
       status?: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /** @nullable */
       name?: string | null;
       /** @nullable */
@@ -54321,6 +54350,8 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
       status?: ErrorTrackingIssueWriteStatusEnum;
+      /** Issue severity to set, or null to remove the assigned severity. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * Optional issue display name.
          * @nullable

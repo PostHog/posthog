@@ -21,7 +21,7 @@ from posthog.ph_client import PH_US_API_KEY
 from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import get_instance_region, get_previous_day
+from posthog.utils import DayRange, get_instance_region, get_previous_day
 
 logger = structlog.get_logger(__name__)
 
@@ -826,8 +826,8 @@ AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS = {
 
 
 def _get_all_ai_observability_reports(
-    period_start: datetime,
-    period_end: datetime,
+    *,
+    period: DayRange,
 ) -> dict[str, dict[str, Any]]:
     """
     Gather all AI observability usage data for all organizations.
@@ -845,7 +845,7 @@ def _get_all_ai_observability_reports(
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
     try:
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
     except Exception:
         logger.warning(
             "[AIO Usage Error] teams query failed",
@@ -865,7 +865,7 @@ def _get_all_ai_observability_reports(
     # Phase 2: Get all metrics in a single combined query
     logger.info("Querying all AI metrics")
     try:
-        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+        all_metrics = get_all_ai_metrics(period.start, period.end, team_ids)
     except Exception:
         logger.warning(
             "[AIO Usage Error] metrics query failed",
@@ -881,7 +881,7 @@ def _get_all_ai_observability_reports(
     llm_prompt_fetched_counts: dict[int, int] = {}
     try:
         logger.info("Querying LLM prompt fetched counts")
-        llm_prompt_fetched_counts = get_llm_prompt_fetched_counts(period_start, period_end, team_ids)
+        llm_prompt_fetched_counts = get_llm_prompt_fetched_counts(period.start, period.end, team_ids)
         logger.info(f"Retrieved prompt fetched counts for {len(llm_prompt_fetched_counts)} teams")
     except Exception as err:
         logger.warning(
@@ -892,7 +892,7 @@ def _get_all_ai_observability_reports(
     # Phase 4: Get all dimension breakdowns in a single combined query
     logger.info("Querying all AI dimension breakdowns")
     try:
-        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+        all_breakdowns = get_all_ai_dimension_breakdowns(period.start, period.end, team_ids)
     except Exception:
         logger.warning(
             "[AIO Usage Error] breakdowns query failed",
@@ -907,7 +907,7 @@ def _get_all_ai_observability_reports(
     # Phase 5: Get LLM feedback survey metrics
     logger.info("Querying LLM feedback survey metrics")
     try:
-        survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+        survey_metrics = get_llm_feedback_survey_metrics(period.start, period.end, team_ids)
     except Exception:
         logger.warning(
             "[AIO Usage Error] surveys query failed",
@@ -932,8 +932,8 @@ def _get_all_ai_observability_reports(
             org_reports[org_id] = {
                 "organization_id": org_id,
                 "organization_name": org_id_to_name.get(org_id, ""),
-                "period_start": period_start.isoformat(),
-                "period_end": period_end.isoformat(),
+                "period_start": period.start.isoformat(),
+                "period_end": period.end.isoformat(),
                 "ai_generation_count": 0,
                 "ai_embedding_count": 0,
                 "ai_span_count": 0,
@@ -1152,7 +1152,6 @@ def send_ai_observability_usage_reports(
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
-    period_start, period_end = period
 
     # An explicit date or org filter is what distinguishes an operator-triggered run from the daily
     # schedule.
@@ -1176,8 +1175,8 @@ def send_ai_observability_usage_reports(
         # already dispatched. It runs before the gathering so that a lookup failure costs one query
         # rather than the whole five-query gather on each Celery retry, and inside this block so that
         # a permanent lookup failure still reaches the terminal log the alert alerts on.
-        organizations_to_skip = _get_organizations_to_skip(period_start)
-        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+        organizations_to_skip = _get_organizations_to_skip(period.start)
+        org_reports = _get_all_ai_observability_reports(period=period)
     except Exception as err:
         # The log alert keys on error severity: retryable attempts stay warnings, only the
         # exhausted final attempt may page.
@@ -1185,8 +1184,8 @@ def send_ai_observability_usage_reports(
             logger.error(
                 "[AIO Usage Error] usage report run failed permanently",
                 error=str(err),
-                period_start=period_start.isoformat(),
-                period_end=period_end.isoformat(),
+                period_start=period.start.isoformat(),
+                period_end=period.end.isoformat(),
                 retries=self.request.retries,
                 event_source="ai_observability_usage_report",
                 exc_info=True,
@@ -1215,7 +1214,7 @@ def send_ai_observability_usage_reports(
             "Skipped organizations that already have an AI observability report for this period",
             skipped_org_count=before_count - len(org_reports),
             remaining_org_count=len(org_reports),
-            period_start=period_start.isoformat(),
+            period_start=period.start.isoformat(),
         )
 
     query_time_duration = (datetime.now(UTC) - query_time_start).total_seconds()
@@ -1233,7 +1232,7 @@ def send_ai_observability_usage_reports(
     # Deterministic nominal stamp (midnight after the covered day): keeps daily bucketing stable
     # in UTC and project timezones, and stops retry stragglers landing on the wrong chart day.
     # Actual arrival time remains queryable via events.created_at.
-    report_timestamp = (period_start + timedelta(days=1)).isoformat()
+    report_timestamp = (period.start + timedelta(days=1)).isoformat()
     triggered_by = "manual" if is_manual_run else "scheduled"
 
     for org_id, report in org_reports.items():

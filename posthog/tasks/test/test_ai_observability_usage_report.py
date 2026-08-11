@@ -81,7 +81,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create different AI event types with various properties
         self._create_ai_events(self.team, distinct_id, "$ai_generation", 5)
@@ -129,10 +129,10 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
         # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
         # Get all metrics in one query
-        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+        all_metrics = get_all_ai_metrics(period.start, period.end, team_ids)
 
         # Verify team is in results
         assert self.team.id in all_metrics
@@ -174,7 +174,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create events with positive cost
         self._create_ai_events(
@@ -212,8 +212,8 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             properties={},
         )
 
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
-        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        all_metrics = get_all_ai_metrics(period.start, period.end, team_ids)
 
         assert self.team.id in all_metrics
         metrics = all_metrics[self.team.id]
@@ -229,7 +229,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create events with $ai_is_error = true
         self._create_ai_events(
@@ -258,8 +258,8 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             properties={},
         )
 
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
-        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        all_metrics = get_all_ai_metrics(period.start, period.end, team_ids)
 
         assert self.team.id in all_metrics
         metrics = all_metrics[self.team.id]
@@ -272,7 +272,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create AI events with different models and providers
         self._create_ai_events(
@@ -313,10 +313,10 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
         # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
         # Get dimension breakdowns using the new combined function
-        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+        all_breakdowns = get_all_ai_dimension_breakdowns(period.start, period.end, team_ids)
 
         # Verify team is in results
         assert self.team.id in all_breakdowns
@@ -344,7 +344,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create AI events with cost model properties (OpenRouter pricing)
         self._create_ai_events(
@@ -392,10 +392,10 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
         # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
         # Get dimension breakdowns using the new combined function
-        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+        all_breakdowns = get_all_ai_dimension_breakdowns(period.start, period.end, team_ids)
 
         # Verify team is in results
         assert self.team.id in all_breakdowns
@@ -420,7 +420,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
         timestamp = datetime.now(UTC) - timedelta(hours=12)
 
         survey_id_1 = str(uuid4())
@@ -467,8 +467,8 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         # Need AI events so get_teams_with_ai_events finds this team
         self._create_ai_events(self.team, distinct_id, "$ai_generation", 1)
 
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
-        survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        survey_metrics = get_llm_feedback_survey_metrics(period.start, period.end, team_ids)
 
         assert self.team.id in survey_metrics
         metrics = survey_metrics[self.team.id]
@@ -486,7 +486,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         _create_person(distinct_ids=[distinct_id_1], team=self.team)
         _create_person(distinct_ids=[distinct_id_2], team=team_2)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create comprehensive AI events for team 1
         self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 10)
@@ -560,7 +560,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(team_2, distinct_id_2, "$llm_prompt_fetched", 1)
 
         # Generate reports
-        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         # Verify we have reports for both organizations
         assert len(org_reports) == 2
@@ -652,10 +652,10 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
 
     def test_no_trigger_events_returns_empty_report(self) -> None:
         """Test that when there are no trigger events, an empty report is returned."""
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Generate reports without creating any trigger events
-        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         # Should return empty dict
         assert len(org_reports) == 0
@@ -668,11 +668,11 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=team_2)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         self._create_ai_events(team_2, distinct_id, "$llm_prompt_fetched", 2)
 
-        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         assert len(org_reports) == 1
         org_report = org_reports[str(org_2.id)]
@@ -703,7 +703,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         _create_person(distinct_ids=[distinct_id_1], team=self.team)
         _create_person(distinct_ids=[distinct_id_2], team=team_2)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create events for both teams
         self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 10)
@@ -720,7 +720,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
         # Generate reports
-        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         # Should have one report for the organization
         assert len(org_reports) == 1
@@ -743,7 +743,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         _create_person(distinct_ids=[distinct_id_1], team=self.team)
         _create_person(distinct_ids=[distinct_id_2], team=team_2)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Team 1 uses OpenAI models
         self._create_ai_events(
@@ -799,7 +799,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
         # Generate reports
-        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         # Should have one report for the organization
         assert len(org_reports) == 1
@@ -827,7 +827,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create events with valid dimension values
         self._create_ai_events(
@@ -891,10 +891,10 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
         # Get team_ids first
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
         # Get dimension breakdowns using the new combined function
-        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+        all_breakdowns = get_all_ai_dimension_breakdowns(period.start, period.end, team_ids)
 
         # Verify team is in results
         assert self.team.id in all_breakdowns
@@ -940,7 +940,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         _create_person(distinct_ids=[distinct_id_2], team=team_2)
         _create_person(distinct_ids=[distinct_id_4], team=team_4)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # Create AI events for team 1 and team 2, prompt-fetched events for team 4, but nothing for team 3.
         self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 5)
@@ -948,7 +948,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(team_4, distinct_id_4, "$llm_prompt_fetched", 1)
 
         # Get teams with trigger events
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
         # Verify correct teams are returned
         assert self.team.id in team_ids
@@ -970,15 +970,15 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         _create_person(distinct_ids=[distinct_id_2], team=team_2)
         _create_person(distinct_ids=[distinct_id_3], team=team_3)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         self._create_ai_events(self.team, distinct_id_1, "$llm_prompt_fetched", 4)
         self._create_ai_events(team_2, distinct_id_2, "$llm_prompt_fetched", 2)
         self._create_ai_events(team_2, distinct_id_2, "$ai_generation", 7)
         self._create_ai_events(team_3, distinct_id_3, "$ai_generation", 3)
 
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
-        prompt_fetched_counts = get_llm_prompt_fetched_counts(period_start, period_end, team_ids)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        prompt_fetched_counts = get_llm_prompt_fetched_counts(period.start, period.end, team_ids)
 
         assert prompt_fetched_counts[self.team.id] == 4
         assert prompt_fetched_counts[team_2.id] == 2
@@ -995,11 +995,11 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
         self._create_ai_events(self.team, distinct_id, "$ai_generation", 5)
         self._create_ai_events(self.team, distinct_id, "$llm_prompt_fetched", 3)
 
-        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         assert len(org_reports) == 1
         org_report = org_reports[str(self.organization.id)]
