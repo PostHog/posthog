@@ -289,6 +289,13 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
         return false
     }
 
+    // A query node carries a `kind` field, for example an actors query. It is not a recording filter set.
+    // Spreading one over the defaults builds a broken filter that dead-ends the recordings list. Reject it
+    // here so the caller falls back to the defaults.
+    if ('kind' in filters) {
+        return false
+    }
+
     if ('date_from' in filters && filters.date_from !== null && typeof filters.date_from !== 'string') {
         return false
     }

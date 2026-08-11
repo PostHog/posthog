@@ -38,6 +38,7 @@ import {
     InspectorListItemPerformance,
     performanceEventDataLogic,
 } from 'scenes/session-recordings/apm/performanceEventDataLogic'
+import { recordingsQueryHasEventFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import {
     filterInspectorListItems,
     itemToMiniFilter,
@@ -967,6 +968,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(filters),
                         session_ids: [props.sessionRecordingId],
+                    }
+
+                    // `matching_events` returns a 400 for a query with no event, action, or event-property
+                    // filter. A drill-down such as a funnel drop-off at step one builds exactly that empty
+                    // filter set. Skip the call so the user does not see the error toast. There is nothing to
+                    // highlight in this case.
+                    if (!recordingsQueryHasEventFilters(params)) {
+                        return null
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))

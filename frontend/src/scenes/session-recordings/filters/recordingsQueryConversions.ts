@@ -16,6 +16,7 @@ import { NodeKind, RecordingOrder, RecordingsQuery, VALID_RECORDING_ORDERS } fro
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
+    PropertyFilterType,
     PropertyFilterValue,
     PropertyOperator,
     RecordingDurationFilter,
@@ -160,6 +161,18 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         limit: universalFilters.limit,
         session_ids: universalFilters.session_ids,
     }
+}
+
+/**
+ * Whether a query carries something the `matching_events` endpoint can highlight: an event filter, an
+ * action filter, or an event-property filter. The endpoint rejects a query without one, so a caller that
+ * decides whether to hit it must share this check.
+ *
+ * Mirror: keep in sync with `recordings_query_has_event_filters` in posthog/session_recordings/utils.py.
+ */
+export function recordingsQueryHasEventFilters(query: RecordingsQuery): boolean {
+    const hasEventProperties = (query.properties ?? []).some((prop) => prop.type === PropertyFilterType.Event)
+    return !!query.events?.length || !!query.actions?.length || hasEventProperties
 }
 
 /**

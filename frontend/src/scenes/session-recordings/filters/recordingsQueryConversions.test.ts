@@ -10,6 +10,7 @@ import {
 
 import {
     convertUniversalFiltersToRecordingsQuery,
+    recordingsQueryHasEventFilters,
     recordingsQueryToUniversalFilters,
 } from './recordingsQueryConversions'
 
@@ -243,5 +244,28 @@ describe('convertUniversalFiltersToRecordingsQuery operand derivation', () => {
         ['outer group only', FilterLogicalOperator.Or, FilterLogicalOperator.And, FilterLogicalOperator.Or],
     ])('match-any on %s yields operand %s/%s -> %s', (_name, outer, inner, expected) => {
         expect(convertUniversalFiltersToRecordingsQuery(uf(outer, inner)).operand).toBe(expected)
+    })
+})
+
+describe('recordingsQueryHasEventFilters', () => {
+    const EVENT_PROP: AnyPropertyFilter = {
+        type: PropertyFilterType.Event,
+        key: '$browser',
+        value: 'Chrome',
+        operator: PropertyOperator.Exact,
+    }
+
+    // The matching_events endpoint 400s a query without an event/action/event-property filter, and a
+    // drill-down can build exactly that. The guard must return false for those cases so the caller skips
+    // the call, and true whenever there is something to highlight.
+    it.each([
+        ['no filters at all', {}, false],
+        ['a person property only', { properties: [PERSON_PROP] }, false],
+        ['a session-id list only', { session_ids: ['abc'] }, false],
+        ['an event filter', { events: [EVENT] }, true],
+        ['an action filter', { actions: [ACTION] }, true],
+        ['an event-property filter', { properties: [EVENT_PROP] }, true],
+    ])('is %s -> %s', (_name, partial: Partial<RecordingsQuery>, expected) => {
+        expect(recordingsQueryHasEventFilters(rq(partial))).toBe(expected)
     })
 })
