@@ -1,12 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useMemo } from 'react'
 
 import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
 
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -15,6 +19,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
+import { buildTemplateAgentContext, templateAgentHeadlines } from './templateAgentContext'
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
@@ -51,6 +56,28 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     // Attach template logic to scene logic so it persists across tab switches
     useAttachedLogic(logic, sceneLogic)
+
+    // Debounced so per-keystroke edits don't re-serialize the template into the agent context. The
+    // id is debounced with the template as one value so a navigation between templates can never
+    // pair one template's ref with the other's editor state during the debounce window.
+    const debouncedAgentSource = useDebouncedValue(
+        useMemo(() => ({ template, id: props.id }), [template, props.id]),
+        500
+    )
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const agentContextItems = useMemo(
+        () =>
+            sceneIntegrationEnabled
+                ? buildTemplateAgentContext(debouncedAgentSource.template, debouncedAgentSource.id)
+                : null,
+        [sceneIntegrationEnabled, debouncedAgentSource]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'message-template',
+        contextItems: agentContextItems,
+        headlines: templateAgentHeadlines(props.id),
+        active: props.id === 'new' || originalTemplate.id === props.id,
+    })
 
     return (
         <Form
