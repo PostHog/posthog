@@ -1,6 +1,6 @@
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconMessage } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -89,10 +89,7 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
             to={urls.supportTicketDetail(ticket.ticket_number)}
             target="_blank"
             subtle
-            className={cn(
-                'flex items-center gap-3 border-b px-3 py-2 text-current hover:bg-fill-highlight-100 hover:text-current',
-                ticket.unread_team_count > 0 && 'bg-primary-alt-highlight'
-            )}
+            className="flex items-center gap-3 border-b border-primary px-3 py-2 text-current hover:bg-fill-highlight-100 hover:text-current"
         >
             <IconMessage className="size-4 shrink-0 text-muted" />
             <div className="min-w-0 flex-1">
@@ -103,9 +100,15 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
                     </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted">
-                    <span className="truncate" title={ticketTitle(ticket)}>
+                    <span
+                        className={cn('truncate', ticket.unread_team_count > 0 && 'font-medium text-primary')}
+                        title={ticketTitle(ticket)}
+                    >
                         {stripMarkdown(ticketTitle(ticket))}
                     </span>
+                    {ticket.unread_team_count > 0 ? (
+                        <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
+                    ) : null}
                     {assignee ? <span className="truncate">{assignee}</span> : null}
                     <TZLabel time={ticket.updated_at} />
                 </div>

@@ -1,11 +1,6 @@
-import { useEffect, useState } from 'react'
-
-import { IconSearch } from '@posthog/icons'
-
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { AssigneeMultiSelect, type AssigneeFilterEntry } from 'products/conversations/frontend/components/Assignee'
@@ -80,46 +75,6 @@ function ConversationsPriorityFilter({
     )
 }
 
-function ConversationsSearchFilter({
-    value,
-    onChange,
-}: {
-    value: string
-    onChange: (value: string) => void
-}): JSX.Element {
-    const [draft, setDraft] = useState(value)
-
-    useEffect(() => {
-        setDraft(value)
-    }, [value])
-
-    return (
-        <LemonDropdown
-            overlay={
-                <LemonInput
-                    size="small"
-                    type="search"
-                    className="w-80"
-                    value={draft}
-                    placeholder="Requester, subject, or message"
-                    onChange={setDraft}
-                    onBlur={() => onChange(draft)}
-                    autoFocus
-                />
-            }
-        >
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconSearch />}
-                {...clearFilterButtonProps(value ? () => onChange('') : null, 'Clear search filter')}
-            >
-                Search
-            </LemonButton>
-        </LemonDropdown>
-    )
-}
-
 export function ConversationsWidgetTileFilters({
     config,
     onUpdateConfig,
@@ -129,7 +84,6 @@ export function ConversationsWidgetTileFilters({
     const status = parsedConfig.status ?? 'all'
     const priorities = parsedConfig.priorities ?? []
     const assignees = (parsedConfig.assignees ?? []) as AssigneeFilterEntry[]
-    const search = parsedConfig.search ?? ''
     const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
     const statusLabel = CONVERSATIONS_TICKET_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status
     const prioritiesLabel = priorities.length === 0 ? 'All priorities' : `${priorities.length} selected`
@@ -141,7 +95,6 @@ export function ConversationsWidgetTileFilters({
                 <WidgetTileFilterReadOnlyLabel name="Status" value={statusLabel} />
                 <WidgetTileFilterReadOnlyLabel name="Priority" value={prioritiesLabel} />
                 <WidgetTileFilterReadOnlyLabel name="Assignee" value={assigneesLabel} />
-                {search ? <WidgetTileFilterReadOnlyLabel name="Search" value={search} /> : null}
             </WidgetTileFiltersBar>
         )
     }
@@ -174,13 +127,6 @@ export function ConversationsWidgetTileFilters({
                         const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), {
                             assignees: value as ConversationsTicketAssignee[],
                         })
-                        void persistConfigNow(nextConfig)
-                    }}
-                />
-                <ConversationsSearchFilter
-                    value={search}
-                    onChange={(value) => {
-                        const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { search: value })
                         void persistConfigNow(nextConfig)
                     }}
                 />
