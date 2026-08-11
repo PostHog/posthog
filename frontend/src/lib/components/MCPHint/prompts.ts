@@ -26,6 +26,7 @@ export type SurfaceKey = (typeof SURFACE_KEYS)[number]
 export type SurfacePrompts = {
     toast: string
     examples: string[]
+    display?: 'list' | 'prompt'
 }
 
 const AI_OBSERVABILITY_EVALUATION_PROMPT =
@@ -169,8 +170,9 @@ export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'ai_observability_evaluations.create': {
-        toast: `"${AI_OBSERVABILITY_EVALUATION_PROMPT}"`,
+        toast: '"Find failure modes in my recent AI traces, then ask which evaluations to create"',
         examples: [AI_OBSERVABILITY_EVALUATION_PROMPT],
+        display: 'prompt',
     },
 }
 
