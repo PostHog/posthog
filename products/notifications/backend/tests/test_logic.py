@@ -75,6 +75,26 @@ class TestCreateNotification(BaseTest):
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_scopes_idempotency_key_to_team(self, mock_publish, mock_ff):
+        second_team = Team.objects.create(organization=self.organization, name="Second team")
+
+        for team in (self.team, second_team):
+            create_notification(
+                NotificationData(
+                    team_id=team.id,
+                    notification_type=NotificationType.COMMENT_MENTION,
+                    title="Test notification",
+                    body="Test body",
+                    target_type=TargetType.USER,
+                    target_id=str(self.user.id),
+                    idempotency_key="shared-key",
+                )
+            )
+
+        assert NotificationEvent.objects.filter(idempotency_key="shared-key").count() == 2
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_for_organization(self, mock_publish, mock_ff):
         user2 = User.objects.create_and_join(self.organization, "test2@test.com", "password")
 
