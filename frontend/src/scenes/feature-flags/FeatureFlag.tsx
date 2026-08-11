@@ -35,7 +35,6 @@ import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeReques
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -91,6 +90,7 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
+import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
 
 const RESOURCE_TYPE = 'feature_flag'
 
@@ -639,11 +639,12 @@ function ConnectedUsageDashboard({
     dashboardId: number
     hasEnrichedAnalytics: boolean | undefined
 }): JSX.Element | null {
-    const { dashboard } = useValues(dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })) as {
+    const { dashboard, error404 } = useValues(
+        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+    ) as {
         dashboard: DashboardType<QueryBasedInsightModel> | null
+        error404: boolean
     }
-    const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
-    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
     const { enrichUsageDashboard } = useActions(featureFlagLogic)
 
     useEffect(() => {
@@ -656,26 +657,23 @@ function ConnectedUsageDashboard({
         }
     }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
 
+    // The dashboard FK survives a soft delete (SET_NULL only fires on a hard delete), so a
+    // deleted dashboard still looks linked here. Fall back to the same inline charts a
+    // dashboardless flag gets instead of an unrecoverable skeleton.
+    if (error404) {
+        return <FeatureFlagUsageMetrics id={featureFlag.id!} />
+    }
+
     if (!dashboard) {
         return <LemonSkeleton className="h-60" />
     }
 
     return (
-        <>
-            {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
-                <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
-                    Get richer insights automatically by{' '}
-                    <Link to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics" target="_blank">
-                        enabling enriched analytics for flags{' '}
-                    </Link>
-                </LemonBanner>
-            )}
-            <Dashboard
-                id={dashboardId.toString()}
-                placement={DashboardPlacement.FeatureFlag}
-                backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlag.key }}
-            />
-        </>
+        <Dashboard
+            id={dashboardId.toString()}
+            placement={DashboardPlacement.FeatureFlag}
+            backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlag.key }}
+        />
     )
 }
 
@@ -685,8 +683,8 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
         usage_dashboard: dashboardId,
         has_enriched_analytics: hasEnrichedAnalytics,
     } = featureFlag
-    const { generateUsageDashboard } = useActions(featureFlagLogic)
-    const { featureFlagLoading } = useValues(featureFlagLogic)
+    const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
@@ -707,28 +705,23 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
 
     return (
         <div data-attr="feature-flag-usage-container">
+            {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
+                    Get richer insights automatically by{' '}
+                    <Link to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics" target="_blank">
+                        enabling enriched analytics for flags
+                    </Link>
+                </LemonBanner>
+            )}
             {dashboardId ? (
                 <ConnectedUsageDashboard
                     featureFlag={featureFlag}
                     dashboardId={dashboardId}
                     hasEnrichedAnalytics={hasEnrichedAnalytics}
                 />
-            ) : (
-                <div>
-                    <b>Dashboard</b>
-                    <div className="text-secondary mb-2">
-                        There is currently no connected dashboard to this feature flag. If there was previously a
-                        connected dashboard, it may have been deleted.
-                    </div>
-                    {featureFlagLoading ? (
-                        <EmptyDashboardComponent loading={true} canEdit={false} />
-                    ) : (
-                        <LemonButton type="primary" onClick={() => generateUsageDashboard()}>
-                            Generate Usage Dashboard
-                        </LemonButton>
-                    )}
-                </div>
-            )}
+            ) : featureFlag.id ? (
+                <FeatureFlagUsageMetrics id={featureFlag.id} />
+            ) : null}
             <div className="mt-4 mb-4">
                 <b>Log</b>
                 <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
