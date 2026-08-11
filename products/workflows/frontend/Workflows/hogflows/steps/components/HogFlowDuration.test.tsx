@@ -23,19 +23,27 @@ describe('HogFlowDuration', () => {
         expect(screen.getByRole('spinbutton')).toHaveValue(null)
     })
 
-    it('floors a stored decimal value on display so old data upgrades to a whole number', () => {
+    it('renders a stored fractional value as-is', () => {
+        // A duration set over the API (e.g. "1.5d") used to be rounded down on display, silently
+        // rewriting the delay the next time anyone opened the step.
         render(<HogFlowDuration value="1.5d" onChange={jest.fn()} />)
-        expect(screen.getByRole('spinbutton')).toHaveValue(1)
+        expect(screen.getByRole('spinbutton')).toHaveValue(1.5)
     })
 
-    it('floors a fractional value emitted by the input to a whole number', () => {
+    it('keeps a fractional value typed into the input', () => {
         const onChange = jest.fn()
         render(<HogFlowDuration value="3d" onChange={onChange} />)
 
         const input = screen.getByRole('spinbutton')
         fireEvent.change(input, { target: { value: '2.7' } })
 
-        expect(onChange).toHaveBeenCalledWith('2d')
+        expect(onChange).toHaveBeenCalledWith('2.7d')
+    })
+
+    it('renders a stored seconds duration with its unit', () => {
+        render(<HogFlowDuration value="45s" onChange={jest.fn()} />)
+        expect(screen.getByRole('spinbutton')).toHaveValue(45)
+        expect(screen.getByText('Second(s)')).toBeInTheDocument()
     })
 
     it('clears the field immediately on change even before the parent commits the new value', () => {

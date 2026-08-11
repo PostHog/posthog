@@ -134,9 +134,9 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 
 logger = structlog.get_logger(__name__)
 
-# Delay durations are strings like "30m", "2h", "1.5d". Must match the regex in the Node.js executor
-# (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
-DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
+# Delay durations are strings like "30s", "30m", "2h", "1.5d". Must match the regex in the Node.js
+# executor (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
+DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhms]$")
 
 # The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
 # else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
@@ -835,7 +835,7 @@ HOG_FLOW_ACTION_CONFIG_SCHEMA = {
                 },
                 "max_wait_duration": {
                     "type": "string",
-                    "description": "'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay).",
+                    "description": "'<number><unit>' with unit s|m|h|d, e.g. '30m' (same rules as delay).",
                 },
             },
         },
@@ -951,8 +951,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
-            "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
-            "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
+            "delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). "
+            "Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
@@ -1312,9 +1312,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {
                             "config": (
-                                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
-                                "For seconds, use a fraction of a minute."
+                                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+                                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
                             )
                         }
                     )

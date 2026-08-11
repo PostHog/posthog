@@ -3,19 +3,19 @@ import { useEffect, useState } from 'react'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 // Allow an empty numeric part so a cleared input keeps its unit instead of resetting to a default.
-// Also tolerate a decimal in stored values (older workflows) so we can floor it on display rather than lose the unit.
-const DURATION_REGEX = /^(\d*\.?\d*)([dhm])$/
-
-const MIN_VALUE_FOR_DURATION_UNIT = 1
+const DURATION_REGEX = /^(\d*\.?\d*)([dhms])$/
 
 const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
     d: 30,
     h: 24,
     m: 60,
+    s: 60,
 }
 
-// Type=number lets browsers accept ".", ",", "e", "+", "-" — none of which are valid for a whole-number duration
-const BLOCKED_NUMBER_INPUT_KEYS = new Set(['.', ',', 'e', 'E', '+', '-'])
+// Type=number lets browsers accept "e", "+" and "-", none of which the executor's duration parser
+// understands. "." and "," stay allowed because fractional durations like 1.5d are valid, and "," is
+// the decimal separator the browser expects in some locales.
+const BLOCKED_NUMBER_INPUT_KEYS = new Set(['e', 'E', '+', '-'])
 
 export function HogFlowDuration({
     value,
@@ -29,8 +29,8 @@ export function HogFlowDuration({
     const unit = parts?.[2] ?? 'm'
 
     // Keep undefined (empty field) distinct from a real number so clearing doesn't snap back to a default.
-    // Floor any decimal so a stored value like "1.5d" shows as "1d" and gets rewritten to a whole number on next save.
-    const numberValue = numberValueString === '' ? undefined : Math.floor(parseFloat(numberValueString))
+    const parsedNumber = parseFloat(numberValueString)
+    const numberValue = Number.isFinite(parsedNumber) ? parsedNumber : undefined
 
     // The parent commits config through an async kea listener, so binding the field straight to the derived
     // value re-applies the previous digit for one render and swallows a keystroke on clear. Mirror it locally
@@ -41,24 +41,25 @@ export function HogFlowDuration({
         setDisplayNumber(numberValue)
     }, [numberValue])
 
-    const clamp = (n: number): number =>
-        Math.min(Math.max(MIN_VALUE_FOR_DURATION_UNIT, Math.floor(n)), MAX_VALUE_FOR_DURATION_UNIT[unit])
+    // Fractions are allowed, so the only lower bound is "greater than zero". Anything at or below it
+    // would save a delay that never waits, so snap those back up to one whole unit.
+    const clamp = (n: number): number => (n > 0 ? Math.min(n, MAX_VALUE_FOR_DURATION_UNIT[unit]) : 1)
 
     return (
         <div className="flex gap-2">
             <LemonInput
                 type="number"
                 value={displayNumber ?? NaN}
-                min={MIN_VALUE_FOR_DURATION_UNIT}
+                min={0}
                 max={MAX_VALUE_FOR_DURATION_UNIT[unit]}
-                step={1}
+                step="any"
                 onKeyDown={(e) => {
                     if (BLOCKED_NUMBER_INPUT_KEYS.has(e.key)) {
                         e.preventDefault()
                     }
                 }}
                 onChange={(v) => {
-                    const next = v == null || !Number.isFinite(v) ? undefined : Math.floor(v)
+                    const next = v == null || !Number.isFinite(v) ? undefined : v
                     setDisplayNumber(next)
                     onChange(next === undefined ? `${unit}` : `${next}${unit}`)
                 }}
@@ -67,6 +68,7 @@ export function HogFlowDuration({
 
             <LemonSelect
                 options={[
+                    { label: 'Second(s)', value: 's' },
                     { label: 'Minute(s)', value: 'm' },
                     { label: 'Hour(s)', value: 'h' },
                     { label: 'Day(s)', value: 'd' },

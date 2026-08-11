@@ -604,7 +604,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("seconds_as_input_shape", {"inputs": {"duration": {"value": 1800}}}),
             ("iso_8601_duration", {"delay_duration": "P30D"}),
             ("unit_and_duration_shape", {"unit": "days", "duration": 3}),
-            ("unsupported_unit", {"delay_duration": "30s"}),
+            ("unsupported_unit", {"delay_duration": "30w"}),
             ("empty_string", {"delay_duration": ""}),
         ]
     )
@@ -615,15 +615,15 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
-                "For seconds, use a fraction of a minute."
+                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
             ),
             "type": "validation_error",
         }
 
     @parameterized.expand(
         [
+            ("seconds", "30s"),
             ("minutes", "30m"),
             ("hours", "2h"),
             ("days", "1d"),
