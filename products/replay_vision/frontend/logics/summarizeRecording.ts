@@ -32,6 +32,9 @@ export interface SummarizeOutcomeMessage {
  * The endpoint answers 202 whether or not anything started, reporting the reason per session, so
  * only the outcome distinguishes a summary that is on its way from one the quota refused. A cap is
  * a warning rather than an error, matching how the scanner run tab reports the same two outcomes.
+ *
+ * `already_scanned` is absent on purpose: a settled row may be unreadable here, so its message
+ * depends on what a reload returns and is decided by the caller, not this pure mapping.
  */
 export function summarizeOutcomeMessage(outcome: ScanOutcomeEnumApi | undefined): SummarizeOutcomeMessage {
     switch (outcome) {
@@ -39,10 +42,6 @@ export function summarizeOutcomeMessage(outcome: ScanOutcomeEnumApi | undefined)
             return { level: 'success', message: 'Summary started' }
         case 'already_running':
             return { level: 'info', message: 'A summary of this recording is already being generated.' }
-        case 'already_scanned':
-            // `already_scanned` covers every terminal status, so the existing row may be a failure or an
-            // ineligible recording rather than a summary. Point at the result instead of claiming success.
-            return { level: 'info', message: 'This recording already has a summary result below.' }
         case 'skipped_quota':
             return { level: 'warning', message: "You've hit the monthly Replay vision credit limit." }
         case 'skipped_limit':
