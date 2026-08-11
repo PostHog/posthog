@@ -30,6 +30,37 @@ export function resetReportOpenTrackerHistory(): void {
 }
 
 /**
+ * Report id whose OPENED has fired but whose CLOSED has not, persisted in
+ * sessionStorage. sessionStorage survives a page reload, which tears the detail
+ * down without running the cleanup that fires CLOSED — so on the next mount we
+ * can tell the reload re-showed an already-open report and skip the duplicate
+ * OPENED, instead of logging a phantom open each time a left-open detail reloads.
+ */
+const OPEN_REPORT_STORAGE_KEY = "inbox_open_report_id";
+
+function readOpenReportId(): string | null {
+  try {
+    return sessionStorage.getItem(OPEN_REPORT_STORAGE_KEY);
+  } catch {
+    // sessionStorage may be unavailable (e.g. a non-browser host); suppression
+    // degrades to the prior per-mount behavior.
+    return null;
+  }
+}
+
+function writeOpenReportId(reportId: string | null): void {
+  try {
+    if (reportId === null) {
+      sessionStorage.removeItem(OPEN_REPORT_STORAGE_KEY);
+    } else {
+      sessionStorage.setItem(OPEN_REPORT_STORAGE_KEY, reportId);
+    }
+  } catch {
+    // Non-fatal: without persistence a later reload just can't dedupe this open.
+  }
+}
+
+/**
  * Fires `INBOX_REPORT_OPENED` when a detail screen mounts (or switches to a new
  * report) and `INBOX_REPORT_CLOSED` with the dwell time when it closes.
  *
@@ -93,34 +124,49 @@ export function useReportOpenTracker(
     const openedAt = Date.now();
     const opened = reportRef.current;
     const list = visibleRef.current;
-    const rank = list.findIndex((r) => r.id === opened.id);
 
-    track(ANALYTICS_EVENTS.INBOX_REPORT_OPENED, {
-      report_id: opened.id,
-      report_title: opened.title ?? null,
-      report_age_hours: reportAgeHours(opened.created_at),
-      status: opened.status ?? null,
-      priority: opened.priority ?? null,
-      actionability: opened.actionability ?? null,
-      source_products: opened.source_products ?? [],
-      rank,
-      list_size: list.length,
-      open_method: "unknown",
-      previous_report_id: lastOpenedReportId,
-    });
-    lastOpenedReportId = opened.id;
+    // A reload re-mounts the detail for the report a still-open tab was showing,
+    // but the cleanup that fires CLOSED never ran, so the report is still the
+    // open bracket in sessionStorage. Skip the duplicate OPENED/CLOSED in that
+    // case; a genuine report→report navigation clears the bracket on unmount, so
+    // real opens still fire.
+    const isReloadOfOpenReport = readOpenReportId() === opened.id;
 
-    return () => {
-      track(ANALYTICS_EVENTS.INBOX_REPORT_CLOSED, {
+    if (!isReloadOfOpenReport) {
+      const rank = list.findIndex((r) => r.id === opened.id);
+      track(ANALYTICS_EVENTS.INBOX_REPORT_OPENED, {
         report_id: opened.id,
         report_title: opened.title ?? null,
         report_age_hours: reportAgeHours(opened.created_at),
+        status: opened.status ?? null,
         priority: opened.priority ?? null,
         actionability: opened.actionability ?? null,
-        time_spent_ms: Date.now() - openedAt,
-        scrolled: false,
-        close_method: closeMethodRef.current,
+        source_products: opened.source_products ?? [],
+        rank,
+        list_size: list.length,
+        open_method: "unknown",
+        previous_report_id: lastOpenedReportId,
       });
+      writeOpenReportId(opened.id);
+    }
+    lastOpenedReportId = opened.id;
+
+    return () => {
+      if (!isReloadOfOpenReport) {
+        track(ANALYTICS_EVENTS.INBOX_REPORT_CLOSED, {
+          report_id: opened.id,
+          report_title: opened.title ?? null,
+          report_age_hours: reportAgeHours(opened.created_at),
+          priority: opened.priority ?? null,
+          actionability: opened.actionability ?? null,
+          time_spent_ms: Date.now() - openedAt,
+          scrolled: false,
+          close_method: closeMethodRef.current,
+        });
+      }
+      // A real unmount closes the bracket so the next open counts; on a reload
+      // this cleanup never runs, leaving the bracket set to detect it.
+      writeOpenReportId(null);
       // Reset to the exit default; a subsequent switch re-sets it during render.
       closeMethodRef.current = "navigated_away";
     };

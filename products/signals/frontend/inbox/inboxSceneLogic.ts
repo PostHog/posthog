@@ -28,6 +28,7 @@ import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
 import { scratchpadLogic } from './logics/scratchpadLogic'
+import { hasReportBeenOpenedThisSession, markReportOpenedThisSession } from './reportOpenTracking'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import {
     InboxFlatListTabKey,
@@ -600,14 +601,25 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
                 return
             }
+            const openMethod = (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown'
+            // A cold page load re-fires this for whichever report a still-open tab is showing, and
+            // labels it `deeplink` because the per-load `cache` reset lost the in-app history. Skip
+            // that duplicate when the session already reported this report opened, so a pile of
+            // reloading tabs stops inflating opens. A genuine in-app `click` re-open is never
+            // suppressed, and the first real deeplink still counts.
+            if (openMethod === 'deeplink' && hasReportBeenOpenedThisSession(report.id)) {
+                cache.pendingOpenMethod = undefined
+                return
+            }
             const { rank, listSize } = findReportRank(report.id)
             captureInboxReportOpened({
                 report,
-                openMethod: (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
+                openMethod,
                 previousReportId: cache.previousReportId ?? null,
                 rank,
                 listSize,
             })
+            markReportOpenedThisSession(report.id)
             cache.openTracking = { report, openedAt: Date.now() }
             cache.pendingOpenMethod = undefined
             // Best-effort server-side view record: consumption evidence that keeps the authoring
