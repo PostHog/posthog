@@ -30,6 +30,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clear_locations
 
+from products.cohorts.backend.models.cohort import Cohort
+
 
 class TestFilters(BaseTest):
     maxDiff = None
@@ -585,6 +587,46 @@ class TestFilters(BaseTest):
             self._print_ast(select),
             f"SELECT id FROM persons WHERE notILike(toString(properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    def test_replace_filters_persons_test_accounts_cohort(self):
+        # The default test account filter on a new project excludes a cohort, and the cohort branch of
+        # property_to_expr picks the right column per scope, so person scope resolves it fine.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "value": "posthog.com", "type": "person"}]}],
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"}]
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            HogQLFilters(filterTestAccounts=True),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT id FROM persons WHERE id NOT IN COHORT {cohort.pk} LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_persons_test_accounts_event_property_raises(self):
+        self.team.test_account_filters = [
+            {
+                "key": "$host",
+                "type": "event",
+                "value": "localhost",
+                "operator": "not_icontains",
+            }
+        ]
+        self.team.save()
+
+        select = self._parse_select("SELECT id FROM persons where {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "A test account filter in your project settings (a event property filter on '$host') "
+            "can't apply to a query that selects only from persons.",
+        ):
+            replace_filters(select, HogQLFilters(filterTestAccounts=True), self.team)
 
     def test_replace_filters_events_joined_with_persons_keep_event_scope(self):
         with freeze_time("2020-02-15T13:37:42Z"):

@@ -321,7 +321,13 @@ class ReplaceFilters(CloningVisitor):
 
             if self.filters.filterTestAccounts:
                 for prop in self.team.test_account_filters or []:
-                    exprs.append(property_to_expr(prop, self.team, scope="person" if persons_only else "event"))
+                    if persons_only:
+                        try:
+                            exprs.append(property_to_expr(prop, self.team, scope="person"))
+                        except (QueryError, NotImplementedError) as error:
+                            raise self._persons_test_account_filter_error(prop) from error
+                    else:
+                        exprs.append(property_to_expr(prop, self.team, scope="event"))
 
             if len(exprs) == 0:
                 return ast.Constant(value=True)
@@ -590,4 +596,16 @@ class ReplaceFilters(CloningVisitor):
     def _histogram_breakdown_error(self) -> QueryError:
         return QueryError(
             "Numeric binning isn't supported by {filters.breakdown(...)}. Remove the bin count from the breakdown."
+        )
+
+    def _persons_test_account_filter_error(self, prop: Any) -> QueryError:
+        # The filter comes from project settings rather than the query, so the bare scope error from
+        # property_to_expr names something the reader never wrote and can't act on.
+        prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+        key = prop.get("key") if isinstance(prop, dict) else getattr(prop, "key", None)
+        described = f"a {prop_type or 'unknown'} property filter" + (f" on '{key}'" if key else "")
+        return QueryError(
+            f"A test account filter in your project settings ({described}) can't apply to a query that "
+            "selects only from persons. Change it to a person property filter in project settings, or "
+            "bind it yourself with {filters(expr AS key, ...)}."
         )
