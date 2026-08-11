@@ -109,6 +109,16 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
+    /**
+     * Which PostHog connection this context runs through, when it runs through one at all. Set only
+     * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.
+     */
+    connection?: {
+        /** Project on this side that owns the connection. */
+        localProjectId: string
+        /** Integration id of the connection. */
+        connectionId: string
+    }
 }
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {

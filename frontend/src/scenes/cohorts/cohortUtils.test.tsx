@@ -1,6 +1,12 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, CohortClientErrors } from 'scenes/cohorts/CohortFilters/types'
-import { cleanBehavioralTypeCriteria, determineFilterType, validateGroup } from 'scenes/cohorts/cohortUtils'
+import {
+    cleanBehavioralTypeCriteria,
+    cleanCriteria,
+    criteriaToHumanSentence,
+    determineFilterType,
+    validateGroup,
+} from 'scenes/cohorts/cohortUtils'
 
 import { AnyCohortCriteriaType, BehavioralEventType, CohortCriteriaGroupFilter, FilterLogicalOperator } from '~/types'
 
@@ -200,4 +206,26 @@ describe('cleanBehavioralTypeCriteria', () => {
         }
         expect(cleanBehavioralTypeCriteria(criteria).type).toBe(BehavioralFilterKey.Person)
     })
+})
+
+describe('criteria whose value collides with an Object.prototype key', () => {
+    // The API stores `value` as an unconstrained string, so keys like `constructor` can reach the
+    // client. A plain ROWS lookup resolves those to a truthy non-row, which slips past both
+    // functions' missing-row guards and then throws on the `fields` access behind them.
+    const criteria = (value: string): AnyCohortCriteriaType => ({
+        type: BehavioralFilterKey.Behavioral,
+        value: value as BehavioralEventType,
+        key: '$pageview',
+    })
+
+    it.each([['constructor'], ['toString'], ['__proto__']])('cleanCriteria empties the criterion for %s', (value) => {
+        expect(cleanCriteria(criteria(value))).toEqual({ type: undefined, value: undefined, negation: false })
+    })
+
+    it.each([['constructor'], ['toString'], ['__proto__']])(
+        'criteriaToHumanSentence renders nothing for %s',
+        (value) => {
+            expect(criteriaToHumanSentence(criteria(value), {}, {})).toEqual(<></>)
+        }
+    )
 })

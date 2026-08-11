@@ -1480,11 +1480,11 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     const [comments, reviewSummaries] = await Promise.all([
       this.fetchPrCommentFeed(
         `repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments`,
-        '.[] | {id, author: (.user.login // "unknown"), avatarUrl: (.user.avatar_url // null), body: (.body // ""), createdAt: .created_at, url: (.html_url // null)}',
+        '.[] | {id, author: (.user.login // "unknown"), isBot: (.user.type == "Bot"), avatarUrl: (.user.avatar_url // null), body: (.body // ""), createdAt: .created_at, url: (.html_url // null)}',
       ),
       this.fetchPrCommentFeed(
         `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`,
-        '.[] | select(.state != "PENDING") | select((.body // "") != "") | {id, author: (.user.login // "unknown"), avatarUrl: (.user.avatar_url // null), body, createdAt: (.submitted_at // ""), url: (.html_url // null)}',
+        '.[] | select(.state != "PENDING") | select((.body // "") != "") | {id, author: (.user.login // "unknown"), isBot: (.user.type == "Bot"), avatarUrl: (.user.avatar_url // null), body, createdAt: (.submitted_at // ""), url: (.html_url // null)}',
       ),
     ]);
     return [...comments, ...reviewSummaries];
@@ -1546,7 +1546,7 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
                     path
                     diffHunk
                     replyTo { databaseId }
-                    author { login avatarUrl }
+                    author { __typename login avatarUrl }
                     createdAt
                     updatedAt
                   }
@@ -1576,7 +1576,11 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
           path: string;
           diffHunk: string;
           replyTo: { databaseId: number } | null;
-          author: { login: string; avatarUrl: string };
+          author: {
+            __typename: string;
+            login: string;
+            avatarUrl: string;
+          } | null;
           createdAt: string;
           updatedAt: string;
         }>;
@@ -1642,7 +1646,11 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
         start_line: thread.startLine,
         start_side: thread.startDiffSide,
         in_reply_to_id: c.replyTo?.databaseId ?? null,
-        user: { login: c.author.login, avatar_url: c.author.avatarUrl },
+        user: {
+          login: c.author?.login ?? "ghost",
+          avatar_url: c.author?.avatarUrl ?? "",
+          isBot: c.author?.__typename === "Bot",
+        },
         created_at: c.createdAt,
         updated_at: c.updatedAt,
         subject_type: thread.subjectType

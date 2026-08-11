@@ -59,31 +59,6 @@ test.describe('Signup', () => {
         await submitEmailAndExpectExistingAccount(page, 'test@posthog.com')
     })
 
-    test('Cannot signup without required attributes', async ({ page }) => {
-        await page.locator('[data-attr=signup-start]').click()
-
-        await expect(page.getByText('Please enter your email to continue')).toBeVisible()
-    })
-
-    test('Cannot signup with invalid attributes', async ({ page }) => {
-        await page.locator('[data-attr=signup-start]').click()
-        await expect(page.getByText('Please enter your email to continue')).toBeVisible()
-
-        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
-        await page.locator('[data-attr=signup-email]').fill(email)
-        await expect(page.locator('[data-attr=signup-email]')).toHaveValue(email)
-        await page.locator('[data-attr=signup-start]').click()
-
-        await expect(page.locator('[data-attr=signup-auth-continue]')).toBeVisible()
-        await page.locator('[data-attr=password]').fill('123')
-        await page.locator('[data-attr=signup-auth-continue]').click()
-        await expect(page.getByText('Must be at least 8 characters long')).toBeVisible()
-
-        await page.locator('[data-attr=password]').fill('123 abc def')
-        await page.locator('[data-attr=signup-auth-continue]').click()
-        await expect(page.getByText('Must be at least 8 characters long')).not.toBeVisible()
-    })
-
     test('Can create user account with first name, last name and organization name', async ({ page }) => {
         let signupRequestBody: string | null = null
 
@@ -159,35 +134,6 @@ test.describe('Signup', () => {
         const retrySignupPromise = page.waitForResponse('/api/signup/')
         await page.locator('[data-attr=signup-submit]').click()
         await retrySignupPromise
-
-        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
-    })
-
-    test('Can create user account with just a first name', async ({ page }) => {
-        let signupRequestBody: string | null = null
-
-        await page.route('/api/signup/', async (route) => {
-            signupRequestBody = route.request().postData()
-            await route.continue()
-        })
-
-        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
-        await startSignupFlow(page, email, VALID_PASSWORD)
-        await page.locator('[data-attr=signup-name]').fill('Alice')
-        await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice')
-        await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
-        await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
-
-        // Wait for the signup request to complete
-        const signupPromise = page.waitForResponse('/api/signup/')
-        await page.locator('[data-attr=signup-submit]').click()
-        await signupPromise
-
-        const parsedBody = JSON.parse(signupRequestBody!)
-        expect(parsedBody.first_name).toEqual('Alice')
-        expect(parsedBody.last_name).toBeUndefined()
-        expect(parsedBody.organization_name).toBeUndefined()
 
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
     })

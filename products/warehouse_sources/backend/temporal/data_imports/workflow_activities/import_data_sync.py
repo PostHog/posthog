@@ -8,6 +8,7 @@ from typing import Any, NoReturn, Optional
 from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+from jsonpath_ng.exceptions import JSONPathError
 from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
@@ -64,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -404,6 +406,16 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
+    # The shared REST engine compiles data_selector/cursor_path/next_url_path/resolve-param fields
+    # as JSONPath at sync time (jsonpath_utils.compile_path), not at manifest-validation time. A
+    # malformed path is a fixed string, so parsing it fails identically on every retry regardless
+    # of source — classify it here by type (message text varies across jsonpath_ng's several parse-
+    # and lex-error shapes, so it can't be matched via get_non_retryable_errors).
+    if isinstance(error, JSONPathError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
     # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
     # endpoint/resource doesn't exist — every retry replays the identical request against the same
     # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
@@ -459,8 +471,10 @@ async def _handle_import_error(
     # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
     # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
     # customer data or config problem. Same classification already used for app-DB blips in
-    # delta_table_ref.is_transient_maintenance_error.
-    if isinstance(error, OperationalError | InterfaceError):
+    # delta_table_ref.is_transient_maintenance_error. PostHogInternalDatabaseError is the same
+    # condition already reclassified by shared pipeline code (e.g. cdp_producer's should_run check)
+    # specifically so it wouldn't be mistaken for a customer-side failure here — honor that by type.
+    if isinstance(error, OperationalError | InterfaceError | PostHogInternalDatabaseError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error

@@ -156,6 +156,8 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
         period_start="2026-07-01T00:00:00+00:00",
         period_end="2026-07-02T00:00:00+00:00",
         previous_period_start="2026-06-30T00:00:00+00:00",
+        trace_id="report-run-id",
+        session_id="report-session-id",
     )
 
     with (
@@ -179,6 +181,9 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
     assert result.generation_status == "completed"
     assert run_agent.call_args.kwargs["output_type"] == output_type
     assert run_agent.call_args.kwargs["evaluation_target"] == evaluation_target
+    assert run_agent.call_args.kwargs["report_id"] == "report-id"
+    assert run_agent.call_args.kwargs["trace_id"] == "report-run-id"
+    assert run_agent.call_args.kwargs["session_id"] == "report-session-id"
     load_target.assert_called_once_with(inputs.team_id, inputs.evaluation_id)
 
 

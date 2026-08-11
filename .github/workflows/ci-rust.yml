@@ -157,7 +157,7 @@ jobs:
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
-                      "personhog-stateright": 700,
+                      "personhog-stateright": 220,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
                       "posthog-replay-anonymizer": 20,
@@ -296,8 +296,7 @@ jobs:
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
-        # stateright model checks need more headroom than the other shards
-        timeout-minutes: ${{ contains(matrix.packages, 'personhog-stateright') && 40 || 20 }}
+        timeout-minutes: 20
         permissions:
             contents: read
         env:

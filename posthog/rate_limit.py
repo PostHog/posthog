@@ -556,6 +556,21 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
+# request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
+# per call. A team-wide bucket caps the project's total spend regardless of how many users or
+# keys fire scans; repeats within a minute are served from the endpoint's short-TTL cache, so
+# a legitimate UI or agent session needs only a handful of cold scans per hour.
+class LogsAnomalyScanBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_anomaly_scan_burst"
+    rate = "6/minute"
+
+
+class LogsAnomalyScanSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_anomaly_scan_sustained"
+    rate = "60/hour"
+
+
 # The experiment session-bucket endpoint scans every session in an experiment's recent run
 # window rather than a known id list, so one call is heavier than a session-context batch. Same
 # project-wide bucketing and same session-authenticated caller as those, at a lower rate: the UI
@@ -568,6 +583,21 @@ class SessionBucketsBurstRateThrottle(_TeamBucketRateThrottle):
 class SessionBucketsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "session_buckets_sustained"
     rate = "200/hour"
+
+
+# The experiment session-event-delta endpoint compares every event name in an experiment's recent
+# window, so unlike the bucket scan beside it there is no event-name predicate for ClickHouse to
+# prune on and one call is the heaviest in this family. Same project-wide bucketing and same
+# session-authenticated caller, at a lower rate again: the panel is opened deliberately rather than
+# loaded with the tab, and repeats hit a 15-minute server-side cache.
+class SessionEventDeltasBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_event_deltas_burst"
+    rate = "10/minute"
+
+
+class SessionEventDeltasSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_event_deltas_sustained"
+    rate = "100/hour"
 
 
 class _AIThrottleBase(UserRateThrottle):
