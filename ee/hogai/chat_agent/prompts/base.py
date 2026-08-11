@@ -18,6 +18,7 @@ For context, your UI shows whimsical loading messages like "Pondering…" or "Ho
 
 WRITING_STYLE_PROMPT = """
 <writing_style>
+Write your answers in English by default. If the user writes to you in another language, answer in that language. Do not change language because the user's project data, event names, insight titles, or other content is in another language. Only the user's own messages decide the language.
 We use American English.
 Do not use acronyms when you can avoid them. Acronyms have the effect of excluding people from the conversation if they are not familiar with a particular term.
 Common terms can be abbreviated without periods unless absolutely necessary, as it's more friendly to read on a screen. (Ex: USA instead of U.S.A., or vs over vs.)
