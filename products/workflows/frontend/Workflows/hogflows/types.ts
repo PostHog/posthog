@@ -2,6 +2,7 @@ import { Edge, Node } from '@xyflow/react'
 import z from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 
 import { AccessControlLevel, UserBasicType } from '~/types'
 
@@ -94,6 +95,9 @@ export type DropzoneNode = Node<{ edge: HogFlowActionEdge; isBranchJoinDropzone?
 
 export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
     schema: z.ZodError | null
+    // Per-field messages for a `function_email` step, placed next to their inputs. Only populated
+    // once a save/enable has been attempted, so a freshly opened step stays clean.
+    emailErrors?: EmailFieldErrors
 }
 
 export interface HogFlowTemplate extends z.infer<typeof HogFlowTemplateSchema> {

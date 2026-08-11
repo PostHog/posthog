@@ -102,7 +102,11 @@ def update_node_system_properties(
 
 
 def _count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | None = None) -> int:
-    jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine))
+    jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine)).exclude(
+        # a skipped node never ran, so it is evidence of neither health nor failure. Counting it
+        # either way lets an upstream outage decide whether a broken node ever gets suspended.
+        status=DataModelingJobStatus.SKIPPED
+    )
     if since is not None:
         # Otherwise the failures that caused the suspension are still the most recent jobs, and one
         # new failure re-suspends the node we just resumed.

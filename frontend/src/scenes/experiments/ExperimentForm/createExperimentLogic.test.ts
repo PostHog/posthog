@@ -9,7 +9,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
-import { type ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
+import {
+    type ExperimentExposureCriteria,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
@@ -34,6 +39,7 @@ describe('createExperimentLogic', () => {
     let routerPushSpy: jest.SpyInstance
     let scannerCreateSpy: jest.Mock
     let scannerRequestBody: Record<string, unknown> | null
+    let productIntentBodies: Record<string, unknown>[]
     let exposureEventSeenWithSessionId: boolean
 
     beforeEach(() => {
@@ -41,6 +47,7 @@ describe('createExperimentLogic', () => {
         localStorage.clear()
         sessionStorage.clear()
         scannerRequestBody = null
+        productIntentBodies = []
         exposureEventSeenWithSessionId = true
         scannerCreateSpy = jest.fn(async ({ request }: { request: Request }) => {
             scannerRequestBody = (await request.json()) as Record<string, unknown>
@@ -82,7 +89,10 @@ describe('createExperimentLogic', () => {
                 '/api/projects/:team_id/vision/scanners/': scannerCreateSpy,
             },
             patch: {
-                '/api/environments/:team_id/add_product_intent/': () => [200, {}],
+                '/api/environments/:team_id/add_product_intent/': async ({ request }) => {
+                    productIntentBodies.push((await request.json()) as Record<string, unknown>)
+                    return [200, {}]
+                },
             },
         })
         initKeaTests()
@@ -209,6 +219,19 @@ describe('createExperimentLogic', () => {
                     ],
                 },
             })
+            // A plain product intent is indistinguishable from someone reaching Replay Vision on their
+            // own, so the cross-sell metadata is the only thing that attributes the scanner to experiments
+            expect(productIntentBodies).toContainEqual(
+                expect.objectContaining({
+                    product_type: ProductKey.REPLAY_VISION,
+                    intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
+                    metadata: expect.objectContaining({
+                        from: ProductKey.EXPERIMENTS,
+                        to: ProductKey.REPLAY_VISION,
+                        type: 'cross_sell',
+                    }),
+                })
+            )
             expect(lemonToast.success).toHaveBeenCalledWith(
                 'Experiment created. The Replay Vision scanner is off until you turn it on.',
                 expect.objectContaining({

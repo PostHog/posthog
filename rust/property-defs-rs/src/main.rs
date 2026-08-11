@@ -94,11 +94,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    // dedicated PG conn pool for serving propdefs API queries only (not currently live in prod)
-    // TODO: update this to conditionally point to new isolated propdefs & persons (grouptypemapping)
-    // DBs after those migrations are completed, prior to deployment
-    let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-    let api_pool = options.connect(&config.database_url).await?;
+    // Dedicated PG conn pool for serving propdefs API queries only. The API is mounted but
+    // receives no production traffic today, so connect lazily: `connect` would open a connection
+    // at startup and hold it idle for a surface nothing calls, and would also make boot depend on
+    // Postgres being reachable. The first request pays the connect cost instead.
+    let api_pool = PgPoolOptions::new()
+        .max_connections(config.max_pg_connections)
+        .connect_lazy(&config.database_url)?;
     let query_manager = QueryManager::new(api_pool).await?;
 
     let context = Arc::new(AppContext::new(&config, query_manager).await?);

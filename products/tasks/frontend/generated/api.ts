@@ -858,7 +858,7 @@ export const getTaskChannelsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false.
  * @summary Resolve or create a public channel
  */
 export const taskChannelsCreate = async (
@@ -1686,6 +1686,32 @@ export const tasksRunsArtifactsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactsUploadRequestApi),
+    })
+}
+
+export const getTasksRunsArtifactsDownloadRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/${artifactId}/download/`
+}
+
+/**
+ * Redirects to a short-lived presigned URL for the artifact, so callers can share a stable link instead of a raw presigned URL.
+ * @summary Download a task run artifact by id
+ */
+export const tasksRunsArtifactsDownloadRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getTasksRunsArtifactsDownloadRetrieveUrl(projectId, taskId, id, artifactId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -6,6 +6,10 @@ import {
   FREEFORM_QUILL_CSS_URLS,
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
+import {
+  commentActionAnchorRect,
+  installSelectionSettleGate,
+} from "@posthog/ui/features/sessions/components/selectionCommentAction";
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
@@ -286,7 +290,13 @@ export function buildSandboxDocument(
       true,
     );
 
-    const clearTextSelection = () => post({ type: "text-selection-cleared" });
+    const selectionAnchorRect = ${commentActionAnchorRect.toString()};
+    let textSelectionPublished = false;
+    const clearTextSelection = () => {
+      if (!textSelectionPublished) return;
+      textSelectionPublished = false;
+      post({ type: "text-selection-cleared" });
+    };
     let selectionTimer = 0;
     const reportTextSelection = () => {
       clearTimeout(selectionTimer);
@@ -315,7 +325,10 @@ export function buildSandboxDocument(
         clearTextSelection();
         return;
       }
-      const rect = range.getBoundingClientRect();
+      // The END line's rect, so the host anchors the comment action where the
+      // pointer was released rather than at the whole-range bounding box.
+      const rect = selectionAnchorRect(range.getClientRects(), range.getBoundingClientRect());
+      textSelectionPublished = true;
       post({
         type: "text-selection",
         selection: {
@@ -329,7 +342,23 @@ export function buildSandboxDocument(
       });
       }, 80);
     };
-    document.addEventListener("selectionchange", reportTextSelection);
+    // Report the selection only once it settles, so the host's comment action
+    // doesn't chase the cursor mid-drag. The settle callback re-reads the live
+    // selection, which self-corrects clicks that didn't change the selection.
+    const selectionSettleGate = ${installSelectionSettleGate.toString()};
+    // Dropping the pending report matters: a new drag started within the
+    // debounce window would otherwise publish the previous selection mid-drag.
+    const abortTextSelection = () => {
+      clearTimeout(selectionTimer);
+      clearTextSelection();
+    };
+    selectionSettleGate(document, {
+      onGestureStart: abortTextSelection,
+      onSelectionSettled: reportTextSelection,
+      onIdleSelectionChange: reportTextSelection,
+      onGestureCancel: abortTextSelection,
+    });
+    document.addEventListener("scroll", abortTextSelection, true);
     const clearNativeTextSelection = () => {
       window.getSelection()?.removeAllRanges();
       clearTextSelection();

@@ -17,19 +17,21 @@ from products.tasks.backend.constants import (
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import (
+    ComputeBillingLimitError,
     CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.agentsh import _get_debug_only_domains, enforced_egress_domains
+from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
+from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -255,9 +257,9 @@ def _resolve_sandbox_github_token(
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        return Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
-            id=ctx.task_id
-        )
+        return Task.objects.select_related(
+            "created_by", "github_integration", "github_user_integration", "team", "loop"
+        ).get(id=ctx.task_id)
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
@@ -566,6 +568,10 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
+        if settings.TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED and not (ctx.state or {}).get("await_user_message"):
+            task = _load_task(ctx)
+            if is_compute_quota_exhausted(task):
+                raise ComputeBillingLimitError({"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id})
         _emit_image_source_log(ctx, prepared)
         emit_agent_log(
             ctx.run_id,
@@ -600,8 +606,8 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Burstable resources enabled: requesting {config.cpu_request_cores} CPU / "
-                f"{config.memory_request_mb} MiB, bursting up to {config.cpu_cores} CPU / "
+                f"Burstable resources enabled: requesting {config.effective_cpu_request_cores} CPU / "
+                f"{config.effective_memory_request_mb} MiB, bursting up to {config.cpu_cores} CPU / "
                 f"{int(config.memory_gb * 1024)} MiB",
             )
 
@@ -671,11 +677,16 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             if credentials.token:
                 sandbox_state["sandbox_connect_token"] = credentials.token
             TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = (
+                measure_sandbox_cpu_usage(sandbox) if sandbox.config.is_vm else (None, None)
+            )
             open_sandbox_session(
                 run_id=ctx.run_id,
                 sandbox_id=sandbox.id,
                 config=sandbox.config,
                 sandbox_created_at=sandbox_created_at,
+                cpu_usage_attribution_usec=cpu_usage_attribution_usec,
+                cpu_usage_attribution_measured_at=cpu_usage_attribution_measured_at,
                 required=ctx.task_runtime == "pi",
             )
         except Exception:
