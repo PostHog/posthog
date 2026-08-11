@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
 use serde_json::{json, Value};
@@ -41,6 +41,7 @@ use uuid::Uuid;
 
 use crate::cli::TrafficArgs;
 use crate::client::HarnessClient;
+use crate::client::{IdentityClient, LifecycleClient};
 use crate::scenarios::chaos::{self, ChaosConfig, TargetKind, TargetSpec};
 use crate::scenarios::{blast, consistency};
 use crate::seed;
@@ -81,7 +82,15 @@ const STALE_ROW_AGE: Duration = Duration::from_secs(3600);
 pub async fn run(args: TrafficArgs) -> Result<()> {
     validate_args(&args)?;
 
+    // Multi-instance beds stride their team pair by ordinal, so N
+    // replicas own N disjoint team spaces with one configuration.
+    let ordinal = resolve_ordinal(args.instance_ordinal, std::env::var("POD_NAME").ok());
+    let team_id = args.team_id + args.team_stride * ordinal;
+    let hostile_team_id = args.hostile_team_id + args.team_stride * ordinal;
+
     traffic_metrics::spawn_server(args.metrics_port)?;
+    gauge!("personhog_traffic_instance_ordinal").set(ordinal as f64);
+    tracing::info!(ordinal, team_id, hostile_team_id, "instance identity");
     gauge!("personhog_traffic_enabled").set(if args.enabled { 1.0 } else { 0.0 });
     if !args.enabled {
         // Deployed but switched off: stay alive and observable so the
@@ -91,6 +100,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         return Ok(());
     }
     let client = HarnessClient::connect(&args.router_url).await?;
+    let identity = IdentityClient::connect(&args.identity_url).await?;
+    let lifecycle = LifecycleClient::connect(&args.identity_url).await?;
     let pool = PgPool::connect(&args.persons_db_url)
         .await
         .context("connecting to persons DB")?;
@@ -99,13 +110,13 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // this database. On failure the process exits and the Deployment's
     // restart loop retries — which also rides out startup races where the
     // leader hasn't claimed partitions yet.
-    sentinel_round_trip(&client, &pool, &args.pg_target_table, args.team_id).await?;
+    sentinel_round_trip(&client, &pool, &args.pg_target_table, team_id).await?;
 
     // A crashed prior run leaves rows behind; reap the ones old enough
     // that they cannot belong to a live sibling — a rolling restart
     // briefly runs two bed pods against the same team, each on its own
     // disjoint id pool, and a fresh row is the sibling's business.
-    for team in [args.team_id, args.hostile_team_id] {
+    for team in [team_id, hostile_team_id] {
         seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
     }
 
@@ -113,7 +124,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // small (fixed keys, no journal growth) and their outcomes are only
     // observed, never verified.
     let hostile_ids = if args.hostile_rate > 0.0 {
-        Arc::new(seed::seed_persons(&pool, &args.pg_target_table, args.hostile_team_id, 4).await?)
+        let distinct_ids: Vec<String> = (0..4).map(|i| format!("bed-hostile-{i}")).collect();
+        Arc::new(seed::seed_persons_via_identity(&identity, hostile_team_id, &distinct_ids).await?)
     } else {
         Arc::new(Vec::new())
     };
@@ -133,8 +145,14 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         });
     }
 
-    gauge!("personhog_traffic_chaos_enabled").set(if args.chaos_enabled { 1.0 } else { 0.0 });
-    if args.chaos_enabled {
+    // Chaos is a singleton: N instances compounding kill cadences would
+    // roll the stack permanently, so only ordinal 0 runs it.
+    let chaos_here = args.chaos_enabled && ordinal == 0;
+    if args.chaos_enabled && !chaos_here {
+        tracing::info!(ordinal, "chaos enabled but deferred to ordinal 0");
+    }
+    gauge!("personhog_traffic_chaos_enabled").set(if chaos_here { 1.0 } else { 0.0 });
+    if chaos_here {
         // Chaos runs for the process lifetime, independent of epochs:
         // the bed is expected to stay correct while pods die under load.
         let cfg = chaos_config(&args);
@@ -155,17 +173,30 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 
         // The hostile pool outlives epochs; keep its liveness stamp fresh
         // so a sibling pod's startup janitor never reaps it mid-use.
-        seed::refresh_created_at(
-            &pool,
-            &args.pg_target_table,
-            args.hostile_team_id,
-            &hostile_ids,
-        )
-        .await?;
+        seed::refresh_created_at(&pool, &args.pg_target_table, hostile_team_id, &hostile_ids)
+            .await?;
 
-        let person_ids = Arc::new(
-            seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.pool_size).await?,
-        );
+        // The per-epoch janitor: crashed-run leftovers and the
+        // tombstones lifecycle rotation leaves behind both age into
+        // eligibility; without this the table grows one pool per epoch
+        // for the life of the deployment.
+        for team in [team_id, hostile_team_id] {
+            seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
+        }
+
+        let distinct_ids: Vec<String> = (0..args.pool_size)
+            .map(|i| {
+                if args.recycle_distinct_ids {
+                    // The same ids every epoch: each create resolves a
+                    // tombstoned row and exercises the revival branch.
+                    format!("bed-p{i}")
+                } else {
+                    format!("bed-e{epoch}-p{i}")
+                }
+            })
+            .collect();
+        let person_ids =
+            Arc::new(seed::seed_persons_via_identity(&identity, team_id, &distinct_ids).await?);
         let collector = Arc::new(StatsCollector::new());
         let state = PersonState::new();
 
@@ -174,7 +205,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let person_ids = person_ids.clone();
             let collector = collector.clone();
             let state = state.clone();
-            let (team_id, duration, concurrency) = (args.team_id, args.epoch, args.concurrency);
+            let (team_id, duration, concurrency) = (team_id, args.epoch, args.concurrency);
             let prefix = format!("traffic_e{epoch}_");
             let stop = shutdown.clone();
             tokio::spawn(async move {
@@ -198,7 +229,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let person_ids = person_ids.clone();
             let collector = collector.clone();
             let state = state.clone();
-            let (team_id, duration, prober_count) = (args.team_id, args.epoch, args.probers);
+            let (team_id, duration, prober_count) = (team_id, args.epoch, args.probers);
             let stop = shutdown.clone();
             tokio::spawn(async move {
                 consistency::run_probers(
@@ -217,7 +248,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         let hostile = {
             let client = client.clone();
             let hostile_ids = hostile_ids.clone();
-            let (team_id, duration, rate) = (args.hostile_team_id, args.epoch, args.hostile_rate);
+            let (team_id, duration, rate) = (hostile_team_id, args.epoch, args.hostile_rate);
             let stop = shutdown.clone();
             tokio::spawn(async move {
                 run_hostile(&client, team_id, hostile_ids, duration, rate, stop).await
@@ -231,10 +262,9 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         // Close the epoch: everything acked in it must now be visible.
         let mut violations = prober_violations;
         violations.extend(state.take_anomalies().await);
-        violations.extend(blast::verify_strong(&client, &collector, &state, args.team_id).await?);
+        violations.extend(blast::verify_strong(&client, &collector, &state, team_id).await?);
         let journal = state.snapshot().await;
-        violations
-            .extend(verify_postgres(&pool, &args.pg_target_table, args.team_id, &journal).await?);
+        violations.extend(verify_postgres(&pool, &args.pg_target_table, team_id, &journal).await?);
         traffic_metrics::record_violations(epoch, &violations);
 
         let writes = collector.writes.snapshot();
@@ -252,20 +282,15 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             "epoch closed"
         );
 
-        // Rotate the pool: delete this epoch's persons so the next epoch
-        // starts from fresh documents. By id, not by team — a successor
+        // Rotate the pool through the lifecycle delete saga: the same
+        // path production deletes take, exercised every epoch under
+        // whatever chaos is running. By id, not by team — a successor
         // pod may already be running its own pool against this team.
-        seed::cleanup_persons(&pool, &args.pg_target_table, args.team_id, &person_ids).await?;
+        delete_pool(&lifecycle, team_id, &person_ids).await?;
 
         if shutdown.load(Ordering::SeqCst) {
             tracing::info!("cleaning up and exiting");
-            seed::cleanup_persons(
-                &pool,
-                &args.pg_target_table,
-                args.hostile_team_id,
-                &hostile_ids,
-            )
-            .await?;
+            delete_pool(&lifecycle, hostile_team_id, &hostile_ids).await?;
             return Ok(());
         }
     }
@@ -280,6 +305,59 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 /// personhog charts follow: `app.kubernetes.io/name` equals the release
 /// (and namespace) name, and `component=app` excludes the pgbouncer
 /// sidecars sharing the namespace.
+/// Explicit ordinal wins; otherwise the trailing integer of a
+/// StatefulSet pod name; otherwise 0 (single instance, or a Deployment
+/// whose hash suffix is not an ordinal).
+fn resolve_ordinal(explicit: Option<i64>, pod_name: Option<String>) -> i64 {
+    if let Some(ordinal) = explicit {
+        return ordinal;
+    }
+    pod_name
+        .as_deref()
+        .and_then(|name| name.rsplit('-').next())
+        .and_then(|suffix| suffix.parse::<i64>().ok())
+        .unwrap_or(0)
+}
+
+/// Delete the epoch's pool through the saga and account for every
+/// outcome. `deleted` is the expected answer; `not_found` means someone
+/// else already removed the row (a startup janitor's reap, never a
+/// second bed — pools are id-disjoint) and is counted, not fatal;
+/// `skipped_conflict` means a lifecycle operation is stuck holding a
+/// pool person, which the bed exists to surface, so it fails the run.
+async fn delete_pool(lifecycle: &LifecycleClient, team_id: i64, person_ids: &[i64]) -> Result<()> {
+    use personhog_proto::personhog::lifecycle::v1::DeletePersonOutcome;
+
+    // The lifecycle service caps batches at 250 person ids.
+    for chunk in person_ids.chunks(200) {
+        let op_id = uuid::Uuid::new_v4();
+        let started = std::time::Instant::now();
+        let outcomes = lifecycle
+            .delete_persons(team_id, chunk.to_vec(), &op_id)
+            .await?;
+        histogram!("personhog_traffic_pool_delete_duration_ms")
+            .record(started.elapsed().as_secs_f64() * 1000.0);
+        for (person_id, outcome) in outcomes {
+            let label = match outcome {
+                DeletePersonOutcome::Deleted => "deleted",
+                DeletePersonOutcome::NotFound => "not_found",
+                DeletePersonOutcome::SkippedConflict => "skipped_conflict",
+                DeletePersonOutcome::Unspecified => "unspecified",
+            };
+            counter!("personhog_traffic_pool_delete_total", "outcome" => label).increment(1);
+            if matches!(
+                outcome,
+                DeletePersonOutcome::SkippedConflict | DeletePersonOutcome::Unspecified
+            ) {
+                anyhow::bail!(
+                    "pool rotation delete returned {label} for person {person_id} on team {team_id}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn chaos_config(args: &TrafficArgs) -> ChaosConfig {
     let target = |kind: TargetKind, namespace: &str| TargetSpec {
         kind,
@@ -455,10 +533,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ordinal_resolution_prefers_explicit_then_pod_name_then_zero() {
+        // Explicit wins over everything.
+        assert_eq!(resolve_ordinal(Some(7), Some("bed-3".to_string())), 7);
+        // A StatefulSet pod name's trailing integer.
+        assert_eq!(
+            resolve_ordinal(None, Some("personhog-bed-3".to_string())),
+            3
+        );
+        assert_eq!(resolve_ordinal(None, Some("bed-0".to_string())), 0);
+        // A Deployment hash suffix is not an ordinal.
+        assert_eq!(
+            resolve_ordinal(
+                None,
+                Some("personhog-test-harness-65f9f84b5d-d5mkd".to_string())
+            ),
+            0
+        );
+        // No identity at all: single instance.
+        assert_eq!(resolve_ordinal(None, None), 0);
+    }
+
+    #[test]
     fn vacuous_or_panicking_configurations_are_rejected() {
         let valid = TrafficArgs {
             chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
+            identity_url: "http://localhost:2".to_string(),
+            instance_ordinal: None,
+            team_stride: 10,
+            recycle_distinct_ids: true,
             enabled: true,
             team_id: 900_101,
             hostile_team_id: 900_102,

@@ -335,6 +335,34 @@ pub struct TrafficArgs {
     #[arg(long, env = "TRAFFIC_ROUTER_URL")]
     pub router_url: String,
 
+    /// Identity service under test: the epoch pool is created through
+    /// get-or-create and rotated through the lifecycle delete saga, both
+    /// served on this address.
+    #[arg(long, env = "TRAFFIC_IDENTITY_URL")]
+    pub identity_url: String,
+
+    /// Explicit instance ordinal for multi-instance beds. Unset, the
+    /// ordinal is parsed from the trailing integer of POD_NAME (a
+    /// StatefulSet pod name), and 0 when neither is available.
+    #[arg(long, env = "TRAFFIC_INSTANCE_ORDINAL")]
+    pub instance_ordinal: Option<i64>,
+
+    /// Team-id stride between instances: instance N owns
+    /// (team_id + N * stride, hostile_team_id + N * stride), so beds
+    /// scale by replica count without per-instance configuration.
+    #[arg(long, env = "TRAFFIC_TEAM_STRIDE", default_value_t = 10)]
+    pub team_stride: i64,
+
+    /// Reuse the same distinct ids every epoch. Recycling drives each
+    /// epoch's creates through the tombstone-revival branch — the same
+    /// row is deleted and revived every cycle — where fresh ids insert
+    /// new rows each epoch. Off by default: recycled pools currently
+    /// fail verification (acked property writes on a revived person
+    /// reach its version but not its properties), so flipping this on
+    /// turns the bed into a reproducer for that investigation.
+    #[arg(long, env = "TRAFFIC_RECYCLE_DISTINCT_IDS", default_value_t = false, action = clap::ArgAction::Set)]
+    pub recycle_distinct_ids: bool,
+
     /// Master toggle. When false the process starts fully (guard, metrics,
     /// liveness) but idles instead of driving traffic — so a deployed-but-
     /// disabled harness is observably "off on purpose" rather than absent.
