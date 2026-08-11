@@ -17,6 +17,8 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import compute_quota_limit_response
+from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
     ChannelFeedMessageSerializer,
@@ -34,6 +36,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskActivitySerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
+    TaskRunErrorResponseSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
@@ -551,13 +554,20 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: TaskThreadMessageSerializer,
             400: OpenApiResponse(description="No signalable run, or message already forwarded"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Organization reached its PostHog Desktop usage limit",
+            ),
         },
         summary="Send a thread message to the agent",
         description="Task author only: forwards the message into the task's latest live run.",
     )
     @action(detail=True, methods=["post"], url_path="send_to_agent", required_scopes=["task:write"])
     def send_to_agent(self, request, pk=None, **kwargs):
-        kind, message = tasks_facade.forward_thread_message(pk, self._task_id(), self.team_id, self._user_id())
+        try:
+            kind, message = tasks_facade.forward_thread_message(pk, self._task_id(), self.team_id, self._user_id())
+        except ComputeBillingLimitExceeded:
+            return compute_quota_limit_response()
         if kind == "not_found":
             raise NotFound()
         if kind == "forbidden":
