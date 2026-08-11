@@ -195,9 +195,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], tagsModel, ['tags']],
-        // The first two are connected, not reached through `.actions`: kea throws when you dispatch on an
-        // unmounted logic, and the move breaks entirely if either happens to be unmounted. `movedItem` is
-        // connected so the listener below hears it.
+        // Connecting mounts these: an unmounted moveToLogic breaks the move outright.
         actions: [
             moveToLogic,
             ['openMoveToModal'],
@@ -208,9 +206,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         ],
     })),
     actions({
-        // Move dashboards into a folder from the list. The list only holds ids, so their file system rows
-        // are looked up before the shared move modal opens. `method` records which affordance was used —
-        // a bulk bar acting on one selected dashboard is still a bulk move.
+        // `method` is the affordance used: a bulk bar acting on one dashboard is still a bulk move.
         moveDashboardsToFolder: (ids: number[], method: 'single' | 'bulk') => ({ ids, method }),
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
         setSearch: (search: string) => ({ search }),
@@ -423,32 +419,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 tab,
             })
         },
-        // The list's Folder column comes from the dashboards model, which the move never touches — so
-        // without this the row keeps its old folder until a reload. A folder move re-parents everything
-        // beneath it; the trailing slash keeps a sibling with a similar name out of the rename.
-        movedItem: ({ item, oldPath, newPath }) => {
-            if (item.type === 'dashboard') {
-                if (item.ref) {
-                    dashboardsModel.actions.patchDashboardFolders({
-                        [item.ref]: joinPath(splitPath(newPath).slice(0, -1)),
-                    })
-                }
-                return
-            }
-            if (item.type !== 'folder') {
-                return
-            }
-            const moved: Record<string, string> = {}
-            for (const dashboard of values.dashboards) {
-                const folder = dashboard.folder
-                if (folder && (folder === oldPath || folder.startsWith(`${oldPath}/`))) {
-                    moved[dashboard.id] = newPath + folder.slice(oldPath.length)
-                }
-            }
-            if (Object.keys(moved).length > 0) {
-                dashboardsModel.actions.patchDashboardFolders(moved)
-            }
-        },
         setSearch: ({ search }) => {
             const nextSearch = search ?? ''
             const currentSearch = urlSearchParamToString(router.values.searchParams['search'])
@@ -551,7 +521,26 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             }
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        // The list's Folder column reads the dashboards model, which a move never touched.
+        movedItem: async ({ item, oldPath, newPath }, breakpoint) => {
+            if (item.type === 'folder') {
+                dashboardsModel.actions.reparentDashboardFolders(oldPath, newPath)
+                return
+            }
+            if (item.type !== 'dashboard' || !item.ref) {
+                return
+            }
+            // A bulk move lands one movedItem per dashboard, so coalesce the burst into a single patch.
+            cache.pendingFolders = {
+                ...cache.pendingFolders,
+                [item.ref]: joinPath(splitPath(newPath).slice(0, -1)),
+            }
+            await breakpoint(50)
+            const folders = cache.pendingFolders
+            cache.pendingFolders = undefined
+            dashboardsModel.actions.patchDashboardFolders(folders)
+        },
         moveDashboardsToFolder: async ({ ids, method }) => {
             if (ids.length === 0) {
                 return

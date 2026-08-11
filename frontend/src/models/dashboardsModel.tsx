@@ -215,6 +215,13 @@ export interface dashboardsModelActions {
             source: DashboardEventSource
         }
     }
+    reparentDashboardFolders: (
+        oldPath: string,
+        newPath: string
+    ) => {
+        newPath: string
+        oldPath: string
+    }
     restoreDashboard: ({ id }: any) => any
     restoreDashboardFailure: (
         error: string,
@@ -347,9 +354,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
-        // A move reaches us through the project tree, which selects from this model — so the scene
-        // translates the move and this only takes the resulting id -> folder map.
         patchDashboardFolders: (folders: Record<string, string>) => ({ folders }),
+        reparentDashboardFolders: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
         addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
         /**
@@ -608,6 +614,23 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     return {
                         ...state,
                         ...Object.fromEntries(patched.map(([id, folder]) => [id, { ...state[id], folder }])),
+                    }
+                },
+                reparentDashboardFolders: (state, { oldPath, newPath }) => {
+                    const moved = Object.values(state).filter(
+                        ({ folder }) => folder && (folder === oldPath || folder.startsWith(`${oldPath}/`))
+                    )
+                    if (moved.length === 0) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        ...Object.fromEntries(
+                            moved.map((dashboard) => [
+                                dashboard.id,
+                                { ...dashboard, folder: newPath + dashboard.folder!.slice(oldPath.length) },
+                            ])
+                        ),
                     }
                 },
             },

@@ -186,9 +186,7 @@ describe('the dashboards model', () => {
         })
     })
 
-    // The list's Folder column reads this map. Without the patch the row keeps the folder it was
-    // loaded with, so a move made from the list looks like it did nothing until a reload.
-    describe('patching folders after a move', () => {
+    describe('updating folders after a move', () => {
         beforeEach(async () => {
             await expectLogic(logic, () => logic.actions.loadDashboards()).toFinishAllListeners()
         })
@@ -202,6 +200,20 @@ describe('the dashboards model', () => {
         it('ignores ids it does not hold', async () => {
             const before = logic.values.rawDashboards
             logic.actions.patchDashboardFolders({ 99999: 'Revenue' })
+            expect(logic.values.rawDashboards).toBe(before)
+        })
+
+        it('re-parents everything under a moved folder, sparing similarly named siblings', async () => {
+            logic.actions.patchDashboardFolders({ 1: 'Revenue', 2: 'Revenue/Q3', 3: 'Revenue archive' })
+            logic.actions.reparentDashboardFolders('Revenue', 'Finance/Revenue')
+            expect(logic.values.rawDashboards[1].folder).toEqual('Finance/Revenue')
+            expect(logic.values.rawDashboards[2].folder).toEqual('Finance/Revenue/Q3')
+            expect(logic.values.rawDashboards[3].folder).toEqual('Revenue archive')
+        })
+
+        it('leaves the map alone when nothing sits under the moved folder', async () => {
+            const before = logic.values.rawDashboards
+            logic.actions.reparentDashboardFolders('Nowhere', 'Elsewhere')
             expect(logic.values.rawDashboards).toBe(before)
         })
     })

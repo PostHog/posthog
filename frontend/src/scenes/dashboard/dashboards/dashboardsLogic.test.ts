@@ -89,8 +89,6 @@ describe('dashboardsLogic', () => {
         logic.mount()
     })
 
-    // Moving from the list only reaches the list through this translation; without it the Folder column
-    // keeps its loaded value until a reload, which is what the move was meant to change.
     describe('reflecting a completed move', () => {
         it('updates the moved dashboard to its new folder', async () => {
             await expectLogic(logic, () => {
@@ -114,6 +112,18 @@ describe('dashboardsLogic', () => {
             }).toDispatchActions([dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: '' })])
         })
 
+        it('hands a moved folder to the model to re-parent', async () => {
+            await expectLogic(logic, () => {
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'fs-3', type: 'folder', path: 'Marketing' } as any,
+                    'Marketing',
+                    'Revenue/Marketing'
+                )
+            }).toDispatchActions([
+                dashboardsModel.actionCreators.reparentDashboardFolders('Marketing', 'Revenue/Marketing'),
+            ])
+        })
+
         it('ignores moves of other item types', async () => {
             await expectLogic(logic, () => {
                 projectTreeDataLogic.actions.movedItem(
@@ -121,7 +131,7 @@ describe('dashboardsLogic', () => {
                     'Marketing/An insight',
                     'Revenue/An insight'
                 )
-            }).toNotHaveDispatchedActions(['patchDashboardFolders'])
+            }).toNotHaveDispatchedActions(['patchDashboardFolders', 'reparentDashboardFolders'])
         })
     })
 
@@ -451,9 +461,6 @@ describe('dashboardsLogic', () => {
     })
 
     it('opens the move modal with the file system rows of the dashboards it was given', async () => {
-        // The list only holds dashboard ids, so this listener is what turns them into the file system
-        // entries the shared move flow needs. Passing ids straight through would open a modal that moves
-        // nothing.
         useMocks({
             get: {
                 '/api/environments/:team_id/file_system': ({ request }) => {
@@ -466,7 +473,7 @@ describe('dashboardsLogic', () => {
             },
         })
 
-        // Mounted so the dispatched action reaches its reducers, the way GlobalModals mounts it in the app.
+        // Mounted so the dispatched action reaches its reducers.
         moveToLogic.mount()
 
         await expectLogic(logic, () => {
