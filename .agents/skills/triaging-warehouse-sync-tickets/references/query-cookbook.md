@@ -6,13 +6,15 @@ These queries are the **only** way to see the customer. The `external-data-*` pr
 project and answer from it without erroring, so a result that looks right can still be the wrong company.
 Every query below therefore filters on the customer's `team_id`, and every one needs a `connectionId`.
 
-The listing queries carry no `LIMIT`, on purpose. You are looking for the one broken source or table, and
-a row cap hides exactly the row you need.
+The listing queries use `LIMIT 500`, which is the platform maximum rather than an editorial choice. You
+are looking for the one broken source or table, so a low cap hides exactly the row you need.
 
-`execute-sql` still caps results at **100 rows, silently**. There is no truncation notice: a query whose
-true result is 103 rows returns 100 and looks complete. An explicit `LIMIT` raises the cap to 500, which
-is the platform maximum. So when a team could plausibly have more than 100 sources or schemas, count
-first and page if you have to:
+Do not drop the `LIMIT` to get more rows. It does the opposite. `execute-sql` caps results at **100 rows
+by default, silently**, and an explicit `LIMIT` is what raises that cap to 500. There is no truncation
+notice either way: a query whose true result is 103 rows returns 100 and looks complete.
+
+500 is the ceiling. A team with more schemas than that needs paging, so count first when you have any
+reason to expect one:
 
 ```sql
 SELECT count() AS total
@@ -20,7 +22,7 @@ FROM public.posthog_externaldataschema
 WHERE team_id = <team_id> AND deleted = false
 ```
 
-If that exceeds 100, add `LIMIT 500`, or narrow by `source_id` and run the listing once per source.
+Above 500, narrow by `source_id` and run the listing once per source, or page with `OFFSET`.
 
 Set `connectionId` on `execute-sql` to the Production Postgres or Production ClickHouse connection, as
 labeled. For EU, wrap the whole `execute-sql` call in `posthog-connection-call` as described in the
@@ -112,6 +114,7 @@ SELECT id, source_type, prefix, status, sync_frequency, created_at, updated_at,
 FROM public.posthog_externaldatasource
 WHERE team_id = <team_id>
 ORDER BY created_at DESC
+LIMIT 500
 ```
 
 **Schemas under one source.**
@@ -124,6 +127,7 @@ FROM public.posthog_externaldataschema
 WHERE team_id = <team_id>
   AND source_id = '<source_id>'
 ORDER BY last_synced_at DESC
+LIMIT 500
 ```
 
 **Find a schema by the table name in the ticket.** The customer's table name is usually the source
@@ -136,6 +140,7 @@ SELECT id, name, source_id, status, sync_type, last_synced_at, table_id
 FROM public.posthog_externaldataschema
 WHERE team_id = <team_id>
   AND position(lower('<fragment>') in lower(name)) > 0
+LIMIT 500
 ```
 
 **Sync configuration for one schema.** `sync_type_config` holds the incremental field, its type, the
@@ -159,6 +164,7 @@ FROM public.posthog_datawarehousetable
 WHERE team_id = <team_id>
   AND external_data_source_id = '<source_id>'
 ORDER BY updated_at DESC
+LIMIT 500
 ```
 
 ---
@@ -187,6 +193,7 @@ WHERE s.team_id = <team_id>
   AND s.deleted = false
   AND s.status != 'Completed'
 ORDER BY s.last_synced_at DESC
+LIMIT 500
 ```
 
 **Run duration and volume trend for one schema.** Shows a sync that is slowing down before it fails.
@@ -252,7 +259,7 @@ WHERE team_id = <team_id>
   AND timestamp > now() - INTERVAL 3 DAY
 GROUP BY instance_id
 ORDER BY started DESC
-LIMIT 50
+LIMIT 500
 ```
 
 **Search the message text.** The logger appends `[resource]` and `#batch_index` to warehouse import
@@ -269,7 +276,7 @@ WHERE team_id = <team_id>
   AND timestamp > now() - INTERVAL 3 DAY
   AND positionCaseInsensitive(message, '<fragment>') > 0
 ORDER BY timestamp DESC
-LIMIT 100
+LIMIT 200
 ```
 
 **CDC fallback.** CDC lines default `log_source_id` to the source id. Try this when a CDC schema returns
@@ -335,6 +342,7 @@ WHERE team_id = <team_id>
   AND timestamp > now() - INTERVAL 14 DAY
 GROUP BY schema_id
 ORDER BY failed DESC
+LIMIT 500
 ```
 
 **Billing limits across a team.** A non-zero `billing_limited` count changes the recommendation from a
