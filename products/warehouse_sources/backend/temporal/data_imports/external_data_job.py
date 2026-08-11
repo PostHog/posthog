@@ -156,6 +156,9 @@ Any_Source_Errors: dict[str, str | None] = {
 }
 
 
+UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
+
+
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
 
@@ -168,6 +171,9 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     the non-retryable map below (retryable exhaustion and unclassified failures); ``internal_error``
     still records the full ``str(cause)`` for debugging.
     """
+    # A wrapped ActivityError can carry no cause; `str(None)` would show the customer "None".
+    if cause is None:
+        return UNEXPECTED_ERROR_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 
@@ -865,7 +871,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         except Exception as e:
             # Catch all
             update_inputs.internal_error = str(e)
-            update_inputs.latest_error = "An unexpected error has ocurred"
+            update_inputs.latest_error = UNEXPECTED_ERROR_MESSAGE
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:

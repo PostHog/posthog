@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
     trigger_schedule_buffer_one_activity,
@@ -37,6 +38,9 @@ class TestCustomerFacingError(SimpleTestCase):
 
     def test_falls_back_to_str_when_cause_has_no_message(self) -> None:
         assert _customer_facing_error(ValueError("connection reset")) == "connection reset"
+
+    def test_missing_cause_does_not_show_the_customer_none(self) -> None:
+        assert _customer_facing_error(None) == UNEXPECTED_ERROR_MESSAGE
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
