@@ -38,7 +38,8 @@ export const scene: SceneExport = {
 }
 
 export function EndpointsScene(): JSX.Element {
-    const { activeTab } = useValues(endpointsLogic)
+    const { activeTab, allEndpoints, allEndpointsLoading } = useValues(endpointsLogic)
+    const hasEndpoints = allEndpoints.length > 0
 
     const tabs: LemonTab<string>[] = [
         {
@@ -98,18 +99,22 @@ export function EndpointsScene(): JSX.Element {
                             </Shortcut>
                         }
                     />
-                    <ProductIntroduction
-                        productName="endpoints"
-                        productKey={ProductKey.ENDPOINTS}
-                        thingName="endpoint"
-                        description={
-                            activeTab === 'usage' ? ENDPOINTS_USAGE_PRODUCT_DESCRIPTION : ENDPOINTS_PRODUCT_DESCRIPTION
-                        }
-                        docsURL="https://posthog.com/docs/endpoints"
-                        customHog={BigLeaguesHog}
-                        isEmpty={false}
-                        action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
-                    />
+                    {!hasEndpoints && !allEndpointsLoading && (
+                        <ProductIntroduction
+                            productName="endpoints"
+                            productKey={ProductKey.ENDPOINTS}
+                            thingName="endpoint"
+                            description={
+                                activeTab === 'usage'
+                                    ? ENDPOINTS_USAGE_PRODUCT_DESCRIPTION
+                                    : ENDPOINTS_PRODUCT_DESCRIPTION
+                            }
+                            docsURL="https://posthog.com/docs/endpoints"
+                            customHog={BigLeaguesHog}
+                            isEmpty
+                            action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
+                        />
+                    )}
                     <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
                     <InsightPickerEndpointModal />
                 </SceneContent>

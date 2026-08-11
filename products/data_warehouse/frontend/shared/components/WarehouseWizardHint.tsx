@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { ReactNode, useState } from 'react'
 
-import { IconSparkles, IconX } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
@@ -48,26 +48,18 @@ export function WarehouseWizardHint({
     return (
         <div
             className={cn(
-                'relative rounded-lg border border-dashed border-primary bg-bg-light p-4 flex flex-col gap-3',
+                'rounded-lg border border-dashed border-primary bg-bg-light p-4 flex flex-col gap-3',
                 className
             )}
         >
-            <LemonButton
-                icon={<IconX />}
-                size="xsmall"
-                onClick={handleDismiss}
-                className="absolute top-2 right-2"
-                tooltip="Dismiss"
-                aria-label="Dismiss"
-            />
-            <div className="flex items-center gap-2 pr-6">
+            <div className="flex items-center gap-2">
                 <IconSparkles className="size-4 shrink-0" />
                 <h4 className="m-0 text-sm font-semibold">
                     Let <AgentBadgeRotator /> connect your sources for you
                 </h4>
             </div>
             <div className="text-sm text-default">
-                Skip the manual setup — run this in your project and the wizard auto-detects your databases and APIs and
+                Skip the manual setup. Run this in your project and the wizard finds your databases and APIs and
                 connects them to PostHog.
             </div>
             <div className="pt-1">
@@ -80,6 +72,11 @@ export function WarehouseWizardHint({
                     className="bg-surface-secondary border border-primary !m-0 hover:border-accent"
                     onCopy={() => posthog.capture('warehouse wizard hint command copied')}
                 />
+            </div>
+            <div className="flex justify-end">
+                <LemonButton size="xsmall" type="tertiary" onClick={handleDismiss}>
+                    Dismiss
+                </LemonButton>
             </div>
         </div>
     )
