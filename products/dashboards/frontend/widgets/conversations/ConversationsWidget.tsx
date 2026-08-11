@@ -1,5 +1,5 @@
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { LemonBadge, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -18,7 +18,6 @@ import {
     WidgetCardContent,
     WidgetContentFooter,
     WidgetListCount,
-    WidgetLoadingState,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseConversationsWidgetConfig } from './conversationsWidgetConfigValidation'
@@ -136,6 +135,36 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
     )
 }
 
+function ConversationsWidgetLoadingState(): JSX.Element {
+    return (
+        <WidgetCardContent>
+            <div className="flex flex-col" aria-busy aria-label="Loading tickets">
+                {Array.from({ length: 4 }, (_, index) => (
+                    <div key={index} className="space-y-1 border-b border-primary px-3 py-2.5" aria-hidden>
+                        <div className="flex items-center gap-2">
+                            <LemonSkeleton className="h-4 w-28" />
+                            <LemonSkeleton className="h-3 w-8" />
+                            <LemonSkeleton className="ml-auto h-3 w-16" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <LemonSkeleton className="h-4 w-3/5" />
+                            <LemonSkeleton className="size-4 rounded-full" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <LemonSkeleton className="h-3 w-24" />
+                            <div className="ml-auto flex items-center gap-1">
+                                <LemonSkeleton className="h-5 w-12 rounded" />
+                                <LemonSkeleton className="h-5 w-10 rounded" />
+                                <LemonSkeleton className="h-3 w-16" />
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </WidgetCardContent>
+    )
+}
+
 export function ConversationsWidget({
     result,
     loading,
@@ -155,7 +184,7 @@ export function ConversationsWidget({
         !!parsedConfig.search
 
     if (loading) {
-        return <WidgetLoadingState rowCount={5} className="p-3" />
+        return <ConversationsWidgetLoadingState />
     }
     if (error) {
         return (
