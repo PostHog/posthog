@@ -1,21 +1,20 @@
 import {
   ChatsCircleIcon,
-  FunnelSimple as FunnelSimpleIcon,
   MagnifyingGlass,
   PackageIcon,
 } from "@phosphor-icons/react";
-import type { CreatedByFilter } from "@posthog/core/canvas/channelItems";
-import { filterChannelItems } from "@posthog/core/canvas/channelItems";
-import { RUN_STATUS_FILTER_OPTIONS } from "@posthog/core/canvas/runStatus";
+import {
+  type ChannelItemFilters,
+  type ChannelItemSort,
+  channelItemSources,
+  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DEFAULT_CHANNEL_ITEM_SORT,
+  filterChannelItems,
+  hasActiveChannelItemFilters,
+  sortChannelItems,
+} from "@posthog/core/canvas/channelItems";
 import {
   Button,
-  cn,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -27,10 +26,11 @@ import {
   SkeletonText,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
-import type { TaskRunStatus } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
+import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
+import { cnHeaderButton } from "@posthog/ui/features/canvas/components/channelHeaderButton";
 import {
   type ChannelPageKey,
   channelPageLabel,
@@ -47,19 +47,6 @@ import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-const CREATED_BY_OPTIONS: readonly { value: CreatedByFilter; label: string }[] =
-  [
-    { value: "anyone", label: "Anyone" },
-    { value: "me", label: "Me" },
-    { value: "others", label: "Other people" },
-  ] as const;
-
-// The header's icon buttons are quill's ghost button at the 20px scale; only the
-// sticky state is ours, because quill styles the transient open state (hover,
-// popup) but has no notion of "search is showing" or "a filter is applied".
-const cnHeaderButton = (active: boolean) =>
-  cn("text-muted-foreground", active && "bg-fill-selected text-foreground");
-
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
 
@@ -68,23 +55,25 @@ function RecentSectionHeader({
   onToggleSearch,
   query,
   onQueryChange,
-  createdByFilter,
-  onCreatedByChange,
+  filters,
+  onFiltersChange,
+  sort,
+  onSortChange,
+  sources,
   showCreatedBy,
-  statusFilter,
-  onStatusChange,
   filtersActive,
 }: {
   searchOpen: boolean;
   onToggleSearch: () => void;
   query: string;
   onQueryChange: (value: string) => void;
-  createdByFilter: CreatedByFilter;
-  onCreatedByChange: (value: CreatedByFilter) => void;
+  filters: ChannelItemFilters;
+  onFiltersChange: (filters: ChannelItemFilters) => void;
+  sort: ChannelItemSort;
+  onSortChange: (sort: ChannelItemSort) => void;
+  sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
   showCreatedBy: boolean;
-  statusFilter: TaskRunStatus | null;
-  onStatusChange: (value: TaskRunStatus | null) => void;
   filtersActive: boolean;
 }) {
   return (
@@ -103,69 +92,15 @@ function RecentSectionHeader({
         >
           <MagnifyingGlass size={12} />
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="default"
-                size="icon-xs"
-                aria-label="Filter"
-                className={cnHeaderButton(filtersActive)}
-              >
-                <FunnelSimpleIcon size={12} />
-              </Button>
-            }
-          />
-          <DropdownMenuContent
-            align="end"
-            side="bottom"
-            sideOffset={6}
-            className="min-w-fit"
-          >
-            {/* #me holds only your own sessions, so "created by" can only ever
-                answer "you" — the whole group is dropped rather than shown with
-                two options that empty the list. */}
-            {showCreatedBy && (
-              <>
-                <MenuLabel>Created by</MenuLabel>
-                <DropdownMenuRadioGroup
-                  value={createdByFilter}
-                  onValueChange={(value) =>
-                    onCreatedByChange(value as CreatedByFilter)
-                  }
-                >
-                  {CREATED_BY_OPTIONS.map((option) => (
-                    <DropdownMenuRadioItem
-                      key={option.value}
-                      value={option.value}
-                    >
-                      {option.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <MenuLabel>Status</MenuLabel>
-            <DropdownMenuRadioGroup
-              value={statusFilter ?? "any"}
-              onValueChange={(value) =>
-                onStatusChange(
-                  value === "any" ? null : (value as TaskRunStatus),
-                )
-              }
-            >
-              {RUN_STATUS_FILTER_OPTIONS.map((option) => (
-                <DropdownMenuRadioItem
-                  key={option.value ?? "any"}
-                  value={option.value ?? "any"}
-                >
-                  {option.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ChannelFilterMenu
+          filters={filters}
+          onFiltersChange={onFiltersChange}
+          sort={sort}
+          onSortChange={onSortChange}
+          sources={sources}
+          showCreatedBy={showCreatedBy}
+          active={filtersActive}
+        />
       </div>
       {searchOpen && (
         <div className="px-1 pb-1">
@@ -261,9 +196,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [createdByFilter, setCreatedByFilter] =
-    useState<CreatedByFilter>("anyone");
-  const [statusFilter, setStatusFilter] = useState<TaskRunStatus | null>(null);
+  const [rawFilters, setFilters] = useState<ChannelItemFilters>(
+    DEFAULT_CHANNEL_ITEM_FILTERS,
+  );
+  const [sort, setSort] = useState<ChannelItemSort>(DEFAULT_CHANNEL_ITEM_SORT);
   // Every session in #me is yours, so the author filter has nothing to sort by.
   // The state survives a space switch, so the value is neutralised here as well
   // as hidden — otherwise "Other people" carried in from a shared space would
@@ -271,10 +207,16 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   const isPersonalChannel =
     channels.find((c) => c.id === channelId)?.name === PERSONAL_CHANNEL_NAME;
-  const createdBy: CreatedByFilter = isPersonalChannel
-    ? "anyone"
-    : createdByFilter;
-  const filtersActive = createdBy !== "anyone" || statusFilter !== null;
+  const filters = useMemo<ChannelItemFilters>(
+    () =>
+      isPersonalChannel ? { ...rawFilters, createdBy: "anyone" } : rawFilters,
+    [isPersonalChannel, rawFilters],
+  );
+  const filtersActive = hasActiveChannelItemFilters(filters);
+  // The menu only offers sources the list holds, so it is built from everything
+  // in the space rather than from what the current filters left behind — picking
+  // one source must not be what removes the others from the menu.
+  const sources = useMemo(() => channelItemSources(items), [items]);
 
   const base = `/website/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
@@ -288,20 +230,16 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
   // One list, pins included — a pin is a mark on a session, not a different kind
   // of thing, and the row's own badge says so. They sort to the top because a pin
-  // is a request not to lose the thing: below the recency order it would fall off
+  // is a request not to lose the thing: below the chosen order it would fall off
   // the end of the cap.
-  const recentItems = useMemo(() => {
-    const matching = filterChannelItems(items, {
-      query,
-      createdBy,
-      status: statusFilter,
-      me,
-    });
-    return [
-      ...matching.filter((i) => i.pinned),
-      ...matching.filter((i) => !i.pinned),
-    ].slice(0, RECENTS_CAP);
-  }, [items, query, createdBy, statusFilter, me]);
+  const recentItems = useMemo(
+    () =>
+      sortChannelItems(
+        filterChannelItems(items, { query, filters, me }),
+        sort,
+      ).slice(0, RECENTS_CAP),
+    [items, query, filters, sort, me],
+  );
 
   const narrowed = filtersActive || searchOpen;
   const listState = listStateOf({
@@ -459,11 +397,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 }}
                 query={query}
                 onQueryChange={setQuery}
-                createdByFilter={createdBy}
-                onCreatedByChange={setCreatedByFilter}
+                filters={filters}
+                onFiltersChange={setFilters}
+                sort={sort}
+                onSortChange={setSort}
+                sources={sources}
                 showCreatedBy={!isPersonalChannel}
-                statusFilter={statusFilter}
-                onStatusChange={setStatusFilter}
                 filtersActive={filtersActive}
               />
               {recentItems.length > 0 ? (
