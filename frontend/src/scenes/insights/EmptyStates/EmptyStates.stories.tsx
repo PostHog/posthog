@@ -215,7 +215,9 @@ export const UnknownTableError: Story = {
     parameters: {
         testOptions: {
             waitForLoadersToDisappear: false,
-            waitForSelector: '[data-attr=insight-error-query]',
+            // The insight scene supplies onRetry, so the error state renders the retry button
+            // (the query debugger sits in its side-action), not a standalone debugger button.
+            waitForSelector: '[data-attr=insight-retry-button]',
         },
     },
 }
