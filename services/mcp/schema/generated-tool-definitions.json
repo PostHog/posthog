@@ -400,7 +400,7 @@
         "feature_entitlement": "audit_logs"
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null for the overall last step), metric is 'conversion_from_start' or 'conversion_from_previous', and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease. Anomaly detection (detector_config) is supported for trends and SQL insights (not funnels).\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null for the overall last step), metric is 'conversion_from_start' or 'conversion_from_previous', and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease. Anomaly detection (detector_config) is supported for trends and SQL insights (not funnels).\ncalculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise add-on. The field is optional and defaults to daily. If the user does not specify a cadence, ask before creating the alert.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -456,7 +456,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection (trends and SQL insights), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation_interval, and weekend skipping. calculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise add-on. Set detector_config to switch to anomaly detection (trends and SQL insights), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -1024,8 +1024,36 @@
             "readOnlyHint": false
         }
     },
+    "canvas-draft-create": {
+        "description": "Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT way to save a change — the user previews and promotes it; use canvas-publish-create only for a first version or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights, capture events, inline queries, network origins) — so added access is visible before shipping. Poll canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime capabilities in `project.capabilities`.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Stage a canvas draft build",
+        "title": "Stage a canvas draft build",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-drafts-retrieve": {
+        "description": "List a canvas's staged drafts (from canvas-draft-create), newest first, each with its latest build status (queued/building/ready/failed). Drafts are separate from the published version history and are never the live version until promoted. Use this to find a pending draft to preview (canvas-source-retrieve with its `version_id`) and promote (canvas-promote-create).",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "List canvas drafts",
+        "title": "List canvas drafts",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "canvas-edit-create": {
-        "description": "Publish per-file edits against a canvas's current source, without resending the whole project. Each operation sets a file's complete content, or deletes it when `content` is null. `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again. The edited project is validated first; error diagnostics reject the whole edit atomically.",
+        "description": "Publish per-file edits against a canvas's current source, without resending the whole project. Each operation sets a file's complete content, or deletes it when `content` is null. `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again. The edited project is validated first; error diagnostics reject the whole edit atomically. Edits go live like a publish — for a canvas with a live version, default to staging the complete project as a draft with canvas-draft-create instead, unless the user asked for an immediate live change.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Edit canvas source files",
@@ -1052,12 +1080,40 @@
             "readOnlyHint": true
         }
     },
+    "canvas-promote-create": {
+        "description": "Make a draft version (staged with canvas-draft-create) the canvas's live head. A draft whose build is already ready goes live immediately with no rebuild; otherwise a fresh build is queued. Pass `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head: revert does not act on drafts.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Promote a canvas draft to live",
+        "title": "Promote a canvas draft to live",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "canvas-publish-create": {
-        "description": "Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. The project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409 version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The canvas lives in PostHog, not on disk — this tool is what saves it.",
+        "description": "Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. Publishing goes live immediately: use it for a canvas's first version, or when the user explicitly asked to make a change live — otherwise stage the change with canvas-draft-create for the user to promote. The project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409 version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The canvas lives in PostHog, not on disk — this tool is what saves it.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Publish canvas source project",
         "title": "Publish canvas source project",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-publish-current-version": {
+        "description": "Queue a build for the canvas's current source version without changing its source or metadata. Any project member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale value returns a 409 version_conflict.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Publish current canvas version",
+        "title": "Publish current canvas version",
         "required_scopes": ["canvas:write"],
         "annotations": {
             "destructiveHint": false,
@@ -6605,6 +6661,21 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "marketing-analytics-create-conversion-goal": {
+        "description": "Add one conversion goal to the project. Send the goal shape: kind (EventsNode for a PostHog event, ActionsNode for an action, DataWarehouseNode for an external table), the target (event name, action id or table), conversion_goal_name, and schema_map naming the fields that hold utm_campaign, utm_source, the timestamp and the distinct id. conversion_goal_id is part of the goal shape but is assigned by the server here, so send an empty string for it. Existing goals are left untouched. Set counts_as_customer when converting means the person became a customer, and counts_as_revenue when the conversion value is money. Call marketing-analytics-conversion-goals first to see what already exists — goal names must be unique.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Create conversion goal",
+        "title": "Create conversion goal",
+        "required_scopes": ["marketing_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
     "marketing-analytics-data-sources": {
         "description": "List the platform-side health of every native marketing integration: connected/not, last sync time and status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.",
         "category": "Marketing analytics",
@@ -6617,6 +6688,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-delete-conversion-goal": {
+        "description": "Remove one conversion goal from the project, identified by its conversion_goal_id. The other goals stay in place. Dashboards and reports built on this goal will stop showing it, so confirm with the user first.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Delete conversion goal",
+        "title": "Delete conversion goal",
+        "required_scopes": ["marketing_analytics:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "marketing-analytics-mcp"
     },
@@ -6677,6 +6763,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-update-conversion-goal": {
+        "description": "Change one conversion goal in place, identified by its conversion_goal_id. Only the fields you send are changed and the goal keeps its position in the list. Use this to retarget a goal, rename it, or set counts_as_customer / counts_as_revenue on a goal that already exists.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Update conversion goal",
+        "title": "Update conversion goal",
+        "required_scopes": ["marketing_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "marketing-analytics-mcp"
     },
@@ -10327,8 +10428,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision-actions"
+        "requires_ai_consent": true
     },
     "vision-actions-delete": {
         "description": "Permanently delete a vision action by ID, along with its run history (past group summaries and alert firings). Its delivery destinations stop firing. To stop an action without losing its history, set `enabled: false` via `vision-actions-update` instead.",
@@ -10342,8 +10442,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision-actions"
+        }
     },
     "vision-actions-list": {
         "description": "List the vision actions (the \"and then…\" automations that run over a scanner's observations) for the current project. A vision action in `mode: group_summary` produces the group summary shown on the \"Summaries and alerts\" tab — one report synthesized from up to `max_observations` observations of its bound scanner; `mode: alert` delivers only when its alert condition holds. Each row carries the bound `scanner`, `mode`, `trigger_type`, cadence, and `is_scanner_digest` (the built-in daily digest). Pass `?scanner=<id>` to filter to one scanner. To read a specific action's produced reports, list its runs with `vision-actions-runs-list`.",
@@ -10357,8 +10456,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision-actions"
+        }
     },
     "vision-actions-retrieve": {
         "description": "Get a single vision action by ID. Returns its configuration: the bound `scanner`, `mode` (group_summary/alert), `selection` (the observation-targeting predicate — verdict/tags/score bounds/window), `synthesis_config`, `alert_config`, cadence, and delivery targets. Use `vision-actions-runs-list` + `vision-actions-runs-retrieve` to read the reports it has actually produced.",
@@ -10372,8 +10470,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision-actions"
+        }
     },
     "vision-actions-runs-list": {
         "description": "List the run history for one vision action (nested under the action). Each run is one execution that produced a group summary or evaluated an alert. Rows are lightweight — `status` (running/completed/failed/skipped), `scheduled_at`, `observation_count` (how many observations fed the summary), `error_reason`, and `is_recovery` — without the report body. Fetch a completed run with `vision-actions-runs-retrieve` to get the synthesized report and the observations it cited.",
@@ -10387,8 +10484,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision-actions"
+        }
     },
     "vision-actions-runs-retrieve": {
         "description": "Get one vision action run in full: `synthesized_markdown` (the group-summary report, which cites its source observations inline with `[obs N]` markers) and `observations` — the recordings the run included, in summary order, each carrying the 1-based `index` that the report's `[obs N]` markers reference plus that observation's title and outcome. This is the tool for auditing a group summary: for each `[obs N]` in the markdown, `observations[N-1]` is the observation it cites, so you can check whether the cited observation actually supports the claim. Empty `synthesized_markdown`/`observations` means the run skipped, failed, or predates observation tracking.",
@@ -10402,8 +10498,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision-actions"
+        }
     },
     "vision-actions-update": {
         "description": "Partially update a vision action by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume it, tune the `alert_config` threshold, change the `trigger_config` cadence, or point `delivery_config` at a different Slack channel or webhook. Nested objects and lists you send replace the stored value wholesale (e.g. `delivery_config` is the full new list), so fetch the action with `vision-actions-retrieve` first and resend the parts you want to keep. `mode` cross-field rules apply as on create: switching to `alert` requires an `alert_config`.",
@@ -10418,8 +10513,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision-actions"
+        "requires_ai_consent": true
     },
     "vision-observations-label-create": {
         "description": "Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last write wins; re-posting updates it in place. These ratings power the scanner's calibration tab: the ratings-over-time chart and the AI prompt recommendations (see `vision-scanners-prompt-suggestions-generate`). Find observation IDs via `vision-scanners-observations-list` (filter `labeled=false` for unrated ones) or `vision-observations-list` for a session.",
@@ -10433,8 +10527,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-observations-label-destroy": {
         "description": "Remove the shared thumbs up/down rating (and its feedback) from a replay scanner observation, returning it to unrated. Team-wide: this clears the rating for everyone.",
@@ -10448,8 +10541,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-observations-list": {
         "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
@@ -10463,8 +10555,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-observations-retrieve": {
         "description": "Get a single replay vision observation by ID, scoped to the scanners the caller can read. Returns the full `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any event citations). Use `vision-observations-list` to find observation IDs for a session first.",
@@ -10478,8 +10569,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-quota-retrieve": {
         "description": "Get the organization's monthly Replay vision credit budget (1 credit = $0.01; observations cost credits by model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session`: over budget, a scanner's scheduled sweeps silently skip their observations until the next period, while `vision-scanners-scan-session` is rejected outright with a 402. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
@@ -10493,8 +10583,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-affected-cohort-create": {
         "description": "Create a static cohort of the users a scanner matched within the trailing window (default 30 days). Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling again creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting, experiment exclusion. Fails when the window has no users or none resolve to a person profile.",
@@ -10508,11 +10597,10 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-create": {
-        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, which always emits facet embeddings) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length`. Unknown `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM, and sets what each observation costs in credits. Names must be unique within the team. Before creating a broad scanner (a permissive `query` and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the monthly budget on its first sweeps. To get notified about what the scanner finds (a Slack alert or a scheduled summary), create a vision action bound to it with `vision-actions-create`. For a scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's exposure criteria.",
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, which always emits facet embeddings) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length`. Unknown `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM, and sets what each observation costs in credits. Names must be unique within the team. Before creating a broad scanner (a permissive `query` and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the monthly budget on its first sweeps. Creating a scanner also creates its built-in daily digest: an enabled vision action with no delivery targets that synthesizes the scanner's observations once a day and spends credits of its own, on top of the observations. Disable or delete it with `vision-actions-update` / `vision-actions-delete` if you don't want it. To get notified about what the scanner finds (a Slack alert or a summary on another schedule), create a further vision action bound to it with `vision-actions-create`. For a scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's exposure criteria.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create replay vision scanner",
@@ -10524,8 +10612,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision"
+        "requires_ai_consent": true
     },
     "vision-scanners-delete": {
         "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
@@ -10539,8 +10626,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-estimate-create": {
         "description": "Preview how many observations a proposed scanner would generate before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) and an optional `sampling_rate` and `model`. Returns `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`, `credits_per_observation` (the price at that model), `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits`. Enabled scanners sweep every 5 minutes, so a broad query can exhaust the monthly budget quickly — run this and compare the *credit* figures against `remaining` from `vision-quota-retrieve` before `vision-scanners-create`. Comparing observation counts against `remaining` understates the cost: `remaining` is denominated in credits, and one observation costs several.",
@@ -10554,8 +10640,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-get": {
         "description": "Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.",
@@ -10569,8 +10654,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-impact-retrieve": {
         "description": "Affected sessions and users for a scanner over a trailing window, counted from its observations. Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct ID, so the user count reads honestly against the session count.",
@@ -10584,8 +10668,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-inline-scan-create": {
         "description": "Answer a one-off question about session recordings you already have in hand, without creating a scanner first. Pass the `session_ids` and a `prompt`; nothing is saved and nothing runs on a schedule. Prefer this over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want structured output. Results are not returned inline: the response gives a `scan_id`, and you read the observations from `vision-observations-list` with that scanner id, polling until each session's observation leaves `pending`/`running`. Asking the same question again returns the same `scan_id` and reuses the answers it already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather than being charged twice. Scans cost credits per session at the same rate a scanner does; check `vision-quota-retrieve` first if the batch is large, since sessions past the monthly limit come back as `skipped_quota` instead of failing the call.",
@@ -10600,7 +10683,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "replay-vision"
+        "requires_ai_consent": true
     },
     "vision-scanners-list": {
         "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, with facet embeddings for downstream search). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
@@ -10614,8 +10697,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-observations-get": {
         "description": "Get a single scanner observation by ID. Returns the full `scanner_snapshot` (the scanner's configuration as it was at run time, for reproducibility across `scanner_version` bumps) and the full `scanner_result` including any event citations linking the LLM output back to specific events in the originating session. Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying recording.",
@@ -10629,8 +10711,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-observations-list": {
         "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for failed — useful for triaging why a scan produced no result), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time; to see every scanner's observations for one session, use `vision-observations-list`.",
@@ -10644,8 +10725,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-observations-stats": {
         "description": "Aggregate statistics over one scanner's observations. Accepts the same filters as `vision-scanners-observations-list` plus `recent_days` (default 14, clamped 1..365) for the windowed series. Returns `status_counts` (totals and success rate), `coverage` (distinct sessions scanned), `labels` (thumbs up/down rating totals, a per-day accuracy series bucketed by scan day, per-day rating activity, and `version_markers`: each prompt version's first day, prompt text, and rating counts), plus per-type distributions (`monitor` verdict counts, `classifier` tag rankings, `scorer` score summary and histogram). Use it to judge scanner quality and rating coverage, e.g. before generating a prompt suggestion with `vision-scanners-prompt-suggestions-generate`.",
@@ -10659,8 +10739,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-prompt-suggestions-apply": {
         "description": "Apply a prompt suggestion to its scanner: writes the `suggested_prompt` into the scanner's config (bumping `scanner_version`) and marks the suggestion applied. Only the current (pending or dismissed) suggestion can be applied, and only while the scanner's prompt is unchanged since it was generated. Otherwise the call is rejected and you should generate a fresh one. This is a team-wide change: the scanner scans with the new prompt from its next sweep onward.",
@@ -10674,8 +10753,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-prompt-suggestions-current": {
         "description": "Get a scanner's newest AI prompt-rewrite suggestion, generated from the team's thumbs up/down ratings. Returns `suggestion` (null when none has been generated yet) with its `suggested_prompt`, the `base_prompt` it rewrote (for diffing), the `rationale`, and `status` (pending/applied/dismissed/superseded). Also returns `stale` (true when ratings changed since it was generated, so regenerating may give a better rewrite) and `rated_count` (rated observations available to generate from).",
@@ -10689,8 +10767,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-prompt-suggestions-dismiss": {
         "description": "Dismiss a prompt suggestion without applying it. The scanner's prompt is unchanged and the suggestion stays in history. A dismissed suggestion can still be applied later with `vision-scanners-prompt-suggestions-apply` as long as the scanner's prompt hasn't changed since it was generated.",
@@ -10704,8 +10781,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision"
+        }
     },
     "vision-scanners-prompt-suggestions-generate": {
         "description": "Generate a fresh AI prompt-rewrite suggestion for a scanner from the team's current thumbs up/down ratings and their written feedback. Requires at least one rated observation (check `rated_count` on `vision-scanners-prompt-suggestions-current`; create ratings with `vision-observations-label-create`). The previous pending suggestion becomes superseded. The LLM call runs inline, so expect the request to take a while. Review the returned suggestion, then apply it with `vision-scanners-prompt-suggestions-apply` or dismiss it with `vision-scanners-prompt-suggestions-dismiss`.",
@@ -10720,8 +10796,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision"
+        "requires_ai_consent": true
     },
     "vision-scanners-scan-session": {
         "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining. A scanner can observe a given session only once — re-triggering it on a session that already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.",
@@ -10736,8 +10811,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision"
+        "requires_ai_consent": true
     },
     "vision-scanners-update": {
         "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility. If you widen the `query` or raise `sampling_rate`, re-check projected volume with `vision-scanners-estimate-create` and remaining budget with `vision-quota-retrieve` first — the scanner resumes sweeping every 5 minutes at the new, broader scope.",
@@ -10752,8 +10826,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision"
+        "requires_ai_consent": true
     },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",

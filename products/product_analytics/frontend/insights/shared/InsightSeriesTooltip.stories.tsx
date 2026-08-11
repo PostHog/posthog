@@ -147,6 +147,46 @@ export const SameEventSeriesWithBreakdown: Story = {
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
 }
 
+// A long event name doesn't fit beside the breakdown value at the tooltip's max width.
+// The name truncates and the breakdown value stays readable, not the other way round.
+export const LongSeriesNameWithBreakdown: Story = {
+    render: () => (
+        <TooltipChart
+            fixtures={[
+                {
+                    label: 'true',
+                    data: [45, 82, 134, 210, 95],
+                    event: 'subscription_renewal_reminder_delivered',
+                    seriesOrder: 0,
+                    breakdown_value: 'true',
+                },
+                {
+                    label: 'false',
+                    data: [20, 31, 46, 70, 38],
+                    event: 'subscription_renewal_reminder_delivered',
+                    seriesOrder: 0,
+                    breakdown_value: 'false',
+                },
+                {
+                    label: 'true',
+                    data: [8, 12, 21, 30, 14],
+                    event: 'subscription_renewal_reminder_delivered',
+                    seriesOrder: 1,
+                    breakdown_value: 'true',
+                },
+                {
+                    label: 'false',
+                    data: [2, 4, 5, 9, 3],
+                    event: 'subscription_renewal_reminder_delivered',
+                    seriesOrder: 1,
+                    breakdown_value: 'false',
+                },
+            ]}
+        />
+    ),
+    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
+}
+
 // Formula series have no `action`; their `order` and `series_name` keep the repeated
 // breakdown values from separate formulas attributable.
 export const MultipleFormulasWithBreakdown: Story = {
