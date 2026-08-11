@@ -11,6 +11,7 @@ import {
 } from "@posthog/core/canvas/channelItems";
 import {
   Button,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -106,11 +107,17 @@ function FilterSubmenu<T extends string>({
   value: T;
   onChange: (value: T) => void;
 }) {
+  // Every list leads with its own "everything" option, so a value that isn't the
+  // first one is a choice someone made, and the trigger says so.
+  const narrowed = value !== options[0]?.value;
+
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
+      <DropdownMenuSubTrigger className="pr-1">
         <span>{label}</span>
-        <span className="flex-1 pl-4 text-right text-muted-foreground">
+        <span
+          className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
+        >
           {labelOf(options, value)}
         </span>
       </DropdownMenuSubTrigger>
@@ -183,9 +190,15 @@ export function ChannelFilterMenu({
             variant="default"
             size="icon-xs"
             aria-label="Filter"
-            className={cnHeaderButton(active)}
+            className={cn("relative", cnHeaderButton(active))}
           >
             <FunnelSimpleIcon size={12} />
+            {active && (
+              <span
+                aria-hidden
+                className="absolute top-0 right-0 size-1.5 rounded-full bg-primary"
+              />
+            )}
           </Button>
         }
       />
@@ -244,6 +257,7 @@ export function ChannelFilterMenu({
                 behind submenus, this is where that instruction is carried out. */}
             <DropdownMenuItem
               onClick={() => onFiltersChange(DEFAULT_CHANNEL_ITEM_FILTERS)}
+              variant="destructive"
             >
               Clear filters
             </DropdownMenuItem>
