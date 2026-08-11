@@ -34,6 +34,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         apiKeyScopes: [],
         clientProfile: {} as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             organizationId: 'org-request',
             projectId: 'project-request',
@@ -100,6 +101,7 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_consumer: 'request-consumer',
             $mcp_mode: 'cli',
             $mcp_region: 'us',
+            $mcp_auth_method: 'personal_api_key',
             mcp_vendor_client: 'ClaudeAI',
             mcp_session_client_name: 'claude-code',
             mcp_session_client_version: '1.0',

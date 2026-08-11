@@ -72,6 +72,7 @@ class TestVercelSource:
             "teams",
             "domains",
             "aliases",
+            "check_runs",
             "billing_charges",
         }
 
@@ -98,7 +99,9 @@ class TestVercelSource:
         assert billing.incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
         assert billing.default_incremental_lookback_seconds == 60 * 60 * 24 * 35
 
-        for full_refresh in ("projects", "teams", "domains", "aliases"):
+        # check_runs is a full-refresh fan-out over deployments: Vercel documents no server-side time
+        # filter on the check-runs endpoint, so it re-fans every sync with no incremental cursor.
+        for full_refresh in ("projects", "teams", "domains", "aliases", "check_runs"):
             assert schemas[full_refresh].supports_incremental is False
             assert schemas[full_refresh].supports_append is False
             assert schemas[full_refresh].incremental_fields == []

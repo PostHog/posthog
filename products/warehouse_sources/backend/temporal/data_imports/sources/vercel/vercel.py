@@ -254,6 +254,88 @@ def get_rows(
         yield batcher.get_table()
 
 
+def _iter_parent_rows(
+    session: requests.Session,
+    config: VercelEndpointConfig,
+    team_id: str | None,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """Page a flat parent endpoint to completion and yield every row, for a fan-out child to seed
+    its per-parent requests from. Full refresh: no incremental cutoff is applied, so every parent is
+    visited each sync. Reuses the same cursor model as `get_rows` (walk `pagination.next` back as
+    `until`, or derive it from the oldest row when the endpoint carries no envelope)."""
+    until: int | None = None
+    page_count = 0
+    while True:
+        url = _build_url(config.path, _build_params(config, team_id, None, until))
+        data = _fetch_page(session, url, headers, logger)
+
+        items = data.get(config.response_data_key) or []
+        if not items:
+            return
+        yield from items
+
+        next_until = (data.get("pagination") or {}).get("next")
+        if next_until is None and config.cursor_from_field:
+            next_until = _cursor_from_page(items, config.cursor_from_field)
+
+        page_count += 1
+        if next_until is None:
+            return
+        if next_until == until:
+            logger.warning(f"Vercel: {config.name} pagination cursor did not advance (until={until}); stopping")
+            return
+        if page_count >= MAX_PAGES:
+            logger.warning(f"Vercel: {config.name} hit MAX_PAGES={MAX_PAGES}; remaining pages skipped")
+            return
+        until = next_until
+
+
+def get_fanout_rows(
+    access_token: str,
+    endpoint: str,
+    team_id: str | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[Any]:
+    """Fan out a child endpoint over every row of its parent: page the parent to completion, then
+    issue one GET per parent id with the id filled into the child path's `{fan_out_path_param}`.
+
+    Full refresh only. The child endpoint (check_runs) returns its whole list in one response with no
+    pagination envelope, so each per-parent call is a single fetch. A parent row missing the fan-out
+    field is skipped rather than crashing the sync."""
+    config = VERCEL_ENDPOINTS[endpoint]
+    assert config.fan_out_parent is not None and config.fan_out_path_param is not None
+    parent_config = VERCEL_ENDPOINTS[config.fan_out_parent]
+    headers = _get_headers(access_token)
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    session = make_tracked_session()
+
+    try:
+        for parent in _iter_parent_rows(session, parent_config, team_id, headers, logger):
+            parent_id = parent.get(config.fan_out_parent_field)
+            if parent_id is None:
+                continue
+
+            child_path = config.path.format(**{config.fan_out_path_param: parent_id})
+            # The child endpoint documents no `limit`/pagination params, so build a minimal param set
+            # rather than reusing `_build_params` (which always appends `limit`).
+            params: dict[str, Any] = {**config.extra_params}
+            if config.team_scoped and team_id:
+                params["teamId"] = team_id
+
+            data = _fetch_page(session, _build_url(child_path, params), headers, logger)
+            for item in data.get(config.response_data_key) or []:
+                batcher.batch(item)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+
+        if batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
+    finally:
+        session.close()
+
+
 def _iso8601_utc(moment: datetime) -> str:
     """Vercel's billing window params want ISO 8601 UTC with a trailing Z, e.g.
     2025-01-01T00:00:00.000Z."""
@@ -419,6 +501,21 @@ def vercel_source(
             partition_mode="datetime" if endpoint_config.partition_key else None,
             partition_format="month" if endpoint_config.partition_key else None,
             partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        )
+
+    if endpoint_config.fan_out_parent is not None:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_fanout_rows(
+                access_token=access_token,
+                endpoint=endpoint,
+                team_id=team_id,
+                logger=logger,
+            ),
+            primary_keys=[endpoint_config.primary_key],
+            # Full-refresh fan-out with no incremental field, so sort_mode drives no watermark; kept
+            # consistent with the resource endpoints below.
+            sort_mode="desc",
         )
 
     return SourceResponse(

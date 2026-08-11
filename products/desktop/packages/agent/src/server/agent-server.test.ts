@@ -4180,7 +4180,7 @@ describe("AgentServer HTTP Mode", () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
-      expect(prompt).toContain("posthog-code/");
+      expect(prompt).toContain("posthog/");
       expect(prompt).toContain("Create a draft pull request");
       expect(prompt).toContain("gh pr create --draft");
       expect(prompt).toContain("Generated-By: PostHog Code");
@@ -4210,7 +4210,7 @@ describe("AgentServer HTTP Mode", () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "signal_report";
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
-      expect(prompt).toContain("posthog-code/");
+      expect(prompt).toContain("posthog/");
       expect(prompt).toContain("Create a draft pull request");
       expect(prompt).toContain("gh pr create --draft");
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
