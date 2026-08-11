@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Comment, OrganizationMembership, User
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
@@ -10,6 +11,8 @@ from products.canvas.backend.models import Canvas
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.models import TaskCommentActivity
 from products.tasks.backend.tests.test_comment_activity import CommentActivityTestCase
+
+from ee.models.rbac.access_control import AccessControl
 
 SLACK_WORKSPACE_ID = "T123"
 
@@ -86,6 +89,25 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
     def test_removed_organization_member_does_not_receive_a_dm(self):
         OrganizationMembership.objects.filter(user=self.author, organization=self.organization).delete()
+
+        self._record_activity(self._comment(), [self.author.id])
+
+        assert self._dm_channels() == []
+
+    def test_project_member_without_access_does_not_receive_a_dm(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        OrganizationMembership.objects.filter(user=self.author, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+        )
 
         self._record_activity(self._comment(), [self.author.id])
 

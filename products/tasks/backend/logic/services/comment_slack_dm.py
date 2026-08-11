@@ -25,6 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
+from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
@@ -85,17 +86,24 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     if task is None:
         return _skip(comment_id, "task_missing")
 
-    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    if organization_id is None:
+    team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
+    if team is None:
         return _skip(comment_id, "team_missing")
-    emails = dict(User.objects.filter(id__in=list(wanted)).values_list("id", "email"))
+    users = User.objects.in_bulk(list(wanted))
     integration_by_workspace = {integration.integration_id: integration for integration in integrations}
     slack_clients: dict[int, SlackIntegration] = {}
     for user_id, kind in wanted.items():
+        recipient = users.get(user_id)
+        if recipient is None:
+            _skip(comment_id, "recipient_missing", user_id=user_id)
+            continue
         # Re-checked at send time rather than trusting the projected recipient set: the in-app feed
         # re-checks visibility on every read, and a DM can't be taken back.
-        if not OrganizationMembership.objects.filter(organization_id=organization_id, user_id=user_id).exists():
+        if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user_id).exists():
             _skip(comment_id, "recipient_left_organization", user_id=user_id)
+            continue
+        if UserPermissions(user=recipient, team=team).current_team.effective_membership_level is None:
+            _skip(comment_id, "recipient_lost_project_access", user_id=user_id)
             continue
         if not target_is_accessible(
             team_id=team_id,
@@ -118,12 +126,12 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
                 continue
             slack = slack_clients.setdefault(integration.id, SlackIntegration(integration))
             slack_user_id = _resolve_slack_user_id(
-                user_id=user_id, email=emails.get(user_id) or "", integration=integration, slack=slack
+                user_id=user_id, email=recipient.email or "", integration=integration, slack=slack
             )
             if not slack_user_id:
                 _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
                 continue
-            fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=organization_id)
+            fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=team.organization_id)
             slack.client.chat_postMessage(channel=slack_user_id, text=fallback, blocks=blocks, unfurl_links=False)
         except Exception as exc:
             logger.warning("comment_slack_dm_failed", comment_id=str(comment_id), user_id=user_id, error=str(exc))
