@@ -405,6 +405,76 @@ class OAuthValidator(OAuth2Validator):
         request.client = app
         return request.client
 
+    def client_authentication_required(self, request, *args, **kwargs):
+        """Route assertions to verification, and let credential-less CIMD private_key_jwt
+        clients fall back to public PKCE semantics on code and refresh exchanges.
+
+        Keyed on the raw ``client_assertion`` field, not on whether it resolves: any
+        presented assertion, including one whose ``client_assertion_type`` is missing or
+        wrong, requires authentication and so gets verified rather than ignored. Without
+        that, an invalid assertion would silently downgrade into a successful bare-public
+        exchange, and the ``client_auth_method`` funnel stamp (also keyed on the raw
+        field) would count unverified traffic as assertion adoption.
+
+        The credential-less fallback exists because a CIMD client's auth method is
+        partner-declared metadata we re-read hourly, and registration marks a
+        private_key_jwt declarer confidential. Enforcing that declaration locks out a
+        partner whose runtime still authenticates with ``none`` (because it never re-reads
+        our server metadata to learn we accept assertions) from every code and refresh
+        exchange, in place and with no operator involved on either side. PKCE remains the
+        enforced baseline for the fallback, exactly as for any public client. The
+        grant-type gate in ``_credentialless_cimd_private_key_jwt_client`` keeps the
+        fallback off revocation, which shares this validator; the agentic provisioning
+        endpoints keep requiring the declared method, and partners there demonstrably
+        send assertions.
+        """
+        if getattr(request, "client_assertion", None):
+            return True
+        if self._credentialless_cimd_private_key_jwt_client(request) is not None:
+            return False
+        return super().client_authentication_required(request, *args, **kwargs)
+
+    def authenticate_client_id(self, request_client_id, request, *args, **kwargs):
+        """The library rejects any confidential client here; permit the credential-less
+        CIMD private_key_jwt shape that client_authentication_required routed this way.
+
+        This is the point a fallback exchange is accepted, so the stale-metadata refresh
+        rides on it just as it does on the assertion path: without the enqueue, a client
+        living on credential-less refresh grants would keep stale scopes and config
+        forever."""
+        if super().authenticate_client_id(request_client_id, request, *args, **kwargs):
+            return True
+        app = self._credentialless_cimd_private_key_jwt_client(request)
+        if app is None:
+            return False
+        if app.cimd_metadata_url:
+            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, app.client_id)
+        return True
+
+    def _credentialless_cimd_private_key_jwt_client(self, request) -> OAuthApplication | None:
+        """The shape the public-PKCE fallback accepts: a code or refresh exchange for a
+        CIMD private_key_jwt client presenting no credential of any kind. Any presented
+        credential (assertion, secret, Basic auth) disqualifies the request so it
+        authenticates or fails, and the grant-type gate excludes requests without a token
+        grant, which is how revocation stays on the declared method.
+
+        Provisioning partners are excluded. They register through CIMD and declare
+        private_key_jwt too, so they match this shape without needing it: they do send
+        assertions, and the key is the credential their registration is built on. Including
+        them would hand every partner a way to downgrade itself by sending nothing."""
+        if getattr(request, "grant_type", None) not in ("authorization_code", "refresh_token"):
+            return None
+        if getattr(request, "client_assertion", None):
+            return None
+        if self._extract_basic_auth(request):
+            return None
+        if getattr(request, "client_secret", None):
+            return None
+        app = self._load_application(getattr(request, "client_id", None) or "", request)
+        if app is not None and app.is_cimd_client and app.uses_private_key_jwt_auth:
+            return None if app.is_provisioning_partner else app
+        return None
+
     def authenticate_client(self, request, *args, **kwargs):
         """Authenticate a confidential client, adding ``private_key_jwt`` (RFC 7523).
 
@@ -417,12 +487,32 @@ class OAuthValidator(OAuth2Validator):
             return True
         return super().authenticate_client(request, *args, **kwargs)
 
-    def _authenticate_client_assertion(self, request) -> bool:
-        assertion = resolve_client_assertion(
+    @staticmethod
+    def _enqueue_cimd_metadata_refresh(cimd_metadata_url: str, client_id: str) -> None:
+        """Token and refresh exchanges never pass through validate_client_id, which is
+        where a CIMD document is normally re-read, so a client living on refresh grants
+        alone would otherwise keep a stale auth method or key source forever.
+        Best-effort: a broker outage must not fail an otherwise valid exchange."""
+        try:
+            enqueue_cimd_refresh_if_stale(cimd_metadata_url)
+        except Exception as e:
+            logger.warning(
+                "oauth_cimd_refresh_enqueue_error",
+                client_id=client_id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+
+    @staticmethod
+    def _resolve_request_assertion(request) -> tuple[str, str] | None:
+        return resolve_client_assertion(
             getattr(request, "client_assertion", None) or "",
             getattr(request, "client_assertion_type", None) or "",
             getattr(request, "client_id", None) or "",
         )
+
+    def _authenticate_client_assertion(self, request) -> bool:
+        assertion = self._resolve_request_assertion(request)
         if assertion is None:
             return False
 
@@ -432,19 +522,7 @@ class OAuthValidator(OAuth2Validator):
             return False
 
         if app.is_cimd_client and app.cimd_metadata_url:
-            # Token and refresh exchanges never pass through validate_client_id, which is
-            # where a CIMD document is normally re-read, so a client living on refresh
-            # grants alone would otherwise keep a stale auth method or key source forever.
-            # Best-effort: a broker outage must not fail an otherwise valid exchange.
-            try:
-                enqueue_cimd_refresh_if_stale(app.cimd_metadata_url)
-            except Exception as e:
-                logger.warning(
-                    "oauth_cimd_refresh_enqueue_error",
-                    client_id=client_id,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
+            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, client_id)
 
         try:
             verify_client_assertion(
@@ -1490,11 +1568,26 @@ class OAuthTokenView(TokenView):
     """
 
     @staticmethod
+    def _request_client_auth_method(request) -> str:
+        """Which client-authentication method the token request presented, regardless of
+        whether it verified. Stamped onto the funnel events because a client registered for
+        multiple acceptable methods (a CIMD private_key_jwt client is registered public yet
+        may send assertions) is only readable from what its traffic actually carries: a
+        sustained switch from "none" to "client_assertion" is the analytics signal that
+        assertion enforcement can be tightened for that client."""
+        if request.POST.get("client_assertion"):
+            return "client_assertion"
+        if request.POST.get("client_secret") or request.headers.get("Authorization", "").startswith("Basic "):
+            return "client_secret"
+        return "none"
+
+    @staticmethod
     def _capture_token_issued(
         access_token: OAuthAccessToken,
         grant_type: str,
         scoped_organizations: list,
         scoped_teams: list,
+        client_auth_method: str | None = None,
     ) -> None:
         """The last step of the authorization funnel. `oauth_authorization_granted` without
         a matching `oauth_token_issued` means the client never redeemed its code."""
@@ -1504,6 +1597,7 @@ class OAuthTokenView(TokenView):
             "granted_scope_count": len((access_token.scope or "").split()),
             "has_scoped_organizations": bool(scoped_organizations),
             "has_scoped_teams": bool(scoped_teams),
+            **({"client_auth_method": client_auth_method} if client_auth_method else {}),
             **(get_region_info() or {}),
         }
         if access_token.application:
@@ -1522,7 +1616,9 @@ class OAuthTokenView(TokenView):
         )
 
     @staticmethod
-    def _capture_token_rejected(grant_type: str, client_id: str, error: str) -> None:
+    def _capture_token_rejected(
+        grant_type: str, client_id: str, error: str, client_auth_method: str | None = None
+    ) -> None:
         """The token exchange has no authenticated user, so this keys on the client id —
         enough to tell "the client never came back for a token" apart from "it came back
         and we refused", which the authorization events alone cannot distinguish.
@@ -1536,6 +1632,7 @@ class OAuthTokenView(TokenView):
             "client_id": client_id,
             # Personless: the client id is not a user, and one person per client would be noise.
             "$process_person_profile": False,
+            **({"client_auth_method": client_auth_method} if client_auth_method else {}),
             **(get_region_info() or {}),
         }
         try:
@@ -1627,6 +1724,7 @@ class OAuthTokenView(TokenView):
 
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
+        client_auth_method = self._request_client_auth_method(request)
         redirect_uri = request.POST.get("redirect_uri", "")
         logger.info(
             "oauth_token_request",
@@ -1647,7 +1745,7 @@ class OAuthTokenView(TokenView):
                 client_id_prefix=client_id_prefix,
                 redirect_uri=redirect_uri,
             )
-            self._capture_token_rejected(grant_type, client_id, "invalid_grant")
+            self._capture_token_rejected(grant_type, client_id, "invalid_grant", client_auth_method)
             return JsonResponse(
                 {
                     "error": "invalid_grant",
@@ -1668,7 +1766,7 @@ class OAuthTokenView(TokenView):
                 redirect_uri=redirect_uri,
                 error=str(e),
             )
-            self._capture_token_rejected(grant_type, client_id, "temporarily_unavailable")
+            self._capture_token_rejected(grant_type, client_id, "temporarily_unavailable", client_auth_method)
             return _temporarily_unavailable_response()
         except RedisError as e:
             # Client authentication reads Redis on the private_key_jwt path (JWKS cache, jti
@@ -1721,7 +1819,9 @@ class OAuthTokenView(TokenView):
                     response_data["scoped_teams"] = scoped_teams
                     response_data["scoped_organizations"] = scoped_organizations
 
-                    self._capture_token_issued(access_token, grant_type, scoped_organizations, scoped_teams)
+                    self._capture_token_issued(
+                        access_token, grant_type, scoped_organizations, scoped_teams, client_auth_method
+                    )
 
                     if region_info := get_region_info():
                         response_data.update(region_info)
@@ -1743,7 +1843,7 @@ class OAuthTokenView(TokenView):
                 response["Content-Type"] = "application/json"
 
         if response.status_code != 200:
-            self._capture_token_rejected(grant_type, client_id, _token_error_code(response))
+            self._capture_token_rejected(grant_type, client_id, _token_error_code(response), client_auth_method)
 
         return response
 

@@ -16,6 +16,20 @@ pub struct RequestLimits {
 
 // tonic Status is a large Err variant; boxing here would diverge from the
 // tonic handler signatures these feed into.
+
+/// The persons DB stores team_id as int4 and the storage layer narrows
+/// with `as i32` — an unchecked value above i32::MAX would wrap and read
+/// another tenant's rows.
+#[allow(clippy::result_large_err)]
+pub fn validate_team_id(team_id: i64) -> Result<(), Status> {
+    if team_id <= 0 || team_id > i32::MAX as i64 {
+        return Err(Status::invalid_argument(
+            "team_id must be a positive 32-bit integer",
+        ));
+    }
+    Ok(())
+}
+
 #[allow(clippy::result_large_err)]
 pub fn validate_batch_size(limits: &RequestLimits, len: usize) -> Result<(), Status> {
     if len > limits.max_batch_size {
