@@ -243,7 +243,7 @@ export function orderEventsByTimestamp<T>(
 ): T[] {
   for (let i = 1; i < events.length; i++) {
     if (timestampOf(events[i]) < timestampOf(events[i - 1])) {
-      return [...events].sort(
+      return events.toSorted(
         (left, right) => timestampOf(left) - timestampOf(right),
       );
     }

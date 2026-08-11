@@ -146,6 +146,12 @@ const STEER_INTERRUPT_QUIET_MS = 250;
  * interrupted instead of holding the user's message indefinitely.
  */
 const STEER_INTERRUPT_MAX_WAIT_MS = 1_500;
+
+/** The turn a steer was aimed at, so the interrupt cannot land on a later one. */
+interface SteeredTurn {
+  taskRunId: string;
+  promptId: number | null;
+}
 /**
  * A backgrounded session's transcript is freed this long after it stops being
  * viewed, and reloaded from disk on return. Only disconnected (idle, no live
@@ -3617,10 +3623,16 @@ export class SessionService {
         // Nothing folds the message into the running turn here, so the turn has
         // to end for it to land. Let the output in flight finish first —
         // cancelling on the keystroke truncates the sentence being read.
-        await this.waitForAgentTextToSettle(taskId);
-        // The turn may have ended while we waited, in which case there is
-        // nothing to interrupt and the message sends as an ordinary prompt.
-        if (this.d.store.getSessionByTaskId(taskId)?.isPromptPending) {
+        const steeredTurn: SteeredTurn = {
+          taskRunId: session.taskRunId,
+          promptId: session.currentPromptId ?? null,
+        };
+        await this.waitForAgentTextToSettle(taskId, steeredTurn);
+        // Only the turn the user steered against may be interrupted. If it
+        // ended while we waited, a queued message can already have started the
+        // next one, and cancelling that would cut off a message the user never
+        // steered. Falling through queues this message behind it instead.
+        if (this.isSteeredTurnStillRunning(taskId, steeredTurn)) {
           await this.cancelPrompt(taskId);
         }
         const refreshed = this.d.store.getSessionByTaskId(taskId);
@@ -3715,23 +3727,42 @@ export class SessionService {
   }
 
   /**
+   * Whether the turn a steer was aimed at is still the one running. `taskId`
+   * outlives any single turn, so it cannot answer this on its own: a turn that
+   * ends lets a queued message start a new one under the same task, and
+   * `currentPromptId` is what tells the two apart.
+   */
+  private isSteeredTurnStillRunning(
+    taskId: string,
+    turn: SteeredTurn,
+  ): boolean {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    return (
+      session?.isPromptPending === true &&
+      session.taskRunId === turn.taskRunId &&
+      (session.currentPromptId ?? null) === turn.promptId
+    );
+  }
+
+  /**
    * Resolve once the agent's streamed text has been quiet for
-   * {@link STEER_INTERRUPT_QUIET_MS}, the turn has ended on its own, or
+   * {@link STEER_INTERRUPT_QUIET_MS}, the steered turn has stopped running, or
    * {@link STEER_INTERRUPT_MAX_WAIT_MS} has elapsed. Returns straight away when
    * nothing is streaming — the common case, since a steer usually arrives while
    * the agent is inside a tool call rather than mid-sentence.
    */
-  private async waitForAgentTextToSettle(taskId: string): Promise<void> {
+  private async waitForAgentTextToSettle(
+    taskId: string,
+    turn: SteeredTurn,
+  ): Promise<void> {
     const deadline = Date.now() + STEER_INTERRUPT_MAX_WAIT_MS;
     for (;;) {
-      const session = this.d.store.getSessionByTaskId(taskId);
-      if (!session?.isPromptPending) return;
+      if (!this.isSteeredTurnStillRunning(taskId, turn)) return;
       // A run that has never streamed text is quiet by definition, whatever the
       // clock reads.
       const quietFor =
         Date.now() -
-        (this.lastAgentTextAt.get(session.taskRunId) ??
-          Number.NEGATIVE_INFINITY);
+        (this.lastAgentTextAt.get(turn.taskRunId) ?? Number.NEGATIVE_INFINITY);
       const wait = Math.min(
         STEER_INTERRUPT_QUIET_MS - quietFor,
         deadline - Date.now(),

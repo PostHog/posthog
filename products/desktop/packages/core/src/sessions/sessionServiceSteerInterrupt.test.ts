@@ -54,6 +54,7 @@ function createHarness() {
       pendingPermissions: new Map(),
       status: "connected",
       startedAt: 0,
+      currentPromptId: 1,
       // No native steering, so a mid-turn message can only land by interrupting.
       steering: "interrupt-resend",
       adapter: "codex",
@@ -133,7 +134,23 @@ function createHarness() {
     cancelPrompt,
     prompt,
     emit: (event: AcpMessage) => onEvent?.(event),
-    endTurn: () => store.updateSession(RUN_ID, { isPromptPending: false }),
+    endTurn: () =>
+      store.updateSession(RUN_ID, {
+        isPromptPending: false,
+        currentPromptId: null,
+      }),
+    // The turn ends and a message queued earlier immediately starts the next
+    // one, which is what the turn-end drain does via its zero-delay timer.
+    endTurnAndStartQueued: () => {
+      store.updateSession(RUN_ID, {
+        isPromptPending: false,
+        currentPromptId: null,
+      });
+      setTimeout(() => {
+        store.updateSession(RUN_ID, { isPromptPending: true });
+      }, 0);
+    },
+    isPromptPending: () => sessions[RUN_ID].isPromptPending,
     steer: () =>
       service.sendPrompt(TASK_ID, "actually, do it the other way", {
         steer: true,
@@ -193,6 +210,22 @@ describe("steering an adapter without native steering", () => {
     clearInterval(streaming);
     await sent;
     expect(h.cancelPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  // The steered turn ending hands the session to a message queued earlier.
+  // Both flips land inside one sleep, so the wait never sees the idle gap and
+  // only the turn's identity distinguishes the new turn from the steered one.
+  it("does not interrupt a queued turn that starts while waiting", async () => {
+    const h = createHarness();
+    h.emit(agentTextChunk("wrapping up"));
+
+    const sent = h.steer();
+    h.endTurnAndStartQueued();
+
+    await vi.advanceTimersByTimeAsync(QUIET_MS * 2);
+    await sent;
+    expect(h.isPromptPending()).toBe(true);
+    expect(h.cancelPrompt).not.toHaveBeenCalled();
   });
 
   it("skips the interrupt when the turn ends while waiting", async () => {
