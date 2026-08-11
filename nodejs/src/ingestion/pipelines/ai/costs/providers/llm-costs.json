@@ -93,7 +93,7 @@
         "model": "~moonshotai/kimi-latest",
         "cost": {
             "default": {
-                "prompt_token": 0.0000029,
+                "prompt_token": 0.0000025,
                 "completion_token": 0.000014,
                 "cache_read_token": 2.9e-7
             }
@@ -383,6 +383,25 @@
         }
     },
     {
+        "model": "anthropic/claude-fable-5:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "anthropic/claude-haiku-4.5",
         "cost": {
             "default": {
@@ -444,6 +463,25 @@
         }
     },
     {
+        "model": "anthropic/claude-haiku-4.5:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.0000025,
+                "cache_read_token": 5e-8,
+                "cache_write_token": 6.25e-7,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.0000025,
+                "cache_read_token": 5e-8,
+                "cache_write_token": 6.25e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "anthropic/claude-opus-4",
         "cost": {
             "default": {
@@ -479,25 +517,30 @@
                 "cache_write_token": 0.00001875,
                 "web_search": 0.01
             },
-            "anthropic": {
-                "prompt_token": 0.000015,
-                "completion_token": 0.000075,
-                "cache_read_token": 0.0000015,
-                "cache_write_token": 0.00001875,
-                "web_search": 0.01
-            },
-            "azure-global": {
-                "prompt_token": 0.000015,
-                "completion_token": 0.000075,
-                "cache_read_token": 0.0000015,
-                "cache_write_token": 0.00001875,
-                "web_search": 0.01
-            },
             "google-vertex-global": {
                 "prompt_token": 0.000015,
                 "completion_token": 0.000075,
                 "cache_read_token": 0.0000015,
                 "cache_write_token": 0.00001875,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "anthropic/claude-opus-4.1:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000075,
+                "completion_token": 0.0000375,
+                "cache_read_token": 7.5e-7,
+                "cache_write_token": 0.000009375,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.0000075,
+                "completion_token": 0.0000375,
+                "cache_read_token": 7.5e-7,
+                "cache_write_token": 0.000009375,
                 "web_search": 0.01
             }
         }
@@ -557,6 +600,25 @@
         }
     },
     {
+        "model": "anthropic/claude-opus-4.5:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "anthropic/claude-opus-4.6",
         "cost": {
             "default": {
@@ -606,6 +668,25 @@
                 "completion_token": 0.000025,
                 "cache_read_token": 5e-7,
                 "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "anthropic/claude-opus-4.6:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
                 "web_search": 0.01
             }
         }
@@ -698,6 +779,25 @@
         }
     },
     {
+        "model": "anthropic/claude-opus-4.7:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "anthropic/claude-opus-4.8",
         "cost": {
             "default": {
@@ -780,6 +880,25 @@
                 "completion_token": 0.00005,
                 "cache_read_token": 0.000001,
                 "cache_write_token": 0.0000125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "anthropic/claude-opus-4.8:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
                 "web_search": 0.01
             }
         }
@@ -874,6 +993,25 @@
                 "completion_token": 0.00005,
                 "cache_read_token": 0.000001,
                 "cache_write_token": 0.0000125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "anthropic/claude-opus-5:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 2.5e-7,
+                "cache_write_token": 0.000003125,
                 "web_search": 0.01
             }
         }
@@ -994,6 +1132,25 @@
         }
     },
     {
+        "model": "anthropic/claude-sonnet-4.5:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.5e-7,
+                "cache_write_token": 0.000001875,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.5e-7,
+                "cache_write_token": 0.000001875,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "anthropic/claude-sonnet-4.6",
         "cost": {
             "default": {
@@ -1050,6 +1207,25 @@
                 "completion_token": 0.000015,
                 "cache_read_token": 3e-7,
                 "cache_write_token": 0.00000375,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "anthropic/claude-sonnet-4.6:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.5e-7,
+                "cache_write_token": 0.000001875,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.5e-7,
+                "cache_write_token": 0.000001875,
                 "web_search": 0.01
             }
         }
@@ -1118,6 +1294,25 @@
                 "completion_token": 0.000011,
                 "cache_read_token": 2.2e-7,
                 "cache_write_token": 0.00000275,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "anthropic/claude-sonnet-5:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000005,
+                "cache_read_token": 1e-7,
+                "cache_write_token": 0.00000125,
                 "web_search": 0.01
             }
         }
@@ -1706,11 +1901,6 @@
                 "completion_token": 4e-7,
                 "cache_read_token": 7e-8
             },
-            "sail-research-fp4": {
-                "prompt_token": 9e-8,
-                "completion_token": 1.8e-7,
-                "cache_read_token": 2e-8
-            },
             "siliconflow-fp8": {
                 "prompt_token": 1.3e-7,
                 "completion_token": 2.8e-7,
@@ -1781,6 +1971,11 @@
                 "completion_token": 2.8e-7,
                 "cache_read_token": 2.8e-9
             },
+            "digitalocean": {
+                "prompt_token": 1.4e-7,
+                "completion_token": 2.8e-7,
+                "cache_read_token": 2.8e-8
+            },
             "fireworks": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 2.8e-7,
@@ -1825,12 +2020,12 @@
                 "completion_token": 4e-7,
                 "cache_read_token": 7e-8
             },
-            "sail-research-fp4": {
-                "prompt_token": 9e-8,
-                "completion_token": 1.8e-7,
-                "cache_read_token": 2e-8
-            },
             "siliconflow-fp8": {
+                "prompt_token": 1.4e-7,
+                "completion_token": 2.8e-7,
+                "cache_read_token": 2.8e-8
+            },
+            "streamlake": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 2.8e-7,
                 "cache_read_token": 2.8e-8
@@ -2189,6 +2384,56 @@
         }
     },
     {
+        "model": "google/gemini-2.5-flash-lite:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5e-8,
+                "completion_token": 2e-7,
+                "cache_read_token": 1e-8,
+                "web_search": 0.014,
+                "image": 5e-8,
+                "audio": 1.5e-7,
+                "input_audio_cache": 3e-8,
+                "internal_reasoning": 2e-7
+            },
+            "google-vertex-eu": {
+                "prompt_token": 5e-8,
+                "completion_token": 2e-7,
+                "cache_read_token": 1e-8,
+                "web_search": 0.014,
+                "image": 5e-8,
+                "audio": 1.5e-7,
+                "input_audio_cache": 3e-8,
+                "internal_reasoning": 2e-7
+            }
+        }
+    },
+    {
+        "model": "google/gemini-2.5-flash:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 0.00000125,
+                "cache_read_token": 3e-8,
+                "web_search": 0.014,
+                "image": 1.5e-7,
+                "audio": 5e-7,
+                "input_audio_cache": 1e-7,
+                "internal_reasoning": 0.00000125
+            },
+            "google-vertex-global": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 0.00000125,
+                "cache_read_token": 3e-8,
+                "web_search": 0.014,
+                "image": 1.5e-7,
+                "audio": 5e-7,
+                "input_audio_cache": 1e-7,
+                "internal_reasoning": 0.00000125
+            }
+        }
+    },
+    {
         "model": "google/gemini-2.5-pro",
         "cost": {
             "default": {
@@ -2501,6 +2746,31 @@
         }
     },
     {
+        "model": "google/gemini-2.5-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.000005,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.014,
+                "image": 6.25e-7,
+                "audio": 6.25e-7,
+                "input_audio_cache": 1.25e-7,
+                "internal_reasoning": 0.000005
+            },
+            "google-vertex-global": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.000005,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.014,
+                "image": 6.25e-7,
+                "audio": 6.25e-7,
+                "input_audio_cache": 1.25e-7,
+                "internal_reasoning": 0.000005
+            }
+        }
+    },
+    {
         "model": "google/gemini-3-flash-preview",
         "cost": {
             "default": {
@@ -2579,6 +2849,27 @@
                 "audio": 0.0000018,
                 "input_audio_cache": 1.8e-7,
                 "internal_reasoning": 0.0000054
+            }
+        }
+    },
+    {
+        "model": "google/gemini-3-flash-preview:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 0.0000015,
+                "web_search": 0.014,
+                "image": 2.5e-7,
+                "audio": 5e-7,
+                "internal_reasoning": 0.0000015
+            },
+            "google-vertex-global": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 0.0000015,
+                "web_search": 0.014,
+                "image": 2.5e-7,
+                "audio": 5e-7,
+                "internal_reasoning": 0.0000015
             }
         }
     },
@@ -2859,6 +3150,31 @@
         }
     },
     {
+        "model": "google/gemini-3.1-flash-lite:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 1.25e-7,
+                "completion_token": 7.5e-7,
+                "cache_read_token": 1.25e-8,
+                "web_search": 0.014,
+                "image": 1.25e-7,
+                "audio": 2.5e-7,
+                "input_audio_cache": 2.5e-8,
+                "internal_reasoning": 7.5e-7
+            },
+            "google-vertex-global": {
+                "prompt_token": 1.25e-7,
+                "completion_token": 7.5e-7,
+                "cache_read_token": 1.25e-8,
+                "web_search": 0.014,
+                "image": 1.25e-7,
+                "audio": 2.5e-7,
+                "input_audio_cache": 2.5e-8,
+                "internal_reasoning": 7.5e-7
+            }
+        }
+    },
+    {
         "model": "google/gemini-3.1-pro-preview",
         "cost": {
             "default": {
@@ -2964,6 +3280,27 @@
                 "audio": 0.000002,
                 "input_audio_cache": 2e-7,
                 "internal_reasoning": 0.000012
+            }
+        }
+    },
+    {
+        "model": "google/gemini-3.1-pro-preview:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000006,
+                "web_search": 0.014,
+                "image": 0.000001,
+                "audio": 0.000001,
+                "internal_reasoning": 0.000006
+            },
+            "google-vertex-global": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000006,
+                "web_search": 0.014,
+                "image": 0.000001,
+                "audio": 0.000001,
+                "internal_reasoning": 0.000006
             }
         }
     },
@@ -3132,6 +3469,56 @@
         }
     },
     {
+        "model": "google/gemini-3.5-flash-lite:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 0.00000125,
+                "cache_read_token": 1.5e-8,
+                "web_search": 0.014,
+                "image": 1.5e-7,
+                "audio": 1.5e-7,
+                "input_audio_cache": 1.5e-8,
+                "internal_reasoning": 0.00000125
+            },
+            "google-vertex-global": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 0.00000125,
+                "cache_read_token": 1.5e-8,
+                "web_search": 0.014,
+                "image": 1.5e-7,
+                "audio": 1.5e-7,
+                "input_audio_cache": 1.5e-8,
+                "internal_reasoning": 0.00000125
+            }
+        }
+    },
+    {
+        "model": "google/gemini-3.5-flash:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 7.5e-7,
+                "completion_token": 0.0000045,
+                "cache_read_token": 7.5e-8,
+                "web_search": 0.014,
+                "image": 7.5e-7,
+                "audio": 0.0000015,
+                "input_audio_cache": 1.5e-7,
+                "internal_reasoning": 0.0000045
+            },
+            "google-vertex-global": {
+                "prompt_token": 7.5e-7,
+                "completion_token": 0.0000045,
+                "cache_read_token": 7.5e-8,
+                "web_search": 0.014,
+                "image": 7.5e-7,
+                "audio": 0.0000015,
+                "input_audio_cache": 1.5e-7,
+                "internal_reasoning": 0.0000045
+            }
+        }
+    },
+    {
         "model": "google/gemini-3.6-flash",
         "cost": {
             "default": {
@@ -3210,6 +3597,33 @@
                 "audio": 0.0000027,
                 "input_audio_cache": 2.7e-7,
                 "internal_reasoning": 0.0000135
+            }
+        }
+    },
+    {
+        "model": "google/gemini-3.6-flash:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 7.5e-7,
+                "completion_token": 0.00000375,
+                "cache_read_token": 7.5e-8,
+                "cache_write_token": 8.333333333e-8,
+                "web_search": 0.014,
+                "image": 7.5e-7,
+                "audio": 7.5e-7,
+                "input_audio_cache": 7.5e-8,
+                "internal_reasoning": 0.00000375
+            },
+            "google-vertex-global": {
+                "prompt_token": 7.5e-7,
+                "completion_token": 0.00000375,
+                "cache_read_token": 7.5e-8,
+                "cache_write_token": 8.333333333e-8,
+                "web_search": 0.014,
+                "image": 7.5e-7,
+                "audio": 7.5e-7,
+                "input_audio_cache": 7.5e-8,
+                "internal_reasoning": 0.00000375
             }
         }
     },
@@ -3593,19 +4007,24 @@
         "model": "inclusionai/ling-3.0-flash",
         "cost": {
             "default": {
-                "prompt_token": 7.5e-8,
-                "completion_token": 2.2e-7,
-                "cache_read_token": 1.5e-8
+                "prompt_token": 2.1e-8,
+                "completion_token": 6.3e-8,
+                "cache_read_token": 4.2e-9
             },
             "deepinfra-bf16": {
                 "prompt_token": 7.5e-8,
                 "completion_token": 2.2e-7,
                 "cache_read_token": 1.5e-8
+            },
+            "novita": {
+                "prompt_token": 6e-8,
+                "completion_token": 1.8e-7,
+                "cache_read_token": 1.2e-8
             }
         }
     },
     {
-        "model": "inclusionai/ling-3.0-flash:free",
+        "model": "inclusionai/ling-3.0-tiny:free",
         "cost": {
             "default": {
                 "prompt_token": 0,
@@ -4226,9 +4645,9 @@
                 "cache_read_token": 6e-8
             },
             "deepinfra-fp8": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012,
-                "cache_read_token": 6e-8
+                "prompt_token": 2.8e-7,
+                "completion_token": 0.0000011,
+                "cache_read_token": 5.6e-8
             },
             "gmicloud-fp8": {
                 "prompt_token": 6e-7,
@@ -4263,6 +4682,21 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 6e-8
+            }
+        }
+    },
+    {
+        "model": "minimax/minimax-m3:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7,
+                "cache_read_token": 3e-8
+            },
+            "together": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7,
+                "cache_read_token": 3e-8
             }
         }
     },
@@ -4807,9 +5241,9 @@
                 "cache_read_token": 1.5e-7
             },
             "deepinfra-fp4": {
-                "prompt_token": 7.4e-7,
-                "completion_token": 0.0000035,
-                "cache_read_token": 1.5e-7
+                "prompt_token": 6.8e-7,
+                "completion_token": 0.0000034,
+                "cache_read_token": 1.36e-7
             },
             "inceptron-int4": {
                 "prompt_token": 7e-7,
@@ -4859,6 +5293,21 @@
         }
     },
     {
+        "model": "moonshotai/kimi-k2.7-code:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 4.75e-7,
+                "completion_token": 0.000002,
+                "cache_read_token": 9.5e-8
+            },
+            "together": {
+                "prompt_token": 4.75e-7,
+                "completion_token": 0.000002,
+                "cache_read_token": 9.5e-8
+            }
+        }
+    },
+    {
         "model": "moonshotai/kimi-k3",
         "cost": {
             "default": {
@@ -4902,7 +5351,7 @@
                 "cache_read_token": 3e-7
             },
             "morph": {
-                "prompt_token": 0.0000029,
+                "prompt_token": 0.0000025,
                 "completion_token": 0.000014,
                 "cache_read_token": 2.9e-7
             },
@@ -5095,8 +5544,8 @@
         "model": "nvidia/nemotron-3-super-120b-a12b",
         "cost": {
             "default": {
-                "prompt_token": 8.5e-8,
-                "completion_token": 4e-7
+                "prompt_token": 3e-7,
+                "completion_token": 9e-7
             },
             "deepinfra-bf16": {
                 "prompt_token": 8.5e-8,
@@ -5153,6 +5602,21 @@
                 "prompt_token": 6.25e-7,
                 "completion_token": 0.000003125,
                 "cache_read_token": 1.875e-7
+            }
+        }
+    },
+    {
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000018,
+                "cache_read_token": 1e-7
+            },
+            "together": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000018,
+                "cache_read_token": 1e-7
             }
         }
     },
@@ -5265,6 +5729,21 @@
         }
     },
     {
+        "model": "openai/gpt-3.5-turbo:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 7.5e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 7.5e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-4",
         "cost": {
             "default": {
@@ -5304,6 +5783,21 @@
             "openai": {
                 "prompt_token": 0.00001,
                 "completion_token": 0.00003
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-4-turbo:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000015,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000015,
+                "web_search": 0.01
             }
         }
     },
@@ -5366,6 +5860,23 @@
         }
     },
     {
+        "model": "openai/gpt-4.1-mini:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 2e-7,
+                "completion_token": 8e-7,
+                "cache_read_token": 5e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 2e-7,
+                "completion_token": 8e-7,
+                "cache_read_token": 5e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-4.1-nano",
         "cost": {
             "default": {
@@ -5390,6 +5901,40 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 2.5e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-4.1-nano:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5e-8,
+                "completion_token": 2e-7,
+                "cache_read_token": 1.25e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 5e-8,
+                "completion_token": 2e-7,
+                "cache_read_token": 1.25e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-4.1:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000004,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000004,
+                "cache_read_token": 2.5e-7,
                 "web_search": 0.01
             }
         }
@@ -5506,6 +6051,40 @@
         }
     },
     {
+        "model": "openai/gpt-4o-mini:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 7.5e-8,
+                "completion_token": 3e-7,
+                "cache_read_token": 3.75e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 7.5e-8,
+                "completion_token": 3e-7,
+                "cache_read_token": 3.75e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-4o:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.000005,
+                "cache_read_token": 6.25e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.000005,
+                "cache_read_token": 6.25e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5",
         "cost": {
             "default": {
@@ -5530,6 +6109,23 @@
                 "prompt_token": 0.00000125,
                 "completion_token": 0.00001,
                 "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5-codex:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.000005,
+                "cache_read_token": 6.25e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.000005,
+                "cache_read_token": 6.25e-8,
                 "web_search": 0.01
             }
         }
@@ -5608,6 +6204,29 @@
         }
     },
     {
+        "model": "openai/gpt-5-mini:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 1.25e-7,
+                "completion_token": 0.000001,
+                "cache_read_token": 1.25e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 1.25e-7,
+                "completion_token": 0.000001,
+                "cache_read_token": 1.25e-8,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 6.25e-8,
+                "completion_token": 5e-7,
+                "cache_read_token": 6.25e-9,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5-nano",
         "cost": {
             "default": {
@@ -5643,6 +6262,23 @@
         }
     },
     {
+        "model": "openai/gpt-5-nano:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 2.5e-8,
+                "completion_token": 2e-7,
+                "cache_read_token": 2.5e-9,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 2.5e-8,
+                "completion_token": 2e-7,
+                "cache_read_token": 2.5e-9,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5-pro",
         "cost": {
             "default": {
@@ -5653,6 +6289,38 @@
             "openai": {
                 "prompt_token": 0.000015,
                 "completion_token": 0.00012,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000075,
+                "completion_token": 0.00006,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.0000075,
+                "completion_token": 0.00006,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.000005,
+                "cache_read_token": 6.25e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.000005,
+                "cache_read_token": 6.25e-8,
                 "web_search": 0.01
             }
         }
@@ -5750,6 +6418,35 @@
         }
     },
     {
+        "model": "openai/gpt-5.1:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.000005,
+                "cache_read_token": 6.25e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.000005,
+                "cache_read_token": 6.25e-8,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 3.125e-7,
+                "completion_token": 0.0000025,
+                "cache_read_token": 3.125e-8,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5.2",
         "cost": {
             "default": {
@@ -5835,6 +6532,50 @@
             "openai": {
                 "prompt_token": 0.000021,
                 "completion_token": 0.000168,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.2-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000105,
+                "completion_token": 0.000084,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.0000105,
+                "completion_token": 0.000084,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.2:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 8.75e-7,
+                "completion_token": 0.000007,
+                "cache_read_token": 8.75e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 8.75e-7,
+                "completion_token": 0.000007,
+                "cache_read_token": 8.75e-8,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 4.375e-7,
+                "completion_token": 0.0000035,
+                "cache_read_token": 4.375e-8,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 0.00000175,
+                "completion_token": 0.000014,
+                "cache_read_token": 1.75e-7,
                 "web_search": 0.01
             }
         }
@@ -5993,6 +6734,35 @@
         }
     },
     {
+        "model": "openai/gpt-5.4-mini:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 3.75e-7,
+                "completion_token": 0.00000225,
+                "cache_read_token": 3.75e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 3.75e-7,
+                "completion_token": 0.00000225,
+                "cache_read_token": 3.75e-8,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 1.875e-7,
+                "completion_token": 0.000001125,
+                "cache_read_token": 1.875e-8,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 7.5e-7,
+                "completion_token": 0.0000045,
+                "cache_read_token": 7.5e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5.4-nano",
         "cost": {
             "default": {
@@ -6022,6 +6792,29 @@
         }
     },
     {
+        "model": "openai/gpt-5.4-nano:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 6.25e-7,
+                "cache_read_token": 1e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 1e-7,
+                "completion_token": 6.25e-7,
+                "cache_read_token": 1e-8,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 5e-8,
+                "completion_token": 3.125e-7,
+                "cache_read_token": 5e-9,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5.4-pro",
         "cost": {
             "default": {
@@ -6042,6 +6835,55 @@
             "openai-flex": {
                 "prompt_token": 0.000015,
                 "completion_token": 0.00009,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.4-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000015,
+                "completion_token": 0.00009,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000015,
+                "completion_token": 0.00009,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 0.0000075,
+                "completion_token": 0.000045,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.4:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 6.25e-7,
+                "completion_token": 0.00000375,
+                "cache_read_token": 6.25e-8,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
                 "web_search": 0.01
             }
         }
@@ -6109,6 +6951,55 @@
             "openai-flex": {
                 "prompt_token": 0.000015,
                 "completion_token": 0.00009,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.5-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000015,
+                "completion_token": 0.00009,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000015,
+                "completion_token": 0.00009,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 0.0000075,
+                "completion_token": 0.000045,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.5:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 0.00000625,
+                "completion_token": 0.0000375,
+                "cache_read_token": 6.25e-7,
                 "web_search": 0.01
             }
         }
@@ -6215,6 +7106,64 @@
         }
     },
     {
+        "model": "openai/gpt-5.6-luna-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 6e-7,
+                "cache_read_token": 1e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 1e-7,
+                "completion_token": 6e-7,
+                "cache_read_token": 1e-8,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 5e-8,
+                "completion_token": 3e-7,
+                "cache_read_token": 5e-9,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 2e-7,
+                "completion_token": 0.0000012,
+                "cache_read_token": 2e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.6-luna:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 6e-7,
+                "cache_read_token": 1e-8,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 1e-7,
+                "completion_token": 6e-7,
+                "cache_read_token": 1e-8,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 5e-8,
+                "completion_token": 3e-7,
+                "cache_read_token": 5e-9,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 2e-7,
+                "completion_token": 0.0000012,
+                "cache_read_token": 2e-8,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5.6-sol",
         "cost": {
             "default": {
@@ -6316,6 +7265,64 @@
         }
     },
     {
+        "model": "openai/gpt-5.6-sol-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.00003,
+                "cache_read_token": 5e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.6-sol:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.0000075,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.00003,
+                "cache_read_token": 5e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5.6-terra",
         "cost": {
             "default": {
@@ -6412,6 +7419,64 @@
                 "completion_token": 0.000024,
                 "cache_read_token": 4e-7,
                 "cache_write_token": 0.000005,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.6-terra-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000006,
+                "cache_read_token": 1e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000006,
+                "cache_read_token": 1e-7,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.000003,
+                "cache_read_token": 5e-8,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.000012,
+                "cache_read_token": 2e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.6-terra:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000006,
+                "cache_read_token": 1e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000006,
+                "cache_read_token": 1e-7,
+                "web_search": 0.01
+            },
+            "openai-flex": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.000003,
+                "cache_read_token": 5e-8,
+                "web_search": 0.01
+            },
+            "openai-priority": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.000012,
+                "cache_read_token": 2e-7,
                 "web_search": 0.01
             }
         }
@@ -6520,7 +7585,7 @@
                 "cache_read_token": 7.5e-8
             },
             "mancer-fp8": {
-                "prompt_token": 1e-7,
+                "prompt_token": 9e-8,
                 "completion_token": 5e-7
             },
             "mara": {
@@ -6681,6 +7746,38 @@
         }
     },
     {
+        "model": "openai/o1-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000075,
+                "completion_token": 0.0003,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000075,
+                "completion_token": 0.0003,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/o1:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000075,
+                "completion_token": 0.00003,
+                "cache_read_token": 0.00000375,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.0000075,
+                "completion_token": 0.00003,
+                "cache_read_token": 0.00000375,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/o3",
         "cost": {
             "default": {
@@ -6732,6 +7829,40 @@
         }
     },
     {
+        "model": "openai/o3-mini-high:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 2.75e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 2.75e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/o3-mini:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 2.75e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 2.75e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/o3-pro",
         "cost": {
             "default": {
@@ -6742,6 +7873,38 @@
             "openai": {
                 "prompt_token": 0.00002,
                 "completion_token": 0.00008,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/o3-pro:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00001,
+                "completion_token": 0.00004,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.00001,
+                "completion_token": 0.00004,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/o3:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000004,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000004,
+                "cache_read_token": 2.5e-7,
                 "web_search": 0.01
             }
         }
@@ -6776,6 +7939,40 @@
                 "prompt_token": 0.0000011,
                 "completion_token": 0.0000044,
                 "cache_read_token": 2.75e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/o4-mini-high:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 1.375e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 1.375e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/o4-mini:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 1.375e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 1.375e-7,
                 "web_search": 0.01
             }
         }
@@ -7552,8 +8749,8 @@
         "model": "qwen/qwen3-vl-235b-a22b-thinking",
         "cost": {
             "default": {
-                "prompt_token": 9.8e-7,
-                "completion_token": 0.00000395
+                "prompt_token": 4e-7,
+                "completion_token": 0.000004
             },
             "alibaba-fp8": {
                 "prompt_token": 4e-7,
@@ -7655,8 +8852,8 @@
         "model": "qwen/qwen3.5-122b-a10b",
         "cost": {
             "default": {
-                "prompt_token": 2.6e-7,
-                "completion_token": 0.00000208
+                "prompt_token": 2.9e-7,
+                "completion_token": 0.0000024
             },
             "alibaba-fp8": {
                 "prompt_token": 2.6e-7,
@@ -7951,11 +9148,13 @@
         "cost": {
             "default": {
                 "prompt_token": 1.4e-7,
-                "completion_token": 0.000001
+                "completion_token": 0.000001,
+                "cache_read_token": 5e-8
             },
             "akashml-fp8": {
                 "prompt_token": 1.4e-7,
-                "completion_token": 0.000001
+                "completion_token": 0.000001,
+                "cache_read_token": 5e-8
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 1.86e-7,
@@ -8423,7 +9622,7 @@
         "model": "thinkingmachines/inkling-small",
         "cost": {
             "default": {
-                "prompt_token": 5e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 1e-7
             },
@@ -8436,6 +9635,21 @@
                 "prompt_token": 5e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 1e-7
+            }
+        }
+    },
+    {
+        "model": "thinkingmachines/inkling:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.000002025,
+                "cache_read_token": 8.5e-8
+            },
+            "together": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.000002025,
+                "cache_read_token": 8.5e-8
             }
         }
     },
@@ -8886,7 +10100,7 @@
                 "completion_token": 0.0000022
             },
             "mancer-fp4": {
-                "prompt_token": 7e-7,
+                "prompt_token": 6e-7,
                 "completion_token": 0.0000025
             },
             "novita-fp8": {
@@ -9246,9 +10460,9 @@
                 "cache_read_token": 2.6e-7
             },
             "phala": {
-                "prompt_token": 0.00000126,
-                "completion_token": 0.00000396,
-                "cache_read_token": 2.34e-7
+                "prompt_token": 0.000001134,
+                "completion_token": 0.000003564,
+                "cache_read_token": 2.106e-7
             },
             "sail-research-fp8": {
                 "prompt_token": 9e-7,
@@ -9289,6 +10503,21 @@
                 "prompt_token": 0.0000014,
                 "completion_token": 0.0000044,
                 "cache_read_token": 2.6e-7
+            }
+        }
+    },
+    {
+        "model": "z-ai/glm-5.2:batch",
+        "cost": {
+            "default": {
+                "prompt_token": 7e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 1.3e-7
+            },
+            "together": {
+                "prompt_token": 7e-7,
+                "completion_token": 0.0000022,
+                "cache_read_token": 1.3e-7
             }
         }
     },

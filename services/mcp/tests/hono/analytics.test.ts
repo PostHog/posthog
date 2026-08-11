@@ -34,6 +34,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         apiKeyScopes: [],
         clientProfile: {} as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             organizationId: 'org-request',
             projectId: 'project-request',
@@ -100,6 +101,7 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_consumer: 'request-consumer',
             $mcp_mode: 'cli',
             $mcp_region: 'us',
+            $mcp_auth_method: 'personal_api_key',
             mcp_vendor_client: 'ClaudeAI',
             mcp_session_client_name: 'claude-code',
             mcp_session_client_version: '1.0',
@@ -116,6 +118,22 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.$mcp_client_name).toBe('Claude Desktop')
         expect(properties.mcp_session_client_name).toBeUndefined()
         expect(properties.mcp_session_vendor_client).toBeUndefined()
+    })
+
+    it('categorizes a proxied third-party tool and names its server', async () => {
+        // A gateway tool has no catalog entry, so without the fallback it lands
+        // uncategorized and disappears from every category-sliced view.
+        await trackToolCall('linear__create_issue', 12, false, makeState())
+
+        const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+        expect(properties.$mcp_tool_category).toBe('Third-party tools')
+        expect(properties.mcp_gateway_server).toBe('linear')
+    })
+
+    it('leaves a PostHog tool without a gateway server', async () => {
+        await trackToolCall('user-get', 12, false, makeState())
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.mcp_gateway_server).toBeUndefined()
     })
 
     describe('client identity live-first fallback', () => {
@@ -335,6 +353,11 @@ describe('Hono MCP analytics contexts', () => {
                 { query: 'SELECT count() FROM events -- information_schema' },
                 false,
             ],
+            // A proxied vendor tool's args and result are the customer's content passing
+            // through the gateway. Key-based redaction only catches credential-shaped
+            // fields, so capturing the payload would put arbitrary third-party content in
+            // analytics to serve evaluations that target PostHog's own tools.
+            ['a proxied third-party tool', 'linear__create_issue', { title: 'Customer escalation' }, false],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

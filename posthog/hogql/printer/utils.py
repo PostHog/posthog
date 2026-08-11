@@ -265,6 +265,17 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
+        # Sibling aggregating LEFT JOINs over federated Postgres tables execute their scans
+        # sequentially; merging them into one UNION ALL join overlaps the per-scan latency.
+        if context.modifiers is not None and context.modifiers.mergeFederatedAggregateJoins:
+            with context.timings.measure("merge_federated_aggregate_joins"):
+                # Deferred: same module-level cycle as clickhouse_property_resolution below.
+                from posthog.hogql.transforms.federated_join_merge import (
+                    merge_federated_aggregate_joins,  # noqa: PLC0415
+                )
+
+                node = merge_federated_aggregate_joins(node, context, dialect, stack, resolver_factory=resolver_factory)
+
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,

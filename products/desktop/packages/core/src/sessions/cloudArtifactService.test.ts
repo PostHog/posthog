@@ -134,6 +134,66 @@ describe("CloudArtifactService", () => {
     fetchMock.mockRestore();
   });
 
+  it("appends edited text as an output artifact with the same name and content type", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ ok: true } as Response);
+    const service = new CloudArtifactService(
+      vi.fn(),
+      bundleLocalSkill,
+      passthroughDeps,
+    );
+    const client = makeClient();
+    (
+      client.prepareTaskRunArtifactUploads as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([
+      {
+        id: "prep-1",
+        name: "report.md",
+        type: "output",
+        size: 16,
+        content_type: "text/markdown",
+        presigned_post: { url: "https://s3/upload", fields: { key: "k" } },
+      },
+    ]);
+    (
+      client.finalizeTaskRunArtifactUploads as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([{ id: "artifact-2" }]);
+
+    const id = await service.uploadRunOutput(
+      client,
+      "task-1",
+      "run-1",
+      "report.md",
+      "# Edited by user",
+      "text/markdown",
+    );
+
+    expect(id).toBe("artifact-2");
+    expect(client.prepareTaskRunArtifactUploads).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      [
+        {
+          name: "report.md",
+          type: "output",
+          size: 16,
+          content_type: "text/markdown",
+        },
+      ],
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://s3/upload",
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
+    expect(client.finalizeTaskRunArtifactUploads).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      [expect.objectContaining({ id: "prep-1", name: "report.md" })],
+    );
+    fetchMock.mockRestore();
+  });
+
   it("uploads local skill bundles as skill bundle artifacts", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

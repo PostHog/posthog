@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
+    is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
 
@@ -163,14 +164,16 @@ class DeltaTableRef:
 
     async def _capture_unless_transient(self, e: Exception) -> None:
         """capture_exception unless `e` is a known-transient object-store blip (see
-        is_transient_object_store_error) — those recover on retry and aren't a defect, so reporting
-        them to error tracking is just noise. A transient blip is re-raised as
-        TransientObjectStoreError instead of letting the original propagate: the activity
-        interceptor reports any uncaught activity exception unless it's a NonReportableError, so a
-        bare re-raise here would still mint a fresh issue at that boundary. Never suppresses the
-        re-raise itself, so Temporal's activity retry policy is unaffected either way.
+        is_transient_object_store_error) or a concurrent-purge race on `_delta_log` (see
+        is_transient_delta_maintenance_error — the open below can lose that same race a maintenance
+        pass can) — those recover on retry and aren't a defect, so reporting them to error tracking
+        is just noise. A transient blip is re-raised as TransientObjectStoreError instead of letting
+        the original propagate: the activity interceptor reports any uncaught activity exception
+        unless it's a NonReportableError, so a bare re-raise here would still mint a fresh issue at
+        that boundary. Never suppresses the re-raise itself, so Temporal's activity retry policy is
+        unaffected either way.
         """
-        if is_transient_object_store_error(e):
+        if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
             await self._logger.awarning(f"get_delta_table: transient object-store error, not reporting: {e}")
             raise TransientObjectStoreError(str(e)) from e
         capture_exception(e)
@@ -236,7 +239,9 @@ class DeltaTableRef:
         OOM-crashed merge — after which every sync fails to open the table and loops. Non-destructive:
         only attempts an open (bypassing the get_delta_table cache). A table that simply doesn't exist is
         not corrupt; an unknown open error is not classified as corrupt, so a transient failure never
-        triggers a destructive revive.
+        triggers a destructive revive. A recognized transient blip (see is_transient_object_store_error,
+        is_transient_delta_maintenance_error) is excluded the same way — otherwise a concurrent purge
+        racing this open would misread as corruption and trigger a needless destructive revive.
         """
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
@@ -250,7 +255,9 @@ class DeltaTableRef:
         try:
             await asyncio.to_thread(deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options)
             return False
-        except (deltalake.exceptions.DeltaError, FileNotFoundError):
+        except (deltalake.exceptions.DeltaError, FileNotFoundError) as e:
+            if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
+                return False
             return True
         except Exception:
             return False
