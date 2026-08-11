@@ -147,7 +147,7 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         // Read via `findMounted()` rather than capturing the `values` proxy:
         // the store path can be torn down (HMR, logout, kea resetContext) without
         // our `beforeUnmount` clearing the getter, which would throw a kea
@@ -157,9 +157,14 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
 
         // Central error-tracking filter — drops any `$exception` event whose
         // chain contains a ReadOnlyModeError. Catches direct captures *and*
-        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). No
-        // existing code sets `before_send`, so we own this config slot.
-        posthog.set_config({ before_send: dropReadOnlyExceptions })
+        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). Compose
+        // with the before_send `loadPostHogJS` installed at init (e.g. the
+        // handled-auth-gate filter) rather than clobbering it, restoring it on
+        // unmount.
+        const priorBeforeSend = posthog.config.before_send
+        cache.priorBeforeSend = priorBeforeSend
+        const prior = priorBeforeSend ? (Array.isArray(priorBeforeSend) ? priorBeforeSend : [priorBeforeSend]) : []
+        posthog.set_config({ before_send: [dropReadOnlyExceptions, ...prior] })
 
         // The user-facing toast for blocked writes is shown by the standard
         // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that
@@ -168,11 +173,10 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
         // is needed.
     }),
 
-    beforeUnmount(() => {
+    beforeUnmount(({ cache }) => {
         setReadOnlyGetter(null)
         setReadOnlyNotifier(null)
-        // Releasing ownership of `before_send` — if PostHog adds another filter
-        // here in the future, it should compose rather than be clobbered.
-        posthog.set_config({ before_send: undefined })
+        // Restore the before_send init installed, keeping any non-read-only filters intact.
+        posthog.set_config({ before_send: cache.priorBeforeSend })
     }),
 ])
