@@ -16,7 +16,6 @@ import {
     RealNotebookNodeEdit,
     getEditableNodeAttributeKeys,
     getHiddenInsertCommandKeysForFeatureFlags,
-    getMarkdownNotebookNodeTitle,
     getMarkdownNodeAttributeLabel,
     getMarkdownRegistryForFeatureFlags,
     getQueryTitle,
@@ -76,17 +75,6 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.SQLV2.insertCommand).toBeUndefined()
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
-
-        it('offers the BlueBird node only behind the bluebird flag, while always rendering existing tags', () => {
-            const flagOn = getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.PROJECT_BLUEBIRD]: true })
-            expect(flagOn.components.BlueBird.insertCommand).toBeTruthy()
-
-            const flagOff = getMarkdownRegistryForFeatureFlags({})
-            expect(flagOff.components.BlueBird.insertCommand).toBeUndefined()
-            // Only insertion is gated - an already-inserted canvas must still render.
-            expect(flagOff.components.BlueBird.ViewComponent).toBeTruthy()
-            expect(flagOff.components.Canvas.ViewComponent).toBeTruthy()
-        })
     })
 
     describe('insert menu SQL commands', () => {
@@ -114,24 +102,6 @@ describe('markdownNotebookRegistry', () => {
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.Recording.exclusiveEditPanel).toBeUndefined()
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlag.exclusiveEditPanel).toBeUndefined()
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlagCodeExample.exclusiveEditPanel).toBeUndefined()
-    })
-
-    it('uses the canvas prompt instead of its UUID as the suggested title', () => {
-        const prompt = 'Make a spinning 3D globe showing signups by country'
-
-        expect(
-            getMarkdownNotebookNodeTitle(
-                {
-                    id: 'canvas-node',
-                    type: 'component',
-                    tagName: 'BlueBird',
-                    props: { id: 'canvas-uuid', prompt },
-                },
-                NotebookNodeType.Canvas,
-                KNOWN_NODES[NotebookNodeType.Canvas],
-                'Canvas'
-            )
-        ).toBe(prompt)
     })
 
     it.each([

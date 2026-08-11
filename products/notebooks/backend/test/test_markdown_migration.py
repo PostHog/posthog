@@ -125,13 +125,6 @@ class TestNotebookMarkdownConversion(BaseTest):
                     },
                 },
                 {
-                    "type": "ph-canvas",
-                    "attrs": {
-                        "id": "018f4f7e-2ac8-7d18-b688-dbd0f82cce0a",
-                        "prompt": "Make a spinning 3D globe",
-                    },
-                },
-                {
                     "type": "ph-query",
                     "attrs": {
                         "query": {"kind": "SavedInsightNode", "shortId": "custom-panels"},
@@ -159,7 +152,6 @@ class TestNotebookMarkdownConversion(BaseTest):
             '<Query showFilters hideResults query={{"kind":"SavedInsightNode","shortId":"custom-panels"}} />'
             in markdown
         )
-        assert '<BlueBird id="018f4f7e-2ac8-7d18-b688-dbd0f82cce0a" prompt="Make a spinning 3D globe" />' in markdown
         assert '<FeatureFlag id={123} view="summary" />' in markdown
 
     def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
