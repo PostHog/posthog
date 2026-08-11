@@ -14,8 +14,10 @@ from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
     AccountsTableAccountField as AccountsTableAccountField,
+    AccountsTableAggregation as AccountsTableAggregation,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
+    AccountsTableThresholdOperator as AccountsTableThresholdOperator,
     Action as Action,
     AgentMode as AgentMode,
     AggregationAxisFormat as AggregationAxisFormat,
@@ -322,6 +324,13 @@ class AccountsTableAccountIdFilter(BaseModel):
     )
     accountId: str
     kind: Literal["account_id"] = "account_id"
+
+
+class AccountsTableCountMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["count"] = "count"
 
 
 class AccountsTableCustomPropertyColumn(BaseModel):
@@ -3054,6 +3063,16 @@ class AccountCustomPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class AccountsTableAggregateMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: AccountsTableAggregation
+    column: AccountsTableCustomPropertyColumn
+    kind: Literal["aggregate"] = "aggregate"
+    scale: float | None = None
+
+
 class AccountsTableAssignedToFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3063,6 +3082,16 @@ class AccountsTableAssignedToFilter(BaseModel):
         ...,
         description=("Match accounts where any listed user actively holds any relationship."),
     )
+
+
+class AccountsTableCountThresholdMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: AccountsTableCustomPropertyColumn
+    kind: Literal["count_threshold"] = "count_threshold"
+    operator: AccountsTableThresholdOperator
+    value: float
 
 
 class AccountsTableCustomPropertyFilter(BaseModel):
@@ -8650,6 +8679,10 @@ class AccountsTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -10413,6 +10446,10 @@ class CachedAccountsTableQueryResponse(BaseModel):
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     last_refresh: AwareDatetime
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
@@ -15808,6 +15845,10 @@ class Response23(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -21161,6 +21202,10 @@ class QueryResponseAlternative58(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -22354,6 +22399,10 @@ class QueryResponseAlternative88(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -24328,6 +24377,12 @@ class AccountsTableQuery(BaseModel):
     )
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: conint(ge=1) | None = None
+    metrics: (
+        list[AccountsTableCountMetric | AccountsTableAggregateMetric | AccountsTableCountThresholdMetric] | None
+    ) = Field(
+        default=None,
+        description=("Aggregates to evaluate against the filtered account set. A metrics query skips row loading."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: AccountsTableQueryResponse | None = None
