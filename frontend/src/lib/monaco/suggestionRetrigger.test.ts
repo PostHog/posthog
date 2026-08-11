@@ -12,13 +12,18 @@ type ContentChangeListener = (event: {
 }) => void
 
 /** The slice of IStandaloneCodeEditor the retrigger reads, driven by hand in the tests. */
-function fakeEditor(textBeforeCursor: string): {
+function fakeEditor(
+    textBeforeCursor: string,
+    initialLanguage: string = HogLanguage.hogTemplate
+): {
     editor: any
     trigger: jest.Mock
     delete_: () => void
     insert: () => void
+    setLanguage: (language: string) => void
 } {
     let listener: ContentChangeListener | null = null
+    let language = initialLanguage
     const trigger = jest.fn()
     const editor = {
         onDidChangeModelContent: (callback: ContentChangeListener) => {
@@ -29,6 +34,7 @@ function fakeEditor(textBeforeCursor: string): {
         getModel: () => ({
             getValue: () => textBeforeCursor,
             getOffsetAt: () => textBeforeCursor.length,
+            getLanguageId: () => language,
         }),
         getPosition: () => ({ lineNumber: 1, column: textBeforeCursor.length + 1 }),
         trigger,
@@ -38,6 +44,7 @@ function fakeEditor(textBeforeCursor: string): {
         trigger,
         delete_: () => listener?.({ isFlush: false, changes: [{ text: '', rangeLength: 1 }] }),
         insert: () => listener?.({ isFlush: false, changes: [{ text: 'a', rangeLength: 0 }] }),
+        setLanguage: (next: string) => (language = next),
     }
 }
 
@@ -55,6 +62,12 @@ describe('suggestionRetrigger', () => {
         [HogLanguage.hogTemplate, 'Hi {f({a: 1})', true],
         [HogLanguage.hogTemplate, 'Hi {person.properties.name} ', false],
         [HogLanguage.hogTemplate, 'escaped \\{ brace ', false],
+        [HogLanguage.hogTemplate, 'Quoted "{...}"', false],
+        [HogLanguage.hogTemplate, 'Quoted inside {"{...}"', true],
+        [HogLanguage.hogTemplate, 'Quoted {"{"}', false],
+        [HogLanguage.hogTemplate, `Hi {concat('{"id": "', event.uuid, '"}')} thanks`, false],
+        [HogLanguage.hogTemplate, "Hi {concat('}', person.pro", true],
+        [HogLanguage.hogTemplate, "Don't forget {person.pro", true],
         [HogLanguage.liquid, '{{ person.pro', true],
         [HogLanguage.liquid, '{% if person.pro', true],
         [HogLanguage.liquid, '{{ person.properties.name }} ', false],
@@ -65,7 +78,7 @@ describe('suggestionRetrigger', () => {
 
     test('a burst of deletions fires a single trigger only after the pause', () => {
         const { editor, trigger, delete_ } = fakeEditor('Hi {person.pro')
-        retriggerSuggestionsAfterDeletion(editor, HogLanguage.hogTemplate)
+        retriggerSuggestionsAfterDeletion(editor)
 
         for (let i = 0; i < 10; i++) {
             delete_()
@@ -80,7 +93,7 @@ describe('suggestionRetrigger', () => {
 
     test('an insertion after a deletion cancels the pending reopen', () => {
         const { editor, trigger, delete_, insert } = fakeEditor('Hi {person.pro')
-        retriggerSuggestionsAfterDeletion(editor, HogLanguage.hogTemplate)
+        retriggerSuggestionsAfterDeletion(editor)
 
         delete_()
         insert()
@@ -91,8 +104,19 @@ describe('suggestionRetrigger', () => {
 
     test('does not reopen when the deletions leave the cursor outside an expression', () => {
         const { editor, trigger, delete_ } = fakeEditor('Hi there ')
-        retriggerSuggestionsAfterDeletion(editor, HogLanguage.hogTemplate)
+        retriggerSuggestionsAfterDeletion(editor)
 
+        delete_()
+        jest.advanceTimersByTime(1000)
+
+        expect(trigger).not.toHaveBeenCalled()
+    })
+
+    test('reads the language from the model at fire time, not from registration', () => {
+        const { editor, trigger, delete_, setLanguage } = fakeEditor('Hi {person.pro')
+        retriggerSuggestionsAfterDeletion(editor)
+
+        setLanguage(HogLanguage.liquid)
         delete_()
         jest.advanceTimersByTime(1000)
 
@@ -101,7 +125,7 @@ describe('suggestionRetrigger', () => {
 
     test('disposal cancels a pending reopen', () => {
         const { editor, trigger, delete_ } = fakeEditor('Hi {person.pro')
-        const disposable = retriggerSuggestionsAfterDeletion(editor, HogLanguage.hogTemplate)
+        const disposable = retriggerSuggestionsAfterDeletion(editor)
 
         delete_()
         disposable.dispose()
