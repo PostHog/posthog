@@ -92,6 +92,7 @@ Add it when any of these hold:
 - When the vendor renames a collection between versions, keep the schema/table name set identical across versions and put the rename in a per-version path on the endpoint config — otherwise discovery diffs orphan the table on repin.
 - When the new version has no equivalent for an old endpoint (a dropped collection, not a rename), keep that table only on the versions that serve it and let the table set differ by version — never map it to a guessed path just to keep the sets equal, since docs are the sole source of truth and an unverified path makes a new source surface a table that 404s at sync time.
 - A source with no dispatch may currently read its version from a constant on a shared model (e.g. the OAuth `Integration` model) that also drives version-independent flows like OAuth token minting. Repoint only the sync request path onto the resolved pin; leave that constant, since bumping it changes those other flows' version with a blast radius beyond this source.
+- The opposite holds when the new version is a genuinely different vendor product rather than a renamed collection (the old and new labels serve different endpoints and tables): give the new version its own disjoint table set, don't force the old names onto it. That divergence is safe only because sources are never repinned — so a 2.5→3.0-style move is lossy, and its migration is documented-not-scripted, exactly like a rename that changes primary keys.
 
 ## Self-improvement
 
