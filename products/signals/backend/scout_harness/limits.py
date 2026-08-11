@@ -34,10 +34,14 @@ STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 # auto-paused (`SignalScoutConfig.auto_paused_at`). Nothing else in the harness notices a
 # scout that has never once succeeded: every dispatch takes a fresh sandbox lease for the
 # full runtime cap, produces nothing, and books a `failed` run — so a permanently broken
-# (team, skill) lane costs a lease per interval forever. Five in a row is well past any
-# plausible run of bad luck (a flaky sandbox spawn, one upstream provider error) while still
-# tripping within hours on the tight cadences, not days.
-FAILURE_STREAK_PAUSE_THRESHOLD = 5
+# (team, skill) lane costs a lease per interval forever. The threshold has to absorb not
+# just per-lane bad luck (a flaky sandbox spawn, one upstream provider error) but a
+# platform-wide outage, which fails every run fleet-wide and racks up the streak fastest on
+# the tight cadences: at 5, an hourly scout paused after a multi-hour outage and then sat
+# out the 24h probe cooldown long after the platform recovered. Twelve lets an hourly lane
+# ride out roughly half a day of continuous failure while a genuinely wedged lane still
+# trips within its first day on the tight cadences.
+FAILURE_STREAK_PAUSE_THRESHOLD = 12
 
 # Cooldown a paused lane holds before the coordinator dispatches one probe — the half-open
 # state. A pause is not a tombstone: whatever wedged the lane (a broken sandbox env, a skill
