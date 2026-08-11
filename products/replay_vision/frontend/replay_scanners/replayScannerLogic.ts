@@ -301,6 +301,9 @@ export interface replayScannerLogicActions {
     appendClassifierTags: (tags: string[]) => {
         tags: string[]
     }
+    clearClassifierTags: () => {
+        value: true
+    }
     clearObservationFilters: () => {
         value: true
     }
@@ -607,6 +610,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ReplayScanner) => ({ scanner }),
         appendClassifierTags: (tags: string[]) => ({ tags }),
+        clearClassifierTags: true,
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
@@ -1310,6 +1314,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 if (merged.length !== existing.length) {
                     actions.setScannerValue(['scanner_config', 'tags'], merged)
+                }
+            },
+
+            clearClassifierTags: () => {
+                const scanner = values.scanner
+                if (!scanner || scanner.scanner_type !== 'classifier') {
+                    return
+                }
+                if ((scanner.scanner_config.tags ?? []).length > 0) {
+                    actions.setScannerValue(['scanner_config', 'tags'], [])
                 }
             },
 

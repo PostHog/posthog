@@ -170,10 +170,11 @@ function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Ele
 function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
     const { scanner, tagSuggestionsLoading } = useValues(logic)
-    const { loadTagSuggestions } = useActions(logic)
+    const { loadTagSuggestions, clearClassifierTags } = useActions(logic)
 
     const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
     const hasPrompt = !!config?.prompt?.trim()
+    const hasTags = (config?.tags ?? []).length > 0
 
     return (
         <div className="space-y-2">
@@ -182,17 +183,30 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                 label={
                     <span className="flex w-full flex-wrap items-center justify-between gap-2">
                         Tag vocabulary
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            icon={<IconAI />}
-                            loading={tagSuggestionsLoading}
-                            disabledReason={hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'}
-                            onClick={() => loadTagSuggestions()}
-                            data-attr="replay-vision-suggest-tags-with-ai"
-                        >
-                            Suggest tags with PostHog AI
-                        </LemonButton>
+                        <span className="flex flex-wrap items-center gap-1">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                disabledReason={hasTags ? undefined : 'No tags to clear'}
+                                onClick={() => clearClassifierTags()}
+                                data-attr="replay-vision-clear-tag-vocabulary"
+                            >
+                                Clear all
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconAI />}
+                                loading={tagSuggestionsLoading}
+                                disabledReason={
+                                    hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'
+                                }
+                                onClick={() => loadTagSuggestions()}
+                                data-attr="replay-vision-suggest-tags-with-ai"
+                            >
+                                Suggest tags with PostHog AI
+                            </LemonButton>
+                        </span>
                     </span>
                 }
             >
@@ -207,6 +221,10 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                     />
                 )}
             </LemonField>
+            <div className="text-xs text-muted">
+                The classifier picks from these tags when labeling each session. If you started from a template, these
+                are example tags. Edit or clear them to fit your product.
+            </div>
             <ClassifierTagSuggestions scannerId={scannerId} />
         </div>
     )
