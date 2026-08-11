@@ -20,7 +20,7 @@ import {
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 type PiModelOption = PiModelSelection & { name?: string };
 
@@ -33,6 +33,8 @@ interface PiModelSelectorProps {
   onChange: (model: PiModelSelection) => void;
   onThinkingLevelChange?: (level: PiThinkingLevel) => void;
   onHarnessChange?: (harness: AgentHarness) => void;
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
 }
 
 function modelKey(model: PiModelSelection): string {
@@ -62,9 +64,12 @@ export function PiModelSelector({
   onChange,
   onThinkingLevelChange,
   onHarnessChange,
+  menuOpen,
+  onMenuOpenChange,
 }: PiModelSelectorProps) {
-  const [open, setOpen] = useState(false);
-  const pendingChangeRef = useRef<(() => void) | null>(null);
+  const [internalMenuOpen, setInternalMenuOpen] = useState(false);
+  const open = menuOpen ?? internalMenuOpen;
+  const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
 
   if (models.length === 0) {
     return null;
@@ -78,22 +83,8 @@ export function PiModelSelector({
     ? (thinkingLevelLabels[thinkingLevel] ?? thinkingLevel)
     : undefined;
 
-  const selectAndClose = (apply: () => void) => {
-    pendingChangeRef.current = apply;
-    setOpen(false);
-  };
-
   return (
-    <DropdownMenu
-      open={open}
-      onOpenChange={setOpen}
-      onOpenChangeComplete={(isOpen) => {
-        if (!isOpen && pendingChangeRef.current !== null) {
-          pendingChangeRef.current();
-          pendingChangeRef.current = null;
-        }
-      }}
-    >
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         render={
           <Button
@@ -134,9 +125,10 @@ export function PiModelSelector({
           <HarnessSubmenu
             value="pi"
             includePi
+            closeOnChange={false}
             onChange={(harness) => {
               if (harness !== "pi") {
-                selectAndClose(() => onHarnessChange(harness));
+                onHarnessChange(harness);
               }
             }}
           />
@@ -156,7 +148,7 @@ export function PiModelSelector({
                   (candidate) => modelKey(candidate) === value,
                 );
                 if (model) {
-                  selectAndClose(() => onChange(model));
+                  onChange(model);
                 }
               }}
             >
@@ -164,6 +156,7 @@ export function PiModelSelector({
                 <DropdownMenuRadioItem
                   key={modelKey(model)}
                   value={modelKey(model)}
+                  closeOnClick={false}
                 >
                   <span className="whitespace-nowrap">{modelLabel(model)}</span>
                 </DropdownMenuRadioItem>
@@ -185,13 +178,15 @@ export function PiModelSelector({
                 <DropdownMenuRadioGroup
                   value={thinkingLevel}
                   onValueChange={(value) =>
-                    selectAndClose(() =>
-                      onThinkingLevelChange(value as PiThinkingLevel),
-                    )
+                    onThinkingLevelChange(value as PiThinkingLevel)
                   }
                 >
                   {thinkingLevels.map((level) => (
-                    <DropdownMenuRadioItem key={level} value={level}>
+                    <DropdownMenuRadioItem
+                      key={level}
+                      value={level}
+                      closeOnClick={false}
+                    >
                       {thinkingLevelLabels[level] ?? level}
                     </DropdownMenuRadioItem>
                   ))}

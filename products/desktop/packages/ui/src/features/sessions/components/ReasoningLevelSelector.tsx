@@ -69,6 +69,8 @@ interface ReasoningLevelSelectorProps {
   onHarnessChange?: (harness: AgentHarness) => void;
   includePiHarness?: boolean;
   onConfigOptionChange?: (configId: string, value: string) => void;
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   isLoading?: boolean;
 }
@@ -102,10 +104,14 @@ export function ReasoningLevelSelector({
   onHarnessChange,
   includePiHarness,
   onConfigOptionChange,
+  menuOpen,
+  onMenuOpenChange,
   disabled,
   isLoading,
 }: ReasoningLevelSelectorProps) {
-  const [open, setOpen] = useState(false);
+  const [internalMenuOpen, setInternalMenuOpen] = useState(false);
+  const open = menuOpen ?? internalMenuOpen;
+  const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
   const [advanced, setAdvanced] = useState(false);
   const pendingChangeRef = useRef<(() => void) | null>(null);
   const displayThought = useRetainedConfigOption(thoughtOption);
@@ -376,24 +382,23 @@ export function ReasoningLevelSelector({
                   <HarnessSubmenu
                     value={adapter}
                     includePi={includePiHarness && !!onHarnessChange}
+                    closeOnChange={false}
                     onChange={(harness) => {
                       if (harness === adapter) {
                         return;
                       }
 
-                      selectAndClose(() => {
-                        if (harness === "pi") {
-                          onHarnessChange?.(harness);
-                          return;
-                        }
+                      if (harness === "pi") {
+                        onHarnessChange?.(harness);
+                        return;
+                      }
 
-                        if (onHarnessChange) {
-                          onHarnessChange(harness);
-                          return;
-                        }
+                      if (onHarnessChange) {
+                        onHarnessChange(harness);
+                        return;
+                      }
 
-                        onAdapterChange?.(harness);
-                      });
+                      onAdapterChange?.(harness);
                     }}
                   />
                 )}
@@ -415,7 +420,7 @@ export function ReasoningLevelSelector({
                             setOpen(false);
                             return;
                           }
-                          selectAndClose(() => changeModel(value));
+                          changeModel(value);
                         }}
                       >
                         {modelGroups.length > 0
@@ -430,6 +435,7 @@ export function ReasoningLevelSelector({
                                     <ModelRadioItem
                                       key={model.value}
                                       model={model}
+                                      closeOnClick={false}
                                     />
                                   ))}
                               </Fragment>
@@ -442,6 +448,7 @@ export function ReasoningLevelSelector({
                                 <ModelRadioItem
                                   key={model.value}
                                   model={model}
+                                  closeOnClick={false}
                                 />
                               ))}
                       </DropdownMenuRadioGroup>
@@ -459,12 +466,14 @@ export function ReasoningLevelSelector({
                     <DropdownMenuSubContent>
                       <DropdownMenuRadioGroup
                         value={currentEffort ?? ""}
-                        onValueChange={(value) =>
-                          selectAndClose(() => onChange?.(value))
-                        }
+                        onValueChange={(value) => onChange?.(value)}
                       >
                         {effortOptions.map((option) => (
-                          <LevelItem key={option.value} option={option} />
+                          <LevelItem
+                            key={option.value}
+                            option={option}
+                            closeOnClick={false}
+                          />
                         ))}
                       </DropdownMenuRadioGroup>
                     </DropdownMenuSubContent>
@@ -482,13 +491,15 @@ export function ReasoningLevelSelector({
                       <DropdownMenuRadioGroup
                         value={row.value}
                         onValueChange={(value) =>
-                          selectAndClose(() =>
-                            onConfigOptionChange?.(row.id, value),
-                          )
+                          onConfigOptionChange?.(row.id, value)
                         }
                       >
                         {row.options.map((option) => (
-                          <LevelItem key={option.value} option={option} />
+                          <LevelItem
+                            key={option.value}
+                            option={option}
+                            closeOnClick={false}
+                          />
                         ))}
                       </DropdownMenuRadioGroup>
                     </DropdownMenuSubContent>

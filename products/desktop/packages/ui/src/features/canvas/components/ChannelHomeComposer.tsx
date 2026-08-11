@@ -146,6 +146,8 @@ export const ChannelHomeComposer = forwardRef<
 
   const adapter = lastUsedAdapter;
   const [runtime, setRuntime] = useState<AgentRuntime>("acp");
+  // Keep the menu open when a harness switch swaps its ACP/Pi control.
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const didResolveRuntimeRef = useRef(false);
   const [selectedPiModelId, setSelectedPiModelId] = useState<string | null>(
     null,
@@ -592,6 +594,8 @@ export const ChannelHomeComposer = forwardRef<
               onChange={handlePiModelChange}
               onThinkingLevelChange={handlePiThinkingLevelChange}
               onHarnessChange={handleHarnessChange}
+              menuOpen={modelMenuOpen}
+              onMenuOpenChange={setModelMenuOpen}
             />
           ) : null
         }
@@ -611,6 +615,8 @@ export const ChannelHomeComposer = forwardRef<
               }
               includePiHarness={piHarnessEnabled}
               onConfigOptionChange={setConfigOption}
+              menuOpen={modelMenuOpen}
+              onMenuOpenChange={setModelMenuOpen}
               disabled={isBusy}
             />
           )

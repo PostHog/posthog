@@ -161,7 +161,7 @@ describe("ReasoningLevelSelector", () => {
     expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
   });
 
-  it("emits the raw value via onChange once the advanced menu closes", async () => {
+  it("changes reasoning without closing the advanced menu", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
@@ -178,9 +178,11 @@ describe("ReasoningLevelSelector", () => {
     const lowItem = await screen.findByRole("menuitemradio", { name: "Low" });
     fireEvent.click(lowItem);
 
-    await pollUntil(() => onChange.mock.calls.length > 0);
     expect(onChange).toHaveBeenCalledWith("low");
     expect(onChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Reasoning/ }),
+    ).toBeInTheDocument();
   });
 
   it("marks the adapter default level with a Default badge", async () => {
@@ -363,9 +365,11 @@ describe("ReasoningLevelSelector", () => {
     await openSub(user, /^Harness/);
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "Pi" }));
 
-    await pollUntil(() => onHarnessChange.mock.calls.length > 0);
     expect(onHarnessChange).toHaveBeenCalledWith("pi");
     expect(onHarnessChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Harness/ }),
+    ).toBeInTheDocument();
   });
 
   it("changes the model from its advanced submenu", async () => {
@@ -391,9 +395,11 @@ describe("ReasoningLevelSelector", () => {
       await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
     );
 
-    await pollUntil(() => onModelChange.mock.calls.length > 0);
     expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
     expect(onModelChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Model/ }),
+    ).toBeInTheDocument();
   });
 
   it("moves the model and effort together on a ladder notch that changes both", async () => {
