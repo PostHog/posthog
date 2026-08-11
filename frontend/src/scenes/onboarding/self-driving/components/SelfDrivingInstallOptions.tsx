@@ -10,6 +10,7 @@ import { useLocalWizardRunActive } from 'scenes/onboarding/shared/wizard-sync/ho
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from 'scenes/onboarding/shared/wizard-sync/WizardInstallOptions'
 import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
+import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
@@ -43,9 +44,9 @@ function ProductsBeingInstalled(): JSX.Element {
 
 /** What the self-driving run wires up, so the command isn't a leap of faith. */
 const WIZARD_SETS_UP = [
+    'Installs the SDK and wires up event capture',
     'Connects GitHub so agents can open pull requests',
-    'Chooses signal sources and scouts to watch',
-    'Sends findings to the Inbox',
+    'Sets up scouts that send findings to your Inbox',
 ]
 
 // The self-driving run is interactive: it asks about your issue tracker, walks you through the
@@ -54,7 +55,8 @@ const WIZARD_SETS_UP = [
 // being left to the experiment flag.
 export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
-    const { reportOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
+    const { reportOnboardingInstallModeSelected, reportOnboardingSelfDrivingExplainerClicked } =
+        useActions(onboardingEventUsageLogic)
     // Once the CLI registers a run, the command block and its caption give way to the tracker -
     // the command has been run, so repeating it is noise.
     const isRunActive = useLocalWizardRunActive(SELF_DRIVING_WORKFLOW_ID)
@@ -78,8 +80,16 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
     return (
         <div className="flex flex-col gap-4">
             <p className="text-sm text-muted text-center m-0">
-                Run this command in your project. The setup agent connects GitHub, chooses signal sources, and
-                configures scouts.
+                Run this command in your project. The setup agent detects your framework, installs the SDK, and starts
+                capturing events.{' '}
+                <Link
+                    to="https://posthog.com/self-driving"
+                    target="_blank"
+                    onClick={() => reportOnboardingSelfDrivingExplainerClicked('install')}
+                    data-attr="self-driving-explainer-link"
+                >
+                    What is self-driving?
+                </Link>
             </p>
             <WizardInstallOptions
                 hideHog
@@ -94,20 +104,40 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
                             <WizardCommandBlock
                                 hideHog
                                 subcommand="self-driving"
-                                description="Takes about ten minutes. It'll ask you a few things along the way."
+                                description="About ten minutes: a few questions up front, then the agent does the rest."
                             />
                         )}
                         <ProductsBeingInstalled />
                     </div>
                 }
             />
-            <CheckList
-                size="xs"
-                items={WIZARD_SETS_UP.map((line) => ({
-                    icon: <IconCheckCircle />,
-                    content: <span className="text-muted">{line}</span>,
-                }))}
-            />
+            <div className="flex justify-center">
+                <CheckList
+                    size="xs"
+                    items={WIZARD_SETS_UP.map((line) => ({
+                        icon: <IconCheckCircle />,
+                        content: <span className="text-muted">{line}</span>,
+                    }))}
+                />
+            </div>
         </div>
+    )
+}
+
+/** The manual escape hatch, rendered by the flow footer next to Continue on the install step. */
+export function ManualSetupButton(): JSX.Element {
+    const { reportOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
+    // New tab so the step, and its verification, stays open while they follow the instructions.
+    return (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            to={urls.settings('environment-details', 'snippet')}
+            targetBlank
+            onClick={() => reportOnboardingInstallModeSelected('manual')}
+            data-attr="self-driving-manual-setup"
+        >
+            Need to set up manually?
+        </LemonButton>
     )
 }
