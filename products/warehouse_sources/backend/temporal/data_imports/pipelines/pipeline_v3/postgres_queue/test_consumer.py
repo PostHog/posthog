@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
+    _is_connect_timeout_error,
     _is_dns_resolution_transient_error,
     _is_server_not_ready_error,
 )
@@ -629,6 +630,52 @@ class TestDnsResolutionTransientErrorClassification:
         ):
             loop_task = asyncio.create_task(consumer._recovery_loop())
             await asyncio.wait_for(swept.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+
+class TestConnectTimeoutErrorClassification:
+    def test_classifies_connection_timeout(self) -> None:
+        assert _is_connect_timeout_error(psycopg.errors.ConnectionTimeout("connection timeout expired")) is True
+
+    def test_ignores_other_operational_errors(self) -> None:
+        # A generic OperationalError carrying similar wording is not the same as psycopg's
+        # dedicated connect-time ConnectionTimeout class and must not be misclassified.
+        assert _is_connect_timeout_error(psycopg.OperationalError("connection timeout expired")) is False
+
+    @pytest.mark.asyncio
+    async def test_recovery_loop_does_not_report_connect_timeout_error(self):
+        # Reproduces the reported issue: the recovery connection times out while
+        # reconnecting for the periodic reconcile sweep. This is a connect-time-only
+        # failure (psycopg never raises ConnectionTimeout mid-query), and the sweep
+        # already retries every interval, so it must not be sent to error tracking.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            recovery_interval_seconds=0.01,
+            reconcile_interval_seconds=0,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+        consumer._recovery_conn = _make_healthy_conn()
+
+        second_reconcile_started = asyncio.Event()
+        call_count = 0
+
+        async def flaky_reconcile() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise psycopg.errors.ConnectionTimeout("connection timeout expired")
+            second_reconcile_started.set()
+
+        with (
+            patch.object(consumer, "_recovery_sweep_with_timeout", new_callable=AsyncMock),
+            patch.object(consumer, "_reconcile_failed_runs", side_effect=flaky_reconcile),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(second_reconcile_started.wait(), timeout=2.0)
             consumer._shutdown.set()
             await asyncio.wait_for(loop_task, timeout=5.0)
 
