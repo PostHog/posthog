@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
@@ -99,7 +100,7 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         return self.name or str(self.id)
 
     @classmethod
-    def from_db(cls, db: str, field_names: list[str], values: list[Any]) -> "IdentityProviderConfig":
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any]) -> "IdentityProviderConfig":
         instance = super().from_db(db, field_names, values)
         instance._loaded_identifier_values = {
             field: getattr(instance, field) for field in cls._IDENTIFIER_FIELDS if field in field_names
