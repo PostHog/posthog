@@ -108,6 +108,9 @@ export function ReasoningLevelSelector({
   const [open, setOpen] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const pendingChangeRef = useRef<(() => void) | null>(null);
+  // Radio selections normally close the menu. Consume that close request so
+  // advanced settings can be changed one after another.
+  const keepOpenRef = useRef(false);
   const displayThought = useRetainedConfigOption(thoughtOption);
   const displayModel = useRetainedConfigOption(modelOption);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
@@ -262,6 +265,11 @@ export function ReasoningLevelSelector({
     setOpen(false);
   };
 
+  const selectAndKeepOpen = (apply: () => void) => {
+    keepOpenRef.current = true;
+    apply();
+  };
+
   const resetToDefaults = () => {
     selectAndClose(() => {
       if (useLadder) {
@@ -303,6 +311,9 @@ export function ReasoningLevelSelector({
     <DropdownMenu
       open={open}
       onOpenChange={(nextOpen) => {
+        if (!nextOpen && keepOpenRef.current) {
+          return;
+        }
         // Only on the closed-to-open transition: submenu opens re-fire this
         // with true and must not yank the view back.
         if (nextOpen && !open) setAdvanced(!onNotch);
@@ -310,6 +321,10 @@ export function ReasoningLevelSelector({
       }}
       onOpenChangeComplete={(isOpen) => {
         if (!isOpen) {
+          if (keepOpenRef.current) {
+            keepOpenRef.current = false;
+            return;
+          }
           setAdvanced(false);
           if (pendingChangeRef.current !== null) {
             pendingChangeRef.current();
@@ -381,7 +396,7 @@ export function ReasoningLevelSelector({
                         return;
                       }
 
-                      selectAndClose(() => {
+                      selectAndKeepOpen(() => {
                         if (harness === "pi") {
                           onHarnessChange?.(harness);
                           return;
@@ -415,7 +430,7 @@ export function ReasoningLevelSelector({
                             setOpen(false);
                             return;
                           }
-                          selectAndClose(() => changeModel(value));
+                          selectAndKeepOpen(() => changeModel(value));
                         }}
                       >
                         {modelGroups.length > 0
@@ -460,7 +475,7 @@ export function ReasoningLevelSelector({
                       <DropdownMenuRadioGroup
                         value={currentEffort ?? ""}
                         onValueChange={(value) =>
-                          selectAndClose(() => onChange?.(value))
+                          selectAndKeepOpen(() => onChange?.(value))
                         }
                       >
                         {effortOptions.map((option) => (
@@ -482,7 +497,7 @@ export function ReasoningLevelSelector({
                       <DropdownMenuRadioGroup
                         value={row.value}
                         onValueChange={(value) =>
-                          selectAndClose(() =>
+                          selectAndKeepOpen(() =>
                             onConfigOptionChange?.(row.id, value),
                           )
                         }

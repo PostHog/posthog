@@ -161,7 +161,7 @@ describe("ReasoningLevelSelector", () => {
     expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
   });
 
-  it("emits the raw value via onChange once the advanced menu closes", async () => {
+  it("keeps the advanced menu open after changing reasoning", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
@@ -181,6 +181,9 @@ describe("ReasoningLevelSelector", () => {
     await pollUntil(() => onChange.mock.calls.length > 0);
     expect(onChange).toHaveBeenCalledWith("low");
     expect(onChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Reasoning/ }),
+    ).toBeInTheDocument();
   });
 
   it("marks the adapter default level with a Default badge", async () => {
@@ -394,6 +397,40 @@ describe("ReasoningLevelSelector", () => {
     await pollUntil(() => onModelChange.mock.calls.length > 0);
     expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
     expect(onModelChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows changing model and reasoning without reopening the picker", async () => {
+    const onChange = vi.fn();
+    const onModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={claudeModelOption("claude-sonnet-5")}
+          adapter="claude"
+          onChange={onChange}
+          onModelChange={onModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+    );
+    await pollUntil(() => onModelChange.mock.calls.length > 0);
+
+    await openSub(user, /^Reasoning/);
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Low" }));
+    await pollUntil(() => onChange.mock.calls.length > 0);
+
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onChange).toHaveBeenCalledWith("low");
   });
 
   it("moves the model and effort together on a ladder notch that changes both", async () => {
