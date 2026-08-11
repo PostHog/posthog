@@ -4606,6 +4606,19 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertEqual(payload["results"][0]["id"], str(automation.id))
         self.assertEqual(payload["results"][0]["cron_expression"], "0 9 * * *")
 
+    def test_soft_deleted_task_hides_automation(self):
+        automation = self.create_automation()
+        automation.task.soft_delete()
+
+        response = self.client.get("/api/projects/@current/task_automations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+        self.assertEqual(
+            self.client.get(f"/api/projects/@current/task_automations/{automation.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
     def test_create_automation_rejects_invalid_timezone(self):
         response = self.client.post(
             "/api/projects/@current/task_automations/",
