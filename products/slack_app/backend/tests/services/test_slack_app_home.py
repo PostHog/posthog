@@ -489,7 +489,6 @@ class TestLinkedAccountsCard:
         )
 
     def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
-        """The (text, accessory) pair of each account row on the card."""
         return [
             (block["text"]["text"], block.get("accessory"))
             for block in view["blocks"]
@@ -500,36 +499,41 @@ class TestLinkedAccountsCard:
         return next(row for row in self._rows(view) if row[0].startswith(prefix))
 
     @pytest.mark.parametrize(
-        "user_resolved,accounts,expected_button",
+        "user_resolved,connected,credentials_usable,expected_button,expected_style",
         [
-            (
-                True,
-                (GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),),
-                "Manage GitHub",
-            ),
-            (True, (), "Connect GitHub"),
-            (False, (), None),
+            (True, True, True, "Manage GitHub", None),
+            # A row whose tokens went stale is what the task flow refuses to run on,
+            # so the card has to ask for a reconnect rather than read as connected.
+            (True, True, False, "Reconnect GitHub", "primary"),
+            (True, False, False, "Connect GitHub", "primary"),
+            (False, False, False, None, None),
         ],
     )
-    def test_github_button_matches_connection_state(self, user_resolved, accounts, expected_button):
+    def test_github_button_matches_connection_state(
+        self, user_resolved, connected, credentials_usable, expected_button, expected_style
+    ):
+        accounts = (GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),) if connected else ()
         view = self._view(
             github_state=GitHubState(
                 user_resolved=user_resolved,
                 accounts=accounts,
+                credentials_usable=credentials_usable,
                 settings_url="https://app/project/1/settings/user-personal-integrations",
             )
         )
-        _text, button = self._row(view, "*GitHub*")
+        text, button = self._row(view, "*GitHub*")
         if expected_button is None:
             # Without a resolved PostHog user we can't say anything about their
             # GitHub, so the row points at account linking instead.
             assert button is None
             assert "Link your PostHog account first" in _all_text(view)
-        else:
-            assert button is not None
-            assert button["text"]["text"] == expected_button
-            assert button["url"] == "https://app/project/1/settings/user-personal-integrations"
-            assert button.get("style") == (None if accounts else "primary")
+            return
+        assert button is not None
+        assert button["text"]["text"] == expected_button
+        assert button["url"] == "https://app/project/1/settings/user-personal-integrations"
+        assert button.get("style") == expected_style
+        if connected:
+            assert ("✅" in text) is credentials_usable
 
     def test_every_connected_installation_is_listed(self):
         view = self._view(
@@ -539,6 +543,7 @@ class TestLinkedAccountsCard:
                     GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),
                     GitHubAccount(installation_id="2", login="octocat", account_name="PostHog"),
                 ),
+                credentials_usable=True,
                 settings_url="https://app/settings",
             )
         )
@@ -1047,19 +1052,23 @@ class TestHandleAppHomeOpened:
         handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
 
+    def _github_row(self, user: User, login: str) -> UserIntegration:
+        return UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=f"install-{login}",
+            config={"github_user": {"login": login}, "account": {"name": login}},
+            sensitive_config={"user_access_token": "gho_x", "user_refresh_token": "ghr_x"},
+        )
+
     def test_github_card_lists_only_the_opening_users_installations(
         self, slack_integration, mock_slack_client, flag_on, admin_user
     ):
         organization = slack_integration.team.organization
         opener = User.objects.create_and_join(organization, "opener@posthog.com", None)
         colleague = User.objects.create_and_join(organization, "colleague@posthog.com", None)
-        for user, login in ((opener, "opener-gh"), (colleague, "colleague-gh")):
-            UserIntegration.objects.create(
-                user=user,
-                kind=UserIntegration.IntegrationKind.GITHUB,
-                integration_id=f"install-{login}",
-                config={"github_user": {"login": login}, "account": {"name": login}},
-            )
+        self._github_row(opener, "opener-gh")
+        self._github_row(colleague, "colleague-gh")
         SlackUserProfileCache.objects.create(
             integration=slack_integration,
             slack_user_id="U001",
@@ -1071,6 +1080,26 @@ class TestHandleAppHomeOpened:
         text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
         assert "opener-gh" in text
         assert "colleague-gh" not in text
+
+    def test_deactivated_user_is_not_resolved_from_their_slack_identity(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        organization = slack_integration.team.organization
+        offboarded = User.objects.create_and_join(organization, "offboarded@posthog.com", None)
+        self._github_row(offboarded, "offboarded-gh")
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            email=offboarded.email,
+        )
+        offboarded.is_active = False
+        offboarded.save(update_fields=["is_active"])
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert "offboarded-gh" not in text
+        assert "Link your PostHog account first" in text
 
 
 # ---------------------------------------------------------------------------

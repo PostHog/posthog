@@ -374,10 +374,15 @@ class GitHubState:
     ``user_resolved`` is False when we couldn't tell which PostHog user is
     behind this Slack identity — the card then asks them to link PostHog first
     instead of claiming they have no GitHub connection.
+
+    ``credentials_usable`` carries the same judgment the task flow gates on,
+    so a row whose tokens have gone stale reads as needing a reconnect rather
+    than as a working connection.
     """
 
     user_resolved: bool = False
     accounts: tuple[GitHubAccount, ...] = ()
+    credentials_usable: bool = False
     settings_url: str | None = None
 
 
@@ -744,27 +749,31 @@ def _posthog_account_button(account_state: AccountState) -> dict | None:
 def _github_account_text(github_state: GitHubState) -> str:
     if not github_state.user_resolved:
         return "*GitHub*\nLink your PostHog account first, so we know whose GitHub to look up."
-    if github_state.accounts:
-        listed = "\n".join(f"✅ {account.label}" for account in github_state.accounts)
+    if not github_state.accounts:
+        return "*GitHub*\nNot connected. Connect it so @PostHog opens pull requests as you."
+    marker = "✅" if github_state.credentials_usable else "⚠️"
+    listed = "\n".join(f"{marker} {account.label}" for account in github_state.accounts)
+    if github_state.credentials_usable:
         return f"*GitHub*\n{listed}"
-    return "*GitHub*\nNot connected. Connect it so @PostHog opens pull requests as you."
+    return f"*GitHub*\n{listed}\nYour access has expired. Reconnect it, or @PostHog can't open pull requests as you."
 
 
 def _github_account_button(github_state: GitHubState) -> dict | None:
     if not github_state.user_resolved or not github_state.settings_url:
         return None
-    connected = bool(github_state.accounts)
+    if not github_state.accounts:
+        label, style = "Connect GitHub", "primary"
+    elif not github_state.credentials_usable:
+        label, style = "Reconnect GitHub", "primary"
+    else:
+        label, style = "Manage GitHub", ""
     button: dict[str, Any] = {
         "type": "button",
         "url": github_state.settings_url,
-        "text": {
-            "type": "plain_text",
-            "text": "Manage GitHub" if connected else "Connect GitHub",
-            "emoji": True,
-        },
+        "text": {"type": "plain_text", "text": label, "emoji": True},
     }
-    if not connected:
-        button["style"] = "primary"
+    if style:
+        button["style"] = style
     return button
 
 
@@ -2037,7 +2046,9 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
 
     Mirrors the event-path cascade in `resolve_posthog_user_from_event`: the
     OAuth link wins, otherwise we match the cached Slack profile email against
-    members of the organizations connected to this workspace. Reading the
+    members of the organizations connected to this workspace. Deactivated
+    users count as no match on both paths, so an offboarded account can't be
+    reached through a Slack identity that still maps to it. Reading the
     profile cache instead of calling `users.info` keeps the Home render free
     of a Slack API roundtrip.
     """
@@ -2053,13 +2064,17 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
             candidate_org_ids=candidate_org_ids,
         )
         if linked_user is not None:
-            return linked_user
+            return linked_user if linked_user.is_active else None
 
     profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
     if profile is None or not profile.email:
         return None
     membership = (
-        OrganizationMembership.objects.filter(organization_id__in=candidate_org_ids, user__email__iexact=profile.email)
+        OrganizationMembership.objects.filter(
+            organization_id__in=candidate_org_ids,
+            user__email__iexact=profile.email,
+            user__is_active=True,
+        )
         .select_related("user")
         .first()
     )
@@ -2069,10 +2084,16 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
 def _resolve_github_state(integration: Integration, slack_user_id: str) -> GitHubState:
     """List the personal GitHub installations of the user opening the Home tab.
 
+    Usability comes from the tasks facade, the same judgment
+    `should_block_task_for_missing_user_github` gates on, so the card and the
+    task flow never disagree about whether a connection works.
+
     Connecting GitHub needs an authenticated PostHog session, so the button
     deep-links to Personal integrations settings — the same target the
     in-thread "Connect GitHub" prompt uses.
     """
+    from products.tasks.backend.facade import api as tasks_facade
+
     settings_url = f"{settings.SITE_URL.rstrip('/')}/project/{integration.team_id}/settings/user-personal-integrations"
     try:
         user = _resolve_home_user(integration, slack_user_id)
@@ -2083,6 +2104,7 @@ def _resolve_github_state(integration: Integration, slack_user_id: str) -> GitHu
             kind=UserIntegration.IntegrationKind.GITHUB,
         ).order_by("created_at")
         accounts = tuple(_github_account_from_row(row) for row in rows)
+        credentials_usable = bool(accounts) and tasks_facade.user_has_usable_personal_github(user.id)
     except Exception:
         logger.exception(
             "slack_app_home_resolve_github_state_failed",
@@ -2090,7 +2112,12 @@ def _resolve_github_state(integration: Integration, slack_user_id: str) -> GitHu
             integration_id=integration.id,
         )
         return GitHubState(user_resolved=False, settings_url=settings_url)
-    return GitHubState(user_resolved=True, accounts=accounts, settings_url=settings_url)
+    return GitHubState(
+        user_resolved=True,
+        accounts=accounts,
+        credentials_usable=credentials_usable,
+        settings_url=settings_url,
+    )
 
 
 def _github_account_from_row(row: UserIntegration) -> GitHubAccount:
