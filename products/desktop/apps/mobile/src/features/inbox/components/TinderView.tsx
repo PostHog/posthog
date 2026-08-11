@@ -41,6 +41,7 @@ import { logger } from "@/lib/logger";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useThemeColors } from "@/lib/theme";
 import { getReportRepository } from "../api";
+import { useDismissReport } from "../hooks/useInboxReports";
 import { useDismissedReportsStore } from "../stores/dismissedReportsStore";
 import { useInboxStore } from "../stores/inboxStore";
 import { SwipeableReportCard } from "./SwipeableReportCard";
@@ -149,6 +150,7 @@ export function TinderView({
   const _advanceCard = useInboxStore((s) => s.advanceCard);
   const dismissReport = useDismissedReportsStore((s) => s.dismissReport);
   const acceptReport = useDismissedReportsStore((s) => s.acceptReport);
+  const dismissOnServer = useDismissReport();
 
   const analytics = useAnalytics();
 
@@ -213,11 +215,28 @@ export function TinderView({
       const target = idx >= 0 ? visible[idx] : null;
       if (target) trackReportAction(target, "dismiss", idx, visible.length);
       dismissReport(reportId);
+      // Propagate to the server so the report doesn't stay open on other
+      // devices. Best-effort: the local dismissal above already hides the
+      // card, and a suppressed report can be restored from the archive view.
+      dismissOnServer.mutate(
+        {
+          reportId,
+          reason: "other",
+          note: "Dismissed via mobile card swipe",
+        },
+        {
+          onError: (err) =>
+            log.warn("Server dismissal failed", {
+              reportId,
+              error: err.message,
+            }),
+        },
+      );
       // Don't advanceCard() — the parent filters dismissed IDs from the
       // reports array, so removing the report shifts the next one into
       // the current index position automatically.
     },
-    [dismissReport, trackReportAction],
+    [dismissReport, dismissOnServer, trackReportAction],
   );
 
   const handleAccept = useCallback(
