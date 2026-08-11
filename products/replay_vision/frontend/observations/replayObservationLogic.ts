@@ -143,8 +143,9 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     )
                     actions.loadObservationSuccess(response)
                     // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
+                    // Inline scanners have no detail page, so leave the scanner crumb off for them.
                     replayObservationSceneLogic().actions.setScannerContext(
-                        response.scanner_id,
+                        response.scanner_is_inline ? null : response.scanner_id,
                         response.scanner_snapshot?.name ?? null
                     )
                 } catch (error: any) {
@@ -170,8 +171,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 }
                 actions.retryObservationSuccess()
                 // The retried row is deleted, so this page's id now dangles — hand off to the scanner.
+                // Inline scanners have no detail page, so send those back to the vision home instead.
                 const scannerId = values.observation?.scanner_id
-                if (scannerId) {
+                if (values.observation?.scanner_is_inline) {
+                    router.actions.push(urls.replayVision())
+                } else if (scannerId) {
                     router.actions.push(urls.replayVision(scannerId))
                 }
             },

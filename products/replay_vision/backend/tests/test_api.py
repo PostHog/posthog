@@ -1103,6 +1103,17 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp["content-type"], "text/event-stream")
         mock_stream.assert_called_once()
 
+    @override_settings(SERVER_GATEWAY_INTERFACE="WSGI")
+    @patch("products.replay_vision.backend.api.observations.stream_observation_progress")
+    def test_progress_endpoint_degrades_to_204_under_wsgi(self, mock_stream: MagicMock) -> None:
+        # WSGI can't consume the async progress generator. The endpoint must return an empty 204 so the
+        # client falls back to polling, not raise and 500 on every call.
+        obs = self._create_observation(status=ObservationStatus.RUNNING)
+        url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
+        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        self.assertEqual(resp.status_code, 204)
+        mock_stream.assert_not_called()
+
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))
         self.assertEqual(resp.status_code, 404)
@@ -2473,6 +2484,25 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.session_observations_url}{observation.id}/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["id"], str(observation.id))
+
+    def test_retrieve_flags_inline_scanner_origin(self) -> None:
+        # Inline scanners have no detail page, so the frontend needs this flag to avoid linking to a 404.
+        inline_scanner = ReplayScanner.all_origins.create(
+            team=self.team,
+            name="inline",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+            origin=ScannerOrigin.INLINE,
+            inline_key="fingerprint",
+        )
+        inline_obs = self._create_observation(inline_scanner, "sess-target")
+        configured_obs = self._create_observation(self.scanner_a, "sess-target")
+
+        inline_body = self.client.get(f"{self.session_observations_url}{inline_obs.id}/").json()
+        configured_body = self.client.get(f"{self.session_observations_url}{configured_obs.id}/").json()
+        self.assertTrue(inline_body["scanner_is_inline"])
+        self.assertFalse(configured_body["scanner_is_inline"])
 
     def test_retrieve_exposes_same_scanner_prev_next_neighbors(self) -> None:
         now = timezone.now()

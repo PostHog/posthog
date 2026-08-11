@@ -9,6 +9,7 @@ from django.db import transaction
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
+from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 
 import structlog
@@ -50,7 +51,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
 from products.replay_vision.backend.scanner_access import (
     scanner_for_reading_observations,
     scanners_for_reading_observations,
@@ -128,6 +129,17 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
 
 class ReplayObservationSerializer(serializers.ModelSerializer):
     scanner_id = serializers.UUIDField(read_only=True, help_text="The scanner that produced this observation.")
+    scanner_is_inline = serializers.SerializerMethodField(
+        help_text=(
+            "True when the scanner ran as a one-off inline scan. Inline scanners have no configured detail page, "
+            "so the frontend must not link to one for these observations."
+        ),
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_scanner_is_inline(self, obj: ReplayObservation) -> bool:
+        return obj.scanner.origin == ScannerOrigin.INLINE
+
     session_id = serializers.CharField(read_only=True, help_text="Session recording id this scanner was applied to.")
     status = serializers.ChoiceField(
         choices=ObservationStatus.choices,
@@ -234,6 +246,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "scanner_id",
+            "scanner_is_inline",
             "session_id",
             "status",
             "error_reason",
@@ -742,7 +755,7 @@ class ReplayObservationViewSet(
         scanner = self._scanner_for_url()
         return (
             queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
-            .select_related("triggered_by_user", "label")
+            .select_related("scanner", "triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
 
@@ -1048,7 +1061,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         )
         queryset = (
             queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
-            .select_related("triggered_by_user", "label")
+            .select_related("scanner", "triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
         # A bare list would scan the whole team's observation history; the replay page always has a session.
@@ -1071,8 +1084,9 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller
         can't read. The stream self-terminates once the observation reaches a terminal state.
         """
-        # The generator is `async def` — WSGI can't consume an async iterator, so fail loudly there.
+        # The generator is `async def`, so WSGI cannot consume it. Return an empty 204 there instead of
+        # raising: the client reads it as "no stream" and falls back to polling for progress.
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("observation progress stream requires ASGI.")
+            return HttpResponse(status=204)
         observation = self.get_object()
         return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")

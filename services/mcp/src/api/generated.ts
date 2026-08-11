@@ -48614,6 +48614,8 @@ export namespace Schemas {
       readonly id: string;
       /** The scanner that produced this observation. */
       readonly scanner_id: string;
+      /** True when the scanner ran as a one-off inline scan. Inline scanners have no configured detail page, so the frontend must not link to one for these observations. */
+      readonly scanner_is_inline: boolean;
       /** Session recording id this scanner was applied to. */
       readonly session_id: string;
       /** Observation status (pending, running, succeeded, failed, ineligible).
