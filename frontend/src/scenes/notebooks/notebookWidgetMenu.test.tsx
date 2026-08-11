@@ -31,6 +31,7 @@ describe('getNotebookWidgetViewMenuItem', () => {
             { label: 'Summary', active: true },
             { label: 'Results', active: false },
         ])
+        expect(menuItem.items.every((item) => !item || !('sideIcon' in item) || item.sideIcon === undefined)).toBe(true)
 
         const detailItem = menuItem.items[0]
         if (!detailItem || !('onClick' in detailItem) || !detailItem.onClick) {

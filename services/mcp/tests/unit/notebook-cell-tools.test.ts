@@ -266,6 +266,21 @@ describe('notebook cell tools', () => {
         expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('title="From props"')
     })
 
+    it('saved insight cells use the default panel visibility', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'saved_insight',
+            insight_short_id: 'iNs12345',
+        })
+
+        const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+        expect(inserted).toContain('query={{"kind":"SavedInsightNode","shortId":"iNs12345"}}')
+        expect(inserted).not.toContain('hideFilters')
+    })
+
     it('component cell rejects executable tags', async () => {
         const state = makeState('# Doc\n')
         const context = createMockContext(state)
@@ -305,6 +320,8 @@ describe('notebook cell tools', () => {
             expect(description).toContain('summary: Show the flag status')
             expect(description).toContain('editor: Edit the flag status')
             expect(description).toContain('Cohort')
+            expect(description).toContain('Filters are hidden by default')
+            expect(description).toContain('Add showFilters only when the reader should configure the widget')
         }
     )
 

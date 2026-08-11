@@ -76,7 +76,6 @@ export function MarkdownNotebookEntityPicker({
                         tagName: 'Query',
                         props: {
                             query: { kind: 'SavedInsightNode', shortId },
-                            hideFilters: true,
                             ...(insightTitle ? { title: insightTitle } : {}),
                         },
                     })

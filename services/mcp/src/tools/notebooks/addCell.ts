@@ -216,7 +216,6 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             nodeId,
             title,
             query: { kind: 'SavedInsightNode', shortId: params.insight_short_id },
-            hideFilters: true,
         })
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
             insertBlock(markdown, tag, params.after_node_id)

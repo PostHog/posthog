@@ -1,6 +1,3 @@
-import { createElement } from 'react'
-
-import { IconCheck } from '@posthog/icons'
 import type { LemonMenuItem } from '@posthog/lemon-ui'
 
 import { CreatePostHogWidgetNodeOptions, CustomNotebookNodeAttributes, NotebookNodeAttributes } from './types'
@@ -31,7 +28,6 @@ export function getNotebookWidgetViewMenuItem<T extends CustomNotebookNodeAttrib
                 label: defaultView.label,
                 tooltip: defaultView.description,
                 active: selectedView === defaultView.key,
-                sideIcon: selectedView === defaultView.key ? createElement(IconCheck) : undefined,
                 onClick: () => setView(defaultView.key),
             },
             ...Object.entries(options.views).map(([viewKey, view]) => ({
@@ -39,7 +35,6 @@ export function getNotebookWidgetViewMenuItem<T extends CustomNotebookNodeAttrib
                 label: view.label,
                 tooltip: view.description,
                 active: selectedView === viewKey,
-                sideIcon: selectedView === viewKey ? createElement(IconCheck) : undefined,
                 onClick: () => setView(viewKey),
             })),
         ],

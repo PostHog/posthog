@@ -155,8 +155,20 @@ describe('NotebookComponentShell', () => {
             const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
             useEffect(() => {
                 setToolbarExtras?.({
-                    actions: [{ text: 'Add metric', onClick: onAction }],
-                    menuItems: [{ label: 'Refresh', onClick: onMenuItem }],
+                    actions: [
+                        {
+                            text: 'Add metric',
+                            icon: <span data-testid="action-menu-icon" />,
+                            onClick: onAction,
+                        },
+                    ],
+                    menuItems: [
+                        {
+                            label: 'Refresh',
+                            sideIcon: <span data-testid="custom-menu-icon" />,
+                            onClick: onMenuItem,
+                        },
+                    ],
                     editMenuItems: [{ label: 'Change view', items: [{ label: 'Summary', onClick: jest.fn() }] }],
                 })
             }, [setToolbarExtras])
@@ -201,10 +213,12 @@ describe('NotebookComponentShell', () => {
         const editRender = renderShell('edit')
 
         await userEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByTestId('action-menu-icon')).toBeNull()
         await userEvent.click(await screen.findByText('Add metric'))
         expect(onAction).toHaveBeenCalled()
 
         await userEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByTestId('custom-menu-icon')).toBeNull()
         await userEvent.click(await screen.findByText('Refresh'))
         expect(onMenuItem).toHaveBeenCalled()
 

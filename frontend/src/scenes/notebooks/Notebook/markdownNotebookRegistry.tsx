@@ -918,7 +918,9 @@ export function getNodeAttributeProps(props: NotebookComponentProps): NotebookCo
             (key !== 'view' || typeof value !== 'boolean') &&
             key !== 'edit' &&
             key !== 'hideFilters' &&
-            key !== 'hideResults'
+            key !== 'hideResults' &&
+            key !== 'showFilters' &&
+            key !== 'showResults'
         ) {
             attributeProps[key] = value
         }

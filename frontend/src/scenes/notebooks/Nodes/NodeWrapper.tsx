@@ -15,7 +15,7 @@ import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
 import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
 import { PythonRunMenu } from './components/PythonRunMenu'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconExternal, IconPencil, IconX } from '@posthog/icons'
+import { IconCollapse, IconEllipsis, IconExpand, IconPencil } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -26,6 +26,7 @@ import {
 } from '../types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { getNotebookWidgetViewMenuItem } from '../notebookWidgetMenu'
+import { withoutNotebookMenuIcons } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 
 const NON_COPYABLE_NODES = [
     NotebookNodeType.PersonProperties,
@@ -242,7 +243,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             ? {
                   label: 'Copy',
                   onClick: () => copyToClipboard(),
-                  sideIcon: <IconCopy />,
               }
             : null,
         isEditable && isResizeable
@@ -262,7 +262,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                 ? { label: 'Show comment', onClick: () => selectComment(nodeId) }
                 : { label: 'Comment', onClick: () => insertComment({ type: 'node', id: nodeId }) }
             : null,
-        isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconX />, status: 'danger' } : null,
+        isEditable ? { label: 'Remove', onClick: () => deleteNode(), status: 'danger' } : null,
     ]
 
     const viewMenuItem = getNotebookWidgetViewMenuItem(
@@ -271,7 +271,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         updateAttributes
     )
     const resourceLabel = titlePlaceholder.charAt(0).toLocaleLowerCase() + titlePlaceholder.slice(1)
-    const menuItems: LemonMenuItems = [
+    const menuItems: LemonMenuItems = withoutNotebookMenuIcons([
         parsedHref && !isShared
             ? {
                   label: `Open ${resourceLabel}`,
@@ -281,7 +281,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         parsedHref && !isShared
             ? {
                   label: 'Open in new tab',
-                  icon: <IconExternal />,
                   to: parsedHref,
                   targetBlank: true,
               }
@@ -289,14 +288,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         ...(isEditable
             ? actions.map((action) => ({
                   label: action.text,
-                  icon: action.icon,
                   disabledReason: action.disabledReason,
                   onClick: action.onClick,
               }))
             : []),
         isEditable ? viewMenuItem : null,
         ...(customMenuItems ?? defaultMenuItems),
-    ]
+    ])
 
     const hasMenu = menuItems.some((x) => !!x)
 

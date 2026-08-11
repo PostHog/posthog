@@ -119,16 +119,19 @@ Boolean `true` props serialize as bare JSX props.
 Boolean `false` props stay explicit:
 
 ```md
-<RevenueCard hideFilters disabled={false} metric="arr" />
+<RevenueCard showFilters disabled={false} metric="arr" />
 ```
 
-`hideFilters` and `hideResults` are reserved props used by the notebook shell to persist which panels are hidden.
-When a panel is shown, omit its prop.
+`showFilters`, `showResults`, `hideFilters`, and `hideResults` are reserved props used by the notebook shell to control panel visibility.
+Filters are hidden by default and appear only with `showFilters`.
+Results are shown by default and can be hidden with `hideResults`.
+The shell accepts `showResults`, but omits it when serializing visible results.
 Components with visible mode actions should allow these props to round-trip.
 Components with `hideModeActions` do not persist them.
-`Prompt` is a special AI input tag and should not use `hideFilters` or `hideResults`.
+`Prompt` is a special AI input tag and should not use panel visibility props.
 
-Boolean `view` and `edit` props are supported only for notebooks created before `hideFilters` and `hideResults` were introduced.
+Boolean `view` props from older notebooks still control results.
+Boolean `edit` props are discarded; use `showFilters` instead.
 A string `view` prop can select a named product view, such as `<FeatureFlag id={123} view="editor" />`.
 
 ## Adding a standalone component

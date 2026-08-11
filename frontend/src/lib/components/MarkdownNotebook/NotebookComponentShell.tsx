@@ -16,7 +16,6 @@ import {
     IconDatabase,
     IconEllipsis,
     IconExpand,
-    IconExternal,
     IconEye,
     IconPencil,
     IconGraph,
@@ -39,7 +38,11 @@ import {
     withPersistedComponentPanelProps,
 } from './componentPanels'
 import { useNotebookComponentRunStatus } from './componentRunStatus'
-import { NotebookComponentToolbarExtras, NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
+import {
+    NotebookComponentToolbarExtras,
+    NotebookComponentToolbarExtrasContext,
+    withoutNotebookMenuIcons,
+} from './componentToolbarExtras'
 import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { getMarkdownNotebookComponentDefinition } from './registry'
@@ -157,7 +160,7 @@ export function NotebookComponentShell({
         }),
         [componentPanels, showEditPanel, showViewPanel]
     )
-    const toolbarMenuItems = [
+    const toolbarMenuItems = withoutNotebookMenuIcons([
         showResourceLink
             ? {
                   label: `Open ${titleDisplay.label.charAt(0).toLocaleLowerCase()}${titleDisplay.label.slice(1)}`,
@@ -167,7 +170,6 @@ export function NotebookComponentShell({
         showResourceLink
             ? {
                   label: 'Open in new tab',
-                  icon: <IconExternal />,
                   to: href ?? '',
                   targetBlank: true,
               }
@@ -175,14 +177,13 @@ export function NotebookComponentShell({
         ...(mode === 'edit'
             ? (toolbarExtras?.actions.map((action) => ({
                   label: action.text,
-                  icon: action.icon,
                   disabledReason: action.disabledReason,
                   onClick: action.onClick,
               })) ?? [])
             : []),
         ...(toolbarExtras?.menuItems ?? []),
         ...(mode === 'edit' ? (toolbarExtras?.editMenuItems ?? []) : []),
-    ]
+    ])
     const hasToolbarMenu = toolbarMenuItems.some(Boolean)
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
     const [isEditingTitle, setIsEditingTitle] = useState(false)

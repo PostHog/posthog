@@ -59,6 +59,8 @@ def format_notebook_widget_catalog_for_agents() -> str:
         [
             "Notebook object widgets use shared view names. Use summary for compact supporting context, "
             "detail when the object is the main subject, and a specialized view when it directly answers the task.",
+            "Filters are hidden by default. Add showFilters only when the reader should configure the widget. "
+            "Results are shown by default. Add hideResults only when the result should be collapsed.",
             *widget_lines,
         ]
     )

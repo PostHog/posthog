@@ -1350,21 +1350,27 @@ function getSerializableComponentProps(props: NotebookComponentProps): NotebookC
             (key !== 'view' || typeof value !== 'boolean') &&
             key !== 'edit' &&
             key !== 'hideFilters' &&
-            key !== 'hideResults'
+            key !== 'hideResults' &&
+            key !== 'showFilters' &&
+            key !== 'showResults'
         ) {
             accumulator[key] = value
         }
         return accumulator
     }, {})
     const legacyViewPanelVisible = typeof props.view === 'boolean' ? props.view : undefined
-    const legacyEditPanelVisible = typeof props.edit === 'boolean' ? props.edit : undefined
-    const hideFilters = typeof props.hideFilters === 'boolean' ? props.hideFilters : legacyEditPanelVisible === false
-    const hideResults = typeof props.hideResults === 'boolean' ? props.hideResults : legacyViewPanelVisible === false
+    const showFilters = props.showFilters === true
+    const showResults =
+        typeof props.showResults === 'boolean'
+            ? props.showResults
+            : props.hideResults === true
+              ? false
+              : (legacyViewPanelVisible ?? true)
 
-    if (hideFilters) {
-        nextProps.hideFilters = true
+    if (showFilters) {
+        nextProps.showFilters = true
     }
-    if (hideResults) {
+    if (!showResults) {
         nextProps.hideResults = true
     }
 
@@ -1373,7 +1379,7 @@ function getSerializableComponentProps(props: NotebookComponentProps): NotebookC
 
 function getOrderedComponentPropEntries(props: NotebookComponentProps): [string, NotebookPropValue][] {
     const entries = Object.entries(props)
-    const orderedKeys = ['hideFilters', 'hideResults']
+    const orderedKeys = ['showFilters', 'hideResults']
     return [
         ...orderedKeys.flatMap((key): [string, NotebookPropValue][] =>
             Object.prototype.hasOwnProperty.call(props, key) ? [[key, props[key]]] : []
