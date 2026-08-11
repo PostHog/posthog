@@ -283,20 +283,21 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
     // and the insert lands on a corpse. Remove such marks here, in the
     // same transaction: the person reports as not_found and is never
     // touched again. From here on the mark keeps every held person alive.
-    sqlx::query!(
+    let corpse_sql = format!(
         r#"
         DELETE FROM lifecycle_op_person lop
         WHERE lop.op_id = $1 AND lop.status = 'marked'
           AND NOT EXISTS (
-              SELECT 1 FROM posthog_person p
+              SELECT 1 FROM {person_table} p
               WHERE p.team_id = $2 AND p.id = lop.person_id AND p.is_deleted = false
           )
-        "#,
-        op.op_id,
-        team_id,
-    )
-    .execute(&mut *tx)
-    .await?;
+        "#
+    );
+    sqlx::query(&corpse_sql)
+        .bind(op.op_id)
+        .bind(team_id)
+        .execute(&mut *tx)
+        .await?;
 
     let claims: i64 = sqlx::query_scalar!(
         r#"

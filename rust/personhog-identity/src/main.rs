@@ -190,7 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.lifecycle_engine_config(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
-        let sweeper_merge_driver = MergeDriver::new(property_writer.clone());
+        let sweeper_merge_driver = MergeDriver::new(property_writer.clone(), config.tables());
         let sweeper_engine = engine.clone();
         let sweeper_driver = DeleteDriver::new(config.tables());
         let sweep_interval = config.lifecycle_sweep_interval();
