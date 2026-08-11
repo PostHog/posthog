@@ -48262,6 +48262,10 @@
                         }
                     ]
                 },
+                "user_access_level": {
+                    "$ref": "#/definitions/AccessControlLevel",
+                    "description": "The effective access level the current user has for this recording. Only returned when fetching a single recording."
+                },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",
                     "type": "boolean"
