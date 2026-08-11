@@ -1138,7 +1138,7 @@ export const HogFunctionsRevisionsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-    version: zod.number().describe('Function version to fetch.'),
+    version: zod.string().describe("Function version to fetch, or 'latest' for the newest published version."),
 })
 
 export const HogFunctionsRevisionsRestoreCreateParams = /* @__PURE__ */ zod.object({

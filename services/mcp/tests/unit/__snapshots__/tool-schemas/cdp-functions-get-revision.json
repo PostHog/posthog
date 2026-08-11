@@ -6,10 +6,11 @@
             "type": "string"
         },
         "version": {
-            "description": "Function version to fetch.",
-            "type": "number"
+            "default": "latest",
+            "description": "Version number to fetch, or omit for the latest published revision. Get a specific number from cdp-functions-list-revisions.",
+            "type": "string"
         }
     },
-    "required": ["id", "version"],
+    "required": ["id"],
     "type": "object"
 }

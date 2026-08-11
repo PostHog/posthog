@@ -442,14 +442,14 @@ export const hogFunctionsRevisionsList = async (
     )
 }
 
-export const getHogFunctionsRevisionsRetrieveUrl = (projectId: string, id: string, version: number) => {
+export const getHogFunctionsRevisionsRetrieveUrl = (projectId: string, id: string, version: string) => {
     return `/api/projects/${projectId}/hog_functions/${id}/revisions/${version}/`
 }
 
 export const hogFunctionsRevisionsRetrieve = async (
     projectId: string,
     id: string,
-    version: number,
+    version: string,
     options?: RequestInit
 ): Promise<HogFunctionRevisionApi> => {
     return apiMutator<HogFunctionRevisionApi>(getHogFunctionsRevisionsRetrieveUrl(projectId, id, version), {

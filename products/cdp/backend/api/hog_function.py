@@ -1481,19 +1481,36 @@ class HogFunctionViewSet(
         return self.get_paginated_response(HogFunctionRevisionBasicSerializer(page, many=True).data)
 
     @extend_schema(
-        parameters=[OpenApiParameter("version", int, OpenApiParameter.PATH, description="Function version to fetch.")],
+        parameters=[
+            OpenApiParameter(
+                "version",
+                str,
+                OpenApiParameter.PATH,
+                description="Function version to fetch, or 'latest' for the newest published version.",
+            )
+        ],
         responses={200: HogFunctionRevisionSerializer},
         filters=False,
     )
-    @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+)", filter_backends=[])
+    @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+|latest)", filter_backends=[])
     def revision_detail(self, request: Request, version: Optional[str] = None, *args, **kwargs):
         if not use_destinations_revisions(self.team):
             raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         instance = self.get_object()
-        try:
-            revision = HogFunctionRevision.objects.get(hog_function=instance, version=int(version or 0))
-        except HogFunctionRevision.DoesNotExist:
-            raise exceptions.NotFound("No such revision for this function.")
+        if version == "latest":
+            revision = (
+                HogFunctionRevision.objects.filter(hog_function=instance)
+                .order_by("-version")
+                .select_related("created_by")
+                .first()
+            )
+            if revision is None:
+                raise exceptions.NotFound("No revisions exist for this function yet.")
+        else:
+            try:
+                revision = HogFunctionRevision.objects.get(hog_function=instance, version=int(version or 0))
+            except HogFunctionRevision.DoesNotExist:
+                raise exceptions.NotFound("No such revision for this function.")
         return Response(HogFunctionRevisionSerializer(revision).data)
 
     @extend_schema(

@@ -130,7 +130,14 @@ const cdpFunctionsDiscardDraft = (): ToolBase<typeof CdpFunctionsDiscardDraftSch
     },
 })
 
-const CdpFunctionsGetRevisionSchema = HogFunctionsRevisionsRetrieveParams.omit({ project_id: true })
+const CdpFunctionsGetRevisionSchema = HogFunctionsRevisionsRetrieveParams.omit({ project_id: true }).extend({
+    version: HogFunctionsRevisionsRetrieveParams.shape['version']
+        .default('latest')
+        .optional()
+        .describe(
+            'Version number to fetch, or omit for the latest published revision. Get a specific number from cdp-functions-list-revisions.'
+        ),
+})
 
 const cdpFunctionsGetRevision = (): ToolBase<typeof CdpFunctionsGetRevisionSchema, Schemas.HogFunctionRevision> => ({
     name: 'cdp-functions-get-revision',

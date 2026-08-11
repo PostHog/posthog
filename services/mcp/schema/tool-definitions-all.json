@@ -1180,7 +1180,7 @@
         }
     },
     "cdp-functions-get-revision": {
-        "description": "Get one version of a function's config by version number, including the full snapshot (hog, inputs_schema, inputs, filters, mappings, masking) as it was at that version. Secret input values are never included. Use cdp-functions-list-revisions first to find the version you want.",
+        "description": "Get one version of a function's config by version number, including the full snapshot (hog, inputs_schema, inputs, filters, mappings, masking) as it was at that version. Secret input values are never included. Omit version to fetch the latest published revision. Pass a specific version number (from cdp-functions-list-revisions) to fetch that version.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Get function revision",

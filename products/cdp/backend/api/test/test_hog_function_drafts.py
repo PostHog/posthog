@@ -475,6 +475,23 @@ class TestHogFunctionRevisions(DraftTestCase):
         assert response.json()["content"]["hog"] == LIVE_HOG
         assert "token" not in response.json()["content"]["inputs"]
 
+    def test_revision_detail_latest_returns_the_newest_version(self):
+        function_id = self._create()
+        self._live_edit(function_id, {"hog": EDITED_HOG})
+
+        response = self.client.get(self._url(function_id, "/revisions/latest"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["version"] == 2
+        assert response.json()["content"]["hog"] == EDITED_HOG
+
+    def test_revision_detail_latest_404s_when_no_revisions_exist(self):
+        function_id = self._create()
+
+        response = self.client.get(self._url(function_id, "/revisions/latest"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
     def test_unknown_revision_is_a_404(self):
         function_id = self._create()
 
