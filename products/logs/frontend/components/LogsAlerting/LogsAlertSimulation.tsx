@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonButton, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { DefaultTooltip, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -278,8 +278,8 @@ export function LogsAlertSimulation({
         }
     }, [autoRun, simulateAlert])
 
-    return (
-        <div className={embedded ? 'space-y-4' : 'space-y-4 p-4'}>
+    const simulation = (
+        <div className="space-y-4">
             {embedded ? (
                 <div>
                     <h4 className="m-0">Preview</h4>
@@ -315,4 +315,14 @@ export function LogsAlertSimulation({
             )}
         </div>
     )
+
+    if (embedded) {
+        return (
+            <LemonCard className="p-4" hoverEffect={false}>
+                {simulation}
+            </LemonCard>
+        )
+    }
+
+    return <div className="p-4">{simulation}</div>
 }
