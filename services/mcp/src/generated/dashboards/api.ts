@@ -916,7 +916,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe('Maximum number of tickets to return.'),
                                         status: zod
-                                            .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
+                                            .union([
+                                                zod.enum(['new', 'open', 'pending', 'on_hold', 'resolved']),
+                                                zod.literal('all'),
+                                            ])
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightStatusDefault
                                             )
@@ -928,7 +931,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'Only show tickets with these priorities. Empty shows all priorities.'
                                             ),
                                         channel: zod
-                                            .enum(['widget', 'slack', 'email', 'teams', 'github', 'all'])
+                                            .union([
+                                                zod.enum(['widget', 'email', 'slack', 'teams', 'github']),
+                                                zod.literal('all'),
+                                            ])
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightChannelDefault
                                             )
@@ -2428,7 +2434,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault)
                                     .describe('Maximum number of tickets to return.'),
                                 status: zod
-                                    .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
+                                    .union([
+                                        zod.enum(['new', 'open', 'pending', 'on_hold', 'resolved']),
+                                        zod.literal('all'),
+                                    ])
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneStatusDefault)
                                     .describe('Ticket status filter.'),
                                 priorities: zod
@@ -2436,7 +2445,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .optional()
                                     .describe('Only show tickets with these priorities. Empty shows all priorities.'),
                                 channel: zod
-                                    .enum(['widget', 'slack', 'email', 'teams', 'github', 'all'])
+                                    .union([
+                                        zod.enum(['widget', 'email', 'slack', 'teams', 'github']),
+                                        zod.literal('all'),
+                                    ])
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneChannelDefault)
                                     .describe('Ticket channel filter.'),
                                 assignees: zod
@@ -3298,7 +3310,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefault)
                                     .describe('Maximum number of tickets to return.'),
                                 status: zod
-                                    .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
+                                    .union([
+                                        zod.enum(['new', 'open', 'pending', 'on_hold', 'resolved']),
+                                        zod.literal('all'),
+                                    ])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneStatusDefault)
                                     .describe('Ticket status filter.'),
                                 priorities: zod
@@ -3306,7 +3321,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .optional()
                                     .describe('Only show tickets with these priorities. Empty shows all priorities.'),
                                 channel: zod
-                                    .enum(['widget', 'slack', 'email', 'teams', 'github', 'all'])
+                                    .union([
+                                        zod.enum(['widget', 'email', 'slack', 'teams', 'github']),
+                                        zod.literal('all'),
+                                    ])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneChannelDefault)
                                     .describe('Ticket channel filter.'),
                                 assignees: zod

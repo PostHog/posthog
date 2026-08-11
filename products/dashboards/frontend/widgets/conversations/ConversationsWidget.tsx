@@ -1,27 +1,20 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { IconCheckCircle, IconChevronDown, IconClock, IconWarning } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import {
-    AssigneeDisplay,
-    AssigneeResolver,
-    AssigneeSelect,
-    type TicketAssignee,
-} from 'products/conversations/frontend/components/Assignee'
+import { AssigneeDisplay, AssigneeResolver, AssigneeSelect } from 'products/conversations/frontend/components/Assignee'
 import { channelIcon } from 'products/conversations/frontend/components/Channels/ChannelsTag'
-import { getSlaState } from 'products/conversations/frontend/components/SlaDisplay'
-import { channelOptions, type TicketChannel } from 'products/conversations/frontend/types'
+import { channelOptions } from 'products/conversations/frontend/types'
 
 import {
     WIDGET_LIST_COUNT_TICKETS,
@@ -33,96 +26,25 @@ import {
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseConversationsWidgetConfig } from './conversationsWidgetConfigValidation'
 import { conversationsWidgetLogic } from './conversationsWidgetLogic'
+import {
+    priorityTagType,
+    statusTagType,
+    ticketAssignee,
+    ticketAssigneeName,
+    ticketTitle,
+    TicketSlaIcon,
+    type ConversationsWidgetTicket,
+} from './conversationsWidgetUtils'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
-export type ConversationsWidgetTicket = {
-    id: string
-    ticket_number: number
-    channel_source: TicketChannel
-    status: string
-    priority: string | null
-    assignee: { user: { id: number; name: string } | null; role: { id: string; name: string } | null } | null
-    updated_at: string
-    last_message_text: string | null
-    unread_team_count: number
-    email_subject: string | null
-    requester_name: string | null
-    requester_email: string
-    sla_due_at: string | null
-}
+export type { ConversationsWidgetTicket } from './conversationsWidgetUtils'
 
 export type ConversationsWidgetResult = {
     results?: ConversationsWidgetTicket[]
     hasMore?: boolean
     totalCount?: number
     totalCountCapped?: boolean
-}
-
-function ticketTitle(ticket: ConversationsWidgetTicket): string {
-    return ticket.email_subject || ticket.last_message_text || `Ticket #${ticket.ticket_number}`
-}
-
-function ticketAssignee(ticket: ConversationsWidgetTicket): TicketAssignee {
-    if (ticket.assignee?.user) {
-        return { type: 'user', id: ticket.assignee.user.id }
-    }
-    if (ticket.assignee?.role) {
-        return { type: 'role', id: ticket.assignee.role.id }
-    }
-    return null
-}
-
-function ticketAssigneeName(ticket: ConversationsWidgetTicket): string | null {
-    return ticket.assignee?.user?.name ?? ticket.assignee?.role?.name ?? null
-}
-
-function statusTagType(status: string): 'success' | 'primary' | 'default' {
-    if (status === 'resolved') {
-        return 'success'
-    }
-    if (status === 'new') {
-        return 'primary'
-    }
-    return 'default'
-}
-
-function priorityTagType(priority: string): 'danger' | 'caution' | 'warning' | 'default' {
-    if (priority === 'critical') {
-        return 'danger'
-    }
-    if (priority === 'high') {
-        return 'caution'
-    }
-    if (priority === 'medium') {
-        return 'warning'
-    }
-    return 'default'
-}
-
-function TicketSlaIcon({ slaDueAt }: { slaDueAt: string | null }): JSX.Element | null {
-    if (!slaDueAt) {
-        return null
-    }
-
-    const slaState = getSlaState(slaDueAt)
-    let icon = <IconCheckCircle className="text-success" />
-    let tooltip = 'SLA on track'
-
-    if (slaState === 'breached') {
-        icon = <IconWarning className="text-danger" />
-        tooltip = 'SLA breached'
-    } else if (slaState === 'at-risk') {
-        icon = <IconClock className="text-warning" />
-        tooltip = 'SLA due soon'
-    }
-    tooltip = `${tooltip}. Due ${dayjs(slaDueAt).fromNow()}`
-
-    return (
-        <Tooltip title={tooltip}>
-            <span className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">{icon}</span>
-        </Tooltip>
-    )
 }
 
 function ConversationsWidgetRow({

@@ -434,7 +434,7 @@
                 "$type": "integer"
             },
             "status": {
-                "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
+                "$enum": ["new", "on_hold", "open", "pending", "resolved"]
             },
             "priorities": {
                 "$array": {
@@ -442,7 +442,7 @@
                 }
             },
             "channel": {
-                "$enum": ["all", "email", "github", "slack", "teams", "widget"]
+                "$enum": ["email", "github", "slack", "teams", "widget"]
             },
             "assignees": {
                 "$array": {

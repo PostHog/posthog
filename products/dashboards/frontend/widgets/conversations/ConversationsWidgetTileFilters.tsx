@@ -8,13 +8,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AssigneeMultiSelect, type AssigneeFilterEntry } from 'products/conversations/frontend/components/Assignee'
 import { clearFilterButtonProps } from 'products/conversations/frontend/components/clearFilterButtonProps'
+import { priorityMultiselectOptions, statusOptions } from 'products/conversations/frontend/types'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import { WidgetTileFilterReadOnlyLabel, WidgetTileFiltersBar } from '../widgetTileFiltersReadOnly'
 import {
-    CONVERSATIONS_TICKET_PRIORITY_OPTIONS,
-    CONVERSATIONS_TICKET_STATUS_OPTIONS,
     type ConversationsTicketAssignee,
     parseConversationsWidgetConfig,
     patchConversationsWidgetFilterFields,
@@ -29,9 +28,7 @@ function priorityFilterLabel(priorities: ConversationsTicketPriority[]): string 
         return 'Priority'
     }
     if (priorities.length === 1) {
-        return (
-            CONVERSATIONS_TICKET_PRIORITY_OPTIONS.find((option) => option.key === priorities[0])?.label ?? priorities[0]
-        )
+        return priorityMultiselectOptions.find((option) => option.key === priorities[0])?.label ?? priorities[0]
     }
     return `${priorities.length} priorities`
 }
@@ -48,7 +45,7 @@ function ConversationsPriorityFilter({
             closeOnClickInside={false}
             overlay={
                 <div className="space-y-px p-1">
-                    {CONVERSATIONS_TICKET_PRIORITY_OPTIONS.map((option) => (
+                    {priorityMultiselectOptions.map((option) => (
                         <LemonButton
                             key={option.key}
                             type="tertiary"
@@ -97,7 +94,7 @@ export function ConversationsWidgetTileFilters({
         useValues(savedViewsLogic)
     const { loadSavedViews } = useActions(savedViewsLogic)
     const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
-    const statusLabel = CONVERSATIONS_TICKET_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status
+    const statusLabel = statusOptions.find((option) => option.value === status)?.label ?? status
     const prioritiesLabel = priorities.length === 0 ? 'All priorities' : `${priorities.length} selected`
     const assigneesLabel = assignees.length === 0 ? 'All assignees' : `${assignees.length} selected`
     const savedViewLabel = savedViewId ? (savedViewLabelById[savedViewId] ?? savedViewId) : null
@@ -158,7 +155,7 @@ export function ConversationsWidgetTileFilters({
                         <LemonSelect
                             size="small"
                             value={status}
-                            options={CONVERSATIONS_TICKET_STATUS_OPTIONS}
+                            options={statusOptions}
                             renderButtonContent={(option) =>
                                 option?.value === 'all' ? 'Status' : (option?.label ?? 'Status')
                             }

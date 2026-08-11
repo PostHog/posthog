@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from posthog.schema import PropertyOperator
 
+from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
     ACTIVITY_EVENTS_MAX_PROPERTY_FILTER_VALUES,
@@ -61,9 +62,9 @@ LogsOrderBy = Literal["latest", "earliest"]
 LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 # How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
 LogsTimezone = Literal["UTC", "local"]
-ConversationsTicketStatus = Literal["new", "open", "pending", "on_hold", "resolved", "all"]
-ConversationsTicketPriority = Literal["low", "medium", "high", "critical"]
-ConversationsTicketChannel = Literal["widget", "slack", "email", "teams", "github", "all"]
+ConversationsTicketStatus = Status | Literal["all"]
+ConversationsTicketPriority = Priority
+ConversationsTicketChannel = Channel | Literal["all"]
 
 
 class WidgetAssigneeFilter(BaseModel):
