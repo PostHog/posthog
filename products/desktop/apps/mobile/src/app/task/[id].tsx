@@ -32,6 +32,7 @@ import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { FloatingBackButton } from "@/components/FloatingBackButton";
 import { useAuthStore } from "@/features/auth";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
+import { CreateSkillFromTaskButton } from "@/features/tasks/components/CreateSkillFromTaskButton";
 import { CustomImageBadge } from "@/features/tasks/components/CustomImageBadge";
 import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHeader";
 import { PinTaskButton } from "@/features/tasks/components/PinTaskButton";
@@ -696,6 +697,15 @@ export default function TaskDetailScreen() {
     });
   }, [taskId, stopRun, analytics, getSessionForTask]);
 
+  // Routed through the ordinary send path so it inherits queueing, steering,
+  // and the terminal-resume behaviour instead of duplicating any of it.
+  const handleCreateSkillFromTask = useCallback(
+    (prompt: string) => {
+      void handleSendPrompt(prompt, []);
+    },
+    [handleSendPrompt],
+  );
+
   const canStopRun =
     !!task &&
     !!session &&
@@ -859,6 +869,11 @@ export default function TaskDetailScreen() {
         rightSlot={
           <>
             {taskId ? <PinTaskButton taskId={taskId} /> : null}
+            <CreateSkillFromTaskButton
+              taskTitle={task?.title}
+              canSend={!!session && !session.isPromptPending}
+              onSend={handleCreateSkillFromTask}
+            />
             {task ? <CustomImageBadge task={task} /> : null}
             {canStopRun ? (
               <StopRunButton onPress={handleStopRun} />
