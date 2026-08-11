@@ -37,10 +37,17 @@ describe("MissionControlOverlay", () => {
     );
   });
 
-  it("stays mounted while fading out", () => {
+  it("fades in and stays mounted while fading out", () => {
     useMissionControlStore.setState({ active: true });
     render(<MissionControlOverlay />);
-    act(() => vi.runOnlyPendingTimers());
+
+    expect(screen.getByTestId("mission-control-overlay")).toHaveClass(
+      "opacity-0",
+    );
+    act(() => vi.runAllTimers());
+    expect(screen.getByTestId("mission-control-overlay")).toHaveClass(
+      "opacity-100",
+    );
 
     act(() => useMissionControlStore.setState({ active: false }));
     expect(screen.getByTestId("mission-control-overlay")).toHaveClass(
