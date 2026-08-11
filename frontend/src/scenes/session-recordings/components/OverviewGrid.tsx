@@ -4,6 +4,8 @@ import { ReactNode } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { PropertyFilterType } from '~/types'
+
 interface OverviewItemBase {
     icon?: ReactNode
     label: string
@@ -20,6 +22,8 @@ type PropertyOverviewItem = OverviewItemBase & {
     type: 'property'
     property: string
     value?: string | undefined
+    // Resolved from the taxonomy so the filter lands in the right subquery
+    propertyFilterType?: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
 }
 
 export type OverviewItem = TextOverviewItem | PropertyOverviewItem

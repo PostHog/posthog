@@ -34,6 +34,7 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
     is_session_property,
+    validate_session_properties,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -433,6 +434,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # below to avoid the UnexpectedQueryProperties exception, so handle them here.
         session_properties = [p for p in (self._query.properties or []) if is_session_property(p)]
         if session_properties:
+            validate_session_properties(session_properties)
             optional_exprs.append(property_to_expr(session_properties, team=self._team, scope="replay"))
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)

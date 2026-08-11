@@ -10,7 +10,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
-import { PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
@@ -137,7 +137,14 @@ export function PlayerSidebarOverviewGrid({
                                     filterDisabledReason={filterDisabledReason}
                                     filterState={filterState}
                                     onFilterClick={
-                                        isFilterable ? () => togglePropertyFilter(item.property, item.value) : undefined
+                                        isFilterable
+                                            ? () =>
+                                                  togglePropertyFilter(
+                                                      item.property,
+                                                      item.value,
+                                                      item.propertyFilterType ?? PropertyFilterType.Event
+                                                  )
+                                            : undefined
                                     }
                                 >
                                     <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium min-w-0">

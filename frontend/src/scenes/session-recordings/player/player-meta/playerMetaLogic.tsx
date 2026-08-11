@@ -123,7 +123,7 @@ export function getPropertyDisplayInfo(
     label: string
     originalKey: string
     type: TaxonomicFilterGroupType
-    propertyFilterType?: PropertyFilterType
+    propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
 } {
     const propertyType =
         recordingProperties && property in recordingProperties
@@ -131,7 +131,7 @@ export function getPropertyDisplayInfo(
               getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
             : TaxonomicFilterGroupType.PersonProperties
 
-    const propertyFilterType: PropertyFilterType | undefined =
+    const propertyFilterType =
         propertyType === TaxonomicFilterGroupType.EventProperties
             ? PropertyFilterType.Event
             : propertyType === TaxonomicFilterGroupType.SessionProperties
@@ -665,6 +665,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                                   : JSON.stringify(value),
                         type: 'property',
                         property,
+                        propertyFilterType: propertyInfo.propertyFilterType,
                     })
                 })
 

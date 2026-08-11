@@ -755,10 +755,12 @@ export interface sessionRecordingsPlaylistLogicActions {
     }
     togglePropertyFilter: (
         propertyKey: string,
-        propertyValue: string | undefined
+        propertyValue: string | undefined,
+        propertyType: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
     ) => {
         propertyKey: string
         propertyValue: string | undefined
+        propertyType: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
     }
 }
 
@@ -870,9 +872,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             propertyKey,
             propertyValue,
         }),
-        togglePropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
+        togglePropertyFilter: (
+            propertyKey: string,
+            propertyValue: string | undefined,
+            propertyType: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
+        ) => ({
             propertyKey,
             propertyValue,
+            propertyType,
         }),
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -1336,19 +1343,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 })
             },
 
-            togglePropertyFilter: ({ propertyKey, propertyValue }) => {
+            togglePropertyFilter: ({ propertyKey, propertyValue, propertyType: filterType }) => {
                 // Validate property value
                 if (propertyValue === undefined || propertyValue === null) {
                     return
                 }
-
-                // Determine property filter type
-                const filterType =
-                    propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
-                        ? PropertyFilterType.Person
-                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
-                          ? PropertyFilterType.Event
-                          : PropertyFilterType.Session
 
                 const currentGroup = values.filters.filter_group
                 const firstNestedGroup = currentGroup.values[0]

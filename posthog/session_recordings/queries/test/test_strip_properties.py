@@ -1,3 +1,5 @@
+import pytest
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -11,11 +13,14 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
+from posthog.hogql.errors import QueryError
+
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     is_recording_property,
     is_session_property,
+    validate_session_properties,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -99,3 +104,28 @@ class TestStripProperties:
         assert offending_value not in str(exc)
         assert "event" in str(exc)
         assert "$entry_referring_domain" in str(exc)
+
+    @parameterized.expand(
+        [
+            ("entry url", "$entry_current_url"),
+            ("channel type", "$channel_type"),
+            ("session duration", "$session_duration"),
+        ]
+    )
+    def test_validate_session_properties_accepts_known_keys(self, _name: str, key: str) -> None:
+        validate_session_properties([SessionPropertyFilter(key=key, operator=PropertyOperator.EXACT, value="x")])
+
+    @parameterized.expand(
+        [
+            ("current url is not a session column", "$current_url"),
+            ("custom event key routed as session", "product_id"),
+        ]
+    )
+    def test_validate_session_properties_rejects_unknown_key(self, _name: str, key: str) -> None:
+        # An unknown session key otherwise fails deep in HogQL with an opaque "Field not found".
+        with pytest.raises(QueryError) as exc:
+            validate_session_properties([SessionPropertyFilter(key=key, operator=PropertyOperator.EXACT, value="x")])
+        assert key in str(exc.value)
+
+    def test_validate_session_properties_ignores_non_session_filters(self) -> None:
+        validate_session_properties([EventPropertyFilter(key="product_id", operator=PropertyOperator.EXACT, value="x")])

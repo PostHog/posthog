@@ -18,6 +18,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.sessions_v1 import LAZY_SESSIONS_FIELDS as SESSION_FIELDS_V1
+from posthog.hogql.database.schema.sessions_v2 import LAZY_SESSIONS_FIELDS as SESSION_FIELDS_V2
+from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS as SESSION_FIELDS_V3
+from posthog.hogql.errors import QueryError
 from posthog.hogql.property import action_to_expr
 
 from posthog.models import Team
@@ -26,6 +30,11 @@ from posthog.types import AnyPropertyFilter
 from products.actions.backend.models.action import Action
 
 logger = structlog.get_logger(__name__)
+
+# Every session property key any sessions-table version can resolve. A session filter on a key
+# outside this set (e.g. `$current_url`, or a custom event key) has no column to join to, so it
+# must be rejected before HogQL fails on it with an opaque "Field not found".
+KNOWN_SESSION_PROPERTY_KEYS = set(SESSION_FIELDS_V1) | set(SESSION_FIELDS_V2) | set(SESSION_FIELDS_V3)
 
 ANONYMOUS_USER_COHORT_FIX_FLAG = "anonymous-user-session-replay-filtering-fix"
 
@@ -98,6 +107,28 @@ def is_session_property(p: AnyPropertyFilter) -> bool:
 def is_recording_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return p_type == "recording"
+
+
+def validate_session_properties(session_properties: list[AnyPropertyFilter]) -> None:
+    """Reject session filters whose key no sessions-table version defines.
+
+    A saved filter with such a key otherwise fails deep in HogQL as "Field not found",
+    which reaches the user as a generic load error with no hint at which chip to remove.
+    """
+    unknown_keys = sorted(
+        {
+            key
+            for p in session_properties
+            if getattr(p, "type", None) == "session"
+            and (key := getattr(p, "key", None))
+            and key not in KNOWN_SESSION_PROPERTY_KEYS
+        }
+    )
+    if unknown_keys:
+        keys = ", ".join(unknown_keys)
+        if len(unknown_keys) > 1:
+            raise QueryError(f"Recordings have no session properties named {keys}. Remove these filters to continue.")
+        raise QueryError(f"Recordings have no session property named {keys}. Remove this filter to continue.")
 
 
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
