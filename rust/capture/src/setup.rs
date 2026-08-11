@@ -130,6 +130,7 @@ pub struct CaptureComponents {
     pub server_handle: lifecycle::Handle,
     pub sink: Arc<dyn Event + Send + Sync>,
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    pub event_restriction_service: Option<EventRestrictionService>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
 
@@ -392,7 +393,7 @@ pub async fn build_components(
         global_rate_limiter_token_distinctid,
         quota_limiter,
         token_dropper,
-        event_restriction_service,
+        event_restriction_service.clone(),
         recorder_handle,
         config.capture_mode,
         config.concurrency_limit,
@@ -427,6 +428,7 @@ pub async fn build_components(
         server_handle: server,
         sink: sink_for_flush,
         v1_sink_router,
+        event_restriction_service,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
 }
