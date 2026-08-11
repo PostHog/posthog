@@ -425,9 +425,14 @@ impl PersonHogLifecycle for PersonHogLifecycleService {
         }
 
         if case3.is_empty() {
-            // Nothing to destroy: no op row is created, and a retry simply
-            // re-classifies (every settled pair classifies the same way
-            // again). The event's properties still reach the survivor.
+            // Nothing to destroy, so no op row. Inline settlement is
+            // idempotent: a retry re-executes against the current world,
+            // the same at-least-once semantics as event redelivery — and
+            // the only semantics available, since recorded outcomes are
+            // GC'd after retention and a late replay re-classifies
+            // regardless. The op row resumes interrupted destruction; it
+            // is not a dedupe of idempotent work. The event's properties
+            // still reach the survivor.
             let pushed = self
                 .push_event_properties(&request, target_person.id)
                 .await?;
