@@ -2301,20 +2301,41 @@ usage_metrics: PostgresTable = PostgresTable(
 )
 
 
+task_public_channels: PostgresTable = PostgresTable(
+    name="_task_public_channels",
+    postgres_table_name="posthog_task_channel",
+    predicates=[parse_expr("channel_type = 'public'"), parse_expr("deleted != true")],
+    description="Internal list of live project-visible task spaces.",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "channel_type": StringDatabaseField(name="channel_type", hidden=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            hidden=True,
+        ),
+    },
+)
+
+
 tasks: PostgresTable = PostgresTable(
     name="tasks",
     postgres_table_name="posthog_task",
     access_scope="task",
-    # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
-    # exposed to end users. They are excluded entirely from HogQL.
-    predicates=[parse_expr("internal != true")],
-    description="Tasks (PostHog Desktop / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
+    predicates=[
+        parse_expr("internal != true"),
+        parse_expr("channel_id IN (SELECT id FROM system._task_public_channels)"),
+    ],
+    description="Tasks filed in public project spaces; private, unfiled, and internal tasks are excluded.",
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the task."
         ),
+        "channel_id": StringDatabaseField(name="channel_id", nullable=True, hidden=True),
         "github_integration_id": IntegerDatabaseField(
             name="github_integration_id",
             nullable=True,
@@ -2362,7 +2383,8 @@ task_runs: PostgresTable = PostgresTable(
     name="task_runs",
     postgres_table_name="posthog_task_run",
     access_scope="task",
-    description="Execution runs of a task; one row per run attempt, with status and outputs.",
+    predicates=[parse_expr("task_id IN (SELECT id FROM system.tasks)")],
+    description="Execution runs of tasks filed in public project spaces.",
     fields={
         "id": StringDatabaseField(name="id", description="Task run UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2525,9 +2547,11 @@ canvases: PostgresTable = PostgresTable(
     name="canvases",
     postgres_table_name="posthog_canvas",
     access_scope="canvas",
-    # Mirror the REST API's default filter: soft-deleted canvases are not exposed.
-    predicates=[parse_expr("deleted != true")],
-    description="Canvases (agent-built sandboxed browser apps, filed into channels); one row per canvas (soft-deleted canvases are excluded).",
+    predicates=[
+        parse_expr("deleted != true"),
+        parse_expr("channel_id IN (SELECT id FROM system._task_public_channels)"),
+    ],
+    description="Canvases filed in public project spaces; private and soft-deleted canvases are excluded.",
     fields={
         "id": StringDatabaseField(name="id", description="Canvas UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2688,6 +2712,7 @@ class SystemTables(TableNode):
         "_ticket_assignee_roles": TableNode(name="_ticket_assignee_roles", table=ticket_assignee_roles, hidden=True),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
+        "_task_public_channels": TableNode(name="_task_public_channels", table=task_public_channels, hidden=True),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),
