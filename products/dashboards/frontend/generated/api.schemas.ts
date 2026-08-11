@@ -415,6 +415,7 @@ export interface DashboardFiltersOpenApiApi {
 
 /**
  * * `activity_events_list` - activity_events_list
+ * * `conversations_recent_tickets` - conversations_recent_tickets
  * * `error_tracking_list` - error_tracking_list
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
@@ -427,6 +428,7 @@ export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
 
 export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ActivityEventsList: 'activity_events_list',
+    ConversationsRecentTickets: 'conversations_recent_tickets',
     ErrorTrackingList: 'error_tracking_list',
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
@@ -798,6 +800,32 @@ export interface LogsListWidgetConfigApi {
     savedViewId?: string | null
 }
 
+/**
+ * Ticket status filter.
+ */
+export type ConversationsRecentTicketsWidgetConfigApiStatus =
+    (typeof ConversationsRecentTicketsWidgetConfigApiStatus)[keyof typeof ConversationsRecentTicketsWidgetConfigApiStatus]
+
+export const ConversationsRecentTicketsWidgetConfigApiStatus = {
+    New: 'new',
+    Open: 'open',
+    Pending: 'pending',
+    OnHold: 'on_hold',
+    Resolved: 'resolved',
+    All: 'all',
+} as const
+
+export interface ConversationsRecentTicketsWidgetConfigApi {
+    /**
+     * Maximum number of tickets to return.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /** Ticket status filter. */
+    status?: ConversationsRecentTicketsWidgetConfigApiStatus
+}
+
 export type DashboardWidgetConfigApi =
     | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
@@ -806,6 +834,7 @@ export type DashboardWidgetConfigApi =
     | ExperimentResultsWidgetConfigApi
     | SurveyResultsWidgetConfigApi
     | LogsListWidgetConfigApi
+    | ConversationsRecentTicketsWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -813,6 +842,7 @@ export interface DashboardPatchWidgetOpenApiApi {
     /** Widget type identifier (cannot be changed on update).
      *
      * * `activity_events_list` - activity_events_list
+     * * `conversations_recent_tickets` - conversations_recent_tickets
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
@@ -9091,6 +9121,31 @@ export interface LogsListWidgetAddRequestOpenApiApi {
     config: LogsListWidgetConfigApi
 }
 
+export type ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType =
+    (typeof ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType]
+
+export const ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType = {
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the recent tickets widget. */
+    config: ConversationsRecentTicketsWidgetConfigApi
+}
+
 export type AddDashboardWidgetRequestApi =
     | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
@@ -9099,13 +9154,14 @@ export type AddDashboardWidgetRequestApi =
     | ExperimentResultsWidgetAddRequestOpenApiApi
     | SurveyResultsWidgetAddRequestOpenApiApi
     | LogsListWidgetAddRequestOpenApiApi
+    | ConversationsRecentTicketsWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -9278,6 +9334,29 @@ export interface LogsListWidgetUpdateRequestOpenApiApi {
     config?: LogsListWidgetConfigApi
 }
 
+export type ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType = {
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent tickets widget. Omit to leave unchanged. */
+    config?: ConversationsRecentTicketsWidgetConfigApi
+}
+
 export type UpdateDashboardWidgetRequestApi =
     | ActivityEventsListWidgetUpdateRequestOpenApiApi
     | ErrorTrackingListWidgetUpdateRequestOpenApiApi
@@ -9286,6 +9365,7 @@ export type UpdateDashboardWidgetRequestApi =
     | ExperimentResultsWidgetUpdateRequestOpenApiApi
     | SurveyResultsWidgetUpdateRequestOpenApiApi
     | LogsListWidgetUpdateRequestOpenApiApi
+    | ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -9495,6 +9575,27 @@ export interface LogsListWidgetCatalogEntryOpenApiApi {
     live: boolean
 }
 
+export type ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType = {
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+export interface ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi {
+    widget_type: ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: ConversationsRecentTicketsWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
+}
+
 export type WidgetCatalogEntryApi =
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
@@ -9503,6 +9604,7 @@ export type WidgetCatalogEntryApi =
     | ExperimentResultsWidgetCatalogEntryOpenApiApi
     | SurveyResultsWidgetCatalogEntryOpenApiApi
     | LogsListWidgetCatalogEntryOpenApiApi
+    | ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -9607,6 +9709,16 @@ export type LogsListWidgetTypeEnumApi = (typeof LogsListWidgetTypeEnumApi)[keyof
 
 export const LogsListWidgetTypeEnumApi = {
     LogsList: 'logs_list',
+} as const
+
+/**
+ * * `conversations_recent_tickets` - conversations_recent_tickets
+ */
+export type ConversationsRecentTicketsWidgetTypeEnumApi =
+    (typeof ConversationsRecentTicketsWidgetTypeEnumApi)[keyof typeof ConversationsRecentTicketsWidgetTypeEnumApi]
+
+export const ConversationsRecentTicketsWidgetTypeEnumApi = {
+    ConversationsRecentTickets: 'conversations_recent_tickets',
 } as const
 
 export type DashboardTemplatesListParams = {

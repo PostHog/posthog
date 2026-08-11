@@ -437,6 +437,32 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     totalCountCapped: true,
                 },
             }
+        case 'conversations_recent_tickets':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: defaultConfig,
+                loading: false,
+                result: {
+                    results: [
+                        {
+                            id: 'ticket-1',
+                            ticket_number: 124,
+                            channel_source: 'email',
+                            status: 'open',
+                            priority: 'high',
+                            assignee: null,
+                            updated_at: '2026-05-26T09:55:00Z',
+                            last_message_text: 'Unable to finish checkout',
+                            unread_team_count: 1,
+                            email_subject: null,
+                        },
+                    ],
+                    hasMore: true,
+                    totalCount: 12,
+                },
+            }
         default: {
             const exhaustiveCheck: never = catalogKey
             return exhaustiveCheck

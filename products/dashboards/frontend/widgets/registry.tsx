@@ -15,6 +15,7 @@ export type DashboardWidgetTileFiltersProps = {
     canMutateErrorTrackingIssues?: boolean
 }
 import { parseActivityEventsWidgetConfigApiError } from './activity/activityEventsWidgetConfigValidation'
+import { parseConversationsWidgetConfigApiError } from './conversations/conversationsWidgetConfigValidation'
 import type {
     WidgetIssueMetadataContext,
     WidgetIssueMetadataDelta,
@@ -34,6 +35,17 @@ import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetC
 // Rendered through <Suspense> boundaries in DashboardWidgetItem and WidgetCardHeader.
 const ActivityEventsWidget = lazyWithRetry(() =>
     import('./activity/ActivityEventsWidget').then((m) => ({ default: m.ActivityEventsWidget }))
+)
+const ConversationsWidget = lazyWithRetry(() =>
+    import('./conversations/ConversationsWidget').then((m) => ({ default: m.ConversationsWidget }))
+)
+const ConversationsWidgetTileFilters = lazyWithRetry(() =>
+    import('./conversations/ConversationsWidgetTileFilters').then((m) => ({
+        default: m.ConversationsWidgetTileFilters,
+    }))
+)
+const EditConversationsWidgetModal = lazyWithRetry(() =>
+    import('./conversations/EditConversationsWidgetModal').then((m) => ({ default: m.EditConversationsWidgetModal }))
 )
 const ActivityEventsWidgetTileFilters = lazyWithRetry(() =>
     import('./activity/ActivityEventsWidgetTileFilters').then((m) => ({ default: m.ActivityEventsWidgetTileFilters }))
@@ -210,6 +222,13 @@ export type DashboardWidgetEditModalProps = {
  * `satisfies Record<DashboardWidgetCatalogKey, …>` fails typecheck if catalog grows without a matching key.
  */
 export const DASHBOARD_WIDGET_REGISTRY = {
+    conversations_recent_tickets: {
+        Component: ConversationsWidget,
+        TileFilters: ConversationsWidgetTileFilters,
+        EditModal: EditConversationsWidgetModal,
+        productAccess: 'ticket',
+        parseConfigApiError: parseConversationsWidgetConfigApiError,
+    },
     activity_events_list: {
         Component: ActivityEventsWidget,
         TileFilters: ActivityEventsWidgetTileFilters,

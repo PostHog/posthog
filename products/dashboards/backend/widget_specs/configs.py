@@ -33,6 +33,7 @@ EXPERIMENTS_LIST_WIDGET_TYPE = "experiments_list"
 EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
 SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
+CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
 
 ActivityEventsPropertyKey = Annotated[
     str,
@@ -59,6 +60,7 @@ LogsOrderBy = Literal["latest", "earliest"]
 LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 # How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
 LogsTimezone = Literal["UTC", "local"]
+ConversationsTicketStatus = Literal["new", "open", "pending", "on_hold", "resolved", "all"]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -236,3 +238,10 @@ class LogsListWidgetConfig(WidgetDateRangeConfigBase):
         if not isinstance(value, str):
             raise ValueError("savedViewId must be a string.")
         return value
+
+
+class ConversationsRecentTicketsWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of tickets to return.")
+    status: ConversationsTicketStatus = Field(default="all", description="Ticket status filter.")

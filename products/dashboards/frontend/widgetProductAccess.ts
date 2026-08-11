@@ -11,6 +11,7 @@ const WIDGET_PRODUCT_ACCESS_CHECKS = {
     experiment: () => userHasAccess(AccessControlResourceType.Experiment, AccessControlLevel.Viewer),
     survey: () => userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Viewer),
     logs: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
+    ticket: () => userHasAccess(AccessControlResourceType.Ticket, AccessControlLevel.Viewer),
 } satisfies Record<DashboardWidgetProductAccess, () => boolean>
 
 export function userHasDashboardWidgetProductAccess(productAccess: DashboardWidgetProductAccess | undefined): boolean {

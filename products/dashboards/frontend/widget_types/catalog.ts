@@ -9,6 +9,7 @@ import { ActivityTab } from '~/types'
 
 import {
     activityEventsWidgetConfigSchema,
+    conversationsRecentTicketsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
@@ -19,6 +20,7 @@ import {
 import type { DashboardWidgetProductAccess } from '../types'
 import { isLiveDashboardWidgetType } from '../widgets/live/liveWidgetTypes'
 import { ActivityEventsWidgetPreview } from '../widgets/previews/ActivityEventsWidgetPreview'
+import { ConversationsWidgetPreview } from '../widgets/previews/ConversationsWidgetPreview'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
 import {
     ExperimentResultsWidgetPreview,
@@ -86,6 +88,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     experiments: 'Experiments',
     surveys: 'Surveys',
     logs: 'Logs',
+    conversations: 'Conversations',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -100,6 +103,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     experiments: IconFlask,
     surveys: IconMessage,
     logs: IconList,
+    conversations: IconMessage,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -176,6 +180,28 @@ export type DashboardWidgetCatalogEntry = {
 
 /** New widget types: add here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_CATALOG = {
+    conversations_recent_tickets: {
+        groupId: 'conversations',
+        label: 'Recent tickets',
+        description: 'Most recently updated support tickets.',
+        headerTitle: 'Recent tickets',
+        headerMeta: { showDateRange: false },
+        defaultConfig: conversationsRecentTicketsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'ticket',
+        titleHref: urls.supportTickets(),
+        sharedPlaceholder: {
+            title: 'Recent tickets',
+            message: 'Log in to PostHog to see recent support tickets from this dashboard.',
+        },
+        availability: {
+            requirement: 'conversations_enabled',
+            unavailableTitle: 'Conversations is not enabled',
+            unavailableReason: 'Enable Conversations for this project to see recent tickets on your dashboard.',
+            setupActionLabel: 'Set up Conversations',
+            docsHref: 'https://posthog.com/docs/conversations',
+        },
+    },
     error_tracking_list: {
         groupId: 'error_tracking',
         label: 'Top issues',
@@ -308,6 +334,7 @@ export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
+    conversations_recent_tickets: ConversationsWidgetPreview,
     activity_events_list: ActivityEventsWidgetPreview,
     error_tracking_list: ErrorTrackingWidgetPreview,
     session_replay_list: SessionReplayWidgetPreview,

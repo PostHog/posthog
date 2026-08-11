@@ -40,7 +40,8 @@
             "severityLevels",
             "timezone",
             "wrapLines"
-        ]
+        ],
+        "conversations_recent_tickets": ["limit", "status"]
     },
     "configPropertyTrees": {
         "activity_events_list": {
@@ -418,6 +419,14 @@
             },
             "savedViewId": {
                 "$type": "string"
+            }
+        },
+        "conversations_recent_tickets": {
+            "limit": {
+                "$type": "integer"
+            },
+            "status": {
+                "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
             }
         }
     }
