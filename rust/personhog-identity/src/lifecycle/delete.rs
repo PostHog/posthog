@@ -498,6 +498,32 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
     .await?;
     victims.sort_unstable();
 
+    // Take every row lock this transaction will need up front, in id order,
+    // before the multi-row updates below. Those statements acquire locks in
+    // whatever order the query plan visits rows, and the writer's flush
+    // upsert spans overlapping persons in one statement — uncontrolled
+    // order on either side is a deadlock cycle waiting for load. Sorted
+    // acquisition on both sides (the writer sorts its flush batches the
+    // same way) makes a cycle impossible.
+    let lock_persons_sql = format!(
+        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+        person_table = tables.person,
+    );
+    sqlx::query(&lock_persons_sql)
+        .bind(team_id)
+        .bind(&victims)
+        .execute(&mut *tx)
+        .await?;
+    let lock_pdi_sql = format!(
+        "SELECT id FROM {pdi_table} WHERE team_id = $1 AND person_id = ANY($2) ORDER BY id FOR UPDATE",
+        pdi_table = tables.person_distinct_id,
+    );
+    sqlx::query(&lock_pdi_sql)
+        .bind(team_id)
+        .bind(&victims)
+        .execute(&mut *tx)
+        .await?;
+
     let tombstone_pdi_sql = format!(
         r#"
         UPDATE {pdi_table}
