@@ -17,20 +17,16 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
 
 /**
  * A failed `fetch` — the request never reached a response. Browsers word this differently, and
- * `handleFetch` wraps it as an `ApiError` with no status:
+ * `handleFetch` wraps it as an `ApiError` whose message keeps the underlying browser string:
  *   Chrome/Edge: "Failed to fetch"
  *   Firefox:     "NetworkError when attempting to fetch resource."
  *   Safari:      "Load failed"
- * These are transient (offline, DNS, dropped connection) and usually clear on a quick retry.
+ * These are transient (offline, DNS, dropped connection) and usually clear on a quick retry. The
+ * match is message-based on purpose: a no-status `ApiError` also covers malformed JSON, which is
+ * not a network failure and must not be retried.
  */
 export function isNetworkError(error: unknown): boolean {
-    if (error instanceof ApiError) {
-        return !error.status
-    }
-    if (error instanceof Error) {
-        return /failed to fetch|network\s*error|load failed/i.test(error.message)
-    }
-    return false
+    return error instanceof Error && /failed to fetch|network\s*error|load failed/i.test(error.message)
 }
 
 /** User-facing copy for a network fetch failure. Says what broke and points at the fix. */

@@ -61,8 +61,9 @@ describe('isNetworkError', () => {
         ['Chrome/Edge fetch failure', new TypeError('Failed to fetch'), true],
         ['Firefox fetch failure', new TypeError('NetworkError when attempting to fetch resource.'), true],
         ['Safari fetch failure', new TypeError('Load failed'), true],
-        ['ApiError with no status (fetch threw)', new ApiError('Failed to fetch', undefined), true],
+        ['ApiError wrapping a fetch failure', new ApiError('TypeError: Failed to fetch', undefined), true],
         ['ApiError with a status', new ApiError('Server error', 500), false],
+        ['no-status ApiError for malformed JSON', new ApiError('Malformed JSON response', undefined), false],
         ['a server error message', new Error('Something went wrong on the server'), false],
         ['a non-error value', 'Failed to fetch', false],
     ])('detects %s as network error = %s', (_, error, expected) => {
