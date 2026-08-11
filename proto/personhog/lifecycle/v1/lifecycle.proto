@@ -101,8 +101,8 @@ enum MergeSourceOutcome {
   // The source person has more distinct ids than the request's move_limit.
   MERGE_SOURCE_OUTCOME_SKIPPED_MOVE_LIMIT = 7;
   // The pair could not be handled; details in server logs. Currently also
-  // the outcome for sources that resolve to no person (cases 1/4 of the
-  // merge contract are not implemented yet).
+  // the outcome for sources that resolve to no person (unresolved-source
+  // attach is not implemented yet).
   MERGE_SOURCE_OUTCOME_ERROR = 8;
 }
 

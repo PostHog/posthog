@@ -84,7 +84,8 @@ impl MergeEntrance {
         }
 
         // Classify: resolve everything once on the primary, settle what
-        // never needs the saga, collect the case-3 set. The saga re-resolves
+        // never needs the saga, collect the two-person set (the only
+        // destructive shape). The saga re-resolves
         // authoritatively at claim time; this pass only decides shape.
         let mut keys: Vec<(i64, String)> =
             vec![(request.team_id, request.target_distinct_id.clone())];
@@ -102,17 +103,18 @@ impl MergeEntrance {
 
         let target_key = (request.team_id, request.target_distinct_id.clone());
         let Some(target_person) = resolved.get(&target_key) else {
-            // Cases 1 and 4 of the merge contract (personless target) are
-            // not implemented yet; the caller keeps them on its own path.
+            // Unresolved-target merges (attach the target to a resolved
+            // source's person, or birth a fresh target) are not
+            // implemented yet; the caller keeps them on its own path.
             return Err(Status::failed_precondition(
                 "target distinct id resolves to no person; \
-                 create it first (personless merge cases are not implemented)",
+                 create it first (unresolved-target merges are not implemented)",
             ));
         };
         let target_person = target_person.clone();
 
         let mut inline_results: HashMap<String, String> = HashMap::new();
-        let mut case3: Vec<MergeSourceEntry> = Vec::new();
+        let mut saga_sources: Vec<MergeSourceEntry> = Vec::new();
         for source in &request.sources {
             let did = &source.source_distinct_id;
             if is_distinct_id_illegal(did) {
@@ -121,20 +123,20 @@ impl MergeEntrance {
             }
             match resolved.get(&(request.team_id, did.clone())) {
                 None => {
-                    // Case 1 (personless source) is not implemented yet.
+                    // Unresolved-source attach is not implemented yet.
                     inline_results.insert(did.clone(), OUTCOME_ERROR.to_string());
                 }
                 Some(person) if person.id == target_person.id => {
                     inline_results.insert(did.clone(), OUTCOME_NOOP_SAME_PERSON.to_string());
                 }
-                Some(_) => case3.push(MergeSourceEntry {
+                Some(_) => saga_sources.push(MergeSourceEntry {
                     distinct_id: did.clone(),
                     event_uuid: source.event_uuid.clone(),
                 }),
             }
         }
 
-        if case3.is_empty() {
+        if saga_sources.is_empty() {
             // Nothing to destroy, so no op row. Inline settlement is
             // idempotent: a retry re-executes against the current world,
             // the same at-least-once semantics as event redelivery — and
@@ -172,7 +174,7 @@ impl MergeEntrance {
         // a retried finished op reproduces the full per-did answer).
         let merge_request = MergeRequest {
             target_distinct_id: request.target_distinct_id.clone(),
-            sources: case3,
+            sources: saga_sources,
             event_set,
             event_set_once,
             allow_identified_sources: request.allow_identified_sources,

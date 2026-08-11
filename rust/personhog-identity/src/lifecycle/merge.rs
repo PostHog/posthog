@@ -15,9 +15,9 @@
 //!   CAS, so every leader call is convergent under repetition: a re-run
 //!   step re-issues the call and lands in the same state.
 //!
-//! The driver receives the classified case-3 set of a MergePersons call:
-//! source distinct ids that resolved to persons distinct from the
-//! target. That classification is advisory. The claim step re-resolves
+//! The driver receives a MergePersons call's classified two-person set:
+//! source distinct ids that resolved to a live person distinct from the
+//! target's. That classification is advisory. The claim step re-resolves
 //! everything authoritatively inside its own transaction, because the
 //! world can change between the handler and the saga.
 //!
@@ -91,8 +91,9 @@ impl MergeStep {
     }
 }
 
-/// The frozen `lifecycle_op.request` payload for a merge op: the case-3
-/// set the handler classified, plus the merge event's property payloads.
+/// The frozen `lifecycle_op.request` payload for a merge op: the
+/// two-person set the handler classified, plus the merge event's
+/// property payloads.
 /// `sources` order is property precedence (earlier beats later).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeRequest {
