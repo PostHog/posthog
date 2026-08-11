@@ -70,7 +70,7 @@ describe('API helper', () => {
 
             await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
             const streamOptions = fetchEventSourceSpy.mock.calls[0][1]
-            const response = () =>
+            const response = (): Response =>
                 new Response(JSON.stringify({ detail: 'Not found.' }), {
                     status: 404,
                     headers: { 'Content-Type': 'application/json' },

@@ -9,7 +9,6 @@ import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/uti
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import * as featureFlagLib from 'lib/logic/featureFlagLogic'
@@ -1306,16 +1305,23 @@ describe('dashboardLogic', () => {
 
             it('shows Not Found only after three consecutive classic-load 404 responses', async () => {
                 logic.unmount()
-                const getResponseSpy = jest.spyOn(api, 'getResponse').mockRejectedValue(new ApiError('Not found.', 404))
+                let attempts = 0
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/13/': () => {
+                            attempts++
+                            return [404, { detail: 'Not found.' }]
+                        },
+                    },
+                })
 
                 logic = dashboardLogic({ id: 13 })
                 logic.mount()
 
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(getResponseSpy).toHaveBeenCalledTimes(3)
-                expect(logic.values.error404).toBe(true)
-                getResponseSpy.mockRestore()
+                await expectLogic(logic).toDispatchActions(['dashboardNotFound']).toMatchValues({
+                    error404: true,
+                })
+                expect(attempts).toBe(3)
             })
         })
     })
