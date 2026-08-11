@@ -52,13 +52,13 @@ pub async fn seed_persons(
     Ok(ids)
 }
 
-/// The distinct id tables to sweep for a team: always the real mapping
-/// table, plus the tmp mirror when the harness targets the validation
-/// person table — identity writes its mappings there, and the mirror's FK
-/// blocks the person delete until they go.
+/// The mapping table paired with a person table — the one identity
+/// writes and whose FK blocks the person delete. Cleanup stays inside
+/// the person table's own namespace: targeting the validation set must
+/// never delete from the real tables.
 fn distinct_id_tables_for(person_table: &str) -> &'static [&'static str] {
     if person_table == "personhog_person_tmp" {
-        &["posthog_persondistinctid", "personhog_persondistinctid_tmp"]
+        &["personhog_persondistinctid_tmp"]
     } else {
         &["posthog_persondistinctid"]
     }
