@@ -2,7 +2,6 @@ import { NEW_SURVEY } from 'scenes/surveys/constants'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
-    CyclotronJobInvocationGlobals,
     EventPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
@@ -18,6 +17,7 @@ import {
     getDefaultSurveyMessage,
     remapSurveyResponseProperties,
 } from './surveyNotificationModalLogic'
+import { buildSurveyExampleInvocationGlobals } from './utils'
 
 describe('surveyNotificationModalLogic', () => {
     it('includes survey status text in the default notification message', () => {
@@ -165,8 +165,8 @@ describe('surveyNotificationModalLogic', () => {
     it.each([
         [
             'copies an exact value the sample is missing',
-            { key: SurveyEventProperties.SURVEY_COMPLETED, operator: PropertyOperator.Exact, value: true },
-            true,
+            { key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+            'Chrome',
         ],
         [
             'copies the first accepted value of an is-any-of filter',
@@ -176,12 +176,20 @@ describe('surveyNotificationModalLogic', () => {
         [
             'leaves the sample alone for a negated filter',
             { key: '$survey_response_q1', operator: PropertyOperator.IsNot, value: 'Other' },
-            'Something else',
+            // The example globals answer an open question with its own text.
+            'What could be better?',
         ],
     ])('aligning sample globals with the notification filter %s', (_name, property, expected) => {
-        const globals = {
-            event: { event: SurveyEventName.SENT, properties: { $survey_response_q1: 'Something else' } },
-        } as unknown as CyclotronJobInvocationGlobals
+        const globals = buildSurveyExampleInvocationGlobals({
+            survey: {
+                id: 'survey-abc',
+                name: 'Survey',
+                questions: [{ id: 'q1', question: 'What could be better?', type: SurveyQuestionType.Open }],
+            },
+            projectId: 1,
+            projectName: 'Project',
+            projectUrl: 'https://example.com/project/1',
+        })
 
         const aligned = alignGlobalsWithNotificationFilter(globals, {
             events: [
