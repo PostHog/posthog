@@ -203,6 +203,8 @@ interface ExpansionProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
     tool?: SourceToolStatus
+    enablingTool: boolean
+    onEnableTool: (tool: SourceToolStatus) => void
     onToggleEntity: (entityId: string) => void
     onConfigureFilters?: () => void
     /** AI observability only: the periodic digest, which is its own signal stream, not a master. */
@@ -214,6 +216,8 @@ function Expansion({
     agent,
     state,
     tool,
+    enablingTool,
+    onEnableTool,
     onToggleEntity,
     onConfigureFilters,
     onToggleReports,
@@ -229,6 +233,34 @@ function Expansion({
 
     return (
         <div className="flex flex-col gap-2 border-t border-primary bg-surface-secondary px-3 py-2.5">
+            <p className="mb-0 text-xs text-secondary">
+                {agent.description}{' '}
+                {agent.docsUrl && (
+                    <Link to={agent.docsUrl} target="_blank" className="whitespace-nowrap text-xs">
+                        Learn about {agent.docsLabel ?? agent.label}
+                        <IconArrowUpRight />
+                    </Link>
+                )}
+            </p>
+
+            {toolOff && tool && (
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-warning">
+                        {tool.toolName} is off, so this source has nothing to read.
+                    </span>
+                    {tool.enablement && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            loading={enablingTool}
+                            onClick={() => onEnableTool(tool)}
+                        >
+                            Turn it on
+                        </LemonButton>
+                    )}
+                </div>
+            )}
+
             {onToggleReports && (
                 <div className="flex items-center gap-2">
                     <LemonSwitch
@@ -360,20 +392,13 @@ const AgentRow = memo(function AgentRow({
     const armingBlocked = toolOff && !armed
     const tag = notableTag(status, armed, toolOff, tool)
     const enabledCount = entities.filter((entity) => entity.enabled).length
-    // Stable across data: a source that can hold entities always opens, even before it has any,
-    // so the chevron never appears or disappears under the user.
-    const expandable = !!agent.entityNoun || !!onConfigureFilters
-    // No master over a list the user created: it would bulk mutate an unbounded set. A fixed,
-    // product-defined list (error tracking's three signal types) keeps its switch.
-    const hasMasterSwitch = !agent.entitiesAreUserCreated
-
     return (
         <div>
             <div
-                onClick={expandable ? onExpand : undefined}
-                className={`group flex h-13 items-center gap-2 px-2 transition-colors ${
-                    expandable ? 'cursor-pointer' : 'cursor-default'
-                } ${expanded ? 'bg-surface-secondary' : expandable ? 'hover:bg-surface-secondary' : ''}`}
+                onClick={onExpand}
+                className={`group flex h-13 cursor-pointer items-center gap-2 px-2 transition-colors ${
+                    expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
+                }`}
             >
                 <StatusDot status={status} tool={tool} toolOff={toolOff} />
                 <AgentIcon source={agent} />
@@ -394,18 +419,6 @@ const AgentRow = memo(function AgentRow({
                                 Legacy
                             </LemonTag>
                         )}
-                        {agent.docsUrl && (
-                            <Tooltip title={`Learn about ${agent.docsLabel ?? agent.label}`}>
-                                <Link
-                                    to={agent.docsUrl}
-                                    target="_blank"
-                                    className="shrink-0 text-muted"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <IconArrowUpRight />
-                                </Link>
-                            </Tooltip>
-                        )}
                     </div>
                     <span className="truncate text-xs leading-4 text-muted">{agent.watches ?? agent.description}</span>
                 </div>
@@ -414,20 +427,6 @@ const AgentRow = memo(function AgentRow({
                         {tag.label}
                     </LemonTag>
                 )}
-                {toolOff &&
-                    tool?.enablement && (
-                        // eslint-disable-next-line react/no-unknown-property
-                        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                loading={enablingTool}
-                                onClick={() => onEnableTool(tool)}
-                            >
-                                Turn on {tool.toolName.toLowerCase()}
-                            </LemonButton>
-                        </div>
-                    )}
                 <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
                     {entities.length > 0 && `${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
                 </span>
@@ -439,7 +438,7 @@ const AgentRow = memo(function AgentRow({
                         <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
                             Connect
                         </LemonButton>
-                    ) : hasMasterSwitch ? (
+                    ) : (
                         <LemonSwitch
                             size="xsmall"
                             checked={armed}
@@ -451,22 +450,19 @@ const AgentRow = memo(function AgentRow({
                             }
                             aria-label={`Arm ${agent.label}`}
                         />
-                    ) : null}
+                    )}
                 </div>
-                {expandable ? (
-                    <IconChevronRight
-                        className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
-                    />
-                ) : (
-                    // Keeps the switches of expandable and plain rows on one vertical line.
-                    <span className="size-4 shrink-0" />
-                )}
+                <IconChevronRight
+                    className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+                />
             </div>
             {expanded && (
                 <Expansion
                     agent={agent}
                     state={state}
                     tool={tool}
+                    enablingTool={enablingTool}
+                    onEnableTool={onEnableTool}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     onConfigureFilters={onConfigureFilters}
                     onToggleReports={onToggleReports}
@@ -522,6 +518,8 @@ export function AgentsRoster(): JSX.Element {
         toggleAnomalyInvestigation,
         toggleHealthChecks,
         toggleScannerSignals,
+        setAllScannerSignals,
+        setEvaluationSignals,
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
         openSessionAnalysisSetup,
@@ -698,15 +696,11 @@ export function AgentsRoster(): JSX.Element {
     const handleToggle = useCallback(
         (source: AgentRosterSource) => {
             switch (source) {
-                case 'replay_vision': {
-                    // Replay Vision has no row of its own, so the master switch is the scanners:
+                case 'replay_vision':
+                    // Replay Vision has no row of its own, so the master is the scanners themselves:
                     // arm them all when none emits, and stand them all down otherwise.
-                    const next = !scannerEntities.some((entity) => entity.enabled)
-                    scannerEntities
-                        .filter((entity) => entity.enabled !== next)
-                        .forEach((entity) => toggleScannerSignals(entity.id))
+                    setAllScannerSignals(!scannerEntities.some((entity) => entity.enabled))
                     return
-                }
                 case 'error_tracking':
                     toggleErrorTracking()
                     return
@@ -716,9 +710,16 @@ export function AgentsRoster(): JSX.Element {
                 case 'session_replay':
                     toggleSessionAnalysis()
                     return
-                case 'llm_analytics':
-                    toggleEvalReports()
+                case 'llm_analytics': {
+                    // Two streams sit under this row, the periodic digest and the per-evaluation
+                    // allowlist, so the master has to move both or it would lie about the row.
+                    const next = !(!!evalReportsConfig?.enabled || evaluationEntities.some((e) => e.enabled))
+                    if (!!evalReportsConfig?.enabled !== next) {
+                        toggleEvalReports()
+                    }
+                    setEvaluationSignals(next ? evaluationEntities.map((entity) => entity.id) : [])
                     return
+                }
                 case 'analytics':
                     toggleAnomalyInvestigation()
                     return
@@ -738,7 +739,10 @@ export function AgentsRoster(): JSX.Element {
         },
         [
             scannerEntities,
-            toggleScannerSignals,
+            setAllScannerSignals,
+            evaluationEntities,
+            evalReportsConfig,
+            setEvaluationSignals,
             toggleErrorTracking,
             toggleConversations,
             toggleSessionAnalysis,
@@ -775,7 +779,7 @@ export function AgentsRoster(): JSX.Element {
             <div className="flex items-center gap-1.5 text-xs text-muted">
                 <span className={`size-2 rounded-full ${armedCount ? 'bg-success' : 'bg-border-bold'}`} />
                 <span>
-                    {armedCount} of {allAgents.length} sources on. Open a source to see what it watches.
+                    {armedCount} of {allAgents.length} sources on
                 </span>
             </div>
 

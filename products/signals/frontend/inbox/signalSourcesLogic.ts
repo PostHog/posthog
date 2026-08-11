@@ -335,6 +335,8 @@ export interface signalSourcesLogicActions {
         payload?: any
     }
     toggleEvaluationSignals: (evaluationId: string) => { evaluationId: string }
+    setEvaluationSignals: (evaluationIds: string[]) => { evaluationIds: string[] }
+    setAllScannerSignals: (enabled: boolean) => { enabled: boolean }
     toggleErrorTrackingType: (sourceType: SignalSourceType) => { sourceType: SignalSourceType }
     loadSourceConfigs: () => any
     loadSourceConfigsFailure: (
@@ -515,6 +517,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTrackingComplete: true,
         toggleErrorTrackingType: (sourceType: SignalSourceType) => ({ sourceType }),
         toggleEvaluationSignals: (evaluationId: string) => ({ evaluationId }),
+        setEvaluationSignals: (evaluationIds: string[]) => ({ evaluationIds }),
+        setAllScannerSignals: (enabled: boolean) => ({ enabled }),
         toggleCiSignals: (viaSetupWizard?: boolean) => ({ viaSetupWizard: viaSetupWizard ?? false }),
         toggleCiSignalsComplete: true,
         toggleHealthChecks: true,
@@ -592,6 +596,23 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     return scanners.map((existing: ReplayScannerApi) =>
                         existing.id === scannerId ? updated : existing
                     )
+                },
+                // One action rather than N single toggles: each of those reads the same starting
+                // list and returns a whole new one, so the last to land would drop the others.
+                setAllScannerSignals: async ({ enabled }): Promise<ReplayScannerApi[]> => {
+                    const scanners = values.visionScanners ?? []
+                    const changing = scanners.filter(
+                        (scanner: ReplayScannerApi) => (scanner.emits_signals ?? false) !== enabled
+                    )
+                    const updated = await Promise.all(
+                        changing.map((scanner: ReplayScannerApi) =>
+                            visionScannersPartialUpdate(String(ApiConfig.getCurrentProjectId()), scanner.id, {
+                                emits_signals: enabled,
+                            })
+                        )
+                    )
+                    const byId = new Map(updated.map((scanner) => [scanner.id, scanner]))
+                    return scanners.map((existing: ReplayScannerApi) => byId.get(existing.id) ?? existing)
                 },
             },
         ],
@@ -1206,11 +1227,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
                 actions.loadSourceConfigs()
             },
-            toggleEvaluationSignals: async ({ evaluationId }, breakpoint) => {
+            toggleEvaluationSignals: async ({ evaluationId }) => {
                 const current = values.signalEmittingEvaluationIds
-                const nextIds = current.includes(evaluationId)
-                    ? current.filter((id) => id !== evaluationId)
-                    : [...current, evaluationId]
+                actions.setEvaluationSignals(
+                    current.includes(evaluationId)
+                        ? current.filter((id) => id !== evaluationId)
+                        : [...current, evaluationId]
+                )
+            },
+            setEvaluationSignals: async ({ evaluationIds: nextIds }, breakpoint) => {
                 const existing = (values.sourceConfigs ?? []).find(
                     (c) =>
                         c.source_product === SignalSourceProduct.LlmAnalytics &&
