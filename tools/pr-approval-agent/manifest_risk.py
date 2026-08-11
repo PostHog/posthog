@@ -50,11 +50,14 @@ def _package_json_risky_subtree(text: str) -> object:
     return {key: data.get(key) for key in ("scripts", "husky", "pnpm")}
 
 
+_PNPM_WORKSPACE_INERT_KEYS = frozenset({"packages", "catalog", "catalogs"})
+
+
 def _pnpm_workspace_risky_subtree(text: str) -> object:
     data = yaml.safe_load(text) if text.strip() else {}
     if not isinstance(data, dict):
         raise ValueError("pnpm-workspace.yaml root is not a mapping")
-    return {key: data.get(key) for key in ("overrides", "patchedDependencies", "onlyBuiltDependencies")}
+    return {key: value for key, value in data.items() if key not in _PNPM_WORKSPACE_INERT_KEYS}
 
 
 def _composer_json_risky_subtree(text: str) -> object:

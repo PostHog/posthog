@@ -65,6 +65,20 @@ def _pkg(scripts: str = "", extra: str = "") -> str:
             id="pnpm-workspace-catalog-edit-clean",
         ),
         pytest.param(
+            "pnpm-workspace.yaml",
+            "packages:\n  - .\n",
+            "packages:\n  - .\nallowBuilds:\n  esbuild: true\n",
+            True,
+            id="pnpm-workspace-build-authorization-added",
+        ),
+        pytest.param(
+            "pnpm-workspace.yaml",
+            "packages:\n  - .\n",
+            "packages:\n  - .\ndangerouslyAllowAllBuilds: true\n",
+            True,
+            id="pnpm-workspace-all-builds-allowed",
+        ),
+        pytest.param(
             "pyproject.toml",
             "[project]\nname = 'x'\n",
             "[project]\nname = 'x'\n[project.scripts]\nx = 'pkg:main'\n",
