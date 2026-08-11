@@ -59565,7 +59565,7 @@ export namespace Schemas {
      * ``validated_data`` (integration/report PK fields already resolved to instances) to the
      * facade ``create_task`` / ``update_task`` functions.
      */
-    export interface PatchedTaskUpdate {
+    export interface PatchedTaskWrite {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
          * @maxLength 255
@@ -59680,7 +59680,7 @@ export namespace Schemas {
          */
       auto_publish?: boolean | null;
       /**
-         * Space this task belongs to. Omit it when creating a task to use your private #me space.
+         * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
          */
       channel?: string | null;
@@ -75209,7 +75209,7 @@ export namespace Schemas {
          */
       auto_publish?: boolean | null;
       /**
-         * Space this task belongs to. Omit it when creating a task to use your private #me space.
+         * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
          */
       channel?: string | null;
@@ -76199,7 +76199,7 @@ export namespace Schemas {
      * ``validated_data`` (integration/report PK fields already resolved to instances) to the
      * facade ``create_task`` / ``update_task`` functions.
      */
-    export interface TaskUpdate {
+    export interface TaskWrite {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
          * @maxLength 255
@@ -76314,7 +76314,7 @@ export namespace Schemas {
          */
       auto_publish?: boolean | null;
       /**
-         * Space this task belongs to. Omit it when creating a task to use your private #me space.
+         * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
          */
       channel?: string | null;

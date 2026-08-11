@@ -101,7 +101,7 @@ membership without adding permissions to Task.
 - `TaskCreateSerializer` accepts `channel` (UUID). It must belong to the team. A
   private `#me` space is accepted only from its owner.
 - Omitting `channel` for an ordinary user task files it into the user's `#me` space.
-- A task controller can move a task by updating `channel` to a public or owned private space.
+- A task controller can move a task by updating `channel` to a public or owned private space. Existing callers can still clear `channel` for legacy compatibility.
 - `TaskSerializer` / `TaskDetailDTO` emit `channel`.
 - `GET /tasks/?channel=<uuid>` filters the list to a channel's feed.
 

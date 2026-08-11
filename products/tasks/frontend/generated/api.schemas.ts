@@ -1771,7 +1771,7 @@ export interface TaskCreateApi {
      */
     auto_publish?: boolean | null
     /**
-     * Space this task belongs to. Omit it when creating a task to use your private #me space.
+     * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
      */
     channel?: string | null
@@ -1799,7 +1799,7 @@ export interface TaskCreateApi {
  * ``validated_data`` (integration/report PK fields already resolved to instances) to the
  * facade ``create_task`` / ``update_task`` functions.
  */
-export interface TaskUpdateApi {
+export interface TaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
      * @maxLength 255
@@ -1914,7 +1914,7 @@ export interface TaskUpdateApi {
      */
     auto_publish?: boolean | null
     /**
-     * Space this task belongs to. Omit it when creating a task to use your private #me space.
+     * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
      */
     channel?: string | null
@@ -1927,7 +1927,7 @@ export interface TaskUpdateApi {
  * ``validated_data`` (integration/report PK fields already resolved to instances) to the
  * facade ``create_task`` / ``update_task`` functions.
  */
-export interface PatchedTaskUpdateApi {
+export interface PatchedTaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
      * @maxLength 255
@@ -2042,7 +2042,7 @@ export interface PatchedTaskUpdateApi {
      */
     auto_publish?: boolean | null
     /**
-     * Space this task belongs to. Omit it when creating a task to use your private #me space.
+     * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
      */
     channel?: string | null

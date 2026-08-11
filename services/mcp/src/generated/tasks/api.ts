@@ -1066,10 +1066,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe(
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
-        channel: zod
-            .string()
-            .nullish()
-            .describe('Space this task belongs to. Omit it when creating a task to use your private #me space.'),
+        channel: zod.string().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
         sandbox_environment_id: zod
             .string()
             .nullish()
