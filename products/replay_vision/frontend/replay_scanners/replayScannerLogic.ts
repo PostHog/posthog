@@ -270,7 +270,7 @@ export interface replayScannerLogicValues {
     observationBackfillFilter: string | null
     observationDateFrom: string | null
     observationDateTo: string | null
-    observationDetailLinkParams: Record<string, string | number>
+    observationDetailLinkParams: Record<string, number | string>
     observationMaxScoreFilter: number | null
     observationMinScoreFilter: number | null
     observationStats: ObservationStatusStats
@@ -614,7 +614,7 @@ export interface replayScannerLogicMeta {
             observationBackfillFilter: string | null,
             observationsSort: ObservationsSorting | null,
             scanner: ReplayScanner
-        ) => Record<string, string | number>
+        ) => Record<string, number | string>
         availableTags: (observationStatsApi: ObservationStatsApi | null) => string[]
         observationStats: (observationStatsApi: ObservationStatsApi | null) => ObservationStatusStats
         sidePanelContext: (scanner: ReplayScanner, isNew: boolean) => SidePanelSceneContext | null
