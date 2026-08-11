@@ -4,7 +4,8 @@ import { dragSelection, getHogChart, hoverAtIndex, setupJsdom, setupSyncRaf } fr
 
 import { initKeaTests } from '~/test/init'
 
-import type { SparklineData } from './types'
+import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
+import type { SparklineData, SparklineEvent } from './types'
 import { VolumeSparkline } from './VolumeSparkline'
 
 let cleanupJsdom: () => void
@@ -33,15 +34,11 @@ function buildData(overrides: Partial<Record<number, Partial<SparklineData[numbe
     }))
 }
 
+const SPARKLINE_KEY = 'test-volume-sparkline'
+
 function renderChart(props: Partial<React.ComponentProps<typeof VolumeSparkline>> = {}): HTMLElement {
     const { container } = render(
-        <VolumeSparkline
-            sparklineKey="test-volume-sparkline"
-            data={buildData()}
-            layout="detailed"
-            xAxis="full"
-            {...props}
-        />
+        <VolumeSparkline sparklineKey={SPARKLINE_KEY} data={buildData()} layout="detailed" xAxis="full" {...props} />
     )
     return getHogChart(container).element
 }
@@ -111,6 +108,69 @@ describe('VolumeSparkline', () => {
             fireEvent.click(wrapper)
 
             expect(onSpikeClick).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('event marker hover', () => {
+        const data = buildData()
+        const firstSeen: SparklineEvent<string> = { id: 'first_seen', date: data[1].date, payload: 'First Seen' }
+        const lastSeen: SparklineEvent<string> = { id: 'last_seen', date: data[3].date, payload: 'Last Seen' }
+
+        function renderWithEvents(events: SparklineEvent<string>[]): {
+            container: HTMLElement
+            rerenderWith: (next: SparklineEvent<string>[]) => void
+        } {
+            const { container, rerender } = render(
+                <VolumeSparkline
+                    sparklineKey={SPARKLINE_KEY}
+                    data={data}
+                    layout="detailed"
+                    xAxis="full"
+                    events={events}
+                />
+            )
+            return {
+                container,
+                rerenderWith: (next) =>
+                    rerender(
+                        <VolumeSparkline
+                            sparklineKey={SPARKLINE_KEY}
+                            data={data}
+                            layout="detailed"
+                            xAxis="full"
+                            events={next}
+                        />
+                    ),
+            }
+        }
+
+        function hoverFirstPill(container: HTMLElement): void {
+            fireEvent.mouseEnter(container.querySelectorAll('[data-attr="error-tracking-volume-event-label"]')[0])
+        }
+
+        it('publishes the hovered event to the logic', () => {
+            const { container } = renderWithEvents([firstSeen, lastSeen])
+
+            hoverFirstPill(container)
+
+            expect(errorTrackingVolumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toEqual({
+                kind: 'event',
+                event: firstSeen,
+            })
+        })
+
+        // React fires no `onMouseLeave` when it unmounts a hovered pill, so without an explicit
+        // cleanup the removed event stays in `hoverSelection` and keeps the bar hover paused.
+        it.each([
+            { name: 'the hovered event drops out of the list', remaining: [lastSeen] },
+            { name: 'every event disappears at once', remaining: [] },
+        ])('clears the hover when $name', ({ remaining }) => {
+            const { container, rerenderWith } = renderWithEvents([firstSeen, lastSeen])
+            hoverFirstPill(container)
+
+            rerenderWith(remaining)
+
+            expect(errorTrackingVolumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toBeNull()
         })
     })
 })

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useChartLayout } from '@posthog/quill-charts'
 
@@ -33,6 +33,32 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
     const plotBottom = plotTop + plotHeight
 
     const positionAt = useMemo(() => buildTimePositioner(dates, labels, scales.x), [dates, labels, scales])
+
+    // React fires no `onMouseLeave` when it unmounts a hovered pill, so a pill that disappears under
+    // the cursor — the whole overlay going when the issue reloads, or one event dropping out of the
+    // list — would strand its hover in the shared state the bar hover also writes to.
+    const hoveredId = useRef<string | null>(null)
+    const handleHover = useCallback(
+        (event: SparklineEvent<string> | null) => {
+            hoveredId.current = event?.id ?? null
+            onHover(event)
+        },
+        [onHover]
+    )
+    const clearStrandedHover = useCallback(() => {
+        if (hoveredId.current != null) {
+            hoveredId.current = null
+            onHover(null)
+        }
+    }, [onHover])
+
+    useEffect(() => {
+        if (hoveredId.current != null && !events.some((event) => event.id === hoveredId.current)) {
+            clearStrandedHover()
+        }
+    }, [events, clearStrandedHover])
+
+    useEffect(() => clearStrandedHover, [clearStrandedHover])
 
     const anchors = useMemo(
         () => (positionAt ? events.map((event) => positionAt(event.date.getTime())) : []),
@@ -120,8 +146,8 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
                         backgroundColor: event.color || 'black',
                         pointerEvents: 'auto',
                     }}
-                    onMouseEnter={() => onHover(event)}
-                    onMouseLeave={() => onHover(null)}
+                    onMouseEnter={() => handleHover(event)}
+                    onMouseLeave={() => handleHover(null)}
                 >
                     {event.payload}
                 </div>
