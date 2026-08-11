@@ -2052,3 +2052,54 @@ async fn a_failed_property_push_errors_the_call_and_the_retry_settles() {
 
     h.ctx.cleanup().await.expect("cleanup");
 }
+
+#[tokio::test]
+async fn a_failed_push_after_attach_leaves_the_attach_durable() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("att-pushfail-target")
+        .await;
+
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "att-pushfail-target",
+        &["att-pushfail-anon"],
+        op_id,
+    );
+    request.event_set = serde_json::to_vec(&json!({"plan": "pro"})).unwrap();
+    h.leader.fail_next(
+        Rpc::PropertyPush,
+        target,
+        Status::unavailable("leader down"),
+    );
+
+    let status = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect_err("a failed push fails the call");
+    assert_eq!(status.code(), Code::Unavailable);
+    // The attach committed before the push and must survive the failure —
+    // the retry contract depends on it.
+    assert_eq!(h.pdi_state("att-pushfail-anon").await, (target, false, 1));
+
+    // The retry re-classifies: the attached pair settles as the
+    // equivalent no-op and the push succeeds.
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("retry succeeds")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![(
+            "att-pushfail-anon".to_string(),
+            MergeSourceOutcome::NoopSamePerson
+        )]
+    );
+    assert_eq!(retry.survivor.as_ref().expect("survivor").id, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
