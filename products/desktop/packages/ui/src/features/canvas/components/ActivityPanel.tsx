@@ -15,6 +15,8 @@ import {
   ThreadLoadingState,
   ThreadReplyComposer,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
+import { useTaskCommentActivity } from "@posthog/ui/features/canvas/hooks/useTaskCommentActivity";
+import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
@@ -162,6 +164,12 @@ function ActivityConversation({
     [taskId],
   );
 
+  // The comment feed is its own request, and only for the tab that draws it.
+  const { threads: commentThreads } = useTaskCommentActivity(taskId, {
+    enabled: commentsEnabled && tab === "timeline",
+  });
+  const { runs } = useTaskRuns(taskId);
+
   const conversationItems = useMemo(
     () =>
       tab === "timeline"
@@ -237,6 +245,10 @@ function ActivityConversation({
         task={task}
         timeline={timeline}
         conversationItems={conversationItems}
+        commentThreads={commentThreads}
+        commentsEnabled={commentsEnabled}
+        runCount={runs.length}
+        currentUserId={currentUser?.id}
         currentUserUuid={currentUser?.uuid}
         currentUserEmail={currentUser?.email}
         isTaskAuthor={isTaskAuthor}

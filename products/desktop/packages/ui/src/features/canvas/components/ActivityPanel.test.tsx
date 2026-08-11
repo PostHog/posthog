@@ -30,6 +30,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
     onMentionInsert: vi.fn(),
   }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskCommentActivity", () => ({
+  useTaskCommentActivity: () => ({ threads: [], isLoading: false }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
+  useTaskRuns: () => ({ runs: [], isLoading: false, refreshRuns: vi.fn() }),
+}));
 vi.mock("@posthog/ui/features/canvas/components/ActivityTimeline", () => ({
   ActivityTimeline: () => <div>timeline body</div>,
 }));

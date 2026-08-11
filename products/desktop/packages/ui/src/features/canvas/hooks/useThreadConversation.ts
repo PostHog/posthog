@@ -41,7 +41,7 @@ export interface ThreadConversation {
   isPromptPending: boolean;
   isReady: boolean;
   members: UserBasic[];
-  currentUser: { uuid?: string; email?: string } | undefined;
+  currentUser: { id?: number; uuid?: string; email?: string } | undefined;
   isTaskAuthor: boolean;
   canForward: boolean;
   draft: string;
