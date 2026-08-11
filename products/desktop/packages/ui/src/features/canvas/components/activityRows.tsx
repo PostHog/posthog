@@ -44,6 +44,7 @@ export function TimelineRow({
   timestamp,
   detail,
   defaultOpen = false,
+  connected = true,
   ariaLabel,
 }: {
   gutter: ReactNode;
@@ -52,6 +53,9 @@ export function TimelineRow({
   /** Shown when the row is opened. Absent means there is nothing more to say. */
   detail?: ReactNode;
   defaultOpen?: boolean;
+  /** Draw the line down to the next row. False on the last row, which has nothing to
+   *  connect to. */
+  connected?: boolean;
   ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -75,12 +79,25 @@ export function TimelineRow({
   return (
     <div
       className={cn(
-        "group flex items-start gap-2 rounded-md py-1.5 pr-2 pl-2 transition-colors",
+        "group flex items-stretch gap-2 rounded-md py-1.5 pr-2 pl-2 transition-colors",
         hasDetail &&
           "cursor-pointer focus-within:bg-gray-2 hover:bg-gray-2 has-[:focus-visible]:bg-gray-2",
       )}
     >
-      <div className="flex w-10 shrink-0 justify-center">{gutter}</div>
+      {/* The connector sits inside the row, so the hover fill paints behind it rather than
+          over it. It runs from just under this row's bead to the row's bottom edge; the next
+          row's top padding leaves the gap before its bead. Positioned rather than flexed:
+          on a single-line row the bead fills the content box and a flex child gets no
+          height at all. */}
+      <div className="relative flex w-10 shrink-0 justify-center self-stretch">
+        {gutter}
+        {connected && (
+          <span
+            aria-hidden
+            className="-translate-x-1/2 -bottom-1.5 absolute top-6 left-1/2 w-px bg-gray-8"
+          />
+        )}
+      </div>
       <div className="min-w-0 flex-1">
         {hasDetail ? (
           <>
@@ -269,7 +286,8 @@ function eventDetail(event: ActivityEvent): ReactNode {
   }
 }
 
-/** A quiet inline action under an opened row — reads as a link, not a form control. */
+/** The action under an opened row: a small outline button, so it reads as something to
+ *  press rather than as more copy. */
 export function DetailAction({
   children,
   onClick,
@@ -278,14 +296,9 @@ export function DetailAction({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1 rounded px-0.5 text-[12px] text-muted-foreground underline-offset-2 transition-colors hover:text-gray-12 hover:underline"
-    >
+    <Button variant="outline" size="xs" onClick={onClick}>
       {children}
-      <CaretRightIcon size={10} />
-    </button>
+    </Button>
   );
 }
 
@@ -304,7 +317,9 @@ export function ActivityEventRow({
   runCount,
   runOrdinal = 1,
   detail,
+  connected = true,
 }: {
+  connected?: boolean;
   event: ActivityEvent;
   timestamp: string;
   /** How many runs the task has, so a single-run task doesn't say "run 1". */
@@ -317,6 +332,7 @@ export function ActivityEventRow({
 }) {
   return (
     <TimelineRow
+      connected={connected}
       gutter={
         <IconBubble tone={EVENT_TONES[event.kind]}>
           {EVENT_ICONS[event.kind]}
@@ -335,13 +351,16 @@ export function ActivityEventRow({
 export function RunStatusRow({
   status,
   timestamp,
+  connected = true,
 }: {
   status: string;
   timestamp: string;
+  connected?: boolean;
 }) {
   const succeeded = status === "completed";
   return (
     <TimelineRow
+      connected={connected}
       gutter={
         <IconBubble tone={succeeded ? "green" : "red"}>
           {succeeded ? (
@@ -371,7 +390,9 @@ export function CommentRow({
   thread,
   isMentioned,
   onSelect,
+  connected = true,
 }: {
+  connected?: boolean;
   thread: TaskCommentThreadSummary;
   /** The current user was mentioned somewhere in the thread. */
   isMentioned: boolean;
@@ -382,6 +403,7 @@ export function CommentRow({
   const verb = isMentioned ? "mentioned you on" : "commented on";
   return (
     <TimelineRow
+      connected={connected}
       gutter={
         // Decorative: the author's name is written beside it.
         <div
@@ -430,14 +452,17 @@ export function CommentRow({
 export function CommentStateRow({
   thread,
   state,
+  connected = true,
 }: {
   thread: TaskCommentThreadSummary;
   state: string;
+  connected?: boolean;
 }) {
   const author = thread.state_event?.author ?? null;
   const resolved = state === "resolved";
   return (
     <TimelineRow
+      connected={connected}
       gutter={
         <IconBubble tone={resolved ? "green" : "amber"}>
           {resolved ? (
@@ -467,11 +492,7 @@ export function ActivityLoadingState() {
   return (
     // <output> is the semantic element for role=status; the label names the wait.
     <output className="relative block px-1 py-2" aria-label="Loading timeline">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute top-5 bottom-5 left-8 w-px bg-gray-8"
-      />
-      <div className="relative z-10">
+      <div>
         {/* Widths vary so the block reads as copy rather than a progress bar. */}
         {[36, 52, 44, 60, 40].map((width) => (
           <div key={width} className="flex items-start gap-2 py-1 pr-2 pl-2">

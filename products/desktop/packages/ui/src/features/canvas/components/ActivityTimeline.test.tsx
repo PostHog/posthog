@@ -330,3 +330,25 @@ describe("ActivityTimeline events and comments", () => {
     expect(screen.queryByText("commented on")).toBeNull();
   });
 });
+
+describe("ActivityTimeline connectors", () => {
+  it("connects every row but the last", () => {
+    // The line is drawn inside each row, under its own bead: behind the rows it was covered
+    // by the hover fill, and it ran through the beads instead of between them.
+    const { container } = renderTimeline(true);
+
+    const rows = container.querySelectorAll(".group");
+    const connectors = container.querySelectorAll("[aria-hidden].w-px");
+    expect(rows.length).toBeGreaterThan(1);
+    expect(connectors).toHaveLength(rows.length - 1);
+  });
+
+  it("always opens a message to its full text", () => {
+    // A truncated one-line preview used to open onto nothing but the action.
+    renderTimeline(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
+
+    expect(screen.getAllByText(/second thing/).length).toBeGreaterThan(1);
+  });
+});

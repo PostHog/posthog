@@ -6,7 +6,6 @@ import {
 } from "@posthog/core/canvas/activityTimeline";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
-  Button,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -54,11 +53,13 @@ function UserMessageRow({
   author,
   content,
   timestamp,
+  connected,
   onSelect,
 }: {
   author?: UserBasic | null;
   content: string;
   timestamp: string;
+  connected: boolean;
   /** Jumps the transcript to this message. Absent once the run is unavailable. */
   onSelect?: () => void;
 }) {
@@ -75,11 +76,9 @@ function UserMessageRow({
   const displayContent = customInstructions?.stripped ?? afterChannelContext;
   const trimmed = displayContent.trim();
   const firstLine = trimmed.split("\n", 1)[0] ?? "";
-  // A one-line message is already fully shown on the row; repeating it below the fold is
-  // noise. Longer ones keep the full text as their detail.
-  const hasMoreThanPreview = trimmed !== firstLine;
   return (
     <TimelineRow
+      connected={connected}
       gutter={
         // Decorative: the author's name is written beside it, so keep the avatar's
         // initials out of the row's accessible name.
@@ -93,13 +92,11 @@ function UserMessageRow({
       timestamp={timestamp}
       detail={
         <div className="space-y-1.5">
-          {hasMoreThanPreview && (
-            <DetailBlock>
-              <div className="whitespace-pre-wrap break-words">
-                <MentionText content={displayContent} />
-              </div>
-            </DetailBlock>
-          )}
+          <DetailBlock>
+            <div className="whitespace-pre-wrap break-words">
+              <MentionText content={displayContent} />
+            </div>
+          </DetailBlock>
           {channelContext && (
             <Collapsible className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
               <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
@@ -264,11 +261,15 @@ export function ActivityTimeline({
       );
   };
 
-  const renderRow = (row: ActivityRow<TaskThreadMessage>) => {
+  const renderRow = (
+    row: ActivityRow<TaskThreadMessage>,
+    connected: boolean,
+  ) => {
     switch (row.kind) {
       case "task_created":
         return (
           <TimelineRow
+            connected={connected}
             gutter={
               <span className="relative z-10 flex size-5 items-center justify-center rounded-full border border-gray-7 bg-gray-5 text-gray-12 ring-4 ring-gray-1">
                 <PlusCircleIcon size={11} weight="fill" />
@@ -282,6 +283,7 @@ export function ActivityTimeline({
       case "user_message":
         return (
           <UserMessageRow
+            connected={connected}
             author={task.created_by}
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
@@ -313,6 +315,7 @@ export function ActivityTimeline({
         const artifactRow = messageRows.get(row.message.id);
         return (
           <ActivityEventRow
+            connected={connected}
             event={row.event}
             timestamp={row.message.created_at}
             runCount={runCount}
@@ -333,6 +336,7 @@ export function ActivityTimeline({
         if (!thread) return null;
         return (
           <CommentRow
+            connected={connected}
             thread={thread}
             isMentioned={
               !!currentUserId &&
@@ -345,30 +349,34 @@ export function ActivityTimeline({
       case "comment_state": {
         const thread = threadsById.get(row.thread.id);
         if (!thread) return null;
-        return <CommentStateRow thread={thread} state={row.state} />;
+        return (
+          <CommentStateRow
+            thread={thread}
+            state={row.state}
+            connected={connected}
+          />
+        );
       }
       case "run_status":
-        return <RunStatusRow status={row.status} timestamp={task.updated_at} />;
+        return (
+          <RunStatusRow
+            status={row.status}
+            timestamp={task.updated_at}
+            connected={connected}
+          />
+        );
     }
   };
 
   return (
-    <div className="relative px-1 py-2">
-      {/* Each row centers its node in a 2.5rem gutter, inset by this container's 0.25rem
-          padding and the row's own 0.5rem, so the line runs through
-          0.25 + 0.5 + 2.5/2 = 2rem. It stops short of the first and last node, so it reads
-          as spanning them rather than running past. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute top-5 bottom-5 left-8 w-px bg-gray-8"
-      />
-      <div className="relative z-10">
-        <ThreadItemGroup>
-          {rows.map((row) => (
-            <Fragment key={row.key}>{renderRow(row)}</Fragment>
-          ))}
-        </ThreadItemGroup>
-      </div>
+    <div className="px-1 py-2">
+      <ThreadItemGroup>
+        {rows.map((row, index) => (
+          <Fragment key={row.key}>
+            {renderRow(row, index < rows.length - 1)}
+          </Fragment>
+        ))}
+      </ThreadItemGroup>
     </div>
   );
 }
