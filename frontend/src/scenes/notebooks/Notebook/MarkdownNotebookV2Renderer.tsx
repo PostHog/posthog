@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFlask, IconGraph, IconMessage, IconPeople, IconRocket, IconToggle } from '@posthog/icons'
+import { IconGraph } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import {
@@ -31,6 +31,9 @@ import { uuid } from 'lib/utils/dom'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
+import { NODE_ICONS } from '../nodeIcons'
+import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
+import { NotebookNodeType } from '../types'
 import {
     MarkdownNotebookEntityPicker,
     MarkdownNotebookEntityPickerKind,
@@ -454,19 +457,14 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             },
         })
 
-        return [
-            pickerCommand('query-saved-insight', 'Saved insight', <IconGraph />, 'saved-insight', ['insight']),
-            pickerCommand('experiment', 'Experiment', <IconFlask />, 'experiment', ['ab test']),
-            pickerCommand('product-feature-flag', 'Feature flag', <IconToggle />, 'feature-flag', ['flag']),
-            pickerCommand('product-survey', 'Survey', <IconMessage />, 'survey'),
+        return Object.entries(notebookWidgetCatalog.widgets).map(([tagName, widget]) =>
             pickerCommand(
-                'product-early-access-feature',
-                'Early access feature',
-                <IconRocket />,
-                'early-access-feature'
-            ),
-            pickerCommand('product-cohort', 'Cohort', <IconPeople />, 'cohort'),
-        ]
+                `product-${tagName.replaceAll(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}`,
+                widget.label,
+                NODE_ICONS[widget.nodeType as NotebookNodeType] || <IconGraph />,
+                widget.picker as NotebookWidgetPickerKind
+            )
+        )
     }, [])
 
     const closeEntityPicker = useCallback((): void => {

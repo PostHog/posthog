@@ -250,6 +250,29 @@ Dashboard 123
 <Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
     })
 
+    it.each([
+        [NotebookNodeType.Dashboard, 'Dashboard'],
+        [NotebookNodeType.Action, 'Action'],
+        [NotebookNodeType.Workflow, 'Workflow'],
+        [NotebookNodeType.ErrorTrackingIssue, 'ErrorTrackingIssue'],
+    ])('converts the %s widget node to its markdown component', (nodeType, tagName) => {
+        expect(
+            convertNotebookContentToMarkdown({
+                type: 'doc',
+                content: [{ type: nodeType, attrs: { id: 'resource-id' } }],
+            })
+        ).toEqual(`<${tagName} id="resource-id" />`)
+    })
+
+    it('converts query nodes with an insight ID to the Insight component', () => {
+        expect(
+            convertNotebookContentToMarkdown({
+                type: 'doc',
+                content: [{ type: NotebookNodeType.Query, attrs: { id: 'insight-id', view: 'summary' } }],
+            })
+        ).toEqual('<Insight id="insight-id" view="summary" />')
+    })
+
     it('keeps the stable id vector for markdown query blocks without nodeId props', () => {
         const markdown =
             '<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery","select":["event"],"after":"-24h","limit":1}}} />'

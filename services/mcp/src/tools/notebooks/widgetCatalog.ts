@@ -32,16 +32,23 @@ export function formatNotebookWidgetCatalogForAgents(): string {
         const views = [widget.defaultView, ...Object.entries(widget.views).map(([name, view]) => ({ name, ...view }))]
             .map((view) => `${view.name}: ${view.description}`)
             .join(' ')
-        const exampleProps = {
+        const extraProps = 'extraProps' in widget ? widget.extraProps : {}
+        const exampleProps: Record<string, string | number> = {
             [widget.idProp]: widget.idExample,
+            ...Object.fromEntries(Object.entries(extraProps).map(([name, prop]) => [name, prop.example])),
             view: 'summary',
         }
-        const markdownId =
-            typeof widget.idExample === 'number' ? `{${widget.idExample}}` : JSON.stringify(widget.idExample)
-        const markdownExample = `<${tagName} ${widget.idProp}=${markdownId} view="summary" />`
+        const markdownProps = Object.entries(exampleProps)
+            .map(([name, value]) => `${name}=${typeof value === 'number' ? `{${value}}` : JSON.stringify(value)}`)
+            .join(' ')
+        const markdownExample = `<${tagName} ${markdownProps} />`
         const richTextExample = JSON.stringify({ type: widget.nodeType, attrs: exampleProps })
+        const identity = [
+            widget.idDescription,
+            ...Object.entries(extraProps).map(([name, prop]) => `${name}: ${prop.description}`),
+        ].join(' ')
 
-        return `- ${tagName}: ${widget.description} Identity: ${widget.idDescription} Markdown: ${markdownExample}. Rich text: ${richTextExample}. Views: ${views}`
+        return `- ${tagName}: ${widget.description} Identity: ${identity} Markdown: ${markdownExample}. Rich text: ${richTextExample}. Views: ${views}`
     })
 
     return [
