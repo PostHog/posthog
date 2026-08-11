@@ -12,6 +12,7 @@ import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SURVEY_NOTEBOOK_WIDGET_VIEWS, SurveyNotebookWidgetAttributes } from 'scenes/surveys/surveyNotebookWidgetViews'
 import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { urls } from 'scenes/urls'
 
@@ -21,7 +22,7 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<SurveyNotebookWidgetAttributes>): JSX.Element => {
     const { id } = attributes
     const { survey, surveyLoading, targetingFlagFilters, surveyMissing } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
@@ -107,11 +108,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
     )
 }
 
-type NotebookNodeSurveyAttributes = {
-    id: string
-}
-
-export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttributes>({
+export const NotebookNodeSurvey = createPostHogWidgetNode<SurveyNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.Survey,
     titlePlaceholder: 'Survey',
     Component,
@@ -120,7 +117,14 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttr
     resizeable: false,
     attributes: {
         id: {},
+        view: {},
     },
+    defaultView: {
+        key: 'summary',
+        label: 'Summary',
+        description: 'Use the expandable survey summary',
+    },
+    views: SURVEY_NOTEBOOK_WIDGET_VIEWS,
 })
 
 export function buildSurveyContent(id: string): JSONContent {

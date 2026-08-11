@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import {
     buildInsertCommands,
@@ -94,36 +94,67 @@ describe('markdownNotebookRegistry', () => {
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlagCodeExample.exclusiveEditPanel).toBeUndefined()
     })
 
-    it('edits a feature flag reference and selects a product-owned view', () => {
-        const updateProps = jest.fn()
-        const { getByLabelText } = render(
-            <RealNotebookNodeEdit
-                node={{
-                    id: 'feature-flag-node',
-                    type: 'component',
-                    tagName: 'FeatureFlag',
-                    props: { id: 123 },
-                }}
-                mode="edit"
-                updateProps={updateProps}
-                deleteNode={jest.fn()}
-            />
-        )
+    it.each([
+        {
+            tagName: 'FeatureFlag',
+            nodeType: NotebookNodeType.FeatureFlag,
+            id: 123,
+            idLabel: 'Feature flag ID or key',
+            viewLabel: 'Compact editor',
+            viewDescription: 'Edit the flag status and release conditions in the notebook',
+            viewKey: 'compact-editor',
+            viewKeys: ['compact-summary', 'compact-editor', 'release-conditions', 'implementation'],
+        },
+        {
+            tagName: 'Survey',
+            nodeType: NotebookNodeType.Survey,
+            id: 'survey-id',
+            idLabel: 'Survey ID',
+            viewLabel: 'Preview',
+            viewDescription: 'Show the first page of the survey',
+            viewKey: 'preview',
+            viewKeys: ['compact-summary', 'preview', 'display-conditions', 'results'],
+        },
+        {
+            tagName: 'Experiment',
+            nodeType: NotebookNodeType.Experiment,
+            id: 456,
+            idLabel: 'Experiment ID',
+            viewLabel: 'Results',
+            viewDescription: 'Show experiment exposures and primary metric results',
+            viewKey: 'results',
+            viewKeys: ['compact-summary', 'results'],
+        },
+    ])(
+        'edits the $tagName reference and selects a product-owned view',
+        ({ tagName, nodeType, id, idLabel, viewLabel, viewDescription, viewKey, viewKeys }) => {
+            const updateProps = jest.fn()
+            const { container } = render(
+                <RealNotebookNodeEdit
+                    node={{
+                        id: `${tagName}-node`,
+                        type: 'component',
+                        tagName,
+                        props: { id },
+                    }}
+                    mode="edit"
+                    updateProps={updateProps}
+                    deleteNode={jest.fn()}
+                />
+            )
+            const editor = within(container)
 
-        expect((getByLabelText('Feature flag ID or key') as HTMLInputElement).value).toEqual('123')
-        expect(getByLabelText('View').textContent).toContain('Summary')
+            expect((editor.getByLabelText(idLabel) as HTMLInputElement).value).toEqual(String(id))
+            expect(editor.getByLabelText('View').textContent).toContain('Summary')
 
-        fireEvent.click(getByLabelText('View'))
-        fireEvent.click(screen.getByText('Compact editor'))
+            fireEvent.click(editor.getByLabelText('View'))
+            expect(screen.getByLabelText(viewDescription).textContent).toContain(viewLabel)
+            fireEvent.click(screen.getByLabelText(viewDescription))
 
-        expect(updateProps).toHaveBeenCalledWith({ view: 'compact-editor' })
-        expect(Object.keys(KNOWN_NODES[NotebookNodeType.FeatureFlag].views ?? {})).toEqual([
-            'compact-summary',
-            'compact-editor',
-            'release-conditions',
-            'implementation',
-        ])
-    })
+            expect(updateProps).toHaveBeenCalledWith({ view: viewKey })
+            expect(Object.keys(KNOWN_NODES[nodeType].views ?? {})).toEqual(viewKeys)
+        }
+    )
 
     it('exposes lightweight editable primitive attrs for real notebook node filters', () => {
         expect(
