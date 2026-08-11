@@ -1084,6 +1084,55 @@
                         },
                         "required": ["tile_id", "widget_type"],
                         "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "config": {
+                                "description": "New configuration for the recent tickets widget. Omit to leave unchanged.",
+                                "properties": {
+                                    "limit": {
+                                        "default": 10,
+                                        "description": "Maximum number of tickets to return.",
+                                        "maximum": 25,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "status": {
+                                        "default": "all",
+                                        "description": "Ticket status filter.",
+                                        "enum": ["new", "open", "pending", "on_hold", "resolved", "all"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "description": {
+                                "description": "New markdown description for the widget. Omit to leave unchanged.",
+                                "type": "string"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "New display name for the widget. Empty string or null clears it; omit to leave unchanged."
+                            },
+                            "tile_id": {
+                                "description": "ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.",
+                                "type": "number"
+                            },
+                            "widget_type": {
+                                "enum": ["conversations_recent_tickets"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["tile_id", "widget_type"],
+                        "type": "object"
                     }
                 ]
             },

@@ -1000,6 +1000,24 @@
                                             }
                                         },
                                         "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "limit": {
+                                                "default": 10,
+                                                "description": "Maximum number of tickets to return.",
+                                                "maximum": 25,
+                                                "minimum": 1,
+                                                "type": "number"
+                                            },
+                                            "status": {
+                                                "default": "all",
+                                                "description": "Ticket status filter.",
+                                                "enum": ["new", "open", "pending", "on_hold", "resolved", "all"],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
                                     }
                                 ],
                                 "description": "Widget-specific configuration. Shape depends on the tile's widget_type."
@@ -1025,9 +1043,10 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
                                 "enum": [
                                     "activity_events_list",
+                                    "conversations_recent_tickets",
                                     "error_tracking_list",
                                     "experiment_results",
                                     "experiments_list",
