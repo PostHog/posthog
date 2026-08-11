@@ -1,0 +1,145 @@
+name: capture-fallback
+
+services:
+    kafka-primary:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        command:
+            - redpanda
+            - start
+            - --kafka-addr=0.0.0.0:9092
+            - --advertise-kafka-addr=toxiproxy:19092
+            - --rpc-addr=0.0.0.0:33145
+            - --advertise-rpc-addr=kafka-primary:33145
+            - --mode=dev-container
+            - --smp=1
+            - --memory=1G
+            - --reserve-memory=0M
+            - --overprovisioned
+            - --set
+            - redpanda.auto_create_topics_enabled=true
+        healthcheck:
+            test: [CMD-SHELL, rpk cluster health | grep -q 'Healthy:.*true']
+            interval: 2s
+            timeout: 2s
+            retries: 30
+
+    kafka-secondary:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        command:
+            - redpanda
+            - start
+            - --kafka-addr=0.0.0.0:9092
+            - --advertise-kafka-addr=toxiproxy:29092
+            - --rpc-addr=0.0.0.0:33145
+            - --advertise-rpc-addr=kafka-secondary:33145
+            - --mode=dev-container
+            - --smp=1
+            - --memory=1G
+            - --reserve-memory=0M
+            - --overprovisioned
+            - --set
+            - redpanda.auto_create_topics_enabled=true
+        healthcheck:
+            test: [CMD-SHELL, rpk cluster health | grep -q 'Healthy:.*true']
+            interval: 2s
+            timeout: 2s
+            retries: 30
+
+    toxiproxy:
+        image: ghcr.io/shopify/toxiproxy:2.12.0
+        ports:
+            - 127.0.0.1:8474:8474
+
+    toxiproxy-configure:
+        image: curlimages/curl:8.14.1
+        depends_on:
+            kafka-primary:
+                condition: service_healthy
+            kafka-secondary:
+                condition: service_healthy
+            toxiproxy:
+                condition: service_started
+        volumes:
+            - ./configure-toxiproxy.sh:/configure-toxiproxy.sh:ro
+        entrypoint: [sh, /configure-toxiproxy.sh]
+        restart: 'no'
+
+    redis:
+        image: redis:7.2-alpine
+        healthcheck:
+            test: [CMD, redis-cli, ping]
+            interval: 2s
+            timeout: 2s
+            retries: 30
+
+    capture:
+        image: capture-fallback:local
+        build:
+            context: ../../..
+            args:
+                BIN: capture
+        depends_on:
+            redis:
+                condition: service_healthy
+            toxiproxy-configure:
+                condition: service_completed_successfully
+        environment:
+            ADDRESS: 0.0.0.0:3000
+            REDIS_URL: redis://redis:6379/
+            CAPTURE_MODE: events
+            RUST_LOG: info,rdkafka=warn
+            KAFKA_HOSTS: toxiproxy:19092
+            KAFKA_TOPIC: events_plugin_ingestion
+            CAPTURE_V1_SINKS: msk,ws
+            CAPTURE_V1_SINK_MSK_KAFKA_HOSTS: toxiproxy:19092
+            CAPTURE_V1_SINK_WS_KAFKA_HOSTS: toxiproxy:29092
+            CAPTURE_V1_SINK_MSK_KAFKA_STATISTICS_INTERVAL_MS: 1000
+            CAPTURE_V1_SINK_WS_KAFKA_STATISTICS_INTERVAL_MS: 1000
+            CAPTURE_V1_SINK_MSK_KAFKA_SOCKET_TIMEOUT_MS: 1000
+            CAPTURE_V1_SINK_WS_KAFKA_SOCKET_TIMEOUT_MS: 1000
+            CAPTURE_V1_SINK_MSK_KAFKA_MESSAGE_TIMEOUT_MS: 3000
+            CAPTURE_V1_SINK_WS_KAFKA_MESSAGE_TIMEOUT_MS: 3000
+            CAPTURE_V1_SINK_MSK_PRODUCE_TIMEOUT_MS: 3000
+            CAPTURE_V1_SINK_WS_PRODUCE_TIMEOUT_MS: 3000
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN: events_plugin_ingestion
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL: events_plugin_ingestion_historical
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW: events_plugin_ingestion_overflow
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ: events_plugin_ingestion_dlq
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION: ingestion-errortracking-main
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP: heatmaps_ingestion
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING: ingestion-clientwarnings-main
+            CAPTURE_V1_SINK_WS_KAFKA_TOPIC_MAIN: events_plugin_ingestion
+            CAPTURE_V1_SINK_WS_KAFKA_TOPIC_HISTORICAL: events_plugin_ingestion_historical
+            CAPTURE_V1_SINK_WS_KAFKA_TOPIC_OVERFLOW: events_plugin_ingestion_overflow
+            CAPTURE_V1_SINK_WS_KAFKA_TOPIC_DLQ: events_plugin_ingestion_dlq
+            CAPTURE_V1_SINK_WS_KAFKA_TOPIC_EXCEPTION: ingestion-errortracking-main
+            CAPTURE_V1_SINK_WS_KAFKA_TOPIC_HEATMAP: heatmaps_ingestion
+            CAPTURE_V1_SINK_WS_KAFKA_TOPIC_CLIENT_INGESTION_WARNING: ingestion-clientwarnings-main
+        ports:
+            - 127.0.0.1:3308:3000
+        healthcheck:
+            test: [CMD, curl, -f, http://localhost:3000/_liveness]
+            interval: 2s
+            timeout: 2s
+            retries: 60
+
+    prometheus:
+        image: prom/prometheus:v3.5.0
+        volumes:
+            - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+        ports:
+            - 127.0.0.1:9091:9090
+
+    grafana:
+        image: grafana/grafana:12.0.2
+        depends_on:
+            - prometheus
+        environment:
+            GF_AUTH_ANONYMOUS_ENABLED: 'true'
+            GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+            GF_AUTH_DISABLE_LOGIN_FORM: 'true'
+        volumes:
+            - ./grafana/provisioning:/etc/grafana/provisioning:ro
+            - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+        ports:
+            - 127.0.0.1:3001:3000

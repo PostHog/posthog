@@ -1,0 +1,59 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [{ "expr": "min by (cluster) (capture_v1_kafka_broker_connected)", "legendFormat": "{{cluster}}", "refId": "A" }],
+      "title": "Connected brokers",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [{ "expr": "capture_v1_kafka_producer_queue_utilization", "legendFormat": "{{cluster}}", "refId": "A" }],
+      "title": "Producer queue utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "targets": [{ "expr": "sum by (cluster, outcome) (rate(capture_v1_kafka_publish_total[30s]))", "legendFormat": "{{cluster}} {{outcome}}", "refId": "A" }],
+      "title": "Publish outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "targets": [{ "expr": "sum by (cluster, error) (rate(capture_v1_kafka_client_errors_total[30s]))", "legendFormat": "{{cluster}} {{error}}", "refId": "A" }],
+      "title": "Kafka client errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "id": 5,
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, cluster) (rate(capture_v1_kafka_ack_duration_seconds_bucket[30s])))", "legendFormat": "{{cluster}}", "refId": "A" }],
+      "title": "Kafka acknowledgment latency, p95",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "1s",
+  "schemaVersion": 41,
+  "tags": ["capture", "kafka", "local"],
+  "time": { "from": "now-5m", "to": "now" },
+  "timezone": "browser",
+  "title": "Capture Kafka degradation",
+  "uid": "capture-kafka-degradation",
+  "version": 1
+}
