@@ -27,9 +27,17 @@ interface NavPanelStore {
   panel: SecondaryPanelMode;
   stab: SpacePanelTab;
   side: RightPanelSide | null;
+  /**
+   * The space the panel is showing. Held here rather than read straight off the
+   * route, because plenty of things a space offers open somewhere without a
+   * space of its own — a loop lives under /code — and the column shouldn't
+   * vanish from under you when you follow one.
+   */
+  spaceId: string | null;
   setPanel: (panel: SecondaryPanelMode) => void;
   setStab: (stab: SpacePanelTab) => void;
   setSide: (side: RightPanelSide | null) => void;
+  setSpaceId: (spaceId: string | null) => void;
   /** Back to defaults, for a move to a destination that should open fresh. */
   reset: () => void;
 }
@@ -38,12 +46,14 @@ const DEFAULTS = {
   panel: "auto",
   stab: "sessions",
   side: null,
-} as const satisfies Pick<NavPanelStore, "panel" | "stab" | "side">;
+  spaceId: null,
+} as const satisfies Pick<NavPanelStore, "panel" | "stab" | "side" | "spaceId">;
 
 export const useNavPanelStore = create<NavPanelStore>()((set) => ({
   ...DEFAULTS,
   setPanel: (panel) => set({ panel }),
   setStab: (stab) => set({ stab }),
   setSide: (side) => set({ side }),
+  setSpaceId: (spaceId) => set({ spaceId }),
   reset: () => set({ ...DEFAULTS }),
 }));

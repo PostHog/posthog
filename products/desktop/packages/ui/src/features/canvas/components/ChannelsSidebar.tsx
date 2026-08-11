@@ -11,6 +11,7 @@ import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/u
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { PrimarySidebar } from "@posthog/ui/features/navigation/components/PrimarySidebar";
+import { useNavPanelStore } from "@posthog/ui/features/navigation/navPanelStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
@@ -115,10 +116,12 @@ export function ChannelsSidebar() {
     enabled: channelsLayout,
   });
   useEffect(() => {
-    // Landing on a channel — a deep link, a mention, ⌘1-9 — scopes it; the
-    // secondary panel follows the route on its own.
+    // Landing on a channel — a deep link, a mention, ⌘1-9 — scopes it, and
+    // hands the secondary panel the space to keep showing once the route
+    // moves somewhere without one.
     if (!channelsLayout || !routeChannelId) return;
     setCurrentChannel(routeChannelId);
+    useNavPanelStore.getState().setSpaceId(routeChannelId);
   }, [channelsLayout, routeChannelId, setCurrentChannel]);
 
   const autoScopedRef = useRef(false);

@@ -16,25 +16,28 @@ export interface SecondaryPanelState {
 
 /**
  * The secondary panel follows the route (a space route shows that space's
- * panel) unless the chrome pins the activity feed or closes it.
+ * panel) unless the chrome pins the activity feed or closes it. Off a space
+ * route it holds the space it was last showing, so following something out of
+ * a space — a loop opens under /code — doesn't close the column.
  */
 export function useSecondaryPanelState(): SecondaryPanelState {
   const panel = useNavPanelStore((s) => s.panel);
+  const spaceId = useNavPanelStore((s) => s.spaceId);
   const params = useParams({ strict: false });
-  const routeChannelId = params.channelId ?? null;
+  const channelId = params.channelId ?? spaceId;
 
   return useMemo(() => {
     const destination: SecondaryDestination | null =
       panel === "activity"
         ? { kind: "activity" }
-        : routeChannelId
-          ? { kind: "space", channelId: routeChannelId }
+        : channelId
+          ? { kind: "space", channelId }
           : null;
     return {
       destination,
       open: destination != null && panel !== "off",
     };
-  }, [panel, routeChannelId]);
+  }, [panel, channelId]);
 }
 
 /**
