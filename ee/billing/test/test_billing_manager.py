@@ -81,12 +81,18 @@ class TestBillingManager(BaseTest):
             plan="enterprise",
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
-        self.organization.usage = {"posthog_code_token_credits": {"usage": 1200, "todays_usage": 34, "limit": None}}
+        self.organization.usage = {
+            "posthog_code_token_credits": {"usage": 1200, "todays_usage": 34, "limit": None},
+            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+        }
         manager = BillingManager(license)
         billing_response = {
             "customer": {
                 "products": [],
-                "usage_summary": {"posthog_code_token_credits": {"usage": 1200, "limit": None}},
+                "usage_summary": {
+                    "posthog_code_token_credits": {"usage": 1200, "limit": None},
+                    "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+                },
             }
         }
 
@@ -102,6 +108,7 @@ class TestBillingManager(BaseTest):
             "limit": None,
             "todays_usage": 34,
         }
+        assert response["usage_summary"]["period"] == ["2022-10-07T11:12:48", "2022-11-07T11:12:48"]
 
     @parameterized.expand(
         [

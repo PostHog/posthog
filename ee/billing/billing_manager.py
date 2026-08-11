@@ -227,7 +227,11 @@ class BillingManager:
         usage_summary = response.get("usage_summary") or {}
         if organization.usage:
             for usage_key, usage in usage_summary.items():
-                todays_usage = (organization.usage.get(usage_key) or {}).get("todays_usage")
+                # both dicts carry non-usage entries, e.g. "period" is a list
+                org_usage = organization.usage.get(usage_key)
+                if not isinstance(org_usage, dict) or not isinstance(usage, dict):
+                    continue
+                todays_usage = org_usage.get("todays_usage")
                 if todays_usage is not None:
                     usage["todays_usage"] = todays_usage
 
