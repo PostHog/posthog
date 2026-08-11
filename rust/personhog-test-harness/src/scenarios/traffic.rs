@@ -124,7 +124,10 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // small (fixed keys, no journal growth) and their outcomes are only
     // observed, never verified.
     let hostile_ids = if args.hostile_rate > 0.0 {
-        let distinct_ids: Vec<String> = (0..4).map(|i| format!("bed-hostile-{i}")).collect();
+        // Boot-unique ids: a restart must insert fresh hostile rows, not
+        // revive the previous boot's tombstones.
+        let boot = std::process::id();
+        let distinct_ids: Vec<String> = (0..4).map(|i| format!("bed-hostile-{boot}-{i}")).collect();
         Arc::new(seed::seed_persons_via_identity(&identity, hostile_team_id, &distinct_ids).await?)
     } else {
         Arc::new(Vec::new())
@@ -184,16 +187,10 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
         }
 
+        // Fresh ids every epoch: each create inserts a new row rather
+        // than reviving the previous epoch's tombstone.
         let distinct_ids: Vec<String> = (0..args.pool_size)
-            .map(|i| {
-                if args.recycle_distinct_ids {
-                    // The same ids every epoch: each create resolves a
-                    // tombstoned row and exercises the revival branch.
-                    format!("bed-p{i}")
-                } else {
-                    format!("bed-e{epoch}-p{i}")
-                }
-            })
+            .map(|i| format!("bed-e{epoch}-p{i}"))
             .collect();
         let person_ids =
             Arc::new(seed::seed_persons_via_identity(&identity, team_id, &distinct_ids).await?);
@@ -562,7 +559,6 @@ mod tests {
             identity_url: "http://localhost:2".to_string(),
             instance_ordinal: None,
             team_stride: 10,
-            recycle_distinct_ids: true,
             enabled: true,
             team_id: 900_101,
             hostile_team_id: 900_102,

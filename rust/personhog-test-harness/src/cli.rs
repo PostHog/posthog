@@ -353,16 +353,6 @@ pub struct TrafficArgs {
     #[arg(long, env = "TRAFFIC_TEAM_STRIDE", default_value_t = 10)]
     pub team_stride: i64,
 
-    /// Reuse the same distinct ids every epoch. Recycling drives each
-    /// epoch's creates through the tombstone-revival branch — the same
-    /// row is deleted and revived every cycle — where fresh ids insert
-    /// new rows each epoch. Off by default: recycled pools currently
-    /// fail verification (acked property writes on a revived person
-    /// reach its version but not its properties), so flipping this on
-    /// turns the bed into a reproducer for that investigation.
-    #[arg(long, env = "TRAFFIC_RECYCLE_DISTINCT_IDS", default_value_t = false, action = clap::ArgAction::Set)]
-    pub recycle_distinct_ids: bool,
-
     /// Master toggle. When false the process starts fully (guard, metrics,
     /// liveness) but idles instead of driving traffic — so a deployed-but-
     /// disabled harness is observably "off on purpose" rather than absent.
