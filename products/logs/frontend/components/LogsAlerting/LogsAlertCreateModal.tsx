@@ -34,7 +34,7 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
     const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
     const nameError = alertForm.name.trim() ? undefined : 'Enter an alert name.'
-    const filterError = hasLogFilter ? undefined : 'Add at least one log filter.'
+    const filterError = hasLogFilter ? undefined : 'Select a severity, service, or attribute.'
     const configurationCannotAdvanceReason = nameError ?? filterError
     const steps = buildLogsAlertWizardSteps({
         alertForm,
