@@ -377,6 +377,28 @@ export default function TaskDetailScreen() {
     [queryClient],
   );
 
+  const [refreshingTask, setRefreshingTask] = useState(false);
+
+  // Pull-to-refresh on the thread. Re-reads the task (status, PR output, a
+  // fresh presigned log url) and reattaches the stream only when there isn't
+  // a live one — reconnecting a healthy session would drop and replay it.
+  const handleRefreshTask = useCallback(async () => {
+    if (!taskId) return;
+    setRefreshingTask(true);
+    try {
+      const freshTask = await getPostHogApiClient().getTask(taskId);
+      setTask(freshTask);
+      updateTaskInCache(freshTask);
+      if (classifyTaskRunPlacement(freshTask) !== "cloud") return;
+      if (getSessionForTask(taskId)?.status === "connected") return;
+      await connectToTask(freshTask);
+    } catch (err) {
+      log.error("Failed to refresh task", err);
+    } finally {
+      setRefreshingTask(false);
+    }
+  }, [taskId, updateTaskInCache, getSessionForTask, connectToTask]);
+
   // Resume a terminal (completed/failed) run with a new user prompt. Mirrors
   // the desktop "send on a finished task continues the conversation" UX —
   // creates a fresh run that resumes from the previous one and queues the
@@ -965,6 +987,8 @@ export default function TaskDetailScreen() {
           }
           onOpenTask={handleOpenTask}
           onSendPermissionResponse={handleSendPermissionResponse}
+          onRefresh={handleRefreshTask}
+          refreshing={refreshingTask}
           optimisticUserMessage={
             optimisticPrompt
               ? {

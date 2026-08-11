@@ -153,6 +153,9 @@ export default function McpInstallationDetailScreen() {
               tools.refetch();
             }}
             tintColor={themeColors.accent[9]}
+            // This ScrollView starts under the translucent floating header, so
+            // the spinner has to start below it or it refreshes out of sight.
+            progressViewOffset={insets.top + 60}
           />
         }
       >

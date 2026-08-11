@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  RefreshControl,
   Text,
   View,
 } from "react-native";
@@ -68,6 +69,13 @@ interface TaskSessionViewProps {
   onOpenTask?: (taskId: string) => void;
   onSendPermissionResponse?: (args: PermissionResponseArgs) => void;
   contentContainerStyle?: object;
+  /**
+   * Pull-to-refresh handler. Omit to leave the thread without one. The list is
+   * inverted, so the gesture is a pull past the newest message rather than the
+   * usual pull from the top.
+   */
+  onRefresh?: () => void;
+  refreshing?: boolean;
   // Renders a user message at the bottom of the thread before the SSE echo
   // arrives — for the gap between submit and the live session catching up.
   // Suppressed automatically once a real user_message_chunk with matching
@@ -819,6 +827,8 @@ export function TaskSessionView({
   onOpenTask,
   onSendPermissionResponse,
   contentContainerStyle,
+  onRefresh,
+  refreshing = false,
   optimisticUserMessage,
 }: TaskSessionViewProps) {
   const processorRef = useRef(createProcessorState());
@@ -1064,6 +1074,18 @@ export function TaskSessionView({
         windowSize={21}
         initialNumToRender={30}
         ListHeaderComponent={listHeader}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={themeColors.accent[9]}
+              // The list is inverted (scaleY: -1) and the control inherits
+              // that, which would render the spinner upside down. Flip it back.
+              style={{ transform: [{ scaleY: -1 }] }}
+            />
+          ) : undefined
+        }
       />
       {/* Thinking/connecting indicators pinned to the bottom of the list area.
           The Composer is a sibling below TaskSessionView in flex flow, so
