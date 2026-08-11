@@ -156,13 +156,9 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         candidate_limit=inputs.candidate_limit,
     ).run()
 
-    # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on. Skipping
-    # every status instead made the quote describe a different set than the walk: a session whose earlier scan
-    # failed emits no event, so it was counted as work to do and then silently stepped over.
-    #
-    # Read from Postgres rather than reusing the count's `exclude_observed_by_scanner`, which asks ClickHouse
-    # the same question. That read is fail-soft: a ClickHouse hiccup would return every session as unobserved,
-    # and the retake path below turns that into real re-scans and real charges. The row is exact and cheap.
+    # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on.
+    # Postgres rather than that count's fail-soft ClickHouse read, whose hiccup would report every session
+    # unobserved and turn the retake path below into real re-scans and real charges.
     succeeded_at = dict(
         ReplayObservation.objects.filter(
             team_id=inputs.team_id,
@@ -172,9 +168,8 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         ).values_list("session_id", "completed_at")
     )
     dispatchable = [c for c in candidates if c.session_id not in succeeded_at]
-    # Only sessions the live sweep reached *after* this backfill was quoted were part of its total, so only
-    # those count as work done. Ones that succeeded earlier were excluded from the total at creation, and
-    # counting them made progress climb past it.
+    # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
+    # count as work done; earlier successes were already excluded at creation.
     overtaken = {
         session_id
         for session_id, completed in succeeded_at.items()

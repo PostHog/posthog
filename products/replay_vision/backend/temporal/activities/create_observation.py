@@ -115,13 +115,10 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     # Shared by the insert and the retake below, so a column added here can't be set on one path only.
     row_fields: dict[str, Any] = {
         "status": ObservationStatus.PENDING,
-        # Required by `replay_observation_completed_at_matches_status`: a pending row must carry no
-        # completion time, and a retaken row arrives with the failed attempt's still set.
+        # `replay_observation_completed_at_matches_status` requires a pending row to carry no completion time.
         "completed_at": None,
-        # Every period window keys off this: the in-flight reservation, and the usage receipt written on
-        # success. A retaken row that kept its original stamp would bill this scan into the period the
-        # first attempt ran in, which may be closed, so the credits would escape the current cap.
-        # `auto_now_add` ignores this on insert and takes it on update, which is what each path needs.
+        # The reservation and the usage receipt both window off this, so a retake that kept the failed
+        # attempt's stamp would bill into a period that may already be closed.
         "created_at": timezone.now(),
         "workflow_id": inputs.workflow_id,
         "scanner_snapshot": snapshot_dict,
@@ -151,10 +148,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             )
         # Route through the validator so a malformed legacy snapshot surfaces as a tagged non-retryable error.
         existing_snapshot = ScannerSnapshot.load_for(existing.id, existing.scanner_snapshot)
-        # A backfill quotes every session without a success event, which includes ones whose earlier scan
-        # failed. Returning the failed row unchanged would let the walk report progress for a scan that never
-        # re-ran, so retake the row instead. Filtered on FAILED so a concurrent success or a live-sweep
-        # apply wins and this becomes a no-op.
+        # A backfill quotes sessions whose earlier scan failed, so retake that row rather than report progress
+        # for a scan that never re-runs. Filtered on FAILED so a concurrent success wins and this no-ops.
         retaken = bool(
             backfill is not None
             and existing.status == ObservationStatus.FAILED
