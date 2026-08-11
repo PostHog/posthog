@@ -82,6 +82,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
         {
             title: 'Name',
             key: 'name',
+            width: '40%',
             render: (_, evaluation) => (
                 <div className="flex min-w-0 flex-col">
                     <span className="truncate font-semibold">{evaluation.name}</span>
@@ -126,6 +127,21 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                 const lastGeneratedAt = evaluationReportsByEvaluationId[evaluation.id]?.last_generated_at
                 return lastGeneratedAt ? <TZLabel time={lastGeneratedAt} /> : 'Never'
             },
+        },
+        {
+            key: 'actions',
+            width: 72,
+            align: 'right',
+            render: (_, evaluation) => (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={evaluationEditUrl(evaluation.id)}
+                    data-attr="edit-ai-observability-evaluation"
+                >
+                    Edit
+                </LemonButton>
+            ),
         },
     ]
 
@@ -284,6 +300,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                         dataSource={evaluations}
                         loading={evaluationReportsLoading}
                         loadingSkeletonRows={2}
+                        tableLayout="fixed"
                         rowKey="id"
                         nouns={['eval', 'evals']}
                         data-attr="ai-observability-evaluations-table"
@@ -296,16 +313,6 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                 router.actions.push(evaluationEditUrl(evaluation.id))
                             },
                         })}
-                        rowActions={(evaluation) => (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                to={evaluationEditUrl(evaluation.id)}
-                                data-attr="edit-ai-observability-evaluation"
-                            >
-                                Edit
-                            </LemonButton>
-                        )}
                     />
                 )}
             </section>
