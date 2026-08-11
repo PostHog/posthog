@@ -5,6 +5,14 @@ import * as React from 'react'
 import './accordion.css'
 import { cn } from './lib/utils'
 
+/**
+ * Groups all parts of the accordion.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Accordion](https://base-ui.com/react/components/accordion)
+ *
+ * @baseui Accordion.Root
+ */
 function Accordion({ className, ...props }: AccordionPrimitive.Root.Props): React.ReactElement {
     return (
         <AccordionPrimitive.Root
@@ -15,6 +23,14 @@ function Accordion({ className, ...props }: AccordionPrimitive.Root.Props): Reac
     )
 }
 
+/**
+ * Groups an accordion header with the corresponding panel.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Accordion](https://base-ui.com/react/components/accordion)
+ *
+ * @baseui Accordion.Item
+ */
 function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props): React.ReactElement {
     return (
         <AccordionPrimitive.Item
@@ -26,6 +42,14 @@ function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props): 
     )
 }
 
+/**
+ * A button that opens and closes the corresponding panel.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Accordion](https://base-ui.com/react/components/accordion)
+ *
+ * @baseui Accordion.Trigger
+ */
 function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.Trigger.Props): React.ReactElement {
     return (
         <AccordionPrimitive.Header className="flex">
@@ -53,6 +77,14 @@ function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.
     )
 }
 
+/**
+ * A collapsible panel with the accordion item contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Accordion](https://base-ui.com/react/components/accordion)
+ *
+ * @baseui Accordion.Panel
+ */
 function AccordionContent({ className, children, ...props }: AccordionPrimitive.Panel.Props): React.ReactElement {
     return (
         <AccordionPrimitive.Panel data-slot="accordion-content" className="quill-accordion__panel" {...props}>

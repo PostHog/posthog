@@ -7,6 +7,14 @@ import * as React from 'react'
 import { Button } from './button'
 import { cn } from './lib/utils'
 
+/**
+ * Groups the tabs and the corresponding panels.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tabs](https://base-ui.com/react/components/tabs)
+ *
+ * @baseui Tabs.Root
+ */
 function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive.Root.Props): React.ReactElement {
     return (
         <TabsPrimitive.Root
@@ -45,6 +53,14 @@ const tabsIndicatorVariants = cva('quill-tabs__indicator', {
     },
 })
 
+/**
+ * Groups the individual tab buttons.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tabs](https://base-ui.com/react/components/tabs)
+ *
+ * @baseui Tabs.List
+ */
 function TabsList({
     className,
     variant = 'default',
@@ -64,6 +80,14 @@ function TabsList({
     )
 }
 
+/**
+ * An individual interactive tab button that toggles the corresponding panel.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Tabs](https://base-ui.com/react/components/tabs)
+ *
+ * @baseui Tabs.Tab
+ */
 function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props): React.ReactElement {
     return (
         <TabsPrimitive.Tab
@@ -78,6 +102,14 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props): React.Re
     )
 }
 
+/**
+ * A panel displayed when the corresponding tab is active.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tabs](https://base-ui.com/react/components/tabs)
+ *
+ * @baseui Tabs.Panel
+ */
 function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props): React.ReactElement {
     return <TabsPrimitive.Panel data-slot="tabs-content" className={cn('quill-tabs__panel', className)} {...props} />
 }

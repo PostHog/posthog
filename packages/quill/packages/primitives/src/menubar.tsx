@@ -23,6 +23,13 @@ import {
 import { cn } from './lib/utils'
 import { RadioIndicator } from './radio-group'
 
+/**
+ * The container for menus.
+ *
+ * Documentation: [Base UI Menubar](https://base-ui.com/react/components/menubar)
+ *
+ * @baseui Menubar
+ */
 function Menubar({ className, ...props }: MenubarPrimitive.Props): React.ReactElement {
     return (
         <MenubarPrimitive
@@ -96,6 +103,14 @@ function MenubarItem({
     )
 }
 
+/**
+ * A menu item that toggles a setting on or off.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.CheckboxItem
+ */
 function MenubarCheckboxItem({
     className,
     children,
@@ -133,6 +148,14 @@ function MenubarRadioGroup({ ...props }: React.ComponentProps<typeof DropdownMen
     return <DropdownMenuRadioGroup data-slot="menubar-radio-group" {...props} />
 }
 
+/**
+ * A menu item that works like a radio button in a given group.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.RadioItem
+ */
 function MenubarRadioItem({
     className,
     children,

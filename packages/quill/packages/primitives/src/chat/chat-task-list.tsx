@@ -62,6 +62,14 @@ type ChatTaskListProps = React.ComponentProps<typeof CollapsiblePrimitive.Root> 
     total: number
 }
 
+/**
+ * Groups all parts of the collapsible.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Collapsible](https://base-ui.com/react/components/collapsible)
+ *
+ * @baseui Collapsible.Root
+ */
 function ChatTaskList({ value, total, className, ...props }: ChatTaskListProps): React.ReactElement {
     const context = React.useMemo(() => ({ value, total }), [value, total])
 
@@ -77,6 +85,14 @@ function ChatTaskList({ value, total, className, ...props }: ChatTaskListProps):
     )
 }
 
+/**
+ * A button that opens and closes the collapsible panel.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Collapsible](https://base-ui.com/react/components/collapsible)
+ *
+ * @baseui Collapsible.Trigger
+ */
 function ChatTaskListTrigger({
     className,
     children,

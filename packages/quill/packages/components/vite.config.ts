@@ -25,6 +25,9 @@ export default defineConfig({
                 '@posthog/quill-tokens',
                 '@posthog/quill-primitives',
                 '@posthog/quill-charts',
+                // Surfaces in DataTable's public types, so @posthog/quill declares it as a real
+                // dependency — external here too rather than inlining a second copy.
+                '@tanstack/react-table',
             ],
         },
         cssCodeSplit: false,

@@ -9,23 +9,65 @@ import './dialog.css'
 import { cn } from './lib/utils'
 import { ScrollArea } from './scroll-area'
 
-/** Note: if you're nesting dialogs, in order for you to click the overlay to close it, you must pass 'mounted: true' to the nested dialog*/
+/**
+ * Groups all parts of the dialog.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui Dialog.Root
+ *
+ * Note: if you're nesting dialogs, in order for you to click the overlay to close it, you must pass 'mounted: true' to the nested dialog
+ */
 function Dialog({ ...props }: DialogPrimitive.Root.Props): React.ReactElement {
     return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
+/**
+ * A button that opens the dialog.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui Dialog.Trigger
+ */
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props): React.ReactElement {
     return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 }
 
+/**
+ * A portal element that moves the popup to a different part of the DOM.
+ * By default, the portal element is appended to `<body>`.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui Dialog.Portal
+ */
 function DialogPortal({ ...props }: DialogPrimitive.Portal.Props): React.ReactElement {
     return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
+/**
+ * A button that closes the dialog.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui Dialog.Close
+ */
 function DialogClose({ ...props }: DialogPrimitive.Close.Props): React.ReactElement {
     return <DialogPrimitive.Close data-slot="dialog-close focus-visible:z-10" {...props} />
 }
 
+/**
+ * An overlay displayed beneath the popup.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui Dialog.Backdrop
+ */
 function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props): React.ReactElement {
     return (
         <DialogPrimitive.Backdrop
@@ -38,6 +80,14 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props):
     )
 }
 
+/**
+ * A container for the dialog contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui Dialog.Popup
+ */
 function DialogContent({
     className,
     children,
@@ -163,10 +213,26 @@ function DialogBody({
     })
 }
 
+/**
+ * A heading that labels the dialog.
+ * Renders an `<h2>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui Dialog.Title
+ */
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props): React.ReactElement {
     return <DialogPrimitive.Title data-slot="dialog-title" className={cn('quill-dialog__title', className)} {...props} />
 }
 
+/**
+ * A paragraph with additional information about the dialog.
+ * Renders a `<p>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui Dialog.Description
+ */
 function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props): React.ReactElement {
     return (
         <DialogPrimitive.Description

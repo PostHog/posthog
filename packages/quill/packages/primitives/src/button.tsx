@@ -55,6 +55,14 @@ export type ButtonProps = ButtonPrimitive.Props &
         loading?: boolean
     }
 
+/**
+ * A button component that can be used to trigger actions.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Button](https://base-ui.com/react/components/button)
+ *
+ * @baseui Button
+ */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     (
         {

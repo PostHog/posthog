@@ -14,22 +14,63 @@ import { cn } from './lib/utils'
  * is fully shared: every part reuses the `quill-dialog__*` styles from
  * dialog.css.
  */
+/**
+ * Groups all parts of the alert dialog.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Alert Dialog](https://base-ui.com/react/components/alert-dialog)
+ *
+ * @baseui AlertDialog.Root
+ */
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props): React.ReactElement {
     return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
 }
 
+/**
+ * A button that opens the alert dialog.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Alert Dialog](https://base-ui.com/react/components/alert-dialog)
+ *
+ * @baseui AlertDialog.Trigger
+ */
 function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props): React.ReactElement {
     return <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
 }
 
+/**
+ * A portal element that moves the popup to a different part of the DOM.
+ * By default, the portal element is appended to `<body>`.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui AlertDialog.Portal
+ */
 function AlertDialogPortal({ ...props }: AlertDialogPrimitive.Portal.Props): React.ReactElement {
     return <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />
 }
 
+/**
+ * A button that closes the dialog.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui AlertDialog.Close
+ */
 function AlertDialogClose({ ...props }: AlertDialogPrimitive.Close.Props): React.ReactElement {
     return <AlertDialogPrimitive.Close data-slot="alert-dialog-close" {...props} />
 }
 
+/**
+ * An overlay displayed beneath the popup.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui AlertDialog.Backdrop
+ */
 function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdrop.Props): React.ReactElement {
     return (
         <AlertDialogPrimitive.Backdrop
@@ -46,6 +87,14 @@ function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdr
  * Unlike DialogContent there is deliberately no `showCloseButton` — an alert
  * dialog must be resolved through one of its actions (or Esc), so an X would
  * just be an ambiguous third option.
+ */
+/**
+ * A container for the dialog contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui AlertDialog.Popup
  */
 function AlertDialogContent({ className, children, ...props }: AlertDialogPrimitive.Popup.Props): React.ReactElement {
     return (
@@ -64,6 +113,14 @@ function AlertDialogContent({ className, children, ...props }: AlertDialogPrimit
     )
 }
 
+/**
+ * A heading that labels the dialog.
+ * Renders an `<h2>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui AlertDialog.Title
+ */
 function AlertDialogTitle({ className, ...props }: AlertDialogPrimitive.Title.Props): React.ReactElement {
     return (
         <AlertDialogPrimitive.Title
@@ -74,6 +131,14 @@ function AlertDialogTitle({ className, ...props }: AlertDialogPrimitive.Title.Pr
     )
 }
 
+/**
+ * A paragraph with additional information about the dialog.
+ * Renders a `<p>` element.
+ *
+ * Documentation: [Base UI Dialog](https://base-ui.com/react/components/dialog)
+ *
+ * @baseui AlertDialog.Description
+ */
 function AlertDialogDescription({ className, ...props }: AlertDialogPrimitive.Description.Props): React.ReactElement {
     return (
         <AlertDialogPrimitive.Description

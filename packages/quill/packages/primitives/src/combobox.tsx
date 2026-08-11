@@ -13,6 +13,14 @@ import { MenuLabel } from './menu-label'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
+/**
+ * Groups all parts of the combobox.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Root
+ */
 function Combobox<Value, Multiple extends boolean | undefined = false>({
     children,
     ...props
@@ -25,10 +33,26 @@ function Combobox<Value, Multiple extends boolean | undefined = false>({
     )
 }
 
+/**
+ * The current value of the combobox.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Value
+ */
 function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props): React.ReactElement {
     return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />
 }
 
+/**
+ * A button that opens the popup.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Trigger
+ */
 const ComboboxTrigger = React.forwardRef<HTMLButtonElement, ComboboxPrimitive.Trigger.Props>(
     ({ className, children, ...props }, ref) => {
         return (
@@ -46,6 +70,14 @@ const ComboboxTrigger = React.forwardRef<HTMLButtonElement, ComboboxPrimitive.Tr
 )
 ComboboxTrigger.displayName = 'ComboboxTrigger'
 
+/**
+ * Clears the value when clicked.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Clear
+ */
 function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props): React.ReactElement {
     return (
         <ComboboxPrimitive.Clear
@@ -59,6 +91,14 @@ function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props): 
     )
 }
 
+/**
+ * A text input to search for items in the list.
+ * Renders an `<input>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Input
+ */
 function ComboboxInput({
     className,
     children,
@@ -93,6 +133,14 @@ function ComboboxInput({
     )
 }
 
+/**
+ * A container for the list.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Popup
+ */
 function ComboboxContent({
     className,
     side = 'bottom',
@@ -131,6 +179,14 @@ function ComboboxContent({
     )
 }
 
+/**
+ * A list container for the items.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.List
+ */
 function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): React.ReactElement {
     return (
         <ComboboxPrimitive.List
@@ -151,6 +207,14 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
     )
 }
 
+/**
+ * An individual item in the list.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Item
+ */
 function ComboboxItem({
     className,
     children,
@@ -178,10 +242,26 @@ function ComboboxItem({
     )
 }
 
+/**
+ * Groups related items with the corresponding label.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Group
+ */
 function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props): React.ReactElement {
     return <ComboboxPrimitive.Group data-slot="combobox-group" className={cn(className)} {...props} />
 }
 
+/**
+ * An accessible label that is automatically associated with its parent group.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.GroupLabel
+ */
 function ComboboxLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Props): React.ReactElement {
     return (
         <ComboboxPrimitive.GroupLabel
@@ -193,10 +273,34 @@ function ComboboxLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Pro
     )
 }
 
+/**
+ * Renders filtered list items.
+ * Doesn't render its own HTML element.
+ *
+ * If rendering a flat list, pass a function child to the `List` component instead, which implicitly wraps it.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Collection
+ */
 function ComboboxCollection({ ...props }: ComboboxPrimitive.Collection.Props): React.ReactElement {
     return <ComboboxPrimitive.Collection data-slot="combobox-collection" {...props} />
 }
 
+/**
+ * Renders its children only when the list is empty.
+ * Requires the `items` prop on the root component.
+ * Announces changes politely to screen readers.
+ * This component's root element must remain mounted in the DOM to announce
+ * changes consistently across screen readers. Avoid hiding or removing the
+ * component itself with `display: none`, `hidden`, `aria-hidden`, or conditional
+ * rendering. Prefer updating or conditionally rendering its children instead.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Empty
+ */
 function ComboboxEmpty({ className, children, ...props }: ComboboxPrimitive.Empty.Props): React.ReactElement {
     return (
         <ComboboxPrimitive.Empty
@@ -208,6 +312,14 @@ function ComboboxEmpty({ className, children, ...props }: ComboboxPrimitive.Empt
     )
 }
 
+/**
+ * A visual separator between items or groups.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Separator
+ */
 function ComboboxSeparator({ className, ...props }: ComboboxPrimitive.Separator.Props): React.ReactElement {
     return (
         <ComboboxPrimitive.Separator
@@ -218,6 +330,14 @@ function ComboboxSeparator({ className, ...props }: ComboboxPrimitive.Separator.
     )
 }
 
+/**
+ * A container for the chips in a multiselectable input.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Chips
+ */
 function ComboboxChips({
     className,
     ...props
@@ -231,6 +351,14 @@ function ComboboxChips({
     )
 }
 
+/**
+ * An individual chip that represents a value in a multiselectable input.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Chip
+ */
 function ComboboxChip({
     className,
     children,
@@ -258,6 +386,14 @@ function ComboboxChip({
     )
 }
 
+/**
+ * A text input to search for items in the list.
+ * Renders an `<input>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Combobox.Input
+ */
 function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Props): React.ReactElement {
     return (
         <ComboboxPrimitive.Input

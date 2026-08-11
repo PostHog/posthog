@@ -121,6 +121,13 @@ function ThreadItemLink({ className, render, ...props }: useRender.ComponentProp
 }
 
 /**
+ * Groups all parts of the collapsible.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Collapsible](https://base-ui.com/react/components/collapsible)
+ *
+ * @baseui Collapsible.Root
+ *
  * Collapsible attachment (image/file preview) — a Base UI Collapsible, open by default. The
  * trigger carries the filename and a rotating chevron; keyboard/AT get `aria-expanded` for free.
  */
@@ -140,7 +147,16 @@ function ThreadItemAttachment({
     )
 }
 
-/** Filename row that toggles the attachment preview. Children become the visible label. */
+/**
+ * A button that opens and closes the collapsible panel.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Collapsible](https://base-ui.com/react/components/collapsible)
+ *
+ * @baseui Collapsible.Trigger
+ *
+ * Filename row that toggles the attachment preview. Children become the visible label.
+ */
 function ThreadItemAttachmentTrigger({
     children,
     className,
@@ -158,6 +174,14 @@ function ThreadItemAttachmentTrigger({
     )
 }
 
+/**
+ * A panel with the collapsible contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Collapsible](https://base-ui.com/react/components/collapsible)
+ *
+ * @baseui Collapsible.Panel
+ */
 function ThreadItemAttachmentContent({
     children,
     className,
@@ -207,6 +231,13 @@ function ThreadItemReactions({
 }
 
 /**
+ * A two-state button that can be on or off.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Toggle](https://base-ui.com/react/components/toggle)
+ *
+ * @baseui Toggle
+ *
  * A reaction pill — a Base UI Toggle, so `pressed`/`onPressedChange` and `aria-pressed` come for
  * free. Give it an `aria-label` naming the emoji and count ("victory hand, 1 reaction"); wrap the
  * emoji glyph in {@link ThreadItemReactionEmoji} so it stays out of the accessible name.
@@ -241,6 +272,13 @@ function ThreadItemReactionEmoji({ className, ...props }: React.ComponentProps<'
 const ThreadItemActionsContext = React.createContext(false)
 
 /**
+ * A container for grouping a set of controls, such as buttons, toggle groups, or menus.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Toolbar](https://base-ui.com/react/components/toolbar)
+ *
+ * @baseui Toolbar.Root
+ *
  * Hover-revealed actions toolbar, anchored to the item's top end corner. A Base UI Toolbar, so it
  * is one tab stop with arrow-key roving focus between actions. Hidden with opacity (not
  * `display: none`) so it stays keyboard-reachable — focus reveals it via `:focus-within`. Carries

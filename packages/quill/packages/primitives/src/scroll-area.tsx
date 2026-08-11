@@ -182,6 +182,14 @@ if (typeof document !== 'undefined' && !document.getElementById(SCROLL_SHADOWS_S
     document.head.appendChild(styleEl)
 }
 
+/**
+ * Groups all parts of the scroll area.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Scroll Area](https://base-ui.com/react/components/scroll-area)
+ *
+ * @baseui ScrollArea.Root
+ */
 function ScrollArea({
     className,
     children,
@@ -246,6 +254,14 @@ function ScrollArea({
     )
 }
 
+/**
+ * A vertical or horizontal scrollbar for the scroll area.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Scroll Area](https://base-ui.com/react/components/scroll-area)
+ *
+ * @baseui ScrollArea.Scrollbar
+ */
 function ScrollBar({
     className,
     orientation = 'vertical',

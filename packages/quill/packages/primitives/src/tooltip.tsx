@@ -4,18 +4,50 @@ import * as React from 'react'
 import { cn } from './lib/utils'
 import './tooltip.css'
 
+/**
+ * Provides a shared delay for multiple tooltips. The grouping logic ensures that
+ * once a tooltip becomes visible, the adjacent tooltips will be shown instantly.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ *
+ * @baseui Tooltip.Provider
+ */
 function TooltipProvider({ delay = 250, ...props }: TooltipPrimitive.Provider.Props): React.ReactElement {
     return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
 }
 
+/**
+ * Groups all parts of the tooltip.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ *
+ * @baseui Tooltip.Root
+ */
 function Tooltip({ ...props }: TooltipPrimitive.Root.Props): React.ReactElement {
     return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
 }
 
+/**
+ * An element to attach the tooltip to.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ *
+ * @baseui Tooltip.Trigger
+ */
 function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props): React.ReactElement {
     return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
 }
 
+/**
+ * A container for the tooltip contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Tooltip](https://base-ui.com/react/components/tooltip)
+ *
+ * @baseui Tooltip.Popup
+ */
 function TooltipContent({
     className,
     side = 'top',

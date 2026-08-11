@@ -40,6 +40,14 @@ const Button = React.forwardRef<HTMLButtonElement, Props>(({ className, variant,
 ))
 ```
 
+Always type the wrapper with the Base UI part's own props (`ButtonPrimitive.Props`, `Accordion.Root.Props`, or `React.ComponentProps<typeof X>`) and spread `...props` onto it.
+That is what makes every upstream prop — and the JSDoc attached to it — reachable from a consumer's editor.
+Intersect with a local object type for quill's own props; never replace the Base UI type with a hand-rolled one.
+
+Base UI also documents each component itself, and that prose is copied onto the wrappers by `pnpm --filter @posthog/quill-workspace sync:base-ui-docs`.
+Run it after upgrading `@base-ui/react` and commit the result, so hovering a quill primitive shows the upstream description and docs link.
+The generated text runs from the top of the doc block down to the `@baseui` tag; anything you write below that tag is yours and survives regeneration.
+
 ### 2. CVA for variants
 
 All variant styling uses `class-variance-authority`.

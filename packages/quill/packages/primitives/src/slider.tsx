@@ -4,6 +4,14 @@ import * as React from 'react'
 import { cn } from './lib/utils'
 import './slider.css'
 
+/**
+ * Groups all parts of the slider.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Slider](https://base-ui.com/react/components/slider)
+ *
+ * @baseui Slider.Root
+ */
 function Slider({
     className,
     defaultValue,

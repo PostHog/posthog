@@ -45,6 +45,14 @@ function RadioIndicator({
     )
 }
 
+/**
+ * Provides a shared state to a series of radio buttons.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Radio Group](https://base-ui.com/react/components/radio)
+ *
+ * @baseui RadioGroup
+ */
 function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props): React.ReactElement {
     return (
         <RadioGroupPrimitive
@@ -80,6 +88,14 @@ const radioGroupItemIndicatorVariants = cva('quill-radio__indicator', {
     },
 })
 
+/**
+ * Represents the radio button itself.
+ * Renders a `<span>` element and a hidden `<input>` beside.
+ *
+ * Documentation: [Base UI Radio](https://base-ui.com/react/components/radio)
+ *
+ * @baseui Radio.Root
+ */
 function RadioGroupItem({
     className,
     size = 'default',

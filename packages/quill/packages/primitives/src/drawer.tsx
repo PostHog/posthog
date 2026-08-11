@@ -4,22 +4,63 @@ import * as React from 'react'
 import './drawer.css'
 import { cn } from './lib/utils'
 
+/**
+ * Groups all parts of the drawer.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Drawer](https://base-ui.com/react/components/drawer)
+ *
+ * @baseui Drawer.Root
+ */
 function Drawer({ ...props }: DrawerPrimitive.Root.Props): React.ReactElement {
     return <DrawerPrimitive.Root data-slot="drawer" {...props} />
 }
 
+/**
+ * A button that opens the drawer.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Drawer](https://base-ui.com/react/components/drawer)
+ *
+ * @baseui Drawer.Trigger
+ */
 function DrawerTrigger({ ...props }: DrawerPrimitive.Trigger.Props): React.ReactElement {
     return <DrawerPrimitive.Trigger data-slot="drawer-trigger" {...props} />
 }
 
+/**
+ * A portal element that moves the popup to a different part of the DOM.
+ * By default, the portal element is appended to `<body>`.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Drawer](https://base-ui.com/react/components/drawer)
+ *
+ * @baseui Drawer.Portal
+ */
 function DrawerPortal({ ...props }: DrawerPrimitive.Portal.Props): React.ReactElement {
     return <DrawerPrimitive.Portal data-slot="drawer-portal" {...props} />
 }
 
+/**
+ * A button that closes the drawer.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Drawer](https://base-ui.com/react/components/drawer)
+ *
+ * @baseui Drawer.Close
+ */
 function DrawerClose({ ...props }: DrawerPrimitive.Close.Props): React.ReactElement {
     return <DrawerPrimitive.Close data-slot="drawer-close" {...props} />
 }
 
+/**
+ * An overlay displayed beneath the popup.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Drawer](https://base-ui.com/react/components/drawer)
+ *
+ * @baseui Drawer.Backdrop
+ */
 function DrawerBackdrop({ className, ...props }: DrawerPrimitive.Backdrop.Props): React.ReactElement {
     return (
         <DrawerPrimitive.Backdrop
@@ -32,6 +73,14 @@ function DrawerBackdrop({ className, ...props }: DrawerPrimitive.Backdrop.Props)
     )
 }
 
+/**
+ * A container for the drawer contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Drawer](https://base-ui.com/react/components/drawer)
+ *
+ * @baseui Drawer.Popup
+ */
 function DrawerContent({
     className,
     children,
@@ -93,6 +142,14 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<'div'>): Rea
     )
 }
 
+/**
+ * A heading that labels the drawer.
+ * Renders an `<h2>` element.
+ *
+ * Documentation: [Base UI Drawer](https://base-ui.com/react/components/drawer)
+ *
+ * @baseui Drawer.Title
+ */
 function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props): React.ReactElement {
     return (
         <DrawerPrimitive.Title
@@ -103,6 +160,14 @@ function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props): Reac
     )
 }
 
+/**
+ * A paragraph with additional information about the drawer.
+ * Renders a `<p>` element.
+ *
+ * Documentation: [Base UI Drawer](https://base-ui.com/react/components/drawer)
+ *
+ * @baseui Drawer.Description
+ */
 function DrawerDescription({ className, ...props }: DrawerPrimitive.Description.Props): React.ReactElement {
     return (
         <DrawerPrimitive.Description

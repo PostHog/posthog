@@ -4,6 +4,14 @@ import * as React from 'react'
 import './switch.css'
 import { cn } from './lib/utils'
 
+/**
+ * Represents the switch itself.
+ * Renders a `<span>` element and a hidden `<input>` beside.
+ *
+ * Documentation: [Base UI Switch](https://base-ui.com/react/components/switch)
+ *
+ * @baseui Switch.Root
+ */
 function Switch({
     className,
     size = 'default',

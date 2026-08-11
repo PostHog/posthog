@@ -15,6 +15,14 @@ type CollapsibleProps = CollapsiblePrimitive.Root.Props & {
     variant?: CollapsibleVariant
 }
 
+/**
+ * Groups all parts of the collapsible.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Collapsible](https://base-ui.com/react/components/collapsible)
+ *
+ * @baseui Collapsible.Root
+ */
 function Collapsible({ variant = 'default', className, ...props }: CollapsibleProps): React.ReactElement {
     return (
         <CollapsibleVariantContext.Provider value={variant}>
@@ -48,6 +56,14 @@ function CollapsibleHeader({ className, ...props }: React.ComponentProps<'div'>)
     )
 }
 
+/**
+ * A button that opens and closes the collapsible panel.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Collapsible](https://base-ui.com/react/components/collapsible)
+ *
+ * @baseui Collapsible.Trigger
+ */
 function CollapsibleTrigger({
     children,
     className,
@@ -135,6 +151,14 @@ function CollapsibleTrigger({
     )
 }
 
+/**
+ * A panel with the collapsible contents.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Collapsible](https://base-ui.com/react/components/collapsible)
+ *
+ * @baseui Collapsible.Panel
+ */
 function CollapsibleContent({ children, className, ...props }: CollapsiblePrimitive.Panel.Props): React.ReactElement {
     const variant = React.useContext(CollapsibleVariantContext)
 

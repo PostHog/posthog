@@ -128,6 +128,14 @@ interface InputGroupNumberInputProps extends Omit<NumberField.Root.Props, 'class
     inputRef?: React.Ref<HTMLInputElement>
 }
 
+/**
+ * Groups all parts of the number field and manages its state.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Number Field](https://base-ui.com/react/components/number-field)
+ *
+ * @baseui NumberField.Root
+ */
 function InputGroupNumberInput({
     className,
     inputRef,

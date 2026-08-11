@@ -61,6 +61,14 @@ const checkboxVariants = cva('quill-checkbox peer flex shrink-0 items-center jus
     },
 })
 
+/**
+ * Represents the checkbox itself.
+ * Renders a `<span>` element and a hidden `<input>` beside.
+ *
+ * Documentation: [Base UI Checkbox](https://base-ui.com/react/components/checkbox)
+ *
+ * @baseui Checkbox.Root
+ */
 function Checkbox({
     className,
     size = 'default',

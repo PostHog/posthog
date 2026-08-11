@@ -10,12 +10,28 @@ import { MenuLabel } from './menu-label'
 
 const Select = SelectPrimitive.Root
 
+/**
+ * Groups related select items with the corresponding label.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.Group
+ */
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props): React.ReactElement {
     return (
         <SelectPrimitive.Group data-slot="select-group" className={cn('quill-select__group', className)} {...props} />
     )
 }
 
+/**
+ * A text label of the currently selected item.
+ * Renders a `<span>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.Value
+ */
 function SelectValue({ className, ...props }: SelectPrimitive.Value.Props): React.ReactElement {
     return (
         <SelectPrimitive.Value data-slot="select-value" className={cn('quill-select__value', className)} {...props} />
@@ -26,6 +42,14 @@ function SelectTriggerIcon({ className, ...props }: React.ComponentProps<typeof 
     return <ChevronDownIcon className={cn('quill-select__icon', className)} {...props} />
 }
 
+/**
+ * A button that opens the select popup.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.Trigger
+ */
 function SelectTrigger({
     className,
     size = 'default',
@@ -51,6 +75,14 @@ function SelectTrigger({
     )
 }
 
+/**
+ * A container for the select list.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.Popup
+ */
 function SelectContent({
     className,
     children,
@@ -94,12 +126,28 @@ function SelectContent({
     )
 }
 
+/**
+ * An accessible label that is automatically associated with its parent group.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.GroupLabel
+ */
 function SelectGroupLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props): React.ReactElement {
     return (
         <SelectPrimitive.GroupLabel data-slot="select-label" className={className} render={<MenuLabel />} {...props} />
     )
 }
 
+/**
+ * An individual option in the select popup.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.Item
+ */
 function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Props): React.ReactElement {
     return (
         <SelectPrimitive.Item
@@ -122,6 +170,14 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
     )
 }
 
+/**
+ * A visual separator between items or groups.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.Separator
+ */
 function SelectSeparator({ className, ...props }: SelectPrimitive.Separator.Props): React.ReactElement {
     return (
         <SelectPrimitive.Separator
@@ -132,6 +188,14 @@ function SelectSeparator({ className, ...props }: SelectPrimitive.Separator.Prop
     )
 }
 
+/**
+ * An element that scrolls the select popup up when hovered. Does not render when using touch input.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.ScrollUpArrow
+ */
 function SelectScrollUpButton({
     className,
     ...props
@@ -148,6 +212,14 @@ function SelectScrollUpButton({
     )
 }
 
+/**
+ * An element that scrolls the select popup down when hovered. Does not render when using touch input.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Select](https://base-ui.com/react/components/select)
+ *
+ * @baseui Select.ScrollDownArrow
+ */
 function SelectScrollDownButton({
     className,
     ...props

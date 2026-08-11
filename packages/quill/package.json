@@ -7,10 +7,14 @@
         "dev": "pnpm --filter @posthog/quill-web dev",
         "storybook": "pnpm --filter @posthog/quill-tokens build && pnpm --filter @posthog/quill-storybook storybook",
         "build": "pnpm -r --filter '@posthog/quill-*' --filter '@posthog/quill' build",
-        "typecheck": "pnpm -r typecheck"
+        "typecheck": "pnpm -r typecheck",
+        "sync:base-ui-docs": "tsx scripts/sync-base-ui-docs.ts",
+        "sync:base-ui-docs:check": "tsx scripts/sync-base-ui-docs.ts --check"
     },
     "devDependencies": {
+        "@base-ui/react": "catalog:",
         "tailwindcss-scroll-mask": "^0.0.3",
+        "tsx": "^4.19.0",
         "typescript": "catalog:"
     }
 }

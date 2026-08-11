@@ -20,6 +20,13 @@ const ToggleGroupContext = React.createContext<
     orientation: 'horizontal',
 })
 
+/**
+ * Provides a shared state to a series of toggle buttons.
+ *
+ * Documentation: [Base UI Toggle Group](https://base-ui.com/react/components/toggle-group)
+ *
+ * @baseui ToggleGroup
+ */
 function ToggleGroup({
     className,
     variant,
@@ -55,6 +62,14 @@ function ToggleGroup({
     )
 }
 
+/**
+ * A two-state button that can be on or off.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Toggle](https://base-ui.com/react/components/toggle)
+ *
+ * @baseui Toggle
+ */
 function ToggleGroupItem({
     className,
     children,

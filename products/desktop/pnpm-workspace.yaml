@@ -94,10 +94,11 @@ overrides:
     # makes nominally-distinct Ref types and breaks ref props in packages/ui).
     '@types/react': ^19.2.15
     '@types/react-dom': ^19.2.3
-    # quill 0.3.0-beta.14 ships a broken `@base-ui/react: catalog:` dependency (the
+    # quill 0.3.0-beta.14 shipped a broken `@base-ui/react: catalog:` dependency (the
     # catalog protocol leaked into the published package and can't resolve for an
-    # external dep); pin it to a real version so installs of quill succeed.
-    '@posthog/quill>@base-ui/react': ^1.3.0
+    # external dep); pin it to a real version so installs of quill succeed. It also
+    # keeps quill on the same Base UI copy as packages/ui, so their types unify.
+    '@posthog/quill>@base-ui/react': ^1.7.0
     # node-gyp 12 downloads Node headers via undici (^6.25.0). undici through 7.27.2
     # crashes intermittently with `assert(!this.paused)` in the H1 parser's finish()
     # when the socket ends while the body stream is paused, which happens when a

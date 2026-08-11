@@ -37,10 +37,26 @@ function Autocomplete<Value>({
     )
 }
 
+/**
+ * The current value of the autocomplete.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Autocomplete](https://base-ui.com/react/components/autocomplete)
+ *
+ * @baseui Autocomplete.Value
+ */
 function AutocompleteValue({ ...props }: AutocompletePrimitive.Value.Props): React.ReactElement {
     return <AutocompletePrimitive.Value data-slot="autocomplete-value" {...props} />
 }
 
+/**
+ * A button that opens the popup.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Autocomplete](https://base-ui.com/react/components/autocomplete)
+ *
+ * @baseui Autocomplete.Trigger
+ */
 const AutocompleteTrigger = React.forwardRef<HTMLButtonElement, AutocompletePrimitive.Trigger.Props>(
     ({ className, children, ...props }, ref) => (
         <AutocompletePrimitive.Trigger
@@ -56,6 +72,14 @@ const AutocompleteTrigger = React.forwardRef<HTMLButtonElement, AutocompletePrim
 )
 AutocompleteTrigger.displayName = 'AutocompleteTrigger'
 
+/**
+ * Clears the value when clicked.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.Clear
+ */
 function AutocompleteClear({ className, ...props }: AutocompletePrimitive.Clear.Props): React.ReactElement {
     return (
         <AutocompletePrimitive.Clear
@@ -69,6 +93,14 @@ function AutocompleteClear({ className, ...props }: AutocompletePrimitive.Clear.
     )
 }
 
+/**
+ * A text input to search for items in the list.
+ * Renders an `<input>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.Input
+ */
 function AutocompleteInput({
     className,
     children,
@@ -112,6 +144,14 @@ function AutocompleteInput({
     )
 }
 
+/**
+ * A container for the list.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.Popup
+ */
 function AutocompleteContent({
     className,
     side = 'bottom',
@@ -149,6 +189,14 @@ function AutocompleteContent({
     )
 }
 
+/**
+ * A list container for the items.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.List
+ */
 function AutocompleteList({ className, ...props }: AutocompletePrimitive.List.Props): React.ReactElement {
     return (
         <AutocompletePrimitive.List
@@ -159,6 +207,14 @@ function AutocompleteList({ className, ...props }: AutocompletePrimitive.List.Pr
     )
 }
 
+/**
+ * An individual item in the list.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Autocomplete](https://base-ui.com/react/components/autocomplete)
+ *
+ * @baseui Autocomplete.Item
+ */
 function AutocompleteItem({
     className,
     children,
@@ -184,10 +240,26 @@ function AutocompleteItem({
     )
 }
 
+/**
+ * Groups related items with the corresponding label.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.Group
+ */
 function AutocompleteGroup({ className, ...props }: AutocompletePrimitive.Group.Props): React.ReactElement {
     return <AutocompletePrimitive.Group data-slot="autocomplete-group" className={cn('pb-1', className)} {...props} />
 }
 
+/**
+ * An accessible label that is automatically associated with its parent group.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.GroupLabel
+ */
 function AutocompleteLabel({ className, ...props }: AutocompletePrimitive.GroupLabel.Props): React.ReactElement {
     return (
         <AutocompletePrimitive.GroupLabel
@@ -199,10 +271,34 @@ function AutocompleteLabel({ className, ...props }: AutocompletePrimitive.GroupL
     )
 }
 
+/**
+ * Renders filtered list items.
+ * Doesn't render its own HTML element.
+ *
+ * If rendering a flat list, pass a function child to the `List` component instead, which implicitly wraps it.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.Collection
+ */
 function AutocompleteCollection({ ...props }: AutocompletePrimitive.Collection.Props): React.ReactElement {
     return <AutocompletePrimitive.Collection data-slot="autocomplete-collection" {...props} />
 }
 
+/**
+ * Renders its children only when the list is empty.
+ * Requires the `items` prop on the root component.
+ * Announces changes politely to screen readers.
+ * This component's root element must remain mounted in the DOM to announce
+ * changes consistently across screen readers. Avoid hiding or removing the
+ * component itself with `display: none`, `hidden`, `aria-hidden`, or conditional
+ * rendering. Prefer updating or conditionally rendering its children instead.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.Empty
+ */
 function AutocompleteEmpty({ className, children, ...props }: AutocompletePrimitive.Empty.Props): React.ReactElement {
     // Nest MenuEmpty as a child rather than passing it via `render`. With
     // `render`, MenuEmpty's `buttonVariants` `inline-flex` would merge onto
@@ -221,6 +317,14 @@ function AutocompleteEmpty({ className, children, ...props }: AutocompletePrimit
     )
 }
 
+/**
+ * A visual separator between items or groups.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Autocomplete](https://base-ui.com/react/components/autocomplete)
+ *
+ * @baseui Autocomplete.Separator
+ */
 function AutocompleteSeparator({
     className,
     ...props
@@ -250,6 +354,18 @@ function countAutocompleteLeaves(items: unknown): number {
 }
 
 /**
+ * Displays a status message whose content changes are announced politely to screen readers.
+ * Useful for conveying the status of an asynchronously loaded list.
+ * This component's root element must remain mounted in the DOM to announce
+ * changes consistently across screen readers. Avoid hiding or removing the
+ * component itself with `display: none`, `hidden`, `aria-hidden`, or conditional
+ * rendering. Prefer updating or conditionally rendering its children instead.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Combobox](https://base-ui.com/react/components/combobox)
+ *
+ * @baseui Autocomplete.Status
+ *
  * Live region announcer that also renders visible status text. Default
  * content is "{count} results" pluralized; pass `emptyContent` to override
  * the zero-count state, or `children` (string / node / function) to fully

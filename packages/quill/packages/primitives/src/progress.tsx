@@ -22,6 +22,14 @@ const progressIndicatorVariants = cva('quill-progress__indicator', {
 
 type ProgressVariantProps = VariantProps<typeof progressIndicatorVariants>
 
+/**
+ * Groups all parts of the progress bar and provides the task completion status to screen readers.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Progress](https://base-ui.com/react/components/progress)
+ *
+ * @baseui Progress.Root
+ */
 function Progress({
     className,
     children,
@@ -46,6 +54,14 @@ function Progress({
     )
 }
 
+/**
+ * Contains the progress bar indicator.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Progress](https://base-ui.com/react/components/progress)
+ *
+ * @baseui Progress.Track
+ */
 function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props): React.ReactElement {
     return (
         <ProgressPrimitive.Track
@@ -56,6 +72,14 @@ function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props): 
     )
 }
 
+/**
+ * Visualizes the completion status of the task.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Progress](https://base-ui.com/react/components/progress)
+ *
+ * @baseui Progress.Indicator
+ */
 function ProgressIndicator({
     className,
     variant = 'default',
@@ -71,6 +95,14 @@ function ProgressIndicator({
     )
 }
 
+/**
+ * An accessible label for the progress bar.
+ * Renders a `<span>` element.
+ *
+ * Documentation: [Base UI Progress](https://base-ui.com/react/components/progress)
+ *
+ * @baseui Progress.Label
+ */
 function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props): React.ReactElement {
     return (
         <ProgressPrimitive.Label
@@ -81,6 +113,14 @@ function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props): 
     )
 }
 
+/**
+ * A text element displaying the current value.
+ * Renders a `<span>` element.
+ *
+ * Documentation: [Base UI Progress](https://base-ui.com/react/components/progress)
+ *
+ * @baseui Progress.Value
+ */
 function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props): React.ReactElement {
     return (
         <ProgressPrimitive.Value

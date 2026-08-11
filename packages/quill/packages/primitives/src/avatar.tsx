@@ -7,6 +7,14 @@ import { cn } from './lib/utils'
 
 type AvatarSize = 'lg' | 'default' | 'sm' | 'xs'
 
+/**
+ * Displays a user's profile picture, initials, or fallback icon.
+ * Renders a `<span>` element.
+ *
+ * Documentation: [Base UI Avatar](https://base-ui.com/react/components/avatar)
+ *
+ * @baseui Avatar.Root
+ */
 const Avatar = React.forwardRef<
     HTMLSpanElement,
     React.ComponentProps<typeof AvatarPrimitive.Root> & { size?: AvatarSize }
@@ -23,6 +31,14 @@ const Avatar = React.forwardRef<
     )
 })
 
+/**
+ * The image to be displayed in the avatar.
+ * Renders an `<img>` element.
+ *
+ * Documentation: [Base UI Avatar](https://base-ui.com/react/components/avatar)
+ *
+ * @baseui Avatar.Image
+ */
 const AvatarImage = React.forwardRef<HTMLImageElement, React.ComponentProps<typeof AvatarPrimitive.Image>>(
     function AvatarImage({ className, ...props }, ref) {
         return (
@@ -36,6 +52,14 @@ const AvatarImage = React.forwardRef<HTMLImageElement, React.ComponentProps<type
     }
 )
 
+/**
+ * Rendered when the image fails to load or when no image is provided.
+ * Renders a `<span>` element.
+ *
+ * Documentation: [Base UI Avatar](https://base-ui.com/react/components/avatar)
+ *
+ * @baseui Avatar.Fallback
+ */
 const AvatarFallback = React.forwardRef<HTMLSpanElement, React.ComponentProps<typeof AvatarPrimitive.Fallback>>(
     function AvatarFallback({ className, ...props }, ref) {
         return (

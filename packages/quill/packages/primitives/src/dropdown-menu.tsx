@@ -11,18 +11,51 @@ import { cn } from './lib/utils'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 
+/**
+ * Groups all parts of the menu.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.Root
+ */
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
     return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
 
+/**
+ * A portal element that moves the popup to a different part of the DOM.
+ * By default, the portal element is appended to `<body>`.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.Portal
+ */
 function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props): React.ReactElement {
     return <MenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
 }
 
+/**
+ * A button that opens the menu.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.Trigger
+ */
 function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props): React.ReactElement {
     return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
 }
 
+/**
+ * A container for the menu items.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.Popup
+ */
 function DropdownMenuContent({
     align = 'start',
     alignOffset = 0,
@@ -61,10 +94,26 @@ function DropdownMenuContent({
     )
 }
 
+/**
+ * Groups related menu items with the corresponding label.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.Group
+ */
 function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props): React.ReactElement {
     return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
 }
 
+/**
+ * An accessible label that is automatically associated with its parent group.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.GroupLabel
+ */
 function DropdownMenuLabel({
     className,
     inset,
@@ -83,6 +132,14 @@ function DropdownMenuLabel({
     )
 }
 
+/**
+ * An individual interactive item in the menu.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.Item
+ */
 function DropdownMenuItem({
     className,
     inset,
@@ -117,10 +174,26 @@ function DropdownMenuItem({
     )
 }
 
+/**
+ * Groups all parts of a submenu.
+ * Doesn't render its own HTML element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.SubmenuRoot
+ */
 function DropdownMenuSub({ ...props }: MenuPrimitive.SubmenuRoot.Props): React.ReactElement {
     return <MenuPrimitive.SubmenuRoot data-slot="dropdown-menu-sub" {...props} />
 }
 
+/**
+ * A menu item that opens a submenu.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.SubmenuTrigger
+ */
 function DropdownMenuSubTrigger({
     className,
     inset,
@@ -171,6 +244,14 @@ function DropdownMenuSubContent({
     )
 }
 
+/**
+ * A menu item that toggles a setting on or off.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.CheckboxItem
+ */
 function DropdownMenuCheckboxItem({
     className,
     children,
@@ -209,10 +290,26 @@ function DropdownMenuCheckboxItem({
     )
 }
 
+/**
+ * Groups related radio items.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.RadioGroup
+ */
 function DropdownMenuRadioGroup({ ...props }: MenuPrimitive.RadioGroup.Props): React.ReactElement {
     return <MenuPrimitive.RadioGroup data-slot="dropdown-menu-radio-group" {...props} />
 }
 
+/**
+ * A menu item that works like a radio button in a given group.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Menu](https://base-ui.com/react/components/menu)
+ *
+ * @baseui Menu.RadioItem
+ */
 function DropdownMenuRadioItem({
     className,
     children,
@@ -249,6 +346,14 @@ function DropdownMenuRadioItem({
     )
 }
 
+/**
+ * A separator element accessible to screen readers.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Separator](https://base-ui.com/react/components/separator)
+ *
+ * @baseui Menu.Separator
+ */
 function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props): React.ReactElement {
     return (
         <MenuPrimitive.Separator

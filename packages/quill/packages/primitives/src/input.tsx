@@ -4,6 +4,14 @@ import * as React from 'react'
 import './input.css'
 import { cn } from './lib/utils'
 
+/**
+ * A native input element that automatically works with [Field](https://base-ui.com/react/components/field).
+ * Renders an `<input>` element.
+ *
+ * Documentation: [Base UI Input](https://base-ui.com/react/components/input)
+ *
+ * @baseui Input
+ */
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'>>(
     ({ className, type, ...props }, ref) => {
         return (

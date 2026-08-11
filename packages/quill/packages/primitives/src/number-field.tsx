@@ -5,6 +5,14 @@ import * as React from 'react'
 import { cn } from './lib/utils'
 import './number-field.css'
 
+/**
+ * Groups all parts of the number field and manages its state.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Number Field](https://base-ui.com/react/components/number-field)
+ *
+ * @baseui NumberField.Root
+ */
 function NumberFieldRoot({
     className,
     ...props
@@ -19,6 +27,14 @@ function NumberFieldRoot({
     )
 }
 
+/**
+ * Groups the input with the increment and decrement buttons.
+ * Renders a `<div>` element.
+ *
+ * Documentation: [Base UI Number Field](https://base-ui.com/react/components/number-field)
+ *
+ * @baseui NumberField.Group
+ */
 function NumberFieldGroup({
     className,
     ...props
@@ -32,6 +48,14 @@ function NumberFieldGroup({
     )
 }
 
+/**
+ * The native input control in the number field.
+ * Renders an `<input>` element.
+ *
+ * Documentation: [Base UI Number Field](https://base-ui.com/react/components/number-field)
+ *
+ * @baseui NumberField.Input
+ */
 const NumberFieldInput = React.forwardRef<HTMLInputElement, NumberFieldPrimitive.Input.Props>(
     ({ className, ...props }, ref) => {
         return (
@@ -46,6 +70,14 @@ const NumberFieldInput = React.forwardRef<HTMLInputElement, NumberFieldPrimitive
 )
 NumberFieldInput.displayName = 'NumberFieldInput'
 
+/**
+ * A stepper button that increases the field value when clicked.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Number Field](https://base-ui.com/react/components/number-field)
+ *
+ * @baseui NumberField.Increment
+ */
 function NumberFieldIncrement({
     className,
     children,
@@ -62,6 +94,14 @@ function NumberFieldIncrement({
     )
 }
 
+/**
+ * A stepper button that decreases the field value when clicked.
+ * Renders a `<button>` element.
+ *
+ * Documentation: [Base UI Number Field](https://base-ui.com/react/components/number-field)
+ *
+ * @baseui NumberField.Decrement
+ */
 function NumberFieldDecrement({
     className,
     children,
@@ -78,6 +118,14 @@ function NumberFieldDecrement({
     )
 }
 
+/**
+ * An interactive area where the user can click and drag to change the field value.
+ * Renders a `<span>` element.
+ *
+ * Documentation: [Base UI Number Field](https://base-ui.com/react/components/number-field)
+ *
+ * @baseui NumberField.ScrubArea
+ */
 function NumberFieldScrubArea({
     className,
     ...props
@@ -91,6 +139,17 @@ function NumberFieldScrubArea({
     )
 }
 
+/**
+ * A custom element to display instead of the native cursor while using the scrub area.
+ * Renders a `<span>` element.
+ *
+ * This component uses the [Pointer Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_Lock_API), which may prompt the browser to display a related notification. It is disabled
+ * in Safari to avoid a layout shift that this notification causes there.
+ *
+ * Documentation: [Base UI Number Field](https://base-ui.com/react/components/number-field)
+ *
+ * @baseui NumberField.ScrubAreaCursor
+ */
 function NumberFieldScrubAreaCursor({
     className,
     ...props
