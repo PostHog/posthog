@@ -335,6 +335,9 @@ class Command(BaseCommand):
             # Live tiles (default manager excludes deleted tiles and deleted dashboards) on these dashboards.
             live_tiles = DashboardTile.objects.filter(dashboard_id__in=dashboard_ids, insight__isnull=False)
             classified = Insight.objects.filter(_classifier_q(), id__in=live_tiles.values("insight_id"))
+            if self.options.team_id is not None:
+                classified = classified.filter(team_id=self.options.team_id)
+            classified = classified.order_by("id")
             deletable = self._deletable([_Candidate(**row) for row in _candidate_rows(classified)])
 
             emptied = self._emptied_usage_dashboards(dashboard_ids, {c.id for c in deletable})
