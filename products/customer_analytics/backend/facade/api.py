@@ -26,6 +26,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
@@ -71,6 +72,7 @@ from products.conversations.backend.facade.api import (
     SupportSlackNotConfigured,
     TicketSummary as TicketSummary,
     list_account_tickets,
+    trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.events import emit_account_tags_added
@@ -2654,6 +2656,16 @@ def _cap_to_field_length(field_name: str, value: str) -> str:
     return value[:max_length]
 
 
+def _enqueue_meeting_rematch(team_id: int, account_id: str) -> None:
+    try:
+        current_app.send_task(
+            "customer_analytics.rematch_account_meetings",
+            kwargs={"team_id": team_id, "account_id": account_id},
+        )
+    except Exception as error:
+        capture_exception(error)
+
+
 def update_account(
     account: Account,
     *,
@@ -2661,11 +2673,13 @@ def update_account(
     external_id: str | None | _Unset = _UNSET,
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
+    allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
     written; ``properties`` replaces the stored JSON wholesale. Product-internal — takes and
     returns the model, so it must not be called across the product boundary."""
     update_fields: list[str] = []
+    matching_expanded = False
     if not isinstance(name, _Unset):
         account.name = _cap_to_field_length("name", name)
         update_fields.append("name")
@@ -2673,13 +2687,25 @@ def update_account(
         account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
         update_fields.append("external_id")
     if not isinstance(properties, _Unset):
-        account._properties = _ModelAccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
+        previous_properties = account.properties
+        validated_properties = _ModelAccountProperties.from_input(properties)
+        known_emails_added = set(validated_properties.known_emails) - set(previous_properties.known_emails)
+        email_domains_added = set(validated_properties.email_domains) - set(previous_properties.email_domains)
+        matching_changed = set(validated_properties.known_emails) != set(previous_properties.known_emails) or set(
+            validated_properties.email_domains
+        ) != set(previous_properties.email_domains)
+        if matching_changed and not allow_matching_updates:
+            raise ResourceForbiddenError
+        matching_expanded = bool(known_emails_added or email_domains_added)
+        account._properties = validated_properties.model_dump(mode="json", exclude_unset=True)
         update_fields.append("_properties")
     if not isinstance(slack_summary_cadence, _Unset):
         account.slack_summary_cadence = slack_summary_cadence
         update_fields.append("slack_summary_cadence")
     if update_fields:
         account.save(update_fields=update_fields)
+    if matching_expanded:
+        transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
     return account
 
 
@@ -2759,6 +2785,7 @@ def update_account_for_view(
     organization_id,
     user: "User",
     was_impersonated: bool,
+    allow_matching_updates: bool = False,
 ) -> contracts.AccountView:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
@@ -2773,6 +2800,7 @@ def update_account_for_view(
         update_kwargs["properties"] = input.properties if input.properties is not None else {}
     if input.slack_summary_cadence_provided:
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
+    update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:
         with transaction.atomic():
@@ -2798,7 +2826,74 @@ def update_account_for_view(
         was_impersonated=was_impersonated,
         previous=previous,
     )
+    # Off-to-on only: the coordinator picks a mid-flight cadence change up within the hour,
+    # and one backfill per switch is LLM spend nobody asked for.
+    if not previous.slack_summary_cadence and account.slack_summary_cadence:
+        _dispatch_initial_channel_summary(account)
     return _to_account_view(account)
+
+
+# Roughly 70 accounts opting into a daily cadence in one day, far above real use.
+CHANNEL_SUMMARY_BACKFILL_DAILY_CAP = 500
+
+
+def _reserve_backfill_budget(team_id: int, requested: int) -> int:
+    """How many of ``requested`` backfill dispatches this team may still start today.
+
+    The coordinator throttles itself with per-run caps, but these dispatches are driven by
+    an API call, so one caller opting in many channel-bound accounts could otherwise start
+    unbounded LLM work in a burst. ``cache.incr`` is atomic, so parallel requests cannot all
+    slip under the ceiling. Whatever this refuses, the coordinator still summarizes on
+    schedule.
+    """
+    window = int(datetime.now(UTC).timestamp()) // 86400
+    key = f"ca_channel_summary_backfills:{team_id}:{window}"
+    cache.add(key, 0, timeout=86400)
+    try:
+        used = cache.incr(key, requested)
+    except ValueError:
+        # The key expired between add and incr; this request is the window's first.
+        used = requested
+    allowed = requested - max(0, used - CHANNEL_SUMMARY_BACKFILL_DAILY_CAP)
+    return max(0, allowed)
+
+
+def _dispatch_initial_channel_summary(account: Account) -> None:
+    cadence = account.slack_summary_cadence
+    slack_channel_id = (account._properties or {}).get("slack_channel_id")
+    if not cadence or not slack_channel_id:
+        return
+    periods = _channel_summaries_logic.get_initial_summary_periods(cadence, timezone.now(), account.team.timezone_info)
+    allowed = _reserve_backfill_budget(account.team_id, len(periods))
+    if allowed < len(periods):
+        logger.warning(
+            "channel_summary_backfill_throttled",
+            team_id=account.team_id,
+            requested=len(periods),
+            allowed=allowed,
+        )
+    # Newest first, so a partly-throttled backfill keeps the periods a user looks at first.
+    for period in sorted(periods, key=lambda p: p.start, reverse=True)[:allowed]:
+        try:
+            trigger_immediate_channel_summary(
+                team_id=account.team_id,
+                account_id=str(account.id),
+                account_name=account.name,
+                slack_channel_id=slack_channel_id,
+                cadence=cadence,
+                period_start=period.start,
+                period_end=period.end,
+            )
+        except Exception as e:
+            # Per period, so one bad dispatch doesn't drop the rest.
+            capture_exception(
+                e,
+                {
+                    "team_id": account.team_id,
+                    "account_id": str(account.id),
+                    "period_start": period.start.isoformat(),
+                },
+            )
 
 
 def delete_account_for_view(
@@ -2971,9 +3066,7 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
         cadence = account.slack_summary_cadence
         if not slack_channel_id or not cadence:
             continue
-        period_start, period_end = _channel_summaries_logic.get_last_closed_period(
-            cadence, now, account.team.timezone_info
-        )
+        period = _channel_summaries_logic.get_last_closed_period(cadence, now, account.team.timezone_info)
         candidates.append(
             contracts.AccountDueForSlackSummary(
                 team_id=account.team_id,
@@ -2981,8 +3074,8 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
                 account_name=account.name,
                 slack_channel_id=slack_channel_id,
                 cadence=cadence,
-                period_start=period_start,
-                period_end=period_end,
+                period_start=period.start,
+                period_end=period.end,
             )
         )
     if not candidates:

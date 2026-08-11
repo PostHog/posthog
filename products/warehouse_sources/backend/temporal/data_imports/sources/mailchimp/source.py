@@ -88,6 +88,15 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
             "Invalid Mailchimp API key format": "Invalid API key format. Expected format: key-dc (e.g., abc123-us6)",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_mailchimp_session`'s `DEFAULT_RETRY` already retries 429/5xx responses in-process
+        # (Retry-After-aware backoff) before `raise_for_status()` can raise here. A response that
+        # still exhausts that budget is a transient Mailchimp/edge blip, not a bug — Temporal's
+        # activity retry recovers once it clears, so keep it out of error tracking as noise.
+        # `requests.Response.raise_for_status` derives these prefixes from the status code alone,
+        # not the vendor's reason text, so they're stable to match on.
+        return {"429 Client Error", "Server Error"}
+
     def get_schemas(
         self,
         config: MailchimpSourceConfig,
