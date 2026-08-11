@@ -43,7 +43,10 @@ import {
   type TaskRunArtifact,
   type TaskRunStatus,
 } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import {
+  ANALYTICS_EVENTS,
+  type SessionConfigChangeSource,
+} from "@posthog/shared/analytics-events";
 import {
   type CloudTaskPermissionRequestUpdate,
   type CloudTaskUpdatePayload,
@@ -2534,11 +2537,19 @@ export class SessionService {
     this.d.store.setSession(session);
     this.subscribeToChannel(taskRun.id);
 
+    // The model the run opened on. Without it a mid-session switch is
+    // indistinguishable from a run that started on that model already.
+    const initialModel = getConfigOptionByCategory(
+      configOptions,
+      "model",
+    )?.currentValue;
+
     this.d.track(ANALYTICS_EVENTS.TASK_RUN_STARTED, {
       task_id: taskId,
       execution_type: "local",
       initial_mode: executionMode,
       adapter,
+      model: typeof initialModel === "string" ? initialModel : undefined,
     });
 
     if (initialPrompt?.length) {
@@ -5243,11 +5254,16 @@ export class SessionService {
   /**
    * Set a session configuration option with optimistic update and rollback.
    * This is the unified method for model, mode, thought level, etc.
+   *
+   * This is the only place a config change is tracked, so a change is captured
+   * whichever setter the caller used and never counted twice. Pass `source` to
+   * say what drove it.
    */
   async setSessionConfigOption(
     taskId: string,
     configId: string,
     value: string,
+    source: SessionConfigChangeSource = "unknown",
   ): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) return;
@@ -5260,11 +5276,22 @@ export class SessionService {
       return;
     }
 
-    const previousValue = configOptions[optionIndex].currentValue;
+    const option = configOptions[optionIndex];
+    const previousValue = option.currentValue;
 
     // Skip if value is already set — avoids expensive IPC round-trip (e.g. setModel ~2s)
     if (previousValue === value) {
       return;
+    }
+
+    if (option.category) {
+      this.d.track(ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED, {
+        task_id: taskId,
+        category: option.category,
+        from_value: String(previousValue),
+        to_value: value,
+        source,
+      });
     }
 
     // Optimistic update
@@ -5338,6 +5365,7 @@ export class SessionService {
     taskId: string,
     category: string,
     value: string,
+    source: SessionConfigChangeSource = "unknown",
   ): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) return;
@@ -5354,16 +5382,7 @@ export class SessionService {
       return;
     }
 
-    if (configOption.currentValue !== value) {
-      this.d.track(ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED, {
-        task_id: taskId,
-        category,
-        from_value: String(configOption.currentValue),
-        to_value: value,
-      });
-    }
-
-    await this.setSessionConfigOption(taskId, configOption.id, value);
+    await this.setSessionConfigOption(taskId, configOption.id, value, source);
   }
 
   /**
@@ -7266,7 +7285,12 @@ export class SessionService {
   ): void {
     const upgradeMode = resolveAllowAlwaysUpgradeMode(modeOption);
     if (!upgradeMode) return;
-    this.setSessionConfigOptionByCategory(taskId, "mode", upgradeMode);
+    this.setSessionConfigOptionByCategory(
+      taskId,
+      "mode",
+      upgradeMode,
+      "permission_upgrade",
+    );
   }
 
   async resolvePermissionSelection(
@@ -7323,7 +7347,12 @@ export class SessionService {
     if (!isBypass || !taskId) return;
     const target = resolveBypassRevertMode(options.modeOption);
     if (!target) return;
-    this.setSessionConfigOptionByCategory(taskId, "mode", target);
+    this.setSessionConfigOptionByCategory(
+      taskId,
+      "mode",
+      target,
+      "auto_revert",
+    );
   }
 
   /**

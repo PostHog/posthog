@@ -8,6 +8,7 @@ import {
   InputGroupAddon,
   TooltipProvider,
 } from "@posthog/quill";
+import type { SessionConfigChangeSource } from "@posthog/shared/analytics-events";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { cycleModeOption } from "@posthog/ui/features/sessions/sessionStore";
@@ -51,7 +52,7 @@ export interface PromptInputProps {
   repoPath?: string | null;
   // mode
   modeOption?: SessionConfigOption;
-  onModeChange?: (value: string) => void;
+  onModeChange?: (value: string, source?: SessionConfigChangeSource) => void;
   allowBypassPermissions?: boolean;
   /**
    * When provided, the mode dropdown gains an "Autoresearch" toggle as its
@@ -345,7 +346,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
         });
         if (!nextMode) return;
         e.preventDefault();
-        onModeChange(nextMode);
+        onModeChange(nextMode, "keyboard");
       },
       {
         enableOnFormTags: true,

@@ -77,7 +77,12 @@ export function ModelSelector({
 
     if (!taskId) return;
     if (sessionStatus !== "connected" && !sessionIsCloud) return;
-    sessionService.setSessionConfigOption(taskId, selectOption.id, value);
+    sessionService.setSessionConfigOption(
+      taskId,
+      selectOption.id,
+      value,
+      "picker",
+    );
   };
 
   const currentValue = selectOption.currentValue;

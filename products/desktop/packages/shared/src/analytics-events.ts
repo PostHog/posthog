@@ -352,11 +352,31 @@ export interface PermissionCancelledProperties {
 }
 
 // Session config events
+
+/**
+ * What caused a session config change. Separates a deliberate switch by the
+ * user from one an automated flow made on their behalf, so "did they pick this
+ * model?" is answerable without guessing from the generation stream.
+ */
+export type SessionConfigChangeSource =
+  /** Chosen in the UI (dropdown, ladder, settings row). */
+  | "picker"
+  /** Cycled with a keyboard shortcut. */
+  | "keyboard"
+  /** Swapped by an autoresearch stage, not by the user. */
+  | "autoresearch"
+  /** Mode bumped as a side effect of an "allow always" permission response. */
+  | "permission_upgrade"
+  /** Bypass mode reverted because the setting no longer permits it. */
+  | "auto_revert"
+  | "unknown";
+
 export interface SessionConfigChangedProperties {
   task_id: string;
   category: string;
   from_value: string;
   to_value: string;
+  source: SessionConfigChangeSource;
 }
 
 // Tour events

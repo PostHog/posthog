@@ -4,8 +4,10 @@ import type {
   SessionConfigSelectGroup,
 } from "@agentclientprotocol/sdk";
 import type { AcpMessage } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import type { AgentSession } from "@posthog/ui/features/sessions/sessionStore";
+import { track } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- Hoisted Mocks ---
@@ -8448,6 +8450,94 @@ describe("SessionService", () => {
         configId: "model",
         value: "claude-3-sonnet",
       });
+    });
+
+    const modelOption: SessionConfigOption = {
+      id: "model",
+      name: "Model",
+      type: "select",
+      category: "model",
+      currentValue: "claude-3-opus",
+      options: [],
+    };
+
+    it.each([
+      { source: "picker" as const, expected: "picker" },
+      { source: "autoresearch" as const, expected: "autoresearch" },
+      { source: undefined, expected: "unknown" },
+    ])(
+      "tracks the change with source $expected",
+      async ({ source, expected }) => {
+        const service = getSessionService();
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({ configOptions: [modelOption] }),
+        );
+
+        await service.setSessionConfigOption(
+          "task-123",
+          "model",
+          "claude-3-sonnet",
+          source,
+        );
+
+        expect(track).toHaveBeenCalledWith(
+          ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED,
+          {
+            task_id: "task-123",
+            category: "model",
+            from_value: "claude-3-opus",
+            to_value: "claude-3-sonnet",
+            source: expected,
+          },
+        );
+      },
+    );
+
+    it("does not track when the value is unchanged", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({ configOptions: [modelOption] }),
+      );
+
+      await service.setSessionConfigOption(
+        "task-123",
+        "model",
+        "claude-3-opus",
+        "picker",
+      );
+
+      expect(track).not.toHaveBeenCalledWith(
+        ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED,
+        expect.anything(),
+      );
+    });
+
+    it("tracks a change made by category exactly once", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({ configOptions: [modelOption] }),
+      );
+      mockGetConfigOptionByCategory.mockImplementation(
+        (
+          configOptions: Array<{ category?: string }> | undefined,
+          category?: string,
+        ) => configOptions?.find((option) => option.category === category),
+      );
+
+      await service.setSessionConfigOptionByCategory(
+        "task-123",
+        "model",
+        "claude-3-sonnet",
+        "autoresearch",
+      );
+
+      const configChanges = vi
+        .mocked(track)
+        .mock.calls.filter(
+          ([event]) => event === ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED,
+        );
+      expect(configChanges).toHaveLength(1);
+      expect(configChanges[0][1]).toMatchObject({ source: "autoresearch" });
     });
 
     it("rolls back on API failure", async () => {

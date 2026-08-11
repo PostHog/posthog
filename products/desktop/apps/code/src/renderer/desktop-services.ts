@@ -209,11 +209,21 @@ container
     setModel: (taskId, model) =>
       resolveService<SessionService>(
         SESSION_SERVICE,
-      ).setSessionConfigOptionByCategory(taskId, "model", model),
+      ).setSessionConfigOptionByCategory(
+        taskId,
+        "model",
+        model,
+        "autoresearch",
+      ),
     setEffort: (taskId, effort) =>
       resolveService<SessionService>(
         SESSION_SERVICE,
-      ).setSessionConfigOptionByCategory(taskId, "thought_level", effort),
+      ).setSessionConfigOptionByCategory(
+        taskId,
+        "thought_level",
+        effort,
+        "autoresearch",
+      ),
     reconnect: async (taskId) => {
       const workspaces = (await trpcClient.workspace.getAll.query()) as Record<
         string,

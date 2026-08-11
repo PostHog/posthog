@@ -11,6 +11,7 @@ import {
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
 import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
+import type { SessionConfigChangeSource } from "@posthog/shared/analytics-events";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -282,9 +283,14 @@ export function SessionView({
   ]);
 
   const handleModeChange = useCallback(
-    (nextMode: string) => {
+    (nextMode: string, source: SessionConfigChangeSource = "picker") => {
       if (!taskId) return;
-      sessionService.setSessionConfigOptionByCategory(taskId, "mode", nextMode);
+      sessionService.setSessionConfigOptionByCategory(
+        taskId,
+        "mode",
+        nextMode,
+        source,
+      );
     },
     [taskId, sessionService],
   );
@@ -292,7 +298,12 @@ export function SessionView({
   const handleThoughtChange = useCallback(
     (value: string) => {
       if (!taskId || !thoughtOption) return;
-      sessionService.setSessionConfigOption(taskId, thoughtOption.id, value);
+      sessionService.setSessionConfigOption(
+        taskId,
+        thoughtOption.id,
+        value,
+        "picker",
+      );
     },
     [taskId, thoughtOption, sessionService],
   );
@@ -300,7 +311,7 @@ export function SessionView({
   const handleConfigOptionChange = useCallback(
     (configId: string, value: string) => {
       if (!taskId) return;
-      sessionService.setSessionConfigOption(taskId, configId, value);
+      sessionService.setSessionConfigOption(taskId, configId, value, "picker");
     },
     [taskId, sessionService],
   );
