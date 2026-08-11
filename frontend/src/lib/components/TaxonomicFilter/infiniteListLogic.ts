@@ -139,8 +139,8 @@ export const NO_ITEM_SELECTED = -1
 
 // When a popover is enabled, the highlighted row is not cleared the instant the cursor leaves it.
 // This short grace period lets the cursor travel from the row into the popover (to reach Edit/View)
-// without the popover unmounting. If the cursor lands on neither the row nor the popover, the
-// highlight clears and the popover dismisses.
+// without the popover unmounting. Re-entering the row or the popover cancels the pending clear; if
+// the cursor lands on neither, the highlight clears and the popover dismisses.
 const HIGHLIGHT_CLEAR_GRACE_MS = 150
 
 // Data-warehouse tabs keep their own committed-selection affordance (the pinned,
