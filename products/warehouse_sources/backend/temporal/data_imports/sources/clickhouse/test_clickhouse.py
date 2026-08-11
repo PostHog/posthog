@@ -729,6 +729,10 @@ class TestClickHouseSourceRetryableErrors:
             "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
             "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
             "IncompleteRead(12345 bytes read, 67 more expected))",
+            # The server accepted the connection but never answered within our timeout —
+            # typically ClickHouse Cloud still cold-resuming past our allowance.
+            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Read timed out. "
+            "(read timeout=120) executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -1066,6 +1070,28 @@ class TestGetSchemas:
         assert set(schemas.keys()) == {"events"}
 
 
+class TestGetTable:
+    """Tests `_get_table`, used by the sync path to build the SELECT column list."""
+
+    def _make_mock_client(self, cols_rows, engine: str | None = "MergeTree"):
+        client = MagicMock()
+        cols_result = MagicMock()
+        cols_result.result_rows = cols_rows
+        engine_result = MagicMock()
+        engine_result.result_rows = [(engine,)] if engine is not None else []
+        client.query.side_effect = [cols_result, engine_result]
+        return client
+
+    def test_excludes_alias_and_ephemeral_columns_from_query(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = self._make_mock_client([("id", "UInt64")])
+        ch_module._get_table(client, "default", "events")
+
+        cols_query = client.query.call_args_list[0].args[0]
+        assert "default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in cols_query
+
+
 class TestSourceClassValidateCredentials:
     """High-level checks on validate_credentials error mapping."""
 
@@ -1092,6 +1118,26 @@ class TestSourceClassValidateCredentials:
 
         assert valid is False
         assert msg == "Invalid user or password"
+
+    def test_url_in_host_field_returns_actionable_message_without_reflecting_input(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = source_module.ClickHouseSource()
+
+        config = MagicMock()
+        config.host = "https://secret.clickhouse.cloud"
+        config.ssh_tunnel = None
+
+        with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
+            with patch.object(source, "is_database_host_valid") as host_valid:
+                valid, msg = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "Enter just the hostname" in (msg or "")
+        # The pasted value can embed credentials — it must never be echoed back.
+        assert "secret.clickhouse.cloud" not in (msg or "")
+        # Short-circuits before we attempt DNS resolution of the bad host.
+        host_valid.assert_not_called()
 
     def test_returns_generic_message_for_unknown_error(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module

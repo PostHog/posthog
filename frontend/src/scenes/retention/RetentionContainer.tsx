@@ -8,6 +8,7 @@ import { InsightVizNode, VizSpecificOptions } from '~/queries/schema/schema-gene
 import { QueryContext } from '~/queries/types'
 import { InsightType, RetentionDashboardDisplayType } from '~/types'
 
+import { RetentionEmptyResultsBanner } from './RetentionEmptyResultsBanner'
 import { RetentionGraph } from './RetentionGraph'
 import { retentionLogic } from './retentionLogic'
 import { RetentionModal } from './RetentionModal'
@@ -38,6 +39,7 @@ export function RetentionContainer({
 
     return (
         <div className="RetentionContainer">
+            {!inCardView && !inSharedMode && <RetentionEmptyResultsBanner />}
             {showLineGraph && (
                 <div className="RetentionContainer__graph">
                     <RetentionGraph inSharedMode={inSharedMode} />

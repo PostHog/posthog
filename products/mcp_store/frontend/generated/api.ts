@@ -11,6 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ApplyPresetApi,
     AuditCountsApi,
+    AvailableToolsResponseApi,
+    CallToolRequestApi,
+    CallToolResponseApi,
     GatewayConfigUpdateApi,
     GatewayMemberSummaryApi,
     GatewayPoliciesUpsertApi,
@@ -864,6 +867,31 @@ export const mcpServerInstallationsDestroy = async (
     })
 }
 
+export const getMcpServerInstallationsCallToolCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/${id}/call_tool/`
+}
+
+/**
+ * Invoke one tool on a connected MCP server.
+ *
+ * The request/response shape is plain REST rather than the JSON-RPC envelope
+ * `proxy` speaks, because the caller here is an agent surface (the PostHog MCP's
+ * `exec`) that wants one tool result, not an MCP transport of its own.
+ */
+export const mcpServerInstallationsCallToolCreate = async (
+    projectId: string,
+    id: string,
+    callToolRequestApi: CallToolRequestApi,
+    options?: RequestInit
+): Promise<CallToolResponseApi> => {
+    return apiMutator<CallToolResponseApi>(getMcpServerInstallationsCallToolCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(callToolRequestApi),
+    })
+}
+
 export const getMcpServerInstallationsProxyCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/mcp_server_installations/${id}/proxy/`
 }
@@ -1020,6 +1048,29 @@ export const mcpServerInstallationsAuthorizeRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMcpServerInstallationsAuthorizeRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpServerInstallationsAvailableToolsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/available_tools/`
+}
+
+/**
+ * Every tool the caller can currently reach, across all their connections.
+ *
+ * One request instead of one per connection: an agent surface resolving its
+ * tool list on each session cannot afford a fan-out. `do_not_use` and removed
+ * tools are omitted — an agent should not see what it cannot call — while
+ * `needs_approval` tools are listed with their state so the caller can explain
+ * the block rather than report the capability as missing.
+ */
+export const mcpServerInstallationsAvailableToolsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AvailableToolsResponseApi> => {
+    return apiMutator<AvailableToolsResponseApi>(getMcpServerInstallationsAvailableToolsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

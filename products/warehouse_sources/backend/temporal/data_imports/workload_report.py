@@ -357,7 +357,9 @@ def read_workload_reports(host: str) -> list[dict[str, Any]]:
         return []
 
 
-def enrich_death_event_properties(properties: dict[str, Any], *, run_id: str, host: str | None) -> None:
+def enrich_death_event_properties(
+    properties: dict[str, Any], *, run_id: str, host: str | None, death_ts: float | None = None
+) -> None:
     """Fold workload self-reports into a `dwh_pod_heartbeat_timeout` event's properties, in place.
 
     `self_*` describes the dead attempt's own last report. `co_tenant_*` is **aggregates only** —
@@ -367,6 +369,14 @@ def enrich_death_event_properties(properties: dict[str, Any], *, run_id: str, ho
     question the aggregates must still answer is "was anything on this pod holding more than us",
     which only needs the maximum. Absent reports (rollout, expired keys, Redis down) add nothing —
     the event stays exactly as it was before this existed.
+
+    `death_ts` (the dead run's last heartbeat, same pod clock as the reports) additionally yields
+    `co_tenant_correlated_max_peak_buffer_bytes`: the max peak over only the co-tenants whose report
+    is time-correlated with the death. The raw max spans keys retained for up to the TTL, so a
+    neighbour that crashed an hour ago — or one still running whose report has refreshed since —
+    could carry a historical peak into blame for a death it had nothing to do with. A report within
+    the correlation bound of the death is either the co-tenant that died alongside us (its sampler
+    stopped when we did) or one sampled moments around the death; anything else is history.
     """
     try:
         reports = read_workload_reports(host) if host else []
@@ -388,6 +398,7 @@ def enrich_death_event_properties(properties: dict[str, Any], *, run_id: str, ho
                     "self_rss_bytes": own.get("rss_bytes"),
                     "self_peak_rss_bytes": own.get("peak_rss_bytes"),
                     "self_report_age_seconds": round(time.time() - own["ts"], 1) if own.get("ts") is not None else None,
+                    "self_report_ts": own.get("ts"),
                 }
             )
         co_tenants = [report for report in reports if report.get("run_id") != run_id]
@@ -404,5 +415,14 @@ def enrich_death_event_properties(properties: dict[str, Any], *, run_id: str, ho
                     "co_tenant_extract_count": sum(1 for phase in phases if phase == "extract"),
                 }
             )
+            if death_ts is not None:
+                bound = 2.0 * workload_report_interval_seconds()
+                correlated = [
+                    int(report.get("peak_buffer_bytes") or 0)
+                    for report in co_tenants
+                    if report.get("ts") is not None and abs(float(report["ts"]) - death_ts) <= bound
+                ]
+                if correlated:
+                    properties["co_tenant_correlated_max_peak_buffer_bytes"] = max(correlated)
     except Exception:
         LOGGER.debug("workload_report_enrich_failed", run_id=run_id, exc_info=True)

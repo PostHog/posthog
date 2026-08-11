@@ -43,7 +43,10 @@ use tracing::{debug, error, warn};
 
 use personhog_proto::personhog::types::v1::Person;
 
+use personhog_coordination::authority::AuthorityClock;
+
 use crate::config::{FENCING_ABORT_ATTEMPTS, FENCING_COMMIT_ATTEMPTS};
+use crate::inflight::InflightTracker;
 use crate::kafka::changelog_message_key;
 
 /// The fencing scope is the partition: every owner of partition `p`
@@ -156,13 +159,11 @@ struct PartitionFence {
     ///
     /// Such a producer is still installed, so presence alone cannot tell
     /// a working fence from a dead one. This flag is what makes the
-    /// distinction visible: a condemned partition answers as unowned so
-    /// the router bounces instead of retrying a dead producer. On this
-    /// branch nothing re-acquires in place — recovery is a process
-    /// restart or the partition moving — and the stacked lease-validity
-    /// branch adds the serving-side re-acquisition, which consults this
-    /// flag and needs the authority stamp it introduces for the standing
-    /// to bump the epoch.
+    /// distinction visible: a condemned partition answers as unowned, so
+    /// the router bounces instead of retrying a dead producer, and
+    /// `holds()` reports the fence missing — which is what lets
+    /// `heal_fence`, on the next convergence to Serving, re-take the
+    /// epoch once the pod's claim is confirmed.
     unusable: AtomicBool,
     commit_timeout: Duration,
 }
@@ -350,16 +351,24 @@ pub struct FenceGuard {
     /// which after a release and a re-acquire is somebody else's
     /// producer — the same hazard `forget_fence` checks for.
     taken: Option<Arc<PartitionFence>>,
+    /// Names the work the fence was taken for, so an abandon names the
+    /// path that dropped mid-flight.
+    context: &'static str,
     armed: bool,
 }
 
 impl FenceGuard {
-    pub fn new(fenced: Arc<FencedChangelogProducers>, partition: u32) -> Self {
+    pub fn new(
+        fenced: Arc<FencedChangelogProducers>,
+        partition: u32,
+        context: &'static str,
+    ) -> Self {
         let taken = fenced.installed(partition);
         Self {
             fenced,
             partition,
             taken,
+            context,
             armed: true,
         }
     }
@@ -376,7 +385,8 @@ impl Drop for FenceGuard {
             counter!("personhog_leader_fence_abandoned_total").increment(1);
             warn!(
                 partition = self.partition,
-                "releasing a fence taken for a warm that did not finish"
+                context = self.context,
+                "releasing a fence taken for work that did not finish"
             );
             match &self.taken {
                 Some(fence) => self.fenced.forget_fence(self.partition, fence),
@@ -460,7 +470,7 @@ impl FencedChangelogProducers {
     /// initialize transactions, which fences every previous owner of the
     /// partition's transactional id. Runs on the blocking pool — init is
     /// a synchronous broker round trip.
-    pub async fn acquire(&self, partition: u32) -> Result<(), String> {
+    async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionFence>, String> {
         let kafka = self.kafka.clone();
         let tid = transactional_id(&self.topic, partition);
         let timeout = self.init_timeout;
@@ -477,26 +487,30 @@ impl FencedChangelogProducers {
         })?;
         counter!("personhog_leader_fence_init_total", "outcome" => "ok").increment(1);
         histogram!("personhog_leader_fence_init_ms").record(start.elapsed().as_secs_f64() * 1000.0);
-        self.partitions.insert(
-            partition,
-            Arc::new(PartitionFence {
-                producer,
-                gate: Mutex::new(Gate {
-                    open: false,
-                    in_flight: 0,
-                    poisoned: false,
-                    committing: false,
-                    waiters: Vec::new(),
-                }),
-                sends_settled: Notify::new(),
-                window_closed: Notify::new(),
-                #[cfg(any(test, feature = "test-support"))]
-                panic_next_commit: AtomicBool::new(false),
-                unusable: AtomicBool::new(false),
-                commit_timeout: self.commit_timeout,
+        let installed = Arc::new(PartitionFence {
+            producer,
+            gate: Mutex::new(Gate {
+                open: false,
+                in_flight: 0,
+                poisoned: false,
+                committing: false,
+                waiters: Vec::new(),
             }),
-        );
-        Ok(())
+            sends_settled: Notify::new(),
+            window_closed: Notify::new(),
+            #[cfg(any(test, feature = "test-support"))]
+            panic_next_commit: AtomicBool::new(false),
+            unusable: AtomicBool::new(false),
+            commit_timeout: self.commit_timeout,
+        });
+        self.partitions.insert(partition, Arc::clone(&installed));
+        Ok(installed)
+    }
+
+    /// Take the partition's fence, discarding the handle. The caller
+    /// relies on the map rather than on holding the fence itself.
+    pub async fn acquire(&self, partition: u32) -> Result<(), String> {
+        self.acquire_installed(partition).await.map(|_| ())
     }
 
     /// The fence currently installed for a partition, if any.
@@ -510,6 +524,19 @@ impl FencedChangelogProducers {
         if let Some((_, fence)) = self.partitions.remove(&partition) {
             drop_fence_off_worker(fence);
         }
+    }
+
+    /// Whether this pod holds a *usable* fence for the partition.
+    ///
+    /// Deliberately not mere presence. A condemned producer is still
+    /// installed, and answering "yes" for one would tell the repair pass
+    /// that a partition it must re-acquire needs nothing — which is
+    /// exactly how such a partition stayed unwritable until a handoff
+    /// moved it.
+    pub fn holds(&self, partition: u32) -> bool {
+        self.partitions
+            .get(&partition)
+            .is_some_and(|fence| fence.is_usable())
     }
 
     /// Commit the partition's open window before its owner gives it up.
@@ -1288,15 +1315,29 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_failed_total").increment(0);
+    // The healing counters fire exactly during the incidents an operator
+    // would reach for them in, and rarely enough that lazy registration
+    // can swallow the first burst between scrapes.
+    counter!("personhog_leader_fence_healed_total").increment(0);
+    counter!("personhog_leader_fence_heal_abandoned_total").increment(0);
     for reason in ["abort_failed", "commit_indeterminate", "commit_task_lost"] {
         counter!("personhog_leader_fence_condemned_total", "reason" => reason).increment(0);
     }
     counter!("personhog_leader_fence_commit_retries_total").increment(0);
-    counter!("personhog_leader_fenced_partition_drops_total").increment(0);
     counter!("personhog_leader_kafka_produce_errors_total").increment(0);
     for partition in 0..partitions {
         let p = partition.to_string();
         counter!("personhog_leader_fence_aborts_total", "partition" => p.clone()).increment(0);
+        counter!(
+            "personhog_leader_fenced_partition_drops_total",
+            "partition" => p.clone()
+        )
+        .increment(0);
+        counter!(
+            "personhog_leader_fence_heal_failures_total",
+            "partition" => p.clone()
+        )
+        .increment(0);
         counter!(
             "personhog_leader_fence_commit_indeterminate_total",
             "partition" => p.clone()
@@ -1324,6 +1365,103 @@ fn clone_outcome(outcome: &Result<(), FencedProduceError>) -> Result<(), FencedP
             Err(FencedProduceError::Indeterminate(e.clone()))
         }
     }
+}
+
+/// Re-take the partition's fence if this pod is serving it without one.
+///
+/// A fence can go missing under a pod that legitimately owns its
+/// partition: a broker rejection evicted it, an abort exhausted its
+/// retries and left the producer unusable, or a stale pod took the epoch
+/// and stepped back. Nothing in the handoff protocol repairs that —
+/// convergence sees the partition warmed and unfenced and does nothing —
+/// so without this the partition stays unwritable until a handoff moves
+/// it.
+///
+/// Re-acquisition is safe only because of where this is called from and
+/// what it checks. The caller is the convergence to `Serving`, so the
+/// durable assignment says this pod owns the partition; the claim must
+/// still be valid, because taking a fence moves the broker's epoch away
+/// from whoever holds it; and a partition being locally fenced is
+/// disqualifying, since that means a handoff is moving it and the
+/// incoming owner's fence is the one that should stand.
+/// What the healing pass did, for the caller to act on: a healed
+/// partition is freshly fenced — the epoch just moved, and the same
+/// convergence must not move it again — and a failure is the caller's
+/// to surface, because a partition that cannot regain its fence has no
+/// other repair path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealOutcome {
+    /// Nothing to do: the fence is present and usable, the partition is
+    /// under handoff, or this pod cannot vouch for its claim.
+    Intact,
+    /// A fence was re-taken and is serving.
+    Healed,
+    /// A fence was taken but given back — standing lapsed or a handoff
+    /// began during the broker round trip.
+    Abandoned,
+}
+
+pub async fn heal_fence(
+    fenced: &Arc<FencedChangelogProducers>,
+    inflight: &InflightTracker,
+    authority: Option<&AuthorityClock>,
+    partition: u32,
+) -> Result<HealOutcome, String> {
+    let lost_standing = authority.is_some_and(|a| !a.is_valid());
+    if lost_standing || fenced.holds(partition) || inflight.is_fenced(partition) {
+        return Ok(HealOutcome::Intact);
+    }
+    let taken = match fenced.acquire_installed(partition).await {
+        Ok(taken) => taken,
+        Err(e) => {
+            // Partition-labeled: a wedged partition must be attributable
+            // from the series alone, because this is deliberately not a
+            // run failure (see `verify_serving`) and the counter is the
+            // alerting surface for it.
+            counter!(
+                "personhog_leader_fence_heal_failures_total",
+                "partition" => partition.to_string()
+            )
+            .increment(1);
+            error!(partition, error = %e, "failed to re-take the changelog fence");
+            return Err(e);
+        }
+    };
+    // Answerable for the installed fence from here until a deliberate
+    // branch takes over. A drop *during* the acquire needs no guard —
+    // the producer is discarded before it is installed, `holds()` stays
+    // false, and the next convergence heals again. What the guard covers
+    // is the stretch after installation: the checks below await nothing
+    // today, so its teeth are a panic between them and any await a
+    // future change adds. Same shape as the warm path.
+    let guard = FenceGuard::new(Arc::clone(fenced), partition, "heal");
+    // The round trip is long enough for the ground to move: the claim can
+    // lapse, or a handoff can start draining the partition. Holding a
+    // fence taken without standing is not passive — the write path trusts
+    // the broker epoch rather than re-checking the claim, so a request
+    // landing here would ack a mutation with an epoch taken from the
+    // partition's real owner.
+    let lost_standing = authority.is_some_and(|a| !a.is_valid());
+    if lost_standing || inflight.is_fenced(partition) {
+        guard.keep();
+        // The fence this call installed, not whatever is installed now:
+        // re-reading the map would match by construction and evict a
+        // replacement just as readily as its own.
+        fenced.forget_fence(partition, &taken);
+        counter!("personhog_leader_fence_heal_abandoned_total").increment(1);
+        warn!(
+            partition,
+            "released a fence taken while standing lapsed mid-acquire"
+        );
+        return Ok(HealOutcome::Abandoned);
+    }
+    guard.keep();
+    counter!("personhog_leader_fence_healed_total").increment(1);
+    warn!(
+        partition,
+        "re-took the changelog fence for a served partition"
+    );
+    Ok(HealOutcome::Healed)
 }
 
 #[cfg(test)]

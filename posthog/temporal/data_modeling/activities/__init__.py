@@ -1,4 +1,11 @@
-from .create_data_modeling_job import CreateDataModelingJobInputs, create_data_modeling_job_activity
+from .create_data_modeling_job import (
+    UPSTREAM_NAMES_IN_SKIP_REASON,
+    CreateDataModelingJobInputs,
+    RecordSkippedDataModelingJobsInputs,
+    SkippedDataModelingNode,
+    create_data_modeling_job_activity,
+    record_skipped_data_modeling_jobs_activity,
+)
 from .enrich_view_semantics import EnrichViewSemanticsInputs, enrich_view_semantics_activity
 from .fail_materialization import FailMaterializationInputs, fail_materialization_activity
 from .get_dag_structure import GetDAGStructureInputs, get_dag_structure_activity
@@ -22,7 +29,10 @@ from .succeed_materialization import (
 )
 
 __all__ = [
+    "UPSTREAM_NAMES_IN_SKIP_REASON",
     "CreateDataModelingJobInputs",
+    "RecordSkippedDataModelingJobsInputs",
+    "SkippedDataModelingNode",
     "EnrichViewSemanticsInputs",
     "DuckgresShadowInputs",
     "DuckgresShadowResult",
@@ -37,6 +47,7 @@ __all__ = [
     "SucceedMaterializationResult",
     "check_duckgres_shadow_enabled_activity",
     "create_data_modeling_job_activity",
+    "record_skipped_data_modeling_jobs_activity",
     "enrich_view_semantics_activity",
     "fail_materialization_activity",
     "materialize_view_activity",

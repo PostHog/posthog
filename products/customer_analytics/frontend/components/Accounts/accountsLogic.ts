@@ -2,7 +2,9 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
@@ -11,12 +13,21 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { tagsModel } from '~/models/tagsModel'
 import { type DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { AccountsQuery, DataNode, DataTableNode, NodeKind, RefreshType } from '~/queries/schema/schema-general'
+import {
+    AccountsQuery,
+    AccountsTableQuery,
+    DataNode,
+    DataTableNode,
+    NodeKind,
+    RefreshType,
+} from '~/queries/schema/schema-general'
 import type { AccountCustomPropertyFilter, UserBasicType } from '~/types'
 
 import {
+    accountsPartialUpdate,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
@@ -42,10 +53,21 @@ import {
 } from './accountsExpansionLogic'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
 import { sortAccountRows } from './accountsSort'
+import {
+    AccountsTableQueryPlan,
+    BuildAccountsTableQueryPlanInput,
+    accountsTableRowsToLegacyRows,
+    buildAccountsTableQueryPlan,
+    isAccountsTableRow,
+} from './accountsTableQuery'
 import { normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
+
+// ObjectTags fires onChange per added/removed tag; the debounce collapses an
+// editing burst into one full-list PATCH.
+export const TAGS_SAVE_DEBOUNCE_MS = 300
 
 // Revealing an off-screen account triggers an async refetch, so its row may not
 // be in the DOM yet — poll briefly for it before scrolling.
@@ -193,10 +215,15 @@ export interface accountsLogicValues {
     tileFilter: TileFilter | null // accountsOverviewTilesLogic
     mineOnly: boolean // customerAnalyticsSceneLogic
     listHasMoreData: boolean // dataNodeLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     accountIdFilter: string | null
-    accountsQuerySource: AccountsQuery | null
+    accountsDataTableQuery: DataTableNode
+    accountsQuerySource: AccountsQuery | AccountsTableQuery | null
+    accountsTableQueryPlan: AccountsTableQueryPlan | null
+    accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
+    accountsTableResponsePlan: AccountsTableQueryPlan | null
     activeFilterCount: number
     allRolesUnassigned: boolean
     assignedToCurrentUser: boolean
@@ -206,14 +233,19 @@ export interface accountsLogicValues {
     customPropertyFilters: AccountCustomPropertyFilter[]
     hogqlQuery: DataTableNode
     isRoleSaving: (accountId: string, column: string) => boolean
+    isTagsSaving: (accountId: string) => boolean
     listPaginated: boolean
     metricsQuery: AccountsQuery | null
+    postgresAccountsEnabled: boolean
     relationshipOverrides: Record<string, number[]>
     savingRoles: Record<string, true>
+    savingTags: Record<string, true>
     searchInput: string
     searchQuery: string
     sortOrder: AccountSortOrder
     sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
+    tableRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
+    tagOverrides: Record<string, string[]>
     tagsFilter: string[]
     viewUrlState: AccountsViewUrlState
 }
@@ -289,6 +321,9 @@ export interface accountsLogicActions {
         }
         user: UserType | null
     } // userLogic
+    addTagToFilter: (tag: string) => {
+        tag: string
+    }
     openAccount: (
         accountId: string,
         externalId: string | null,
@@ -356,6 +391,19 @@ export interface accountsLogicActions {
     setTagsFilter: (tags: string[]) => {
         tags: string[]
     }
+    setTagsOverride: (
+        accountId: string,
+        tags: string[] | null
+    ) => {
+        accountId: string
+        tags: string[] | null
+    }
+    tagsUpdateFinished: (accountId: string) => {
+        accountId: string
+    }
+    tagsUpdateStarted: (accountId: string) => {
+        accountId: string
+    }
     toggleSort: (column: AccountSortableColumn) => {
         column: string
     }
@@ -368,6 +416,13 @@ export interface accountsLogicActions {
         column: string
         user: UserBasicType | null
     }
+    updateAccountTags: (
+        accountId: string,
+        tags: string[]
+    ) => {
+        accountId: string
+        tags: string[]
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -376,6 +431,7 @@ export interface accountsLogicMeta {
         currentUserId: (user: UserType | null) => number | null
         assignedToCurrentUser: (assignedToFilter: RoleFilterValue, currentUserId: number | null) => boolean
         isRoleSaving: (savingRoles: Record<string, true>) => (accountId: string, column: string) => boolean
+        isTagsSaving: (savingTags: Record<string, true>) => (accountId: string) => boolean
         activeFilterCount: (
             searchQuery: string,
             tagsFilter: string[],
@@ -401,6 +457,28 @@ export interface accountsLogicMeta {
             sortOrder: AccountSortOrder,
             visibleColumnNames: string[]
         ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
+        postgresAccountsEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        accountsTableQueryPlanInput: (
+            querySelectColumns: string[],
+            visibleColumnNames: string[],
+            searchQuery: string,
+            tagsFilter: string[],
+            allRolesUnassigned: boolean,
+            assignedToFilter: RoleFilterValue,
+            accountIdFilter: string | null,
+            tileFilter: TileFilter | null,
+            customPropertyFilters: AccountCustomPropertyFilter[],
+            customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
+            columnDisplay: AccountColumnDisplayState,
+            sortOrder: AccountSortOrder,
+            canSortClientSide: boolean
+        ) => BuildAccountsTableQueryPlanInput
+        accountsTableQueryPlan: (
+            accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
+        ) => AccountsTableQueryPlan | null
+        accountsTableResponsePlan: (
+            accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
+        ) => AccountsTableQueryPlan | null
         hogqlQuery: (
             searchQuery: string,
             tagsFilter: string[],
@@ -416,7 +494,21 @@ export interface accountsLogicMeta {
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             aliasToDefinition: Record<string, CustomPropertyDefinitionApi>
         ) => DataTableNode
-        accountsQuerySource: (hogqlQuery: DataTableNode, relationshipDefinitionsLoaded: boolean) => AccountsQuery | null
+        accountsQuerySource: (
+            hogqlQuery: DataTableNode,
+            accountsTableQueryPlan: AccountsTableQueryPlan | null,
+            postgresAccountsEnabled: boolean,
+            relationshipDefinitionsLoaded: boolean
+        ) => AccountsQuery | AccountsTableQuery | null
+        accountsDataTableQuery: (
+            hogqlQuery: DataTableNode,
+            accountsQuerySource: AccountsQuery | AccountsTableQuery | null,
+            visibleColumnNames: string[]
+        ) => DataTableNode
+        tableRowsTransformer: (
+            accountsTableResponsePlan: AccountsTableQueryPlan | null,
+            sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
+        ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         metricsQuery: (
             overviewMetrics: string[],
             searchQuery: string,
@@ -447,6 +539,8 @@ export const accountsLogic = kea<accountsLogicType>([
             ['currentTeamId'],
             userLogic,
             ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
             accountsColumnConfigLogic,
             [
                 'selectColumns',
@@ -520,6 +614,13 @@ export const accountsLogic = kea<accountsLogicType>([
             column,
             userIds,
         }),
+        updateAccountTags: (accountId: string, tags: string[]) => ({ accountId, tags }),
+        // Clicking a tag in a row's tags cell adds it to the tags filter (compounding).
+        addTagToFilter: (tag: string) => ({ tag }),
+        tagsUpdateStarted: (accountId: string) => ({ accountId }),
+        tagsUpdateFinished: (accountId: string) => ({ accountId }),
+        // null drops the override, falling back to the fetched cell value.
+        setTagsOverride: (accountId: string, tags: string[] | null) => ({ accountId, tags }),
         openAccount: (accountId: string, externalId: string | null, name: string, tab: AccountExpansionTab) => ({
             accountId,
             externalId,
@@ -617,6 +718,33 @@ export const accountsLogic = kea<accountsLogicType>([
                 }),
             },
         ],
+        savingTags: [
+            {} as Record<string, true>,
+            {
+                tagsUpdateStarted: (state, { accountId }) => ({ ...state, [accountId]: true }),
+                tagsUpdateFinished: (state, { accountId }) => {
+                    const next = { ...state }
+                    delete next[accountId]
+                    return next
+                },
+            },
+        ],
+        // Tags written from the list, keyed by account id — masks the stale HogQL
+        // cell until the async refetch lands.
+        tagOverrides: [
+            {} as Record<string, string[]>,
+            {
+                setTagsOverride: (state, { accountId, tags }) => {
+                    const next = { ...state }
+                    if (tags === null) {
+                        delete next[accountId]
+                    } else {
+                        next[accountId] = tags
+                    }
+                    return next
+                },
+            },
+        ],
     }),
     selectors({
         currentUserId: [(s) => [s.user], (user: null | import('~/types').UserType): number | null => user?.id ?? null],
@@ -633,6 +761,12 @@ export const accountsLogic = kea<accountsLogicType>([
             (savingRoles: Record<string, true>) =>
                 (accountId: string, column: string): boolean =>
                     !!savingRoles[savingRoleKey(accountId, column)],
+        ],
+        isTagsSaving: [
+            (s) => [s.savingTags],
+            (savingTags: Record<string, true>) =>
+                (accountId: string): boolean =>
+                    !!savingTags[accountId],
         ],
         activeFilterCount: [
             (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter, s.customPropertyFilters],
@@ -723,6 +857,67 @@ export const accountsLogic = kea<accountsLogicType>([
                     ? (rows: DataTableRow[]): DataTableRow[] => sortAccountRows(rows, sortOrder, visibleColumnNames)
                     : undefined,
         ],
+        postgresAccountsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES],
+        ],
+        accountsTableQueryPlanInput: [
+            (s) => [
+                s.querySelectColumns,
+                s.visibleColumnNames,
+                s.searchQuery,
+                s.tagsFilter,
+                s.allRolesUnassigned,
+                s.assignedToFilter,
+                s.accountIdFilter,
+                s.tileFilter,
+                s.customPropertyFilters,
+                s.customPropertyDefinitionsById,
+                s.columnDisplay,
+                s.sortOrder,
+                s.canSortClientSide,
+            ],
+            (
+                querySelectColumns: string[],
+                visibleColumnNames: string[],
+                searchQuery: string,
+                tagsFilter: string[],
+                allRolesUnassigned: boolean,
+                assignedToFilter: RoleFilterValue,
+                accountIdFilter: string | null,
+                tileFilter: TileFilter | null,
+                customPropertyFilters: AccountCustomPropertyFilter[],
+                customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
+                columnDisplay: AccountColumnDisplayState,
+                sortOrder: AccountSortOrder,
+                canSortClientSide: boolean
+            ): BuildAccountsTableQueryPlanInput => ({
+                querySelectColumns,
+                visibleColumnNames,
+                searchQuery,
+                tagsFilter,
+                allRolesUnassigned,
+                assignedToFilter,
+                accountIdFilter,
+                tileFilter,
+                customPropertyFilters,
+                customPropertyDefinitionsById,
+                columnDisplay,
+                sortOrder,
+                canSortClientSide,
+            }),
+        ],
+        accountsTableQueryPlan: [
+            (s) => [s.accountsTableQueryPlanInput],
+            (input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan | null =>
+                buildAccountsTableQueryPlan(input),
+        ],
+        accountsTableResponsePlan: [
+            (s) => [s.accountsTableQueryPlanInput],
+            (input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan | null =>
+                buildAccountsTableQueryPlan({ ...input, tileFilter: null }),
+        ],
         hogqlQuery: [
             (s) => [
                 s.searchQuery,
@@ -790,9 +985,54 @@ export const accountsLogic = kea<accountsLogicType>([
         // definitions settle, so the list fetches once with its final columns
         // instead of fetching base columns and refetching after the upgrade.
         accountsQuerySource: [
-            (s) => [s.hogqlQuery, s.relationshipDefinitionsLoaded],
-            (hogqlQuery: DataTableNode, relationshipDefinitionsLoaded: boolean): AccountsQuery | null =>
-                relationshipDefinitionsLoaded ? (hogqlQuery.source as AccountsQuery) : null,
+            (s) => [s.hogqlQuery, s.accountsTableQueryPlan, s.postgresAccountsEnabled, s.relationshipDefinitionsLoaded],
+            (
+                hogqlQuery: DataTableNode,
+                accountsTableQueryPlan: AccountsTableQueryPlan | null,
+                postgresAccountsEnabled: boolean,
+                relationshipDefinitionsLoaded: boolean
+            ): AccountsQuery | AccountsTableQuery | null => {
+                if (!relationshipDefinitionsLoaded) {
+                    return null
+                }
+                return postgresAccountsEnabled && accountsTableQueryPlan
+                    ? accountsTableQueryPlan.query
+                    : (hogqlQuery.source as AccountsQuery)
+            },
+        ],
+        accountsDataTableQuery: [
+            (s) => [s.hogqlQuery, s.accountsQuerySource, s.visibleColumnNames],
+            (
+                hogqlQuery: DataTableNode,
+                accountsQuerySource: AccountsQuery | AccountsTableQuery | null,
+                visibleColumnNames: string[]
+            ): DataTableNode => ({
+                ...hogqlQuery,
+                columns: visibleColumnNames,
+                source: accountsQuerySource ?? hogqlQuery.source,
+            }),
+        ],
+        tableRowsTransformer: [
+            (s) => [s.accountsTableResponsePlan, s.sortedRowsTransformer],
+            (
+                accountsTableResponsePlan: AccountsTableQueryPlan | null,
+                sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
+            ): ((rows: DataTableRow[]) => DataTableRow[]) | undefined =>
+                (rows: DataTableRow[]): DataTableRow[] => {
+                    const rowResults = rows.map((row) => row.result)
+                    if (!rowResults.some(isAccountsTableRow)) {
+                        return sortedRowsTransformer ? sortedRowsTransformer(rows) : rows
+                    }
+                    if (!accountsTableResponsePlan || !rowResults.every(isAccountsTableRow)) {
+                        return []
+                    }
+                    const translatedResults = accountsTableRowsToLegacyRows(rowResults, accountsTableResponsePlan)
+                    const translatedRows = rows.map((row, index) => ({
+                        ...row,
+                        result: translatedResults[index],
+                    }))
+                    return sortedRowsTransformer ? sortedRowsTransformer(translatedRows) : translatedRows
+                },
         ],
         // The overview-tile aggregations run as their own metrics-only query (no
         // `select`), keyed to ACCOUNTS_METRICS_DATA_NODE_KEY, so they load
@@ -1003,6 +1243,38 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.roleUpdateFinished(accountId, column)
             }
         },
+        addTagToFilter: ({ tag }) => {
+            if (values.tagsFilter.includes(tag)) {
+                return
+            }
+            actions.setTagsFilter([...values.tagsFilter, tag])
+            actions.reportFilterChange('tag')
+        },
+        updateAccountTags: async ({ accountId, tags }, breakpoint) => {
+            const previous = values.tagOverrides[accountId] ?? null
+            // Optimistic: ObjectTags is a controlled input firing per added/removed tag,
+            // so its value must reflect each change immediately or the editor reverts.
+            actions.setTagsOverride(accountId, tags)
+            // ponytail: the breakpoint is per-action, not per-account — editing two
+            // accounts' tags within 300ms drops the first save. Key it per account if
+            // that ever becomes a real interaction.
+            await breakpoint(TAGS_SAVE_DEBOUNCE_MS)
+            actions.tagsUpdateStarted(accountId)
+            try {
+                await accountsPartialUpdate(String(values.currentTeamId), accountId, { tags })
+                posthog.capture(AccountsEvents.TagsUpdated, { tag_count: tags.length })
+                // A newly created tag should show up in the available-tags pickers right away.
+                tagsModel.findMounted()?.actions.loadTags()
+                dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
+                dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
+            } catch (error) {
+                actions.setTagsOverride(accountId, previous)
+                posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountTags' })
+                lemonToast.error('Failed to update tags')
+            } finally {
+                actions.tagsUpdateFinished(accountId)
+            }
+        },
         openAccount: ({ accountId, externalId, name, tab }) => {
             const dataNode = dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })
             const results = (dataNode?.values.response as { results?: unknown[] } | undefined)?.results
@@ -1011,6 +1283,9 @@ export const accountsLogic = kea<accountsLogicType>([
             const isVisible =
                 nameIndex >= 0 &&
                 rows.some((row) => {
+                    if (row && typeof row === 'object' && !Array.isArray(row)) {
+                        return (row as { id?: string }).id === accountId
+                    }
                     const cell = Array.isArray(row) ? (row as unknown[])[nameIndex] : undefined
                     return !!cell && typeof cell === 'object' && (cell as { id?: string }).id === accountId
                 })

@@ -849,6 +849,7 @@ async fn try_get_feature_flag_hash_key_overrides(
                 AND fhko.team_id = ppd.team_id
             WHERE ppd.team_id = $1
                 AND ppd.distinct_id = ANY($2)
+                AND ppd.is_deleted = false
         "#;
 
     let query_start = Instant::now();
@@ -1026,7 +1027,8 @@ async fn try_set_feature_flag_hash_key_overrides(
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
-                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+                AND p.is_deleted = false
+                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
         "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
@@ -1333,7 +1335,8 @@ async fn try_should_write_hash_key_override(
             ON existing.person_id = p.person_id AND existing.team_id = p.team_id
         WHERE p.team_id = $1
             AND p.distinct_id = ANY($2)
-            AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+            AND p.is_deleted = false
+            AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
     "#;
 
     // Query 2: Get feature flags from non-person pool

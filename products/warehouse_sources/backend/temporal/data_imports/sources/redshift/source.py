@@ -45,7 +45,7 @@ RedshiftErrors = {
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
-    "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+    "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "SSL connection has been closed unexpectedly": "SSL connection error. Please check your SSL settings.",
     "server does not support SSL": "The server does not support SSL, which we require for Redshift. Please check the host and port point to your Redshift cluster.",
     "Connection refused": "Connection refused. Please check the host and port.",

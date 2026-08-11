@@ -27,6 +27,12 @@ logger = structlog.get_logger(__name__)
 # missing permission). Note 40100 is NOT one of them — it means "requests made too frequently".
 TIKTOK_AUTH_ERROR_CODES = {40105, 40110}
 
+# Code 40000 is TikTok's generic "params error" bucket and covers many unrelated messages, so it
+# can't be treated as auth-only by code alone. This specific message means the access token was
+# minted under a different TikTok app than the one currently configured — reconnecting to mint a
+# fresh token under the current app is the only fix; retrying with the same token cannot succeed.
+TIKTOK_APP_TOKEN_MISMATCH_MESSAGE = "app_id is inconsistent with the token's app information"
+
 # Throttling (400xx) and TikTok-side outages (5xxxx/60001) also arrive as HTTP 200 + a body `code`,
 # so no HTTP-level retry ever fires on them. Neither is our bug and neither is fixed by reconnecting:
 # the caller just has to try again shortly.
