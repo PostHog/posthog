@@ -60,7 +60,7 @@ user-visible requirement you cannot infer.
    - **Already live** (`current_version_id` is set): stage the complete project as a draft with
      `canvas-draft-create` — the user previews the draft and promotes it to live. Publish or
      promote yourself only when the user explicitly asked to make the change live.
-   Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
+     Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
 5. **Wait for the build** — drafts and publishes alike queue one. Poll `canvas-builds-retrieve`
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
    read the build's error diagnostics, fix the project, and save again — do not finish the
