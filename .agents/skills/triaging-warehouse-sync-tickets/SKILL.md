@@ -132,10 +132,22 @@ Before you run any query beyond region identification against a specific team, c
 requester against it:
 
 1. Take the ticket's **reporter identity** from the ticket record, in this order:
-   - `person`, the PostHog person the ticket is linked to. Use `person.properties.email`. This is the
-     strongest signal the tool gives you, because the link comes from the session that filed the ticket
-     rather than from anything the requester typed.
+   - `person`, the PostHog person the ticket is linked to. Use `person.properties.email`. Prefer this
+     over `email_from`, because the link comes from the session that filed the ticket rather than from
+     anything the requester typed — but it is a corroborating signal, not an authenticated one.
+     `person.properties.email` is ordinary person-property data, and person properties can be set by
+     anyone who can call `identify()` against that project, including an anonymous visitor, so a spoofed
+     value can still pass the membership check below. Conversations does carry a real attestation flag,
+     `identity_verified`, but `conversations-tickets-retrieve` does not currently return it — it,
+     `organization_id`, and `organization_id_source` are missing from that tool's `response.include`
+     allowlist in `products/conversations/mcp/tools.yaml`. Exposing them there would turn this from a
+     heuristic into a hard check; that is a change to the Conversations MCP tool, not to this skill, so
+     it is out of scope here. Until it lands, treat a matching email as corroboration, not proof: escalate
+     instead of proceeding whenever anything about the ticket, the linked person, or the match looks
+     off — a person record you would not otherwise expect, a mismatch you have to squint past, an
+     unusually high-value or destructive action being requested, and so on.
    - `email_from`, which carries the sender address on an email-channel ticket and is null on the others.
+     Same caveat: an email `From` header is not authenticated either.
 2. Treat `anonymous_traits` as a claim, never as identity. It holds the name and email a requester typed
    into the widget while unidentified, so it proves nothing. `person.is_identified` being false means the
    same thing. In either case, stop and escalate rather than querying production on an unverified name.
