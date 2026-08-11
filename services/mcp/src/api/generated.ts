@@ -14378,6 +14378,11 @@ export namespace Schemas {
       current_version_id: string | null;
     }
 
+    export interface CanvasPublishCurrentVersion {
+      /** Current source version to publish. A changed head returns a 409 version_conflict. */
+      expected_current_version_id: string;
+    }
+
     /**
      * Payload for reverting the canvas's head to an existing source version.
      */
@@ -14980,6 +14985,11 @@ export namespace Schemas {
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
       starred?: boolean;
+    }
+
+    export interface ChannelDeleteConflict {
+      /** Why the space cannot be deleted. */
+      detail: string;
     }
 
     /**
@@ -16587,10 +16597,7 @@ export namespace Schemas {
     /**
      * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
      * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
-     * avoids presigning a log URL per conversation.
-     *
-     * Read access here follows the conversation (the share-by-link unit), not per-creator task
-     * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+     * avoids presigning a log URL per conversation. Task data follows the task's space visibility.
      */
     export interface ConversationTask {
       id: string;
@@ -88811,7 +88818,7 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
-     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     * Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.
      */
     all_team_tasks?: boolean;
     /**
