@@ -1,14 +1,16 @@
-import { render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MissionControlOverlay } from "./MissionControlOverlay";
 import { useMissionControlStore } from "./missionControlStore";
 
 describe("MissionControlOverlay", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     useMissionControlStore.setState({ active: false });
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     document.getElementById("portal-container")?.remove();
   });
 
@@ -33,6 +35,20 @@ describe("MissionControlOverlay", () => {
     expect(screen.getByTestId("mission-control-overlay").className).toContain(
       "pointer-events-none",
     );
+  });
+
+  it("stays mounted while fading out", () => {
+    useMissionControlStore.setState({ active: true });
+    render(<MissionControlOverlay />);
+    act(() => vi.runOnlyPendingTimers());
+
+    act(() => useMissionControlStore.setState({ active: false }));
+    expect(screen.getByTestId("mission-control-overlay")).toHaveClass(
+      "opacity-0",
+    );
+
+    act(() => vi.advanceTimersByTime(150));
+    expect(screen.queryByTestId("mission-control-overlay")).toBeNull();
   });
 
   it("portals into the theme container when one exists", () => {
