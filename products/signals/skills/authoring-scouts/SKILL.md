@@ -99,7 +99,7 @@ For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's reac
 Your new scout needs its own.
 Name it explicitly near the top of the body so every run anchors on it.
 
-A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a business measure (MRR, churn risk, usage revenue, activation).
+A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
 When the project's metrics catalog is enabled, it may hold a governed definition of that measure in `system.information_schema.metrics`, and the harness tells every run to prefer it — so write the body to cooperate rather than compete: have the run check the catalog for an approved, non-drifted metric before its own derivation, and run a match through `data-catalog-metric-run`.
 Where a governed metric exists, reference it by name in any `references/queries.md` you ship, and label every hand-written derivation there a noncanonical fallback — an unlabeled "validated query" outranks the harness's catalog-first rule at run time, which is exactly how a scout ends up re-deriving a number the team already governs.
 Freshness, availability, and schema checks are exempt: they stay schema-first, with no catalog detour.

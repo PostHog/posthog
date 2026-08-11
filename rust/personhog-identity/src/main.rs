@@ -22,6 +22,7 @@ use personhog_common::client::RouterClient;
 use personhog_identity::config::Config;
 use personhog_identity::lifecycle::delete::DeleteDriver;
 use personhog_identity::lifecycle::engine::Engine;
+use personhog_identity::lifecycle::merge::MergeDriver;
 use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
@@ -43,7 +44,7 @@ fn create_storage(config: &Config) -> Arc<PostgresIdentityStorage> {
         .expect("Failed to create primary database pool");
     tracing::info!("Created primary database pool");
 
-    Arc::new(PostgresIdentityStorage::new(primary_pool))
+    Arc::new(PostgresIdentityStorage::new(primary_pool, config.tables()))
 }
 
 #[tokio::main]
@@ -64,10 +65,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
+    config
+        .tables()
+        .validate()
+        .expect("Invalid identity table set");
+
     tracing::info!("Starting personhog-identity service");
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("Router URL: {}", config.router_url);
+    tracing::info!("Tables: {:?}", config.tables());
 
     // Build lifecycle manager and register components
     let mut manager = Manager::builder("personhog-identity").build();
@@ -183,7 +190,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.lifecycle_engine_config(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
+        let sweeper_merge_driver = MergeDriver::new(property_writer.clone(), config.tables());
         let sweeper_engine = engine.clone();
+        let sweeper_driver = DeleteDriver::new(config.tables());
         let sweep_interval = config.lifecycle_sweep_interval();
         let retention = config.lifecycle_op_retention();
         tracing::info!(
@@ -203,7 +212,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ = sweeper_handle.shutdown_recv() => break,
                     _ = ticker.tick() => {}
                 }
-                match sweeper_engine.sweep(&[&DeleteDriver]).await {
+                match sweeper_engine
+                    .sweep(&[&sweeper_driver, &sweeper_merge_driver])
+                    .await
+                {
                     Ok(resumed) if resumed > 0 => {
                         tracing::info!(resumed, "Lifecycle sweeper resumed abandoned ops")
                     }
@@ -220,7 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let service = PersonHogIdentityService::new(storage, property_writer, config.request_limits());
     // Separate proto service co-served on the same server so lifecycle
     // callers are insulated from any future split.
-    let lifecycle_service = PersonHogLifecycleService::new(engine);
+    let lifecycle_service = PersonHogLifecycleService::new(engine, config.tables());
 
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();

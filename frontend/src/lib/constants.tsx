@@ -176,7 +176,7 @@ export const FEATURE_FLAGS = {
     // UX flags, used to control the UX of the app
     CMD_K_NAV_EXPERIMENT: 'cmd-k-nav-experiment', // owner: @rafaeelaudibert #team-platform-ux multivariate=control,search-bar,footer-hint,tools-row,footer-callout - surfaces the Cmd+K command menu more prominently in the left nav: search-bar = full-width search field below the nav header, footer-hint = extra Search row in the nav footer, tools-row = Search row after the Tools item in the Project section, footer-callout = dismissible callout card in the nav ad slot for users a few days after signup
     CREATE_BUTTON_NAV_EXPERIMENT: 'create-button-nav-experiment', // owner: #team-platform-ux multivariate=control,test — adds a Create dropdown to the top of the Browse tab in the left nav
-    FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT: 'feature-flag-disable-and-archive-experiment', // owner: #team-feature-flags multivariate=control,test, makes "Disable and archive" the primary CTA in the disable-flag confirmation dialog, control keeps the plain disable confirmation
+    FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT: 'feature-flag-disable-and-archive-experiment', // owner: #team-feature-flags multivariate=control,test, adds a destructive "Disable and archive" option alongside "Disable only" in the disable-flag confirmation dialog, control keeps the plain disable confirmation
     INSIGHT_NOTIFICATION_ENTRYPOINT: 'insight-notification-entrypoint', // owner: #team-product-analytics multivariate=control,notifications,get-updates,monitor — tests notification-entry-point copy against the prominent Subscribe button
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
@@ -256,6 +256,7 @@ export const FEATURE_FLAGS = {
     AI_GATEWAY: 'ai-gateway', // owner: #team-ai-gateway, gates the AI gateway UI and llm_gateway:read on project secret API keys
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_15_MINUTE_INTERVAL: 'alerts-15-minute-interval', // owner: #team-analytics-platform, gates 15-minute insight alert interval
+    ANOMALY_ALERT_GUIDANCE_EXPERIMENT: 'anomaly-alert-guidance',
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     ALERTS_INVESTIGATION_AGENT: 'alerts-investigation-agent', // owner: @andrewm4894, anomaly alerts — investigation agent on firing
     ALERTS_REAL_TIME_INTERVAL: 'alerts-real-time-interval', // owner: #team-analytics-platform, gates real-time (2-minute) insight alert interval
@@ -330,7 +331,6 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_DRAG_DROP_CONDITIONS: 'feature-flag-drag-drop-conditions', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_EARLY_EXIT: 'feature-flag-early-exit', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
-    FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX: 'feature-flag-usage-dashboard-checkbox', // owner: #team-feature-flags, globally disabled, enables opt-out of auto dashboard creation
     FIELD_NOTES: 'field-notes', // owner: @adamleith
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
@@ -424,6 +424,7 @@ export const FEATURE_FLAGS = {
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai
+    PHAI_SCENE_AUTO_OPEN: 'phai-scene-auto-open', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PIPELINE_STATUS_PAGE: 'pipeline-status-page', // owner: @clr182 #team-support
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai

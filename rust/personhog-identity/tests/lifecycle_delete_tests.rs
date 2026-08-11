@@ -19,7 +19,7 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
-        PersonHogLifecycleService::new(Arc::new(self.engine()))
+        PersonHogLifecycleService::new(Arc::new(self.engine()), self.tables.clone())
     }
 
     /// (is_deleted, version, properties) of a person row.
@@ -331,6 +331,77 @@ async fn a_person_marked_by_another_live_op_is_skipped() {
     ctx.cleanup().await.expect("cleanup");
 }
 
+/// A mark can land on a corpse when a merge destroys the person between
+/// the mark step's liveness filter and its insert. The seeded state is
+/// what that window produces: a marked row whose person is already
+/// tombstoned. The recheck must settle it as not_found without touching
+/// the corpse again.
+#[tokio::test]
+async fn a_victim_destroyed_between_liveness_check_and_mark_settles_as_not_found() {
+    let ctx = TestContext::new().await;
+    let service = ctx.lifecycle_service();
+
+    let live = ctx.insert_person_with_distinct_id("recheck-live").await;
+    let corpse = ctx.insert_person_with_distinct_id("recheck-corpse").await;
+    sqlx::query(
+        "UPDATE posthog_person SET is_deleted = true, version = 5 WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(corpse)
+    .execute(&ctx.pool)
+    .await
+    .expect("tombstone the corpse");
+
+    let op_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
+        VALUES ($1, 'delete', $2, 'started', $3, now() - interval '1 minute')
+        "#,
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(serde_json::json!({"person_ids": [corpse, live]}))
+    .execute(&ctx.pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(corpse)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert the corpse's mark");
+
+    let response = service
+        .delete_persons(Request::new(delete_request(
+            ctx.team_id,
+            vec![corpse, live],
+            op_id,
+        )))
+        .await
+        .expect("delete succeeds")
+        .into_inner();
+
+    assert_eq!(
+        outcomes(&response),
+        vec![
+            (corpse, DeletePersonOutcome::NotFound),
+            (live, DeletePersonOutcome::Deleted),
+        ]
+    );
+    let (is_deleted, version, _) = ctx.person_state(corpse).await;
+    assert!(is_deleted);
+    assert_eq!(version, 5, "the corpse was never re-tombstoned");
+    let (is_deleted, _, _) = ctx.person_state(live).await;
+    assert!(is_deleted, "the live victim's delete proceeded normally");
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
 #[tokio::test]
 async fn a_retry_with_the_same_op_id_returns_the_recorded_outcome() {
     let ctx = TestContext::new().await;
@@ -456,5 +527,185 @@ async fn a_recreated_distinct_id_revives_above_the_death_version() {
     assert!(!is_deleted);
     assert_eq!(version, death_version + 1);
 
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn full_flow_works_on_a_configured_person_table() {
+    // Runs create, resolve, and the whole delete saga against
+    // personhog_person_tmp — a leftover hardcoded posthog_person in any of
+    // the interpolated queries would pass silently on the default table.
+    let ctx = TestContext::new_with_tables(common::tmp_tables()).await;
+    let service = ctx.lifecycle_service();
+    let distinct_id = format!("tmp-table-{}", Uuid::now_v7());
+
+    ctx.park_tmp_person_sequence().await;
+    let person_id = ctx.create_person_via_stub(&distinct_id).await;
+
+    let key = (ctx.team_id, distinct_id.clone());
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(std::slice::from_ref(&key))
+        .await
+        .expect("resolve succeeds");
+    assert_eq!(resolved.get(&key).map(|p| p.id), Some(person_id));
+
+    // Distinct id expansion must read the configured mapping table too.
+    let mappings = ctx
+        .storage
+        .get_distinct_ids_for_persons(ctx.team_id, &[person_id], None)
+        .await
+        .expect("distinct id expansion succeeds");
+    assert_eq!(
+        mappings
+            .iter()
+            .map(|m| m.distinct_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![distinct_id.as_str()]
+    );
+
+    // A cohort row whose person_id collides numerically belongs to the real
+    // namespace; a delete on the validation set must not touch it.
+    sqlx::query("INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES (1, $1)")
+        .bind(person_id)
+        .execute(&ctx.pool)
+        .await
+        .expect("insert colliding cohort row");
+
+    // The same collision for the other two interpolated tables: a real
+    // person sharing the numeric id, its mapping row, and an override on
+    // each mirror. The saga must tombstone/clear only the tmp rows.
+    let real_distinct_id = format!("real-{distinct_id}");
+    ctx.seed_real_namespace_collision(person_id, &real_distinct_id)
+        .await;
+    sqlx::query(
+        r#"
+        INSERT INTO personhog_featureflaghashkeyoverride_tmp
+            (feature_flag_key, hash_key, person_id, team_id)
+        VALUES ('flag', 'tmp-hash', $1, $2)
+        "#,
+    )
+    .bind(person_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert tmp override");
+
+    let response = service
+        .delete_persons(Request::new(delete_request(
+            ctx.team_id,
+            vec![person_id],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("delete succeeds")
+        .into_inner();
+    assert_eq!(
+        outcomes(&response),
+        vec![(person_id, DeletePersonOutcome::Deleted)]
+    );
+
+    let (is_deleted, version): (bool, i64) = sqlx::query_as(
+        "SELECT is_deleted, version FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("tombstone row exists");
+    assert!(is_deleted);
+    assert!(version > SEAL_VERSION_MARGIN);
+
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(std::slice::from_ref(&key))
+        .await
+        .expect("resolve after delete succeeds");
+    assert!(resolved.is_empty(), "tombstoned person must not resolve");
+
+    // The tmp mapping row tombstoned; the colliding real one untouched.
+    let tmp_mapping_deleted: bool = sqlx::query_scalar(
+        "SELECT is_deleted FROM personhog_persondistinctid_tmp WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(&distinct_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("tmp mapping row exists");
+    assert!(
+        tmp_mapping_deleted,
+        "the configured mapping table must be tombstoned"
+    );
+    let real_mapping_deleted: bool = sqlx::query_scalar(
+        "SELECT is_deleted FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(&real_distinct_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("real mapping row exists");
+    assert!(
+        !real_mapping_deleted,
+        "a validation-set delete must not tombstone real-namespace mapping rows"
+    );
+
+    // The tmp override cleared; the real-namespace one survives.
+    let tmp_overrides: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM personhog_featureflaghashkeyoverride_tmp WHERE team_id = $1 AND person_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("count tmp overrides");
+    assert_eq!(
+        tmp_overrides, 0,
+        "the configured override table must be cleared"
+    );
+    let real_overrides: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("count real overrides");
+    assert_eq!(
+        real_overrides, 1,
+        "a validation-set delete must not clear real-namespace overrides"
+    );
+
+    // The colliding real person row is untouched.
+    let real_person_deleted: bool =
+        sqlx::query_scalar("SELECT is_deleted FROM posthog_person WHERE team_id = $1 AND id = $2")
+            .bind(ctx.team_id as i32)
+            .bind(person_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .expect("real person row exists");
+    assert!(
+        !real_person_deleted,
+        "a validation-set delete must not tombstone real-namespace persons"
+    );
+
+    let colliding_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_cohortpeople WHERE person_id = $1")
+            .bind(person_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .expect("count cohort rows");
+    assert_eq!(
+        colliding_rows, 1,
+        "a validation-set delete must not clear real-namespace cohort rows"
+    );
+    sqlx::query("DELETE FROM posthog_cohortpeople WHERE person_id = $1")
+        .bind(person_id)
+        .execute(&ctx.pool)
+        .await
+        .expect("remove colliding cohort row");
+
+    ctx.cleanup_real_namespace()
+        .await
+        .expect("cleanup real namespace");
     ctx.cleanup().await.expect("cleanup");
 }
