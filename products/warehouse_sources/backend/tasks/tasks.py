@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
     SYNC_DISABLED_JOB_ERROR,
+    ExternalDataSchema,
 )
 
 logger = structlog.get_logger(__name__)
@@ -37,6 +38,7 @@ STOPPED_SYNC_SWEEP_MAX_JOB_AGE = timedelta(days=7)
     retry_backoff_max=3600,
     max_retries=10,
 )
+@skip_team_scope_audit
 def cleanup_disabled_external_data_schema(
     *,
     team_id: int,
@@ -54,6 +56,20 @@ def cleanup_disabled_external_data_schema(
     """
     # Deferred: keeps the queue/Temporal stack out of Celery task autodiscovery.
     from products.warehouse_sources.backend.sync_teardown import teardown_schema_syncs  # noqa: PLC0415
+
+    # A dispatch can go stale: if the schema was re-enabled before this task (or one
+    # of its retries) ran, tearing down now would kill the new legitimate run.
+    if (
+        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id, should_sync=True)
+        .exclude(deleted=True)
+        .exists()
+    ):
+        logger.info(
+            "cleanup_disabled_external_data_schema_skipped_syncing_again",
+            team_id=team_id,
+            external_data_schema_id=schema_id,
+        )
+        return
 
     teardown_schema_syncs(
         team_id=team_id,

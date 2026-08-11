@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.sync_teardown import teardown_schema_syn
 from products.warehouse_sources.backend.tasks.tasks import (
     STOPPED_SYNC_SWEEP_GRACE,
     STOPPED_SYNC_SWEEP_MAX_JOB_AGE,
+    cleanup_disabled_external_data_schema,
     sweep_stopped_schema_syncs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import sync_lock
@@ -219,6 +220,27 @@ def fake_redis():
 
     with patch.object(sync_lock, "_get_redis_client", _fake_client):
         yield client
+
+
+class TestCleanupTaskReenableGuard:
+    @pytest.mark.parametrize("syncing_again", [True, False], ids=["reenabled_skips", "disabled_proceeds"])
+    def test_stale_dispatch_leaves_a_reenabled_schema_alone(self, syncing_again, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        if not syncing_again:
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False)
+
+        with patch("products.data_warehouse.backend.facade.api.cancel_external_data_workflow") as mock_cancel:
+            cleanup_disabled_external_data_schema(
+                team_id=team.pk, schema_id=str(schema.id), reason=SYNC_DISABLED_JOB_ERROR
+            )
+
+        job.refresh_from_db()
+        if syncing_again:
+            assert job.status == ExternalDataJob.Status.RUNNING
+            mock_cancel.assert_not_called()
+        else:
+            assert job.status == ExternalDataJob.Status.FAILED
+            mock_cancel.assert_called_once_with(job.workflow_id)
 
 
 class TestTeardownSchemaSyncs:
