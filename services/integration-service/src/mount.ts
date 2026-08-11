@@ -69,10 +69,6 @@ export async function readMount(dir: string): Promise<Record<string, string> | n
         }
     }
 
-    if (Object.keys(values).length === 0) {
-        logger.warn('mount:empty', { dir })
-        return null
-    }
     return values
 }
 
@@ -119,7 +115,7 @@ export class SecretMount {
         this.opts.lifecycle.ready = this.held !== null
     }
 
-    private build(values: Record<string, string>): MountedCredentials {
+    private build(values: Record<string, string>): MountedCredentials | null {
         // Hash the whole set, sorted, so the id is stable and identifies the content rather
         // than an AWS version we can no longer see from a mount.
         const contentHash = createHash('sha256')
@@ -151,6 +147,14 @@ export class SecretMount {
                 continue
             }
             credentials[key] = { state: 'steady', value, versionId: contentHash, fetchedAt }
+        }
+
+        if (Object.keys(credentials).length === 0) {
+            // Counting files rather than credentials would call a mount holding nothing but
+            // signing keys healthy, and every resolve would answer all-missing, which a
+            // caller treats as a deleted credential.
+            logger.warn('mount:no_credentials', { dir: this.opts.dir })
+            return null
         }
 
         return { fetchedAt, versionId: contentHash, credentials }

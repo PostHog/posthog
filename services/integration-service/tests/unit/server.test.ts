@@ -164,6 +164,27 @@ describe('everyJittered', () => {
         expect(firstRunAt).toEqual([1_000, 9_000])
     })
 
+    // An escaped rejection reaches the unhandledRejection handler, which exits the process.
+    // A blip in whatever the task talks to must not take the pod down.
+    it('swallows a rejecting task and keeps running', async () => {
+        vi.useFakeTimers()
+        vi.spyOn(Math, 'random').mockReturnValue(0)
+        const task = vi.fn().mockRejectedValue(new Error('boom'))
+        const unhandled: unknown[] = []
+        const onUnhandled = (reason: unknown): void => {
+            unhandled.push(reason)
+        }
+        process.on('unhandledRejection', onUnhandled)
+
+        const cancel = everyJittered(10_000, task)
+        await vi.advanceTimersByTimeAsync(20_000)
+        cancel()
+        process.removeListener('unhandledRejection', onUnhandled)
+
+        expect(task).toHaveBeenCalledTimes(3)
+        expect(unhandled).toEqual([])
+    })
+
     it('stops running once cancelled', async () => {
         vi.useFakeTimers()
         vi.spyOn(Math, 'random').mockReturnValue(0)

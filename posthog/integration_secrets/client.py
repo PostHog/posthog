@@ -28,7 +28,7 @@ may read. There is deliberately no request body.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import field
 from datetime import timedelta
 from typing import Any
 
@@ -38,6 +38,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
+from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.security.outbound_proxy import internal_requests
 from posthog.settings.utils import get_list
@@ -71,13 +72,17 @@ INTEGRATION_SECRET_ENV_FALLBACK_COUNTER = Counter(
 )
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class SecretValue:
-    """One credential field as the service resolved it."""
+    """One credential field as the service resolved it.
+
+    Both values are repr=False: one of these sits in a frame on every traceback raised
+    below _fetch, and a repr would put the credential in the log or in Sentry.
+    """
 
     state: str
-    value: str | None
-    previous: str | None
+    value: str | None = field(repr=False)
+    previous: str | None = field(repr=False)
 
 
 def integration_service_signing_keys() -> list[str]:

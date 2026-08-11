@@ -42,9 +42,16 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  */
 export function everyJittered(intervalMs: number, task: () => Promise<void>): () => void {
     let repeat: NodeJS.Timeout | undefined
+    // A rejecting task would otherwise reach the unhandledRejection handler and exit the
+    // process, so a blip in whatever the task talks to would take the pod down.
+    const run = (): void => {
+        task().catch((err: unknown) => {
+            logger.error('timer:task_failed', { error: err instanceof Error ? err.message : String(err) })
+        })
+    }
     const first = setTimeout(() => {
-        void task()
-        repeat = setInterval(() => void task(), intervalMs)
+        run()
+        repeat = setInterval(run, intervalMs)
         repeat.unref()
     }, Math.random() * intervalMs)
     first.unref()

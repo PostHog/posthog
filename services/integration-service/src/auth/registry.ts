@@ -44,9 +44,16 @@ export async function readSigningKeys(dir: string): Promise<SigningKeys> {
             .split(',')
             .map((part) => part.trim())
             .filter(Boolean)
-        if (listed.length > 0) {
-            keys[entry.slice(CALLER_KEY_PREFIX.length).toLowerCase().replaceAll('_', '-')] = listed
+        if (listed.length === 0) {
+            continue
         }
+        const deployment = entry.slice(CALLER_KEY_PREFIX.length).toLowerCase().replaceAll('_', '-')
+        if (keys[deployment]) {
+            // Silently keeping the last entry would drop a key set a revocation had just
+            // edited, so the revocation would look like it landed and would not have.
+            throw new Error(`two mount entries both name the deployment ${deployment}`)
+        }
+        keys[deployment] = listed
     }
     return keys
 }

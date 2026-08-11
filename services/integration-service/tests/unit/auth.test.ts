@@ -99,6 +99,33 @@ describe('jwt verification', () => {
         expect(await reasonFor(verifier().verify(token))).toBe(reason)
     })
 
+    // Widening or dropping `algorithms: ['HS256']` is the classic algorithm-confusion
+    // regression, and that one line is all that stands between the service and it.
+    it('rejects a token signed with a wider HMAC', async () => {
+        const token = await new SignJWT({ caller: 'warehouse-sources', keys: ['A_KEY'] })
+            .setProtectedHeader({ alg: 'HS512' })
+            .setAudience(AUDIENCE)
+            .setIssuedAt()
+            .setExpirationTime('5m')
+            .sign(new TextEncoder().encode(DW_KEY_NEW))
+
+        await expect(verifier().verify(token)).rejects.toBeInstanceOf(AuthError)
+    })
+
+    // Hand-built, because jose refuses to mint one: an unsigned token must not verify.
+    it('rejects an unsigned token', async () => {
+        const b64 = (value: object): string => Buffer.from(JSON.stringify(value)).toString('base64url')
+        const token = `${b64({ alg: 'none' })}.${b64({
+            aud: AUDIENCE,
+            exp: Math.floor(Date.now() / 1000) + 300,
+            keys: ['A_KEY'],
+        })}.`
+
+        await expect(verifier().verify(token)).rejects.toBeInstanceOf(AuthError)
+    })
+
+    // Two mount entries that normalize onto one deployment name would silently drop a key
+    // set, so a revocation would look like it landed and would not have.
     it('rejects a garbage token', async () => {
         expect(await reasonFor(verifier().verify('not-a-jwt'))).toBe('malformed')
     })
@@ -168,6 +195,15 @@ describe('signing key registry', () => {
         )
 
         await expect(keys.load()).rejects.toThrow(/also listed for/)
+        expect(keys.isLoaded).toBe(false)
+    })
+
+    it('refuses to load when two entries normalize onto one deployment name', async () => {
+        const keys = new SigningKeyLoader(
+            await mount({ __CALLER_KEY_FOO_BAR: DJANGO_KEY, '__CALLER_KEY_FOO-BAR': DW_KEY_NEW })
+        )
+
+        await expect(keys.load()).rejects.toThrow(/both name the deployment foo-bar/)
         expect(keys.isLoaded).toBe(false)
     })
 

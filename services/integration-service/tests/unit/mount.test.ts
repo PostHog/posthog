@@ -154,10 +154,13 @@ describe('reading the mount', () => {
     })
 
     it.each([
-        ['the mount is absent', '/nonexistent/mount'],
-        ['the mount is empty', null],
-    ])('holds nothing when %s', async (_label, path) => {
-        const { mount: m, lifecycle } = secretMount(path ?? (await mount({})))
+        ['the mount is absent', '/nonexistent/mount', undefined],
+        ['the mount is empty', null, {}],
+        // Counting files rather than credentials would call this healthy, and every resolve
+        // would answer all-missing, which a caller treats as a deleted credential.
+        ['the mount carries only reserved entries', null, { __CALLER_KEY_POSTHOG_DJANGO: 'k' }],
+    ])('holds nothing when %s', async (_label, path, values) => {
+        const { mount: m, lifecycle } = secretMount(path ?? (await mount(values ?? {})))
         await m.reload()
 
         expect(m.current()).toBeNull()
