@@ -5,10 +5,12 @@ Zeabur), this provider talks to a user-configured endpoint: the base URL lives i
 the provider key's ``encrypted_config`` next to the API key. It is BYOK-only.
 
 The base URL is user-controlled input that our servers send an Authorization
-header to, so every entry point re-checks it against ``is_allowed_custom_base_url``
-before a client is constructed. The check requires https and a hostname that
-resolves to a public IP, which keeps the user's key off plaintext transports and
-blocks requests to internal services (cloud metadata, cluster-local hosts).
+header to, so it is guarded in two layers. ``is_allowed_custom_base_url`` runs the
+shared SSRF validator (https only, no internal hosts, no private addresses) at
+every entry point, and the connection itself is pinned: ``_pinned_http_client``
+resolves the host once and dials that exact address, so a record that rebinds to a
+private address after validation has nothing left to redirect. Redirects are not
+followed for the same reason, since their targets are never validated.
 """
 
 import logging
@@ -16,10 +18,14 @@ from collections.abc import Generator
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
 import openai
 
-from posthog.api.utils import raise_if_user_provided_url_unsafe
+from posthog.security.pinned_httpx import pinned_transport
+from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import is_url_allowed
 
+from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -37,6 +43,8 @@ PROVIDER_DISPLAY_NAME = "OpenAI-compatible"
 # single source of truth because the two layers must agree.
 DISALLOWED_BASE_URL_MESSAGE = "Base URL must be a public https:// URL (e.g. https://api.example.com/v1)"
 
+REDIRECT_MESSAGE = "The endpoint redirected to a different address, use that address as the base URL"
+
 # Maps adapter error-message prefixes to the form field they should highlight in the UI.
 # Keep aligned with the `return` statements in `OpenAICompatibleAdapter.validate_key` below,
 # because editing a message string there without updating this table silently breaks field routing.
@@ -46,6 +54,7 @@ _ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = (
     ("Base URL is required", "base_url"),
     ("Base URL must be", "base_url"),
     ("The endpoint did not return a model list", "base_url"),
+    ("The endpoint redirected", "base_url"),
     ("Could not connect to the endpoint", "base_url"),
     ("Invalid API key", "api_key"),
 )
@@ -62,7 +71,7 @@ def error_field_for_validation_message(error_message: str | None) -> str | None:
 
 
 def is_allowed_custom_base_url(base_url: str) -> bool:
-    """Return True if the base URL is https:// and its hostname resolves to a public IP."""
+    """Return True if the base URL is https:// and passes the shared SSRF validator."""
     if not base_url:
         return False
     try:
@@ -71,11 +80,20 @@ def is_allowed_custom_base_url(base_url: str) -> bool:
         return False
     if parsed.scheme != "https" or not parsed.hostname:
         return False
-    try:
-        raise_if_user_provided_url_unsafe(base_url)
-    except ValueError:
-        return False
-    return True
+    allowed, _reason = is_url_allowed(base_url)
+    return allowed
+
+
+def _pinned_http_client(base_url: str) -> httpx.Client:
+    """Build a client that can only reach the address ``base_url`` was validated against.
+
+    Raises ``SSRFBlockedError`` before any connection is opened when validation fails.
+    """
+    return tagged_http_client(
+        timeout=OpenAIConfig.TIMEOUT,
+        transport=pinned_transport(base_url),
+        follow_redirects=False,
+    )
 
 
 class OpenAICompatibleAdapter(OpenAIAdapter):
@@ -104,6 +122,15 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
         if not is_allowed_custom_base_url(self.base_url):
             raise ValueError(DISALLOWED_BASE_URL_MESSAGE)
         return self.base_url
+
+    def _build_http_client(self, base_url: str | None) -> httpx.Client:
+        """Pin the connection to the configured endpoint's validated address.
+
+        Ignores the argument in favor of ``self.base_url``: that is the value
+        ``complete`` / ``stream`` checked, so pinning anything else would dial an
+        address that passed no validation.
+        """
+        return _pinned_http_client(self._require_allowed_base_url())
 
     def complete(
         self,
@@ -137,19 +164,30 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
             return (LLMProviderKey.State.INVALID, DISALLOWED_BASE_URL_MESSAGE)
 
         try:
-            client = openai.OpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-            )
-            client.models.list()
+            with _pinned_http_client(base_url) as http_client:
+                client = openai.OpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                    timeout=OpenAIConfig.TIMEOUT,
+                    http_client=http_client,
+                )
+                client.models.list()
             return (LLMProviderKey.State.OK, None)
+        except SSRFBlockedError:
+            return (LLMProviderKey.State.INVALID, DISALLOWED_BASE_URL_MESSAGE)
         except openai.AuthenticationError:
             return (LLMProviderKey.State.INVALID, "Invalid API key")
         except openai.RateLimitError:
             return (LLMProviderKey.State.ERROR, "Rate limited, please try again later")
         except openai.NotFoundError:
             return (LLMProviderKey.State.INVALID, "The endpoint did not return a model list, check the base URL")
+        except openai.APIStatusError as e:
+            # Redirects reach the caller as a status error because the client never follows
+            # them, so name the case instead of leaving the generic failure message.
+            if 300 <= e.status_code < 400:
+                return (LLMProviderKey.State.INVALID, REDIRECT_MESSAGE)
+            logger.exception("%s key validation error", PROVIDER_DISPLAY_NAME)
+            return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
         except openai.APIConnectionError:
             return (LLMProviderKey.State.ERROR, "Could not connect to the endpoint")
         except Exception:
@@ -171,12 +209,16 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
             return []
 
         try:
-            client = openai.OpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-            )
-            return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
+            with _pinned_http_client(base_url) as http_client:
+                client = openai.OpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                    timeout=OpenAIConfig.TIMEOUT,
+                    http_client=http_client,
+                )
+                return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
+        except SSRFBlockedError:
+            return []
         except Exception:
             logger.exception("Error listing %s models", PROVIDER_DISPLAY_NAME)
             return []
