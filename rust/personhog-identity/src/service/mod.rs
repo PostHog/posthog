@@ -1,9 +1,13 @@
 //! The gRPC service surface. This module is dispatch-only: each RPC family
-//! lives in its own submodule (get_or_create today; resolution, claims,
-//! splits, and merge classification will follow the same pattern).
+//! lives in its own submodule (get_or_create and the merge entrance today;
+//! resolution, claims, and splits will follow the same pattern). [`merge`]
+//! carries MergePersons' identity work — validation, resolution,
+//! classification, inline settlement — and is driven from the lifecycle
+//! service's one-line delegation.
 
 pub mod error;
 pub mod get_or_create;
+pub mod merge;
 pub mod validation;
 
 use std::sync::Arc;

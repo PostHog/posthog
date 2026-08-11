@@ -13,8 +13,9 @@ use uuid::Uuid;
 
 use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
 use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
-use personhog_identity::lifecycle::merge::MergeDriver;
+use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePersonsRequest};
@@ -22,17 +23,23 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
+        let engine = Arc::new(self.engine());
         let leader = Arc::new(SimLeader::new(
             self.pool.clone(),
             self.tables.person.clone(),
         ));
         PersonHogLifecycleService::new(
-            Arc::new(self.engine()),
+            engine.clone(),
             leader.clone(),
             self.tables.clone(),
-            self.storage.clone(),
-            Arc::new(common::UnusedLeader),
-            MergeDriver::new(Arc::new(common::UnusedLeader), self.tables.clone()),
+            MergeEntrance::new(
+                self.storage.clone(),
+                Arc::new(common::UnusedLeader),
+                MergeOpExecutor::new(
+                    engine,
+                    MergeDriver::new(Arc::new(common::UnusedLeader), self.tables.clone()),
+                ),
+            ),
         )
     }
 

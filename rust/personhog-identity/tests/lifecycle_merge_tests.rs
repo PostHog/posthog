@@ -1505,7 +1505,9 @@ async fn merge_works_on_a_configured_person_table() {
 // attach-first retry contract
 // ============================================================
 
+use personhog_identity::lifecycle::merge::MergeOpExecutor;
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::service::merge::MergeEntrance;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{
     MergePersonsRequest, MergePersonsResponse, MergeSource, MergeSourceOutcome,
@@ -1514,13 +1516,19 @@ use tonic::Request;
 
 impl MergeHarness {
     fn service(&self) -> PersonHogLifecycleService {
+        let engine = Arc::new(self.ctx.engine());
         PersonHogLifecycleService::new(
-            Arc::new(self.ctx.engine()),
+            engine.clone(),
             self.leader.clone(),
             self.ctx.tables.clone(),
-            self.ctx.storage.clone(),
-            self.leader.clone(),
-            MergeDriver::new(self.leader.clone(), self.ctx.tables.clone()),
+            MergeEntrance::new(
+                self.ctx.storage.clone(),
+                self.leader.clone(),
+                MergeOpExecutor::new(
+                    engine,
+                    MergeDriver::new(self.leader.clone(), self.ctx.tables.clone()),
+                ),
+            ),
         )
     }
 }
