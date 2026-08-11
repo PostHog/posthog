@@ -2076,6 +2076,8 @@ export interface SessionRecordingType {
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
     matches_filters?: boolean
+    /** The effective access level the current user has for this recording. Only returned when fetching a single recording. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface SessionRecordingUpdateType {

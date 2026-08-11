@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function PlayerShareMenu(): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, sessionPlayerMetaData, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
     const sharingDisabledReason = getAccessControlDisabledReason(
@@ -35,6 +35,7 @@ export function PlayerShareMenu(): JSX.Element {
             seconds: getCurrentPlayerTime(),
             id: sessionRecordingId,
             shareType,
+            userAccessLevel: sessionPlayerMetaData?.user_access_level,
         })
     }
 

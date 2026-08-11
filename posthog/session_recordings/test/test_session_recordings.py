@@ -854,6 +854,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "summary_outcome": None,
             "external_references": [],
             "matches_filters": True,
+            "user_access_level": ANY,
         }
 
     @parameterized.expand(

@@ -56,6 +56,7 @@ function PublicLink(props: PlayerShareLogicProps): JSX.Element {
                 previewIframe
                 additionalParams={privateLinkUrlQueryParams}
                 recordingLinkTimeForm={<TimestampForm {...props} />}
+                userAccessLevel={props.userAccessLevel}
             />
         </>
     )

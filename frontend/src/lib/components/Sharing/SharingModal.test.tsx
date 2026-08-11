@@ -10,7 +10,7 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, InsightShortId, QueryBasedInsightModel } from '~/types'
 import { AvailableFeature } from '~/types'
 
 import { sharingLogic } from './sharingLogic'
@@ -202,6 +202,50 @@ describe('SharingModal (insight)', () => {
         expect(modal).toBeTruthy()
 
         expect(within(modal as HTMLElement).queryByText(/Show insight details/i)).toBeNull()
+    })
+})
+
+describe('SharingModal (recording)', () => {
+    const recordingId = 'recording789'
+
+    afterEach(() => cleanup())
+
+    // Guards the dead-end that let a user without editor access click the public-share
+    // toggle and hit a repeatable 403: the toggle must be disabled when they can't edit.
+    it.each([
+        [AccessControlLevel.Viewer, true],
+        [AccessControlLevel.Editor, false],
+    ])('disables the public-share toggle for %s access = %s', async (userAccessLevel, expectDisabled) => {
+        useAvailableFeatures([])
+        initKeaTests()
+        themeLogic.mount()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings/:recording_id/sharing/': {
+                    created_at: createdAt,
+                    enabled: false,
+                    access_token: accessToken,
+                    password_required: false,
+                },
+            },
+        })
+
+        render(
+            <SharingModal
+                isOpen
+                closeModal={() => {}}
+                title="Share public link"
+                recordingId={recordingId}
+                userAccessLevel={userAccessLevel}
+            />
+        )
+
+        const toggle = await screen.findByRole('switch')
+        if (expectDisabled) {
+            expect(toggle).toBeDisabled()
+        } else {
+            expect(toggle).toBeEnabled()
+        }
     })
 })
 

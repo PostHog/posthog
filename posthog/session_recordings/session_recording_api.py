@@ -329,6 +329,13 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
     recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # user_access_level is only needed when reading a single recording (to gate the share
+        # toggle in the player). Keep it off the high-volume listing response.
+        if not self.context.get("include_user_access_level"):
+            self.fields.pop("user_access_level", None)
+
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
         return getattr(obj, "ongoing", False)
@@ -430,6 +437,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "summary_outcome",
             "external_references",
             "matches_filters",
+            "user_access_level",
         ]
 
         read_only_fields = [
@@ -455,6 +463,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "snapshot_library",
             "ongoing",
             "activity_score",
+            "user_access_level",
         ]
 
 
@@ -1084,7 +1093,10 @@ class SessionRecordingViewSet(
                     recording.viewers = other_viewers.get(str(recording.session_id), [])
 
             with tracer.start_as_current_span("serialize_recording"):
-                serializer = self.get_serializer(recording)
+                serializer = self.get_serializer(
+                    recording,
+                    context={**self.get_serializer_context(), "include_user_access_level": True},
+                )
 
                 return Response(serializer.data)
 
