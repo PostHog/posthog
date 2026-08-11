@@ -20,8 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     ENDPOINTS,
+    EVENT_SCOPED_METRICS,
     PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
+    SESSION_SCOPED_DIMENSIONS,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible"
@@ -269,6 +271,30 @@ class TestGetRows:
 
         with pytest.raises(Exception, match="400"):
             _rows(_source(endpoint="timeseries"))
+
+
+_SESSION_SCOPED_ENDPOINTS = [
+    name
+    for name, config in PLAUSIBLE_ENDPOINTS.items()
+    if SESSION_SCOPED_DIMENSIONS.intersection(config.breakdown_dimensions)
+]
+
+
+class TestEndpointMetricScopes:
+    @pytest.mark.parametrize("endpoint", _SESSION_SCOPED_ENDPOINTS)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_session_scoped_breakdown_omits_event_scoped_metrics(self, MockSession, endpoint):
+        session = MockSession.return_value
+        bodies = _wire(session, [_response({"results": [], "meta": {"total_rows": 0}})])
+
+        _rows(_source(endpoint=endpoint))
+
+        assert bodies[0]["metrics"]
+        assert EVENT_SCOPED_METRICS.isdisjoint(bodies[0]["metrics"])
+
+    def test_guard_covers_at_least_one_endpoint(self):
+        # An empty parametrize list would make the guard above cover nothing without failing.
+        assert _SESSION_SCOPED_ENDPOINTS
 
 
 class TestPlausibleSourceResponse:

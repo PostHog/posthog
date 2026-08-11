@@ -8,10 +8,23 @@ REPORT_LOOKBACK_DAYS = 7
 # History pulled on the first sync of a stream.
 DEFAULT_BACKFILL_DAYS = 365
 
-# Metrics requested for every report. These are the standard Plausible Stats API v2 metrics that
-# are valid across visit and event dimensions. Goal/conversion-specific metrics live on their own
-# endpoints because they aren't valid for the generic breakdowns.
+# Metrics requested for every report. These are the standard Plausible Stats API v2 metrics.
+# Goal/conversion-specific metrics live on their own endpoints because they aren't valid for the
+# generic breakdowns.
 DEFAULT_METRICS = ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration", "events"]
+
+# Plausible resolves these dimensions against its sessions table and these metrics against its
+# events table, then rejects any query pairing the two with a 400, so a breakdown on one of these
+# dimensions must ask for session metrics only. Both lists are exhaustive as of Plausible v3.2.1:
+# https://github.com/plausible/analytics/blob/v3.2.1/lib/plausible/stats/table_decider.ex
+SESSION_SCOPED_DIMENSIONS = frozenset(
+    {"visit:entry_page", "visit:entry_page_hostname", "visit:exit_page", "visit:exit_page_hostname"}
+)
+# Revenue metrics only conflict on self-hosted builds, which exempt nothing, but dropping them from
+# a session-scoped breakdown costs nothing either way.
+EVENT_SCOPED_METRICS = frozenset(
+    {"pageviews", "events", "scroll_depth", "time_on_page", "total_revenue", "average_revenue"}
+)
 
 # The day bucket every report is grouped by — must be the first dimension so `order_by` can sort
 # on it and the pipeline can slide the date window incrementally.
@@ -46,6 +59,17 @@ class PlausibleEndpointConfig:
     breakdown_dimensions: list[str] = field(default_factory=list)
     metrics: list[str] = field(default_factory=lambda: list(DEFAULT_METRICS))
     should_sync_default: bool = True
+
+    def __post_init__(self) -> None:
+        # Drop the metrics Plausible would reject here rather than relying on every session-scoped
+        # endpoint to remember to exclude them.
+        if not SESSION_SCOPED_DIMENSIONS.intersection(self.breakdown_dimensions):
+            return
+        session_metrics = [metric for metric in self.metrics if metric not in EVENT_SCOPED_METRICS]
+        # Plausible requires a non-empty `metrics`, so fail at import rather than per-team at sync.
+        if not session_metrics:
+            raise ValueError(f"{self.name}: no session-scoped metrics remain out of {self.metrics}")
+        self.metrics = session_metrics
 
     @property
     def dimensions(self) -> list[str]:
